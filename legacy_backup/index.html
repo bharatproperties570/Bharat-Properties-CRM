@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bharat Properties CRM - White Theme</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-icon logo-icon"><i class="fas fa-home"></i></div>
+            <a href="#" class="sidebar-icon"><i class="fas fa-chart-line"></i></a>
+            <a href="#" class="sidebar-icon active" id="navContacts" data-tooltip="Contacts"><i
+                    class="fas fa-address-book"></i></a>
+            <a href="#" class="sidebar-icon" id="navLeads" data-tooltip="Leads"><i class="fas fa-filter"></i></a>
+            <a href="#" class="sidebar-icon" id="navMarketing" data-tooltip="Marketing"><i
+                    class="fas fa-bullhorn"></i></a>
+            <a href="#" class="sidebar-icon"><i class="fas fa-dollar-sign"></i></a>
+            <a href="#" class="sidebar-icon"><i class="fas fa-calendar-alt"></i></a>
+            <a href="#" class="sidebar-icon"><i class="fas fa-check-square"></i></a>
+            <a href="#" class="sidebar-icon"><i class="fas fa-comment-alt"></i></a>
+            <a href="#" class="sidebar-icon"><i class="fas fa-chart-bar"></i></a>
+            <a href="#" class="sidebar-icon"><i class="fas fa-cog"></i></a>
+        </aside>
+
+        <!-- Main Area -->
+        <main class="main-area">
+            <!-- Header -->
+            <header class="header">
+                <div class="header-left">
+                    <div class="add-dropdown">
+                        <button class="add-btn" id="addBtn">
+                            <span>Add</span>
+                            <i class="fas fa-chevron-down" style="font-size: 0.6rem;"></i>
+                        </button>
+                        <div class="dropdown-menu" id="addDropdown">
+                            <a href="#" class="dropdown-item"><i class="fas fa-user-plus"></i> Add Contact</a>
+                            <a href="#" class="dropdown-item"><i class="fas fa-bullseye"></i> Add Lead</a>
+                            <a href="#" class="dropdown-item"><i class="fas fa-file-contract"></i> Add Deal</a>
+                            <a href="#" class="dropdown-item"><i class="fas fa-check-square"></i> Add Task</a>
+                            <a href="#" class="dropdown-item"><i class="fas fa-home"></i> Add Unit</a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="header-right">
+                    <div class="search-min">
+                        <i class="fas fa-search" style="font-size: 0.8rem; color: #68737d; margin-right: 6px;"></i>
+                        <input type="text" placeholder="Search">
+                    </div>
+                    <i class="fas fa-phone-alt header-icon"></i>
+                    <i class="fas fa-bell header-icon"></i>
+                    <i class="fas fa-th header-icon"></i>
+                    <div class="profile-circle">BP</div>
+                </div>
+            </header>
+
+            <!-- Contacts View (Restored Simple) -->
+            <section id="contactsView" class="view-section active">
+                <!-- Page Header -->
+                <div class="page-header">
+                    <div class="page-title-group">
+                        <i class="fas fa-bars" style="color: #68737d;"></i>
+                        <div>
+                            <span class="working-list-label">Working List</span>
+                            <h1>Contacts</h1>
+                        </div>
+                        <button class="btn-outline">Save as Smart List</button>
+                        <i class="fas fa-ellipsis-v" style="color: #68737d; font-size: 0.9rem;"></i>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <div
+                            style="display: flex; border: 1px solid var(--border-color); border-radius: 4px; overflow: hidden;">
+                            <button
+                                style="padding: 6px 10px; border: none; background: #e3e6e8; color: var(--text-main);"><i
+                                    class="fas fa-th-large"></i></button>
+                            <button
+                                style="padding: 6px 10px; border: none; background: white; color: var(--text-muted);"><i
+                                    class="fas fa-list"></i></button>
+                        </div>
+                        <button class="btn-outline"
+                            style="display: flex; align-items: center; gap: 6px; border-color: #68737d; color: #2f3941;">
+                            <i class="fas fa-filter"></i> Filters
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Sticky Action Bar -->
+                <!-- Global Action Bar REMOVED -->
+
+                <div class="content-body" style="padding-top: 0;">
+                    <!-- Contacts Toolbar (Search + Actions) -->
+                    <div class="toolbar-container"
+                        style="padding: 15px 20px; border-bottom: 1px solid #eef2f5; min-height: 70px; display: flex; align-items: center;">
+
+                        <!-- Search Panel -->
+                        <div id="contactsSearchPanel"
+                            style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                            <input type="text" placeholder="Search contacts..."
+                                style="width: 300px; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
+                            <div style="font-size: 0.8rem; color: #666;">
+                                Items: <strong>5</strong> <span style="margin: 0 8px; color: #ccc;">|</span>
+                                <span
+                                    style="background: #e3f2fd; color: #1976d2; padding: 2px 8px; border-radius: 4px; font-weight: 600;">1</span>
+                            </div>
+                        </div>
+
+                        <!-- Action Panel (Hidden by default) -->
+                        <div id="contactsActionPanel" class="action-panel"
+                            style="display: none; gap: 10px; align-items: center; width: 100%;">
+                            <div class="selection-count"
+                                style="margin-right: 15px; font-weight: 600; color: var(--primary-color);">
+                                <span id="contactsSelectCount">0 Selected</span>
+                            </div>
+                            <button class="action-btn"><i class="fas fa-phone-alt"></i></button>
+                            <button class="action-btn"><i class="fas fa-envelope"></i></button>
+                            <button class="action-btn primary"><i class="fas fa-paper-plane"></i> Start
+                                sequence</button>
+                            <button class="action-btn btn-create-task"><i class="fas fa-tasks"></i> Create Task</button>
+                            <button class="action-btn"><i class="fas fa-tag"></i></button>
+                            <button class="action-btn">Reassign Owner</button>
+                            <button class="action-btn" style="color: #8e44ad; border-color: #8e44ad;"><i
+                                    class="fas fa-magic"></i> Enrich</button>
+                            <button class="action-btn btn-merge">Merge</button>
+                            <button class="action-btn danger">Delete</button>
+                        </div>
+                    </div>
+                    <div class="list-header">
+                        <div><input type="checkbox" id="masterCheckTop"></div>
+                        <div>Personal Details</div>
+                        <div>Address</div>
+                        <div>Professional</div>
+                        <div>Tags</div>
+                        <div>Source</div>
+                        <div>Last Communication</div>
+                        <div>Actionable</div>
+                        <div>Ownership</div>
+                        <div>Add_On</div>
+                    </div>
+                    <div id="contactListContent">
+                        <!-- Original Contact Items -->
+                    </div>
+                </div>
+
+                <!-- Footer Summary -->
+                <footer class="summary-footer">
+                    <div class="summary-label">Summary</div>
+                    <div class="summary-stats">TOTAL CONTACTS <span class="stat-val">4</span></div>
+                    <div class="summary-stats">CUSTOMERS <span class="stat-val">2</span></div>
+                    <div class="summary-stats">PROSPECTS <span class="stat-val">2</span></div>
+                </footer>
+            </section>
+
+            <!-- Lead View (New Advanced Design) -->
+            <section id="leadsView" class="view-section">
+                <!-- Page Header -->
+                <div class="page-header">
+                    <div class="page-title-group">
+                        <i class="fas fa-filter" style="color: var(--primary-color);"></i>
+                        <div>
+                            <span class="working-list-label">Sales Pipeline</span>
+                            <h1>Leads</h1>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button class="btn-outline"><i class="fas fa-filter"></i> Filters</button>
+                        <button class="btn-primary">Add Lead</button>
+                    </div>
+                </div>
+
+                <!-- Pipeline Dashboard (Chevron Style) -->
+                <div class="pipeline-dashboard" id="pipelineDashboard">
+                    <div class="pipeline-item">
+                        <div class="pipeline-content-wrapper">
+                            <div>
+                                <div class="pipeline-label">INCOMING</div>
+                                <div class="pipeline-value">1</div>
+                            </div>
+                            <div class="pipeline-percent">10%</div>
+                        </div>
+                    </div>
+                    <div class="pipeline-item">
+                        <div class="pipeline-content-wrapper">
+                            <div>
+                                <div class="pipeline-label">PROSPECT</div>
+                                <div class="pipeline-value">2</div>
+                            </div>
+                            <div class="pipeline-percent">35%</div>
+                        </div>
+                    </div>
+                    <div class="pipeline-item">
+                        <div class="pipeline-content-wrapper">
+                            <div>
+                                <div class="pipeline-label">OPPORTUNITY</div>
+                                <div class="pipeline-value">1</div>
+                            </div>
+                            <div class="pipeline-percent">10%</div>
+                        </div>
+                    </div>
+                    <div class="pipeline-item">
+                        <div class="pipeline-content-wrapper">
+                            <div>
+                                <div class="pipeline-label">NEGOTIATION</div>
+                                <div class="pipeline-value">1</div>
+                            </div>
+                            <div class="pipeline-percent">25%</div>
+                        </div>
+                    </div>
+                    <div class="pipeline-item" id="pipelineClosedItem">
+                        <div class="pipeline-content-wrapper">
+                            <div>
+                                <div class="pipeline-label">CLOSED</div>
+                                <div class="pipeline-value"><i class="fas fa-chevron-down"></i></div>
+                            </div>
+                        </div>
+                        <!-- Sub-stages Dropdown (Rich Stats) -->
+                        <div class="pipeline-sub-stages">
+                            <div class="sub-stage-item success">
+                                <div class="sub-label">Won</div>
+                                <div class="sub-stats">
+                                    <span class="sub-val">1</span>
+                                    <span class="sub-percent">50%</span>
+                                </div>
+                            </div>
+                            <div class="sub-stage-item danger">
+                                <div class="sub-label">Lost</div>
+                                <div class="sub-stats">
+                                    <span class="sub-val">0</span>
+                                    <span class="sub-percent">0%</span>
+                                </div>
+                            </div>
+                            <div class="sub-stage-item neutral">
+                                <div class="sub-label">Unqualified</div>
+                                <div class="sub-stats">
+                                    <span class="sub-val">1</span>
+                                    <span class="sub-percent">50%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Content Area -->
+                <div class="content-body"
+                    style="display: flex; flex-direction: column; height: 100%; overflow: hidden;">
+                    <!-- Leads Toolbar (Search + Actions) -->
+                    <div class="toolbar-container"
+                        style="padding: 10px 2rem; min-height: 60px; display: flex; align-items: center; border-bottom: 1px solid #eef2f5;">
+
+                        <!-- Leads Search Panel -->
+                        <div id="leadsSearchPanel"
+                            style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                            <input type="text" placeholder="Search for lead via name, mobile no and email"
+                                style="width: 300px; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
+                            <div style="font-size: 0.8rem; color: #666;">
+                                Items: <strong>100</strong> <span style="margin: 0 8px; color: #ccc;">|</span>
+                                <span
+                                    style="background: #e3f2fd; color: #1976d2; padding: 2px 8px; border-radius: 4px; font-weight: 600;">1</span>
+                                2 3 Next
+                            </div>
+                        </div>
+
+                        <!-- Leads Action Panel (Hidden by default) -->
+                        <div id="leadsActionPanel" class="action-panel"
+                            style="display: none; gap: 8px; align-items: center; width: 100%;">
+                            <div class="selection-count"
+                                style="margin-right: 15px; font-weight: 600; color: var(--primary-color);">
+                                <span id="leadsSelectCount">0 Selected</span>
+                            </div>
+                            <button class="action-btn"><i class="fas fa-phone-alt"></i></button>
+                            <button class="action-btn"><i class="fas fa-envelope"></i></button>
+                            <button class="action-btn primary"><i class="fas fa-paper-plane"></i> Start
+                                sequence</button>
+                            <button class="action-btn btn-create-task"><i class="fas fa-tasks"></i> Create Task</button>
+                            <button class="action-btn"><i class="fas fa-tag"></i></button>
+                            <button class="action-btn">Reassign Owner</button>
+                            <button class="action-btn" style="color: #8e44ad; border-color: #8e44ad;"><i
+                                    class="fas fa-magic"></i> Enrich</button>
+                            <button class="action-btn btn-merge">Merge</button>
+                            <button class="action-btn danger">Delete</button>
+                        </div>
+
+                    </div>
+
+                    <!-- Modern Data Table container -->
+                    <div class="data-table-container">
+                        <table class="modern-table">
+                            <thead>
+                                <tr>
+                                    <th width="40"><input type="checkbox"></th>
+                                    <th>Score</th>
+                                    <th>Name</th>
+                                    <th>Requirement</th>
+                                    <th>Budget</th>
+                                    <th>Location</th>
+                                    <th>Matched Deal</th>
+                                    <th>Status</th>
+                                    <th>Source</th>
+                                    <th>Ownership</th>
+                                    <th>Activity</th>
+                                    <th>Last Activity</th>
+                                    <th>Remarks</th>
+                                    <th>Add On</th>
+                                </tr>
+                            </thead>
+                            <tbody id="leadListContent">
+                                <!-- Dynamic Content from JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Footer Stats Bar (Reference Match) -->
+                <footer class="footer-stats-bar" style="justify-content: space-between; overflow-x: auto;">
+                    <div style="display:flex; gap:3rem;">
+                        <div class="stat-group">Summary <span>Total Lead</span> <span
+                                style="font-size: 1.4rem; margin-left: 5px; color:#2ecc71;">5</span></div>
+                        <div class="stat-group">UNASSIGNED <span
+                                style="font-size: 1.4rem; margin-left: 5px; color:#2ecc71;">2</span></div>
+                        <div class="stat-group">UNTOUCHED <span
+                                style="font-size: 1.4rem; margin-left: 5px; color:#2ecc71;">4</span></div>
+                        <div class="stat-group">NO FOLLOWUP <span
+                                style="font-size: 1.4rem; margin-left: 5px; color:#f39c12;">12</span></div>
+                        <div class="stat-group">RETURNING <span
+                                style="font-size: 1.4rem; margin-left: 5px; color:#e74c3c;">9</span></div>
+                        <div class="stat-group">OVERDUE TASK <span
+                                style="font-size: 1.4rem; margin-left: 5px; color:#9b59b6;">5</span></div>
+                        <div class="stat-group">RETURNING NO FOLLOWUP <span
+                                style="font-size: 1.4rem; margin-left: 5px; color:#e74c3c;">11</span></div>
+                    </div>
+                </footer>
+            </section>
+
+            <!-- Marketing View -->
+            <section id="marketingView" class="view-section">
+                <!-- Marketing Page Header -->
+                <div class="page-header marketing-header">
+                    <div class="page-title-group">
+                        <i class="fas fa-bars" style="color: #68737d;"></i>
+                        <div class="tabs-container">
+                            <button class="tab-btn active" data-tab="online">ONLINE CAMPAIGN</button>
+                            <button class="tab-btn" data-tab="offline">OFFLINE CAMPAIGN</button>
+                            <button class="tab-btn" data-tab="organic">ORGANIC CAMPAIGN</button>
+                        </div>
+                    </div>
+                    <div class="header-actions">
+                        <div class="create-campaign-dropdown">
+                            <button class="btn-primary create-campaign-btn" id="createCampaignBtn">
+                                CREATE CAMPAIGN <i class="fas fa-caret-down"></i>
+                            </button>
+                            <div class="dropdown-menu" id="campaignDropdown">
+                                <a href="#" class="dropdown-item" data-type="sms"><i class="fas fa-sms"></i> Create SMS
+                                    Campaign</a>
+                                <a href="#" class="dropdown-item" data-type="email"><i class="fas fa-envelope"></i>
+                                    Create Email Campaign</a>
+                                <a href="#" class="dropdown-item" data-type="whatsapp"><i class="fas fa-whatsapp"></i>
+                                    Create WhatsApp Campaign</a>
+                                <a href="#" class="dropdown-item" data-type="rcs"><i class="fas fa-comment-dots"></i>
+                                    Create RCS Campaign</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Marketing Content Body -->
+                <div class="content-body">
+                    <div class="search-bar-row">
+                        <div class="search-min">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="Search campaign...">
+                        </div>
+                        <div class="sort-select">
+                            Sort by Name <i class="fas fa-chevron-down"></i>
+                        </div>
+                    </div>
+
+                    <div id="campaignTableContainer">
+                        <!-- Campaign table data will be injected here -->
+                    </div>
+                </div>
+
+                <!-- Footer Summary -->
+                <footer class="summary-footer" id="marketingFooter">
+                    <!-- Summary items will be injected here -->
+                </footer>
+            </section>
+
+            <!-- Create Campaign Wizard View -->
+            <section id="wizardView" class="view-section">
+                <div class="page-header wizard-header">
+                    <div class="page-title-group">
+                        <i class="fas fa-chevron-left back-btn" id="wizardBack"></i>
+                        <h1>CREATE CAMPAIGN</h1>
+                    </div>
+                </div>
+
+                <div class="wizard-container">
+                    <!-- Wizard Progress Stepper -->
+                    <div class="wizard-stepper">
+                        <div class="step active" data-step="1">
+                            <div class="step-circle">1</div>
+                            <div class="step-label">Setup</div>
+                        </div>
+                        <div class="step" data-step="2">
+                            <div class="step-circle">2</div>
+                            <div class="step-label">Select List</div>
+                        </div>
+                        <div class="step" data-step="3">
+                            <div class="step-circle">3</div>
+                            <div class="step-label">Template</div>
+                        </div>
+                        <div class="step" data-step="4">
+                            <div class="step-circle">4</div>
+                            <div class="step-label">Review</div>
+                        </div>
+                    </div>
+
+                    <div class="wizard-layout-grid">
+                        <!-- Main Content Area -->
+                        <div class="wizard-main-content">
+                            <div class="wizard-content">
+                                <!-- Step 1: Setup -->
+                                <div class="wizard-step active" id="step1">
+                                    <h3 id="campaignTypeTitle">Campaign Setup</h3>
+
+                                    <div class="section-title">General Information</div>
+                                    <div class="form-row">
+                                        <div class="form-group flex-1">
+                                            <label>Campaign Name*</label>
+                                            <input type="text" placeholder="e.g. Summer Launch 2024" id="campaignName">
+                                        </div>
+                                        <div class="form-group flex-1">
+                                            <label>Campaign Type</label>
+                                            <select id="campaignCategory">
+                                                <option value="OFFLINE CAMPAIGN">OFFLINE CAMPAIGN</option>
+                                                <option value="ONLINE CAMPAIGN">ONLINE CAMPAIGN</option>
+                                                <option value="ORGANIC CAMPAIGN">ORGANIC CAMPAIGN</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="section-title">Campaign Settings</div>
+                                    <div class="form-group">
+                                        <label>Description / Internal Note</label>
+                                        <textarea
+                                            placeholder="Write a brief description about this campaign's target and goals..."
+                                            id="campaignDesc" style="min-height: 80px;"></textarea>
+                                    </div>
+
+                                    <div
+                                        style="background: #fff9f0; padding: 1rem; border-radius: 8px; border: 1px solid #ffeeba; display: flex; gap: 12px; align-items: flex-start;">
+                                        <i class="fas fa-info-circle" style="color: #856404; margin-top: 3px;"></i>
+                                        <div style="font-size: 0.8rem; color: #856404; line-height: 1.4;">
+                                            <strong>Pro Tip:</strong> Using a clear naming convention (e.g., [SMS]
+                                            Monthly Offer - May) helps you track performance more easily in the
+                                            dashboard.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 2: Select List -->
+                                <div class="wizard-step" id="step2">
+                                    <h3>Select Audience</h3>
+                                    <div class="filter-grid">
+                                        <div class="filter-item">
+                                            <label>Addition</label>
+                                            <select>
+                                                <option>Contact</option>
+                                            </select>
+                                        </div>
+                                        <div class="filter-item">
+                                            <label>City</label>
+                                            <select>
+                                                <option>Select City</option>
+                                            </select>
+                                        </div>
+                                        <div class="filter-item">
+                                            <label>Project Attention</label>
+                                            <select>
+                                                <option>Select Project</option>
+                                            </select>
+                                        </div>
+                                        <div class="filter-item">
+                                            <label>Sales Agent</label>
+                                            <select>
+                                                <option>Select Agent</option>
+                                            </select>
+                                        </div>
+                                        <div class="filter-item">
+                                            <label>Source</label>
+                                            <select>
+                                                <option>Select Source</option>
+                                            </select>
+                                        </div>
+                                        <div class="filter-item">
+                                            <label>Stage</label>
+                                            <select>
+                                                <option>Select Stage</option>
+                                            </select>
+                                        </div>
+                                        <div class="filter-item">
+                                            <label>Category</label>
+                                            <select>
+                                                <option>Project</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="mini-table-container">
+                                        <table class="mini-table">
+                                            <thead>
+                                                <tr>
+                                                    <th><input type="checkbox"></th>
+                                                    <th>Details</th>
+                                                    <th>Sales Agent</th>
+                                                    <th>Co-Owners</th>
+                                                    <th>Project</th>
+                                                    <th>Lead Status</th>
+                                                    <th>Source</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="wizardContactList">
+                                                <!-- MOCK CONTACTS -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Step 3: Template/Content -->
+                                <div class="wizard-step" id="step3">
+                                    <h3 id="editorTitle">Message Content</h3>
+
+                                    <div id="smsEditor">
+                                        <div class="form-row">
+                                            <div class="form-group flex-1">
+                                                <label>Sender ID</label>
+                                                <select id="smsSenderId">
+                                                    <option>BHARATPROP</option>
+                                                    <option>BP_REALTY</option>
+                                                </select>
+                                            </div>
+                                            <div class="form-group flex-1">
+                                                <label>Validity</label>
+                                                <input type="date" id="smsValidity">
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Choose SMS Template</label>
+                                            <select id="smsTemplateSelect">
+                                                <option value="">Select Template...</option>
+                                                <option>New Property Launch</option>
+                                                <option>Monthly Newsletter</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <div
+                                                style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:8px;">
+                                                <label style="margin-bottom:0px;">Message Content</label>
+                                                <div class="editor-helper-bar" style="display:flex; gap:8px;">
+                                                    <button class="btn-xs-outline"><i class="fas fa-smile"></i>
+                                                        Emoji</button>
+                                                    <button class="btn-xs-outline"><i class="fas fa-user-tag"></i>
+                                                        {Name}</button>
+                                                </div>
+                                            </div>
+                                            <div style="position: relative;">
+                                                <textarea id="smsText" class="rich-textarea"
+                                                    placeholder="Type your SMS here..."
+                                                    style="min-height: 120px;"></textarea>
+                                                <div class="char-counter" id="smsCounter"
+                                                    style="position: absolute; bottom: 8px; right: 12px; font-size: 0.7rem; color: #94a3b8;">
+                                                    0 / 160</div>
+                                            </div>
+                                        </div>
+                                        <div class="form-group checkbox-group">
+                                            <input type="checkbox" id="addOptOut" checked>
+                                            <label for="addOptOut"
+                                                style="display:inline; margin-left:8px; text-transform:none;">Include
+                                                Opt-out instructions (STOP to unsub)</label>
+                                        </div>
+                                    </div>
+
+                                    <div id="emailEditor" style="display: none;">
+                                        <div class="form-row">
+                                            <div class="form-group flex-1">
+                                                <label>From Name</label>
+                                                <input type="text" placeholder="Bharat Properties" id="emailFromName">
+                                            </div>
+                                            <div class="form-group flex-1">
+                                                <label>From Email</label>
+                                                <select id="emailFrom">
+                                                    <option>info@bharatproperties.com</option>
+                                                    <option>marketing@bharatproperties.com</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Subject Line</label>
+                                            <input type="text" placeholder="Enticing subject line..." id="emailSubject">
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Preheader Text (Snippet)</label>
+                                            <input type="text" placeholder="Short summary for inbox preview..."
+                                                id="emailPreheader">
+                                        </div>
+                                        <div class="rich-editor-container">
+                                            <div class="rich-editor-toolbar">
+                                                <button><i class="fas fa-bold"></i></button>
+                                                <button><i class="fas fa-italic"></i></button>
+                                                <button><i class="fas fa-underline"></i></button>
+                                                <span class="toolbar-sep"></span>
+                                                <button><i class="fas fa-link"></i></button>
+                                                <button><i class="fas fa-image"></i></button>
+                                            </div>
+                                            <textarea class="rich-textarea" style="height: 250px; border-top: none;"
+                                                id="emailText" placeholder="Start designing your email..."></textarea>
+                                        </div>
+                                    </div>
+
+                                    <div id="whatsappEditor" style="display: none;">
+                                        <div class="form-row">
+                                            <div class="form-group flex-1">
+                                                <label>Category</label>
+                                                <select id="waCategory">
+                                                    <option>Marketing</option>
+                                                    <option>Utility / Alerts</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="form-group flex-1">
+                                            <label>Media Header</label>
+                                            <select id="waMediaType">
+                                                <option>None</option>
+                                                <option>Image</option>
+                                                <option>Video</option>
+                                                <option>Document</option>
+                                            </select>
+
+                                            <div id="waMediaDropzone" class="media-dropzone"
+                                                style="display:none; margin-top: 10px; border: 2px dashed #cbd5e1; border-radius: 12px; padding: 1.5rem; text-align: center; background: #f8fafc; cursor: pointer; transition: all 0.2s;">
+                                                <div style="font-size: 1.5rem; color: #94a3b8; margin-bottom: 8px;"><i
+                                                        class="fas fa-cloud-upload-alt"></i></div>
+                                                <div style="font-weight: 600; color: #475569; font-size: 0.8rem;">Click
+                                                    to upload media</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Choose WhatsApp Template</label>
+                                        <select id="waTemplate">
+                                            <option value="">Custom Message</option>
+                                            <option>New Offer Alert</option>
+                                            <option>Event Invitation</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Message Body</label>
+                                        <div class="form-group">
+                                            <div class="editor-helper-bar"
+                                                style="display:flex; gap:8px; margin-bottom: 8px;">
+                                                <button class="btn-xs-outline"><i class="fas fa-smile"></i>
+                                                    Emoji</button>
+                                                <button class="btn-xs-outline"><i class="fas fa-user-tag"></i>
+                                                    {Name}</button>
+                                            </div>
+                                            <textarea placeholder="Type your WhatsApp message..." class="rich-textarea"
+                                                id="waText"></textarea>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Interactive Buttons</label>
+                                        <div class="button-config-row">
+                                            <input type="text" placeholder="Label (e.g. Call Now)" id="waBtnLabel">
+                                            <select id="waBtnType">
+                                                <option>Quick Reply</option>
+                                                <option>Phone Number</option>
+                                                <option>URL Link</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="rcsEditor" style="display: none;">
+                                    <div class="form-row">
+                                        <div class="form-group flex-1">
+                                            <label>RCS Template</label>
+                                            <select id="rcsTemplate">
+                                                <option>Rich Card</option>
+                                                <option>Carousel</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group flex-1">
+                                            <label>Chip Suggestions</label>
+                                            <select id="rcsChip">
+                                                <option>Location / Map</option>
+                                                <option>Calendar Event</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Rich Card Title</label>
+                                        <input type="text" placeholder="Headline for the rich card" id="rcsTitle">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Rich Card Description</label>
+                                        <textarea placeholder="Enter description for the rich card..."
+                                            class="rich-textarea" id="rcsText"></textarea>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Suggested Actions</label>
+                                        <div class="button-config-row">
+                                            <input type="text" placeholder="Action Label" id="rcsActionLabel">
+                                            <select id="rcsActionType">
+                                                <option>Open URL</option>
+                                                <option>Dial Number</option>
+                                                <option>View Location</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Step 4: Review (Now simplified as summary is always visible) -->
+                            <div class="wizard-step" id="step4">
+                                <div class="final-confirmation-slide">
+                                    <i class="fas fa-check-circle"
+                                        style="font-size: 3rem; color: #388E3C; margin-bottom: 1rem;"></i>
+                                    <h3>All Set!</h3>
+                                    <p>Review your selections in the sidebar before launching.</p>
+                                    <div class="form-group" style="margin-top: 2rem;">
+                                        <label>Schedule Campaign</label>
+                                        <div class="form-row">
+                                            <input type="date" class="flex-1">
+                                            <input type="time" class="flex-1">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div> <!-- Close .wizard-content -->
+                        </div> <!-- Close .wizard-main-content -->
+
+                        <!-- Persistent Sidebar Preview (Populated by JS) -->
+                        <div class="wizard-sidebar-preview">
+                            <!-- Dynamic content will be injected here -->
+                            <div
+                                style="display: flex; align-items:center; justify-content:center; height: 100%; color: var(--text-muted); font-size: 0.9rem;">
+                                Initializing Preview...
+                            </div>
+                        </div> <!-- Close .wizard-sidebar-preview -->
+                    </div> <!-- Close .wizard-layout-grid -->
+
+                    <!-- Wizard Actions -->
+                    <div class="wizard-actions">
+                        <button class="btn-secondary" id="prevStep">Back</button>
+                        <div class="progress-wrapper">
+                            <div class="progress-info">COMPLETED <span id="progressPercent">25%</span></div>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar" id="progressBar" style="width: 25%;"></div>
+                            </div>
+                        </div>
+                        <button class="btn-primary" id="nextStep">Next</button>
+                    </div>
+                </div> <!-- Close .wizard-container -->
+            </section>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>

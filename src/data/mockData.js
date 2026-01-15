@@ -1,0 +1,184 @@
+export const leadData = [
+    {
+        score: { val: 90, class: 'high' },
+        name: 'Mr. Intiyaz A Ali',
+        mobile: '9898989898',
+        req: { type: 'Buy Residential Plot', size: '1 Kanal, 14 Marla' },
+        budget: '₹1,00,00,000 - ₹1,50,00,000',
+        location: 'Sector 4, Sector 6, Bharat Nagar',
+        matched: 20,
+        status: { label: 'Opportunity', class: 'hot' },
+        source: 'Walk-In',
+        owner: 'Suraj Keshwar (Sales)',
+        activity: '2 Calls',
+        lastAct: '6 Days Before',
+        remarks: 'int.',
+        addOn: '05/11/24<br>07:30:02'
+    },
+    {
+        score: { val: 67, class: 'med' },
+        name: 'Dr. Digvijay Kumar',
+        mobile: '07047752734',
+        req: { type: 'Rent Commercial Shop', size: 'Booth, SCO, DSS' },
+        budget: '₹40,000 - ₹50,000',
+        location: 'Sector 17, Kurukshetra',
+        matched: 9,
+        status: { label: 'Prospect', class: 'warm' },
+        source: 'Google',
+        owner: 'Sukram Singh (Sales)',
+        activity: '2 Calls',
+        lastAct: '1 Days Before',
+        remarks: 'int. in comm',
+        addOn: '07/11/24<br>11:23:03'
+    },
+    {
+        score: { val: 49, class: 'low' },
+        name: 'Mr. Vijay Kumar',
+        mobile: '9812312345',
+        req: { type: 'Buy, Agriculture Land', size: '' },
+        budget: '₹40,00,000 - ₹50,00,000',
+        location: 'Vill Umri, Kurukshetra',
+        matched: 4,
+        status: { label: 'Negotiation', class: 'hot' },
+        source: 'Reference',
+        owner: 'Suraj Keshwar (Sales)',
+        activity: '2 Calls',
+        lastAct: '5 Days Before',
+        remarks: 'land in kkr',
+        addOn: '10/08/24'
+    },
+    {
+        score: { val: 35, class: 'low' },
+        name: 'Mr. Sombir Singh',
+        mobile: '8678098215',
+        req: { type: 'Lease, Institutional', size: 'Hotel, Restaurant' },
+        budget: '₹3,00,000 - ₹5,00,000',
+        location: 'Patiala Road, Zirakpur',
+        matched: 2,
+        status: { label: 'Prospect', class: 'cold' },
+        source: 'Facebook',
+        owner: 'Ajitesh Singh (Post Sales)',
+        activity: '1 Call',
+        lastAct: '10 Days Before',
+        remarks: 'hotels',
+        addOn: '01/11/24<br>11:09:30'
+    },
+    {
+        score: { val: 17, class: 'none' },
+        name: 'Mr. Rohit Kumar',
+        mobile: '7814235421',
+        req: { type: 'Buy, Industrial Plot', size: '1 Kanal' },
+        budget: '₹1,00,00,000 - ₹2,50,00,000',
+        location: 'IT City, Mohali',
+        matched: 3,
+        status: { label: 'Prospect', class: 'warm' },
+        source: '99 Acre',
+        owner: 'Suraj Keshwar (Sales)',
+        activity: '1 Call',
+        lastAct: '6 Days Before',
+        remarks: 'int for ind plot',
+        addOn: '31/10/24'
+    }
+];
+
+export const contactData = [
+    {
+        name: 'Mr. Naveen Kumar',
+        mobile: '9468081966',
+        email: 'naveen.k@gmail.com',
+        address: 'Sector 17, Chandigarh',
+        professional: 'Project Manager',
+        tags: 'High Priority',
+        source: 'Walk-In',
+        lastComm: 'Called today at 10 AM',
+        actionable: 'Follow up',
+        ownership: 'Suraj (Sales)',
+        addOnDate: '11/01/2026',
+        addOnTime: '5:04:00 PM',
+        group: 'January 2026',
+        icon: 'fa-user'
+    },
+    {
+        name: 'Mr. Pawan Kumar',
+        mobile: '9466937965',
+        email: 'pawankumar@outlook.com',
+        address: 'Panchkula, Haryana',
+        professional: 'Corporate Lawyer',
+        tags: '-',
+        source: 'Whatsapp',
+        lastComm: 'Message sent yesterday',
+        actionable: 'Send Brochure',
+        ownership: 'Suraj (Sales)',
+        addOnDate: '11/01/2026',
+        addOnTime: '3:59:32 PM',
+        group: 'January 2026',
+        icon: 'fa-user'
+    },
+    {
+        name: 'Mr. Deepak Bhardwaj',
+        mobile: '9467238581',
+        email: 'deepaknrww@gmail.com',
+        address: 'Narwana Jind, Haryana',
+        professional: 'Software Engineer',
+        tags: 'Interested',
+        source: 'Facebook',
+        lastComm: 'Meeting scheduled',
+        actionable: 'Internal Discussion',
+        ownership: 'Suraj (Sales)',
+        addOnDate: '11/01/2026',
+        addOnTime: '3:40:44 PM',
+        group: 'January 2026',
+        icon: 'fa-user'
+    },
+    {
+        name: 'Mr. Raghbir Maan',
+        mobile: '8901550334',
+        email: 'raghbir.maan@yahoo.com',
+        address: '36 Urban Estate Kurukshetra',
+        professional: 'Business Owner',
+        tags: 'VIP',
+        source: 'Walkin',
+        lastComm: 'No communication yet',
+        actionable: '-',
+        ownership: 'Suraj (Sales)',
+        addOnDate: '06/01/2026',
+        addOnTime: '6:26:29 PM',
+        group: 'January 2026',
+        icon: 'fa-user'
+    },
+    {
+        name: 'Mrs. Manpreet Kaur',
+        mobile: '7009550400',
+        email: 'manpreetsaini75@gmail.com',
+        address: 'Zirakpur 140306',
+        professional: 'Marketing Head',
+        tags: 'Warm Lead',
+        source: '99 Acre',
+        lastComm: 'Voice call 2 days ago',
+        actionable: '-',
+        ownership: 'Suraj Keshwar (Sales)',
+        addOnDate: '06/01/2026',
+        addOnTime: '12:04:09 PM',
+        group: 'January 2026',
+        icon: 'fa-user'
+    }
+];
+
+export const mockCampaigns = {
+    online: [
+        { id: 1, name: 'Google Ads Q1', source: 'Google', campaigns: 'G-772', leads: 432, date: '10/01/2026' },
+        { id: 2, name: 'Facebook Brand', source: 'FB', campaigns: 'FB-992', leads: 215, date: '08/01/2026' },
+        { id: 3, name: 'Instagram Influencer', source: 'IG', campaigns: 'IG-112', leads: 156, date: '05/01/2026' },
+        { id: 4, name: 'Retargeting Campaign', source: 'Google', campaigns: 'G-882', leads: 326, date: '02/01/2026' }
+    ],
+    offline: [
+        { id: 1, name: 'BillBoard Sec 14', desc: 'Main Road Billboard', contact: '8882229990', event: 'Physical', status: 'Active', cost: '₹50,000', delivered: '12/01/2026', created: '01/01/2026' },
+        { id: 2, name: 'SMS Blast - Jan', desc: 'January Property Update', contact: 'SMS-Bulk', event: 'SMS', status: 'Sent', cost: '₹5,000', delivered: '10/01/2026', created: '05/01/2026' },
+        { id: 3, name: 'Call Center Outbound', desc: 'Calling old leads', contact: 'Call-Team', event: 'Call', status: 'In-Progress', cost: '₹15,000', delivered: '-', created: '08/01/2026' }
+    ],
+    organic: [
+        { id: 1, name: 'Weekly Newsletter', source: 'Email', date: '12/01/2026' },
+        { id: 2, name: 'YouTube Walkthrough', source: 'YT', date: '10/01/2026' },
+        { id: 3, name: 'Blog: Top Properties', source: 'Website', date: '05/01/2026' }
+    ]
+};

@@ -1100,6 +1100,349 @@ body {
     line-height: 1.5;
 }
 
+/* Lead List View Redesign */
+
+/* Pipeline Status Dashboard */
+/* Pipeline Status Dashboard (Card Style) */
+/* Pipeline Status Dashboard (Chevron/Arrow Style) */
+.pipeline-dashboard {
+    display: flex;
+    padding: 0;
+    background: #fff;
+    border-bottom: 1px solid var(--border-color);
+    /* overflow-x: auto; REMOVED to allow dropdowns */
+    gap: 0;
+    /* Connected arrows */
+}
+
+.pipeline-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 1rem 1rem 1rem 2.5rem;
+    /* Extra left padding for arrow tail */
+    background: #fff;
+    min-width: 180px;
+    height: 70px;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    color: #333;
+    transition: all 0.2s;
+    overflow: visible;
+    /* CRITICAL for dropdown */
+    z-index: 1;
+    /* Default z-index */
+    /* Create the Arrow Shape via clip-path or pseudos. Using pseudos for border support. */
+}
+
+.pipeline-item:hover {
+    z-index: 100 !important;
+    /* Bring to front on hover so dropdown shows over neighbors */
+}
+
+.pipeline-item:first-child {
+    padding-left: 1.5rem;
+    /* Normal padding for first item */
+}
+
+/* Arrow Head (After) */
+.pipeline-item::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: -15px;
+    /* Stick out */
+    width: 30px;
+    height: 100%;
+    transform: skewX(-20deg);
+    /* The arrow slant */
+    background: #fff;
+    border-right: 1px solid #ccc;
+    z-index: 10;
+}
+
+/* Arrow Tail (Border fix) - Simplified approach for cross-browser:
+   Use a skewed separator.
+*/
+.pipeline-item {
+    border-right: 1px solid #ddd;
+    /* Reset from previous card style */
+    clip-path: polygon(0% 0%, 90% 0%, 100% 50%, 90% 100%, 0% 100%, 10% 50%);
+    margin-right: -15px;
+    /* Overlap */
+    padding-left: 30px;
+    background: #f8fafc;
+}
+
+.pipeline-item:first-child {
+    clip-path: polygon(0% 0%, 90% 0%, 100% 50%, 90% 100%, 0% 100%);
+    /* Straight left edge */
+    padding-left: 20px;
+}
+
+.pipeline-item:hover {
+    background: #eef2f6;
+    transform: none;
+    /* remove lift */
+    box-shadow: none;
+}
+
+/* Label styling inside arrow */
+.pipeline-content-wrapper {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.pipeline-label {
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: #1a1f23;
+    text-transform: uppercase;
+}
+
+.pipeline-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #1a1f23;
+}
+
+.pipeline-percent {
+    font-size: 0.7rem;
+    color: #8e44ad;
+    font-weight: 700;
+}
+
+/* Modern Data Table */
+/* Modern Data Table */
+/* Modern Data Table (Unified Theme) */
+.data-table-container {
+    overflow-x: auto;
+    background: transparent;
+    padding: 0;
+    box-shadow: none;
+    border-radius: 0;
+    margin: 1.5rem 0;
+    /* Remove side margins if any, keep vertical spacing */
+}
+
+.modern-table {
+    width: 100%;
+    border-collapse: collapse;
+    /* Standard collapse */
+    background: #fff;
+    min-width: 1500px;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+/* Dark Header Table */
+/* Unified Header (Matches Contact List) */
+.modern-table th {
+    position: sticky;
+    top: 0;
+    background: #fff;
+    /* White background like Contacts */
+    color: #475569;
+    /* Matches list-header text color */
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: capitalize;
+    padding: 12px 15px;
+    /* Clean padding */
+    text-align: left;
+    white-space: nowrap;
+    z-index: 10;
+    border-bottom: 1px solid #eef2f5;
+    /* Standard light border */
+}
+
+.modern-table td {
+    padding: 16px 20px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+    /* Better alignment */
+    font-size: 0.85rem;
+    color: #334155;
+    transition: background 0.2s;
+}
+
+.modern-table tbody tr:hover td {
+    background: #f8fafc;
+}
+
+/* Cell Styles */
+/* Cell Styles */
+.score-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    font-size: 1rem;
+}
+
+/* Solid Score Circle */
+.score-indicator {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #fff !important;
+    /* Always white text */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    border: 2px solid #fff;
+}
+
+.score-indicator.high {
+    background: #ff3b30;
+    /* Solid Red */
+    border-color: #ff3b30;
+}
+
+.score-indicator.med {
+    background: #ff9f43;
+    /* Solid Orange */
+    border-color: #ff9f43;
+}
+
+.score-indicator.low {
+    background: #2d98da;
+    /* Solid Blue */
+    border-color: #2d98da;
+}
+
+.score-indicator.none {
+    background: #a5b1c2;
+    border-color: #a5b1c2;
+}
+
+.primary-text {
+    font-weight: 600;
+    color: #1976d2;
+    margin-bottom: 4px;
+    display: block;
+    text-decoration: none;
+}
+
+.sub-text {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.req-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.budget-val {
+    font-family: 'Courier New', monospace;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+/* Status Badges */
+/* Soft Status Badges */
+.status-badge {
+    padding: 6px 12px;
+    border-radius: 20px;
+    /* Pill shape */
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    display: inline-block;
+    letter-spacing: 0.5px;
+}
+
+.status-badge.cold {
+    background: #fff5f5;
+    color: #e03131;
+    border: 1px solid #ffe3e3;
+}
+
+.status-badge.warm {
+    background: #fff4e6;
+    color: #fd7e14;
+    border: 1px solid #ffe8cc;
+}
+
+.status-badge.hot {
+    background: #ebfbee;
+    color: #2b8a3e;
+    border: 1px solid #d3f9d8;
+}
+
+/* Enhanced Footer Stats */
+.footer-stats-bar {
+    background: #fff;
+    border-top: 1px solid var(--border-color);
+    padding: 12px 2rem;
+    display: flex;
+    gap: 3rem;
+    justify-content: flex-start;
+    align-items: center;
+    box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.03);
+}
+
+.stat-group {
+    font-size: 0.7rem;
+    font-weight: 800;
+    color: #1a1f23;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+}
+
+.stat-group span {
+    font-size: 1.2rem;
+    font-weight: 800;
+    position: relative;
+    top: 1px;
+}
+
+/* Specific colors per reference image */
+.stat-group:nth-child(1) span {
+    color: #2ecc71;
+}
+
+/* Total Lead - Green */
+.stat-group:nth-child(2) span {
+    color: #2ecc71;
+}
+
+/* Unassigned - Green */
+.stat-group:nth-child(3) span {
+    color: #2ecc71;
+}
+
+/* Untouched - Green */
+.stat-group:nth-child(4) span {
+    color: #f39c12;
+}
+
+/* No Followup - Orange */
+.stat-group:nth-child(5) span {
+    color: #e74c3c;
+}
+
+/* Returning - Red */
+.stat-group:nth-child(6) span {
+    color: #9b59b6;
+}
+
+/* Overdue - Purple */
 .back-btn {
     cursor: pointer;
     font-size: 1.2rem;
@@ -1108,6 +1451,139 @@ body {
 
 .back-btn:hover {
     color: var(--text-main);
+}
+
+/* Pipeline Sub-Stages (Hover Dropdown) */
+.pipeline-sub-stages {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 100%;
+    background: white;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    border: 1px solid #e2e8f0;
+    border-radius: 0 0 8px 8px;
+    z-index: 9999;
+    animation: slideDown 0.2s ease;
+    padding: 0.5rem 0;
+    /* Add padding to dropdown container */
+    min-width: 200px;
+    /* Ensure enough width for stats */
+}
+
+.sub-stage-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    cursor: pointer;
+    transition: background 0.1s;
+    font-size: 0.9rem;
+    color: #333;
+}
+
+.sub-stage-item:hover {
+    background: #f8fafc;
+}
+
+.sub-label {
+    font-weight: 600;
+}
+
+.sub-stage-item.success .sub-label {
+    color: #2ecc71;
+}
+
+.sub-stage-item.danger .sub-label {
+    color: #e74c3c;
+}
+
+.sub-stage-item.neutral .sub-label {
+    color: #95a5a6;
+}
+
+.sub-stats {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sub-val {
+    font-weight: 700;
+    color: #333;
+}
+
+.sub-percent {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+/* JS-toggled class (Popper Strategy) */
+.pipeline-sub-stages.show {
+    display: flex !important;
+    position: fixed !important;
+    /* Break out of all containers */
+    width: auto;
+    min-width: 220px;
+    z-index: 99999 !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
+}
+
+
+.pipeline-item:hover {
+    overflow: visible;
+    /* Allow dropdown to show */
+}
+
+.sub-stage-item {
+    padding: 10px 15px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #475569;
+    border-bottom: 1px solid #f1f5f9;
+    transition: background 0.15s;
+}
+
+.sub-stage-item:last-child {
+    border-bottom: none;
+    border-radius: 0 0 8px 8px;
+}
+
+.sub-stage-item:hover {
+    background: #f8fafc;
+    color: var(--primary-color);
+}
+
+.sub-stage-item.success:hover {
+    color: #2ecc71;
+    background: #f0fdf4;
+}
+
+.sub-stage-item.danger:hover {
+    color: #e74c3c;
+    background: #fef2f2;
+}
+
+.sub-stage-item.neutral:hover {
+    color: #94a3b8;
+    background: #f8fafc;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* Detailed Form Utilities */
