@@ -15,144 +15,161 @@ function MarketingView({ onNavigate }) {
 
     return (
         <section id="marketingView" className="view-section active">
-            {/* Header */}
-            <div className="page-header marketing-header">
-                <div className="page-title-group">
-                    <i className="fas fa-bars" style={{ color: '#68737d' }}></i>
-                    <div className="tabs-container">
-                        {tabs.map(tab => (
+            <div className="view-scroll-wrapper">
+                {/* Header */}
+                <div className="page-header marketing-header">
+                    <div className="page-title-group">
+                        <i className="fas fa-bars" style={{ color: '#68737d' }}></i>
+                        <div className="tabs-container">
+                            {tabs.map(tab => (
+                                <button
+                                    key={tab.id}
+                                    className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
+                                    onClick={() => setActiveTab(tab.id)}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="header-actions">
+                        <div className="create-campaign-dropdown">
                             <button
-                                key={tab.id}
-                                className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
-                                onClick={() => setActiveTab(tab.id)}
+                                className="btn-primary create-campaign-btn"
+                                onClick={() => setDropdownOpen(!dropdownOpen)}
                             >
-                                {tab.label}
+                                CREATE CAMPAIGN <i className="fas fa-caret-down"></i>
                             </button>
-                        ))}
+                            {dropdownOpen && (
+                                <div className="dropdown-menu show" style={{ display: 'block' }}>
+                                    <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('wizard'); }}>
+                                        <i className="fas fa-sms"></i> Create SMS Campaign
+                                    </a>
+                                    <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('wizard'); }}>
+                                        <i className="fas fa-envelope"></i> Create Email Campaign
+                                    </a>
+                                    <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('wizard'); }}>
+                                        <i className="fab fa-whatsapp"></i> Create WhatsApp Campaign
+                                    </a>
+                                    <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('wizard'); }}>
+                                        <i className="fas fa-comment-dots"></i> Create RCS Campaign
+                                    </a>
+                                    <div className="dropdown-divider" style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }}></div>
+                                    <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('wizard'); }}>
+                                        <i className="fab fa-facebook" style={{ color: '#1877F2' }}></i> Create Meta Ads
+                                    </a>
+                                    <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('wizard'); }}>
+                                        <i className="fab fa-google" style={{ color: '#EA4335' }}></i> Create Google Ads
+                                    </a>
+                                    <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('wizard'); }}>
+                                        <i className="fab fa-linkedin" style={{ color: '#0A66C2' }}></i> Create LinkedIn Campaign
+                                    </a>
+                                    <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('wizard'); }}>
+                                        <i className="fab fa-x-twitter"></i> Create X (Twitter) Ad
+                                    </a>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
-                <div className="header-actions">
-                    <div className="create-campaign-dropdown">
-                        <button
-                            className="btn-primary create-campaign-btn"
-                            onClick={() => setDropdownOpen(!dropdownOpen)}
-                        >
-                            CREATE CAMPAIGN <i className="fas fa-caret-down"></i>
-                        </button>
-                        {dropdownOpen && (
-                            <div className="dropdown-menu show" style={{ display: 'block' }}>
-                                <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('wizard'); }}>
-                                    <i className="fas fa-sms"></i> Create SMS Campaign
-                                </a>
-                                <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('wizard'); }}>
-                                    <i className="fas fa-envelope"></i> Create Email Campaign
-                                </a>
-                                <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('wizard'); }}>
-                                    <i className="fab fa-whatsapp"></i> Create WhatsApp Campaign
-                                </a>
-                                <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('wizard'); }}>
-                                    <i className="fas fa-comment-dots"></i> Create RCS Campaign
-                                </a>
+
+                {/* Content Body */}
+                <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0 }}>
+                    <div className="toolbar-container" style={{ display: 'flex', flexDirection: 'column', gap: '0', background: '#fff', padding: 0 }}>
+                        <div className="search-bar-row" style={{ padding: '15px 25px', borderBottom: '1px solid #eef2f5' }}>
+                            <div className="search-min">
+                                <i className="fas fa-search"></i>
+                                <input type="text" placeholder="Search campaign..." />
                             </div>
-                        )}
+                            <div className="sort-select">
+                                Sort by Name <i className="fas fa-chevron-down"></i>
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
 
-            {/* Content Body */}
-            <div className="content-body">
-                <div className="search-bar-row">
-                    <div className="search-min">
-                        <i className="fas fa-search"></i>
-                        <input type="text" placeholder="Search campaign..." />
+                    <div id="campaignTableContainer" style={{ padding: '0 25px' }}>
+                        <table className="campaign-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead style={{ position: 'sticky', top: '65px', zIndex: 10, background: '#f8fafc' }}>
+                                {activeTab === 'online' && (
+                                    <tr>
+                                        <th>#</th>
+                                        <th>NAME</th>
+                                        <th>SOURCE</th>
+                                        <th>CAMPAIGNS</th>
+                                        <th>LEADS</th>
+                                        <th>GENERATED DATE</th>
+                                        <th>ACTION</th>
+                                    </tr>
+                                )}
+                                {activeTab === 'offline' && (
+                                    <tr>
+                                        <th>#</th>
+                                        <th>NAME & DESCRIPTION</th>
+                                        <th>CONTACT</th>
+                                        <th>EVENT TYPE</th>
+                                        <th>STATUS</th>
+                                        <th>COST</th>
+                                        <th>DELIVERED DATE</th>
+                                        <th>CREATED DATE</th>
+                                        <th>ACTION</th>
+                                    </tr>
+                                )}
+                                {activeTab === 'organic' && (
+                                    <tr>
+                                        <th>#</th>
+                                        <th>CAMPAIGN NAME</th>
+                                        <th>SOURCE</th>
+                                        <th>CREATED DATE</th>
+                                        <th>ACTION</th>
+                                    </tr>
+                                )}
+                            </thead>
+                            <tbody>
+                                {filteredCampaigns.length > 0 ? filteredCampaigns.map(c => (
+                                    <tr key={c.id}>
+                                        {activeTab === 'online' && (
+                                            <>
+                                                <td>{c.id}</td>
+                                                <td><strong>{c.name}</strong></td>
+                                                <td><span className={`source-badge ${getSourceBadgeClass(c.source)}`}>{c.source}</span></td>
+                                                <td style={{ color: 'var(--primary-color)', fontWeight: 600 }}>{c.campaigns}</td>
+                                                <td style={{ fontWeight: 700, color: '#388E3C' }}>{c.leads}</td>
+                                                <td>{c.date}</td>
+                                                <td><ActionMenu /></td>
+                                            </>
+                                        )}
+                                        {activeTab === 'offline' && (
+                                            <>
+                                                <td>{c.id}</td>
+                                                <td>
+                                                    <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{c.name}</div>
+                                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{c.desc}</div>
+                                                </td>
+                                                <td>{c.contact}</td>
+                                                <td><span className={`source-badge ${getSourceBadgeClass(c.event)}`}>{c.event}</span></td>
+                                                <td><strong>{c.status}</strong></td>
+                                                <td style={{ fontWeight: 600 }}>{c.cost}</td>
+                                                <td>{c.delivered}</td>
+                                                <td>{c.created}</td>
+                                                <td><ActionMenu /></td>
+                                            </>
+                                        )}
+                                        {activeTab === 'organic' && (
+                                            <>
+                                                <td>{c.id}</td>
+                                                <td><strong>{c.name}</strong></td>
+                                                <td><span className={`source-badge ${getSourceBadgeClass(c.source)}`}>{c.source}</span></td>
+                                                <td>{c.date}</td>
+                                                <td><ActionMenu /></td>
+                                            </>
+                                        )}
+                                    </tr>
+                                )) : (
+                                    <tr><td colSpan="10" style={{ textAlign: 'center', padding: '2rem' }}>No campaigns found.</td></tr>
+                                )}
+                            </tbody>
+                        </table>
                     </div>
-                    <div className="sort-select">
-                        Sort by Name <i className="fas fa-chevron-down"></i>
-                    </div>
-                </div>
-
-                <div id="campaignTableContainer">
-                    <table className="campaign-table">
-                        <thead>
-                            {activeTab === 'online' && (
-                                <tr>
-                                    <th>#</th>
-                                    <th>NAME</th>
-                                    <th>SOURCE</th>
-                                    <th>CAMPAIGNS</th>
-                                    <th>LEADS</th>
-                                    <th>GENERATED DATE</th>
-                                    <th>ACTION</th>
-                                </tr>
-                            )}
-                            {activeTab === 'offline' && (
-                                <tr>
-                                    <th>#</th>
-                                    <th>NAME & DESCRIPTION</th>
-                                    <th>CONTACT</th>
-                                    <th>EVENT TYPE</th>
-                                    <th>STATUS</th>
-                                    <th>COST</th>
-                                    <th>DELIVERED DATE</th>
-                                    <th>CREATED DATE</th>
-                                    <th>ACTION</th>
-                                </tr>
-                            )}
-                            {activeTab === 'organic' && (
-                                <tr>
-                                    <th>#</th>
-                                    <th>CAMPAIGN NAME</th>
-                                    <th>SOURCE</th>
-                                    <th>CREATED DATE</th>
-                                    <th>ACTION</th>
-                                </tr>
-                            )}
-                        </thead>
-                        <tbody>
-                            {filteredCampaigns.length > 0 ? filteredCampaigns.map(c => (
-                                <tr key={c.id}>
-                                    {activeTab === 'online' && (
-                                        <>
-                                            <td>{c.id}</td>
-                                            <td><strong>{c.name}</strong></td>
-                                            <td><span className={`source-badge ${getSourceBadgeClass(c.source)}`}>{c.source}</span></td>
-                                            <td style={{ color: 'var(--primary-color)', fontWeight: 600 }}>{c.campaigns}</td>
-                                            <td style={{ fontWeight: 700, color: '#388E3C' }}>{c.leads}</td>
-                                            <td>{c.date}</td>
-                                            <td><ActionMenu /></td>
-                                        </>
-                                    )}
-                                    {activeTab === 'offline' && (
-                                        <>
-                                            <td>{c.id}</td>
-                                            <td>
-                                                <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{c.name}</div>
-                                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{c.desc}</div>
-                                            </td>
-                                            <td>{c.contact}</td>
-                                            <td><span className={`source-badge ${getSourceBadgeClass(c.event)}`}>{c.event}</span></td>
-                                            <td><strong>{c.status}</strong></td>
-                                            <td style={{ fontWeight: 600 }}>{c.cost}</td>
-                                            <td>{c.delivered}</td>
-                                            <td>{c.created}</td>
-                                            <td><ActionMenu /></td>
-                                        </>
-                                    )}
-                                    {activeTab === 'organic' && (
-                                        <>
-                                            <td>{c.id}</td>
-                                            <td><strong>{c.name}</strong></td>
-                                            <td><span className={`source-badge ${getSourceBadgeClass(c.source)}`}>{c.source}</span></td>
-                                            <td>{c.date}</td>
-                                            <td><ActionMenu /></td>
-                                        </>
-                                    )}
-                                </tr>
-                            )) : (
-                                <tr><td colSpan="10" style={{ textAlign: 'center', padding: '2rem' }}>No campaigns found.</td></tr>
-                            )}
-                        </tbody>
-                    </table>
                 </div>
             </div>
 

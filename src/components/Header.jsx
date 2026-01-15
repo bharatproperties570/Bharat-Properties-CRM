@@ -9,6 +9,13 @@ function Header() {
                         <span>Add</span>
                         <i className="fas fa-chevron-down" style={{ fontSize: '0.6rem' }}></i>
                     </button>
+                    <div className="dropdown-menu">
+                        <a href="#"><i className="fas fa-user-plus"></i> Add Contact</a>
+                        <a href="#"><i className="fas fa-filter"></i> Add Lead</a>
+                        <a href="#"><i className="fas fa-handshake"></i> Add Deal</a>
+                        <a href="#"><i className="fas fa-building"></i> Add Project</a>
+                        <a href="#"><i className="fas fa-boxes"></i> Add Inventory</a>
+                    </div>
                 </div>
             </div>
 

@@ -1,0 +1,341 @@
+/* Wizard Preview Components */
+.preview-container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    padding: 10px;
+    animation: previewFadeIn 0.5s ease;
+}
+
+@keyframes previewFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.preview-label {
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: var(--primary-color);
+    letter-spacing: 2px;
+    text-align: center;
+    background: #f0f7ff;
+    padding: 6px 12px;
+    border-radius: 20px;
+    display: inline-block;
+    margin: 0 auto;
+    text-transform: uppercase;
+}
+
+/* --- iPhone Mockup --- */
+.phone-mockup {
+    width: 280px;
+    height: 560px;
+    background: #000;
+    border-radius: 40px;
+    border: 10px solid #1a1a1a;
+    position: relative;
+    margin: 0 auto;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Notch */
+.phone-mockup::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 140px;
+    height: 25px;
+    background: #1a1a1a;
+    border-bottom-left-radius: 18px;
+    border-bottom-right-radius: 18px;
+    z-index: 10;
+}
+
+/* Status Bar */
+.status-bar {
+    height: 35px;
+    padding: 0 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    font-size: 0.7rem;
+    color: #fff;
+    z-index: 5;
+    background: transparent;
+}
+
+.status-bar .time {
+    font-weight: 600;
+}
+
+.status-bar .icons {
+    display: flex;
+    gap: 4px;
+}
+
+/* Phone Inner Screen */
+.phone-screen {
+    flex: 1;
+    background: #fff;
+    border-radius: 0 0 30px 30px;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+/* --- Browser Mockup --- */
+.browser-mockup {
+    width: 100%;
+    background: #fff;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.browser-header {
+    height: 36px;
+    background: #f1f5f9;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 12px;
+}
+
+.browser-dots {
+    display: flex;
+    gap: 6px;
+}
+
+.browser-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.dot-red {
+    background: #ff5f56;
+}
+
+.dot-yellow {
+    background: #ffbd2e;
+}
+
+.dot-green {
+    background: #27c93f;
+}
+
+.browser-address {
+    flex: 1;
+    background: #fff;
+    height: 22px;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    border: 1px solid #e2e8f0;
+}
+
+/* --- Channel Specific Styles --- */
+
+/* SMS */
+.sms-app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 15px;
+    background: #fff;
+}
+
+.sms-bubble {
+    background: #e9e9eb;
+    color: #000;
+    padding: 10px 14px;
+    border-radius: 18px;
+    font-size: 0.85rem;
+    max-width: 85%;
+    line-height: 1.4;
+    position: relative;
+    margin-bottom: 8px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.sms-bubble.sent {
+    background: linear-gradient(180deg, #30cfd0 0%, #330867 100%);
+    background: var(--primary-color);
+    color: #fff;
+    align-self: flex-end;
+    border-bottom-right-radius: 4px;
+}
+
+/* WhatsApp */
+.wa-header {
+    background: #075e54;
+    color: #fff;
+    padding: 20px 12px 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.wa-body {
+    flex: 1;
+    background: #e5ddd5 url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
+    padding: 12px;
+}
+
+.wa-bubble {
+    background: #fff;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    box-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.13);
+    max-width: 85%;
+    position: relative;
+}
+
+.wa-bubble.sent {
+    background: #dcf8c6;
+    align-self: flex-end;
+}
+
+/* Social Media Card */
+.social-card {
+    background: #fff;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.social-header {
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.social-avatar {
+    width: 40px;
+    height: 40px;
+    background: #f0f2f5;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    color: var(--primary-color);
+    border: 2px solid #fff;
+    box-shadow: var(--shadow-sm);
+}
+
+.social-meta {
+    display: flex;
+    flex-direction: column;
+}
+
+.social-name {
+    font-weight: 700;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.social-status {
+    font-size: 0.7rem;
+    color: #65676b;
+}
+
+.social-content {
+    padding: 0 12px 12px;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.social-image-box {
+    width: 100%;
+    aspect-ratio: 1.91 / 1;
+    background: linear-gradient(45deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+    background-size: 200% 200%;
+    animation: shimmer 2s infinite;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #94a3b8;
+    position: relative;
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+.social-action-bar {
+    display: flex;
+    padding: 10px 12px;
+    border-top: 1px solid #f0f2f5;
+    justify-content: space-around;
+    color: #65676b;
+    font-size: 0.9rem;
+}
+
+.action-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.action-item:hover {
+    color: var(--primary-color);
+}
+
+/* Launch Refined Styles (Keep from before) */
+.launch-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    transform: translateY(-2px);
+}
+
+.launch-card.active {
+    box-shadow: 0 8px 15px rgba(18, 115, 230, 0.1);
+}
+
+.animation-fade-in {
+    animation: fadeInSlide 0.4s ease-out;
+}
+
+@keyframes fadeInSlide {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

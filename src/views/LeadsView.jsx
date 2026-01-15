@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import PipelineDashboard from '../components/PipelineDashboard';
 import { leadData } from '../data/mockData';
+import { getInitials } from '../utils/helpers';
 
 function LeadsView() {
     const [selectedIds, setSelectedIds] = useState([]);
@@ -19,145 +20,190 @@ function LeadsView() {
 
     return (
         <section id="leadsView" className="view-section active">
-            {/* Header */}
-            <div className="page-header">
-                <div className="page-title-group">
-                    <i className="fas fa-filter" style={{ color: 'var(--primary-color)' }}></i>
-                    <div>
-                        <span className="working-list-label">Sales Pipeline</span>
-                        <h1>Leads</h1>
+            <div className="view-scroll-wrapper">
+                {/* Header */}
+                <div className="page-header">
+                    <div className="page-title-group">
+                        <i className="fas fa-filter" style={{ color: 'var(--primary-color)' }}></i>
+                        <div>
+                            <span className="working-list-label">Sales Pipeline</span>
+                            <h1>Leads</h1>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <button className="btn-outline"><i className="fas fa-filter"></i> Filters</button>
+                        <button className="btn-primary">Add Lead</button>
                     </div>
                 </div>
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                    <button className="btn-outline"><i className="fas fa-filter"></i> Filters</button>
-                    <button className="btn-primary">Add Lead</button>
-                </div>
-            </div>
 
-            {/* Pipeline Dashboard */}
-            <PipelineDashboard />
+                {/* Pipeline Dashboard - Scrolls Away */}
+                <PipelineDashboard />
 
-            {/* Content Body */}
-            <div className="content-body" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-                {/* Toolbar */}
-                <div className="toolbar-container" style={{ padding: '10px 2rem', minHeight: '60px', display: 'flex', alignItems: 'center', borderBottom: '1px solid #eef2f5' }}>
-                    {selectedCount > 0 ? (
-                        // Leads Action Panel
-                        <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%' }}>
-                            <div className="selection-count" style={{ marginRight: '15px', fontWeight: 600, color: 'var(--primary-color)' }}>
-                                <span >{selectedCount} Selected</span>
+                {/* Content Body */}
+                <div className="content-body" style={{ display: 'flex', flexDirection: 'column', height: 'auto', overflow: 'visible', paddingTop: 0, position: 'relative' }}>
+                    {/* Toolbar - Sticky 45px */}
+                    <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', minHeight: '45px', display: 'flex', alignItems: 'center', borderBottom: '1px solid #eef2f5', background: '#fff' }}>
+                        {selectedCount > 0 ? (
+                            <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingBottom: '2px' }}>
+                                <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>
+                                    {selectedCount} Selected
+                                </div>
+
+                                {/* Single Selection Only */}
+                                {selectedCount === 1 && (
+                                    <>
+                                        <button className="action-btn" title="Call Lead"><i className="fas fa-phone-alt"></i> Call</button>
+                                        <button className="action-btn" title="Email Lead"><i className="fas fa-envelope"></i> Email</button>
+                                        <button className="action-btn" title="Start Sequence"><i className="fas fa-paper-plane"></i> Sequence</button>
+                                        <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
+                                        <button className="action-btn" title="Enrich Data" style={{ color: '#8e44ad', borderColor: '#8e44ad' }}><i className="fas fa-magic"></i> Enrich</button>
+                                    </>
+                                )}
+
+                                {/* Multi Selection Actions */}
+                                {selectedCount > 0 && (
+                                    <>
+                                        {selectedCount === 1 && <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>}
+                                        <button className="action-btn" title="Create Task"><i className="fas fa-tasks"></i> Task</button>
+                                        <button className="action-btn" title="Add Tag"><i className="fas fa-tag"></i> Tag</button>
+                                        <button className="action-btn" title="Reassign"><i className="fas fa-user-friends"></i> Assign</button>
+                                    </>
+                                )}
+
+                                {/* Special Case: Merge */}
+                                {selectedCount === 2 && (
+                                    <button className="action-btn" title="Merge Leads"><i className="fas fa-code-branch"></i> Merge</button>
+                                )}
+
+                                <div style={{ marginLeft: 'auto' }}>
+                                    <button className="action-btn danger" title="Delete"><i className="fas fa-trash-alt"></i></button>
+                                </div>
                             </div>
-                            <button className="action-btn"><i className="fas fa-phone-alt"></i></button>
-                            <button className="action-btn"><i className="fas fa-envelope"></i></button>
-                            <button className="action-btn primary"><i className="fas fa-paper-plane"></i> Start sequence</button>
-                            <button className="action-btn btn-create-task"><i className="fas fa-tasks"></i> Create Task</button>
-                            <button className="action-btn"><i className="fas fa-tag"></i></button>
-                            <button className="action-btn">Reassign Owner</button>
-                            <button className="action-btn" style={{ color: '#8e44ad', borderColor: '#8e44ad' }}><i className="fas fa-magic"></i> Enrich</button>
-                            {selectedCount === 2 && <button className="action-btn btn-merge">Merge</button>}
-                            <button className="action-btn danger">Delete</button>
-                        </div>
-                    ) : (
-                        // Leads Search Panel
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                            <input type="text" placeholder="Search for lead via name, mobile no and email" style={{ width: '300px', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem' }} />
-                            <div style={{ fontSize: '0.8rem', color: '#666' }}>
-                                Items: <strong>100</strong> <span style={{ margin: '0 8px', color: '#ccc' }}>|</span>
-                                <span style={{ background: '#e3f2fd', color: '#1976d2', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>1</span>
-                                2 3 Next
+                        ) : (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                                <input type="text" placeholder="Search for lead via name, mobile no and email" style={{ width: '300px', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem' }} />
+                                <div style={{ fontSize: '0.8rem', color: '#666' }}>
+                                    Items: <strong>100</strong> <span style={{ margin: '0 8px', color: '#ccc' }}>|</span>
+                                    <span style={{ background: '#e3f2fd', color: '#1976d2', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>1</span>
+                                    2 3 Next
+                                </div>
                             </div>
-                        </div>
-                    )}
-                </div>
+                        )}
+                    </div>
 
-                {/* Data Table */}
-                <div className="data-table-container">
-                    <table className="modern-table">
-                        <thead>
-                            <tr>
-                                <th width="40"><input type="checkbox" /></th>
-                                <th>Score</th>
-                                <th>Name</th>
-                                <th>Requirement</th>
-                                <th>Budget</th>
-                                <th>Location</th>
-                                <th>Matched Deal</th>
-                                <th>Status</th>
-                                <th>Source</th>
-                                <th>Ownership</th>
-                                <th>Activity</th>
-                                <th>Last Activity</th>
-                                <th>Remarks</th>
-                                <th>Add On</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {leadData.map(c => (
-                                <tr key={c.name}>
-                                    <td>
+                    {/* Header Strip (Pati) - Sticky 45px */}
+                    <div className="list-header lead-list-grid" style={{ position: 'sticky', top: '45px', background: '#f8fafc', zIndex: 99, borderBottom: '2px solid #e2e8f0', fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        <div><input type="checkbox" /></div>
+                        <div>Lead Profile</div>
+                        <div>Match</div>
+                        <div>Requirement & Budget</div>
+                        <div>Location</div>
+                        <div>Status & Source</div>
+                        <div>Interaction (Remarks)</div>
+                        <div>Assignment</div>
+                    </div>
+
+                    {/* Data List (Div Grid) */}
+                    <div id="leadListContent">
+                        {leadData.map((c, idx) => {
+                            // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
+                            const intent = c.req.type.split(/[\s,]+/)[0];
+                            const propertyType = c.req.type.replace(intent, '').replace(/^[\s,]+/, '');
+
+                            return (
+                                <div key={c.name} className="lead-list-grid" style={{ transition: 'all 0.2s ease' }}>
+                                    <div>
                                         <input
                                             type="checkbox"
                                             className="item-check"
                                             checked={isSelected(c.name)}
                                             onChange={() => toggleSelect(c.name)}
                                         />
-                                    </td>
-                                    <td>
-                                        <div className="score-cell">
-                                            <div className={`score-indicator ${c.score.class}`}>{c.score.val}</div>
+                                    </div>
+                                    <div className="col-profile">
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                            {/* Original Score Indicator Reverted */}
+                                            <div className={`score-indicator ${c.score.class}`} style={{ width: '40px', height: '40px', fontSize: '0.9rem', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', border: '2px solid rgba(0,0,0,0.05)' }}>
+                                                {c.score.val}
+                                            </div>
+                                            <div>
+                                                <a href="#" className="primary-text" style={{ color: '#0f172a', fontWeight: 800, fontSize: '0.95rem', textDecoration: 'none' }}>{c.name}</a>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '3px' }}>
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}><i className="fas fa-mobile-alt" style={{ marginRight: '6px', width: '12px' }}></i>{c.mobile}</div>
+                                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}><i className="fas fa-envelope" style={{ marginRight: '6px', width: '12px' }}></i>{c.name.split(' ')[0].toLowerCase()}@gmail.com</div>
+                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontStyle: 'italic' }}>Software Engineer</div>
+                                                </div>
+                                            </div>
                                         </div>
-                                    </td>
-                                    <td>
-                                        <a href="#" className="primary-text" style={{ color: '#475569' }}>{c.name}</a>
-                                        <div className="sub-text"><i className="fas fa-mobile-alt"></i> {c.mobile}</div>
-                                        <div className="sub-text"><i className="fas fa-envelope"></i> {c.name.split(' ')[0].toLowerCase()}@gmail.com</div>
-                                    </td>
-                                    <td>
-                                        <div className="req-cell">
-                                            <span style={{ fontWeight: 600, fontSize: '0.8rem', color: '#1a1f23' }}>{c.req.type}</span>
-                                            <span className="sub-text">{c.req.size}</span>
+                                    </div>
+
+                                    <div className="col-intent">
+                                        <div style={{ lineHeight: 1.4 }}>
+                                            {/* Only Intent (Buy/Rent) */}
+                                            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize' }}>{intent}</div>
+                                            <div style={{ marginTop: '4px', fontSize: '0.7rem' }}>
+                                                <span style={{ background: '#e0f2fe', color: '#0284c7', fontWeight: 700, padding: '2px 8px', borderRadius: '4px' }}>{c.matched} Matches</span>
+                                            </div>
                                         </div>
-                                    </td>
-                                    <td>
-                                        <div className="budget-val">{c.budget.split('-')[0]}<br />{c.budget.split('-')[1] || ''}</div>
-                                    </td>
-                                    <td>
-                                        <div style={{ lineHeight: 1.3, fontWeight: 500 }}>{c.location}</div>
-                                    </td>
-                                    <td style={{ textAlign: 'center', color: '#2980b9', fontWeight: 700, fontSize: '1.1rem' }}>
-                                        {c.matched}
-                                    </td>
-                                    <td>
-                                        <div style={{ fontWeight: 700, fontSize: '0.75rem' }}>{c.status.label}</div>
-                                        <span className={`status-badge ${c.status.class}`} style={{ marginTop: '2px' }}>{c.status.class.toUpperCase()}</span>
-                                    </td>
-                                    <td>{c.source}</td>
-                                    <td>
-                                        <div style={{ fontSize: '0.75rem' }}>{c.owner}</div>
-                                    </td>
-                                    <td>
-                                        <div style={{ fontWeight: 600, color: '#27ae60' }}><i className="fas fa-phone-alt"></i> {c.activity}</div>
-                                    </td>
-                                    <td style={{ fontSize: '0.75rem' }}>{c.lastAct}</td>
-                                    <td style={{ fontSize: '0.75rem' }}>{c.remarks}</td>
-                                    <td style={{ fontSize: '0.7rem' }} dangerouslySetInnerHTML={{ __html: c.addOn }}></td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                                    </div>
+
+                                    <div className="col-budget">
+                                        <div style={{ lineHeight: 1.4 }}>
+                                            {/* Property Type Moved Here */}
+                                            <div style={{ color: '#0f172a', fontSize: '0.75rem', fontWeight: 700, marginBottom: '2px' }}>{propertyType}</div>
+                                            <div style={{ color: 'var(--primary-color)', fontWeight: 800, fontSize: '0.85rem' }}>{c.budget.replace('<br/>', ' ')}</div>
+                                            <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, marginTop: '2px' }}>{c.req.size || 'Std. Size'}</div>
+                                        </div>
+                                    </div>
+
+                                    <div className="col-location">
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                            <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '3px' }}></i>
+                                            <div style={{ fontWeight: 600, color: '#334155', fontSize: '0.8rem', lineHeight: 1.3 }}>{c.location}</div>
+                                        </div>
+                                    </div>
+
+                                    <div className="col-status">
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
+                                            <div style={{ fontWeight: 800, fontSize: '0.7rem', color: '#1a1f23', textTransform: 'uppercase' }}>{c.status.label}</div>
+                                            <span className={`status-badge ${c.status.class}`} style={{ height: '20px', fontSize: '0.65rem', padding: '0 8px', borderRadius: '4px' }}>{c.status.class.toUpperCase()}</span>
+                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>{c.source}</div>
+                                        </div>
+                                    </div>
+
+                                    <div className="col-interaction">
+                                        <div style={{ lineHeight: 1.4, maxWidth: '240px' }}>
+                                            <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500, fontStyle: 'italic', marginBottom: '4px' }}>"{c.remarks}"</div>
+                                            <div style={{ color: '#27ae60', fontSize: '0.7rem', fontWeight: 700 }}>
+                                                <i className="fas fa-phone-alt" style={{ marginRight: '4px' }}></i>{c.activity} • <span style={{ color: '#64748b' }}>{c.lastAct}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="col-assignment">
+                                        <div style={{ lineHeight: 1.4 }}>
+                                            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0f172a' }}>{c.owner}</div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', fontSize: '0.65rem', color: '#94a3b8' }}>
+                                                <i className="far fa-clock"></i>
+                                                <span dangerouslySetInnerHTML={{ __html: c.addOn }}></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             </div>
 
             {/* Footer Stats */}
-            <footer className="footer-stats-bar" style={{ justifyContent: 'space-between', overflowX: 'auto' }}>
-                <div style={{ display: 'flex', gap: '3rem' }}>
-                    <div className="stat-group">Summary <span>Total Lead</span> <span style={{ fontSize: '1.4rem', marginLeft: '5px', color: '#2ecc71' }}>5</span></div>
-                    <div className="stat-group">UNASSIGNED <span style={{ fontSize: '1.4rem', marginLeft: '5px', color: '#2ecc71' }}>2</span></div>
-                    <div className="stat-group">UNTOUCHED <span style={{ fontSize: '1.4rem', marginLeft: '5px', color: '#2ecc71' }}>4</span></div>
-                    <div className="stat-group">NO FOLLOWUP <span style={{ fontSize: '1.4rem', marginLeft: '5px', color: '#f39c12' }}>12</span></div>
-                    <div className="stat-group">RETURNING <span style={{ fontSize: '1.4rem', marginLeft: '5px', color: '#e74c3c' }}>9</span></div>
-                    <div className="stat-group">OVERDUE TASK <span style={{ fontSize: '1.4rem', marginLeft: '5px', color: '#9b59b6' }}>5</span></div>
-                    <div className="stat-group">RETURNING NO FOLLOWUP <span style={{ fontSize: '1.4rem', marginLeft: '5px', color: '#e74c3c' }}>11</span></div>
+            <footer className="footer-stats-bar" style={{ height: '60px', justifyContent: 'space-between', padding: '0 2rem' }}>
+                <div style={{ display: 'flex', gap: '2.5rem' }}>
+                    <div className="stat-group">Summary <span>Total Lead</span> <span className="stat-val-bold" style={{ color: '#2ecc71' }}>{totalCount}</span></div>
+                    <div className="stat-group">UNASSIGNED <span className="stat-val-bold" style={{ color: '#2ecc71' }}>2</span></div>
+                    <div className="stat-group">UNTOUCHED <span className="stat-val-bold" style={{ color: '#2ecc71' }}>4</span></div>
+                    <div className="stat-group">NO FOLLOWUP <span className="stat-val-bold" style={{ color: '#f39c12' }}>12</span></div>
+                    <div className="stat-group">RETURNING <span className="stat-val-bold" style={{ color: '#e74c3c' }}>9</span></div>
                 </div>
             </footer>
         </section>

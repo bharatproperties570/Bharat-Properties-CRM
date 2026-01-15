@@ -12,7 +12,7 @@ function ContactsView() {
         groups[c.group].push(c);
     });
 
-    // Selection Handling (Mock unique ID using mobile for now)
+    // Selection Handling
     const toggleSelect = (mobile) => {
         if (selectedIds.includes(mobile)) {
             setSelectedIds(selectedIds.filter(id => id !== mobile));
@@ -27,139 +27,144 @@ function ContactsView() {
 
     return (
         <section id="contactsView" className="view-section active">
-            <div className="page-header">
-                <div className="page-title-group">
-                    <i className="fas fa-bars" style={{ color: '#68737d' }}></i>
-                    <div>
-                        <span className="working-list-label">Working List</span>
-                        <h1>Contacts</h1>
-                    </div>
-                    <button className="btn-outline">Save as Smart List</button>
-                    <i className="fas fa-ellipsis-v" style={{ color: '#68737d', fontSize: '0.9rem' }}></i>
-                </div>
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'hidden' }}>
-                        <button style={{ padding: '6px 10px', border: 'none', background: '#e3e6e8', color: 'var(--text-main)' }}><i className="fas fa-th-large"></i></button>
-                        <button style={{ padding: '6px 10px', border: 'none', background: 'white', color: 'var(--text-muted)' }}><i className="fas fa-list"></i></button>
-                    </div>
-                    <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '6px', borderColor: '#68737d', color: '#2f3941' }}>
-                        <i className="fas fa-filter"></i> Filters
-                    </button>
-                </div>
-            </div>
-
-            <div className="content-body" style={{ paddingTop: 0 }}>
-                {/* Toolbar */}
-                <div className="toolbar-container" style={{ padding: '15px 20px', borderBottom: '1px solid #eef2f5', minHeight: '70px', display: 'flex', alignItems: 'center' }}>
-                    {selectedCount > 0 ? (
-                        // Action Panel
-                        <div className="action-panel" style={{ display: 'flex', gap: '10px', alignItems: 'center', width: '100%' }}>
-                            <div className="selection-count" style={{ marginRight: '15px', fontWeight: 600, color: 'var(--primary-color)' }}>
-                                {selectedCount} Selected
-                            </div>
-                            <button className="action-btn"><i className="fas fa-phone-alt"></i></button>
-                            <button className="action-btn"><i className="fas fa-envelope"></i></button>
-                            <button className="action-btn primary"><i className="fas fa-paper-plane"></i> Start sequence</button>
-                            <button className="action-btn btn-create-task"><i className="fas fa-tasks"></i> Create Task</button>
-                            {selectedCount === 2 && <button className="action-btn btn-merge">Merge</button>}
-                            <button className="action-btn danger">Delete</button>
+            <div className="view-scroll-wrapper">
+                <div className="page-header">
+                    <div className="page-title-group">
+                        <i className="fas fa-bars" style={{ color: '#68737d' }}></i>
+                        <div>
+                            <span className="working-list-label">Luxury CRM</span>
+                            <h1>Contacts Portfolio</h1>
                         </div>
-                    ) : (
-                        // Search Panel
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                            <input type="text" placeholder="Search contacts..." style={{ width: '300px', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem' }} />
-                            <div style={{ fontSize: '0.8rem', color: '#666' }}>
-                                Items: <strong>{totalCount}</strong>
+                    </div>
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                        <button className="btn-outline">Download CSV</button>
+                        <button className="btn-primary">Add Contact</button>
+                    </div>
+                </div>
+
+                <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0, position: 'relative' }}>
+                    {/* Toolbar */}
+                    <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 101, padding: '15px 2rem', borderBottom: '1px solid #eef2f5', minHeight: '65px', display: 'flex', alignItems: 'center', background: '#fff' }}>
+                        {selectedCount > 0 ? (
+                            <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingBottom: '2px' }}>
+                                <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>
+                                    {selectedCount} Selected
+                                </div>
+
+                                {/* Single Selection Only */}
+                                {selectedCount === 1 && (
+                                    <>
+                                        <button className="action-btn" title="Call Contact"><i className="fas fa-phone-alt"></i> Call</button>
+                                        <button className="action-btn" title="Email Contact"><i className="fas fa-envelope"></i> Email</button>
+                                        <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
+                                    </>
+                                )}
+
+                                <button className="action-btn" title="Bulk Actions"><i className="fas fa-layer-group"></i> Bulk</button>
+                                <button className="action-btn" title="Add Tag"><i className="fas fa-tag"></i> Tag</button>
+
+                                <div style={{ marginLeft: 'auto' }}>
+                                    <button className="action-btn danger" title="Delete"><i className="fas fa-trash-alt"></i></button>
+                                </div>
                             </div>
-                        </div>
-                    )}
-                </div>
+                        ) : (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                                <div style={{ position: 'relative' }}>
+                                    <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.85rem' }}></i>
+                                    <input type="text" placeholder="Search by name or phone..." style={{ width: '350px', padding: '8px 12px 8px 40px', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: '0.85rem' }} />
+                                </div>
+                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                    Total Records: <strong>{totalCount}</strong>
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
-                {/* Header */}
-                <div className="list-header">
-                    <div><input type="checkbox" /></div>
-                    <div>Personal Details</div>
-                    <div>Address</div>
-                    <div>Professional</div>
-                    <div>Tags</div>
-                    <div>Source</div>
-                    <div>Last Communication</div>
-                    <div>Actionable</div>
-                    <div>Ownership</div>
-                    <div>Add_On</div>
-                </div>
+                    {/* Header Strip (Pati) */}
+                    <div className="list-header contact-list-grid" style={{ position: 'sticky', top: '65px', background: '#f8fafc', zIndex: 100, borderBottom: '2px solid #e2e8f0' }}>
+                        <div><input type="checkbox" /></div>
+                        <div>Contact Identity</div>
+                        <div>Location & Address</div>
+                        <div>Classification</div>
+                        <div>Last Interaction</div>
+                        <div>Assignment & History</div>
+                    </div>
 
-                <div id="contactListContent">
-                    {Object.keys(groups).map(groupName => (
-                        <div key={groupName} className="list-group">
-                            <div className="group-header">{groupName}</div>
-                            {groups[groupName].map((item, idx) => (
-                                <div key={item.mobile} className="list-item">
-                                    <input
-                                        type="checkbox"
-                                        className="item-check"
-                                        checked={isSelected(item.mobile)}
-                                        onChange={() => toggleSelect(item.mobile)}
-                                    />
-                                    <div className="col-personal">
-                                        <div className="contact-main">
-                                            <div className={`avatar-circle avatar-${(idx % 5) + 1}`}>
-                                                {item.icon === 'fa-user' ? getInitials(item.name) : <i className={`fas ${item.icon}`}></i>}
+                    <div id="contactListContent">
+                        {Object.keys(groups).map(groupName => (
+                            <div key={groupName} className="list-group">
+                                <div className="group-header" style={{ padding: '12px 2rem', letterSpacing: '0.5px' }}>{groupName.toUpperCase()}</div>
+                                {groups[groupName].map((item, idx) => (
+                                    <div key={item.mobile} className="list-item contact-list-grid" style={{ padding: '15px 2rem' }}>
+                                        <input
+                                            type="checkbox"
+                                            className="item-check"
+                                            checked={isSelected(item.mobile)}
+                                            onChange={() => toggleSelect(item.mobile)}
+                                        />
+                                        <div className="col-identity">
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                                <div className={`avatar-circle avatar-${(idx % 5) + 1}`} style={{ width: '38px', height: '38px', fontSize: '0.85rem' }}>
+                                                    {getInitials(item.name)}
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.95rem' }}>{item.name}</div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+                                                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>{item.mobile}</span>
+                                                        <span className={`source-badge ${getSourceBadgeClass(item.source)}`} style={{ fontSize: '0.65rem', padding: '1px 8px' }}>{item.source}</span>
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div className="contact-details">
-                                                <div className="item-name">{item.name}</div>
-                                                <div className="item-sub-group">
-                                                    <span className="item-sub"><i className="fas fa-phone-alt"></i> {item.mobile}</span>
-                                                    {item.email && <span className="item-sub"><i className="fas fa-envelope"></i> {item.email.split('@')[0]}...</span>}
+                                        </div>
+
+                                        <div className="col-address">
+                                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                                                <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '4px' }}></i>
+                                                <div className="address-clamp" style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 500, lineHeight: 1.4 }}>{item.address || 'Address not listed'}</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="col-classification">
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                <span className="prof-badge" style={{ fontSize: '0.6rem', padding: '3px 10px', fontWeight: 800 }}>{item.professional.toUpperCase()}</span>
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--primary-color)', fontWeight: 800 }}>#{item.tags.replace(' ', '')}</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="col-interaction">
+                                            <div style={{ lineHeight: '1.4' }}>
+                                                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{item.lastComm}</div>
+                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>Active: {item.actionable}</div>
+                                                <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                                                    <i className="fas fa-phone-alt" style={{ color: '#388E3C', fontSize: '0.75rem' }}></i>
+                                                    <i className="fab fa-whatsapp" style={{ color: '#25D366', fontSize: '0.75rem' }}></i>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="col-assignment">
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <div className="profile-circle" style={{ width: '28px', height: '28px', fontSize: '0.65rem', background: '#f1f5f9', color: '#64748b' }}>{item.ownership.charAt(0)}</div>
+                                                <div>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{item.ownership}</div>
+                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700 }}>Added {item.addOnDate}</div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
-
-                                    <div className="col-address">
-                                        <div className="location-group">
-                                            <i className="fas fa-map-marker-alt location-icon"></i>
-                                            <div className="item-sub">{item.address || 'Not specified'}</div>
-                                        </div>
-                                    </div>
-
-                                    <div className="col-professional">
-                                        <div className="prof-group">
-                                            <div><span className="prof-badge">{item.professional}</span></div>
-                                            <div className="item-sub" style={{ fontSize: '0.7rem', marginTop: '2px' }}>Verified Member</div>
-                                        </div>
-                                    </div>
-
-                                    <div className="col-tags item-sub">{item.tags}</div>
-                                    <div className="col-source">
-                                        <span className={`source-badge ${getSourceBadgeClass(item.source)}`}>
-                                            {item.source === 'Whatsapp' && <i className="fab fa-whatsapp"></i>} {item.source}
-                                        </span>
-                                    </div>
-
-                                    <div className="col-comm">
-                                        <div className="comm-group">
-                                            <i className="fas fa-history" style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}></i>
-                                            <span className="item-sub">{item.lastComm}</span>
-                                        </div>
-                                    </div>
-
-                                    <div className="col-actionable item-sub">{item.actionable}</div>
-                                    <div className="col-owner item-sub">{item.ownership}</div>
-                                    <div className="col-addon item-sub">
-                                        {item.addOnDate}<br />{item.addOnTime}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    ))}
+                                ))}
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </div>
-            <footer className="summary-footer">
-                <div className="summary-label">Summary</div>
-                <div className="summary-stats">TOTAL CONTACTS <span className="stat-val">{totalCount}</span></div>
-                <div className="summary-stats">CUSTOMERS <span className="stat-val">2</span></div>
-                <div className="summary-stats">PROSPECTS <span className="stat-val">2</span></div>
+            <footer className="summary-footer" style={{ height: '60px', padding: '0 2rem' }}>
+                <div className="summary-label" style={{ background: '#334155', color: '#fff', padding: '4px 12px', borderRadius: '6px', fontSize: '0.7rem' }}>LIVE SYNC</div>
+                <div style={{ display: 'flex', gap: '20px' }}>
+                    <div className="stat-pill">TOTAL <strong>{totalCount}</strong></div>
+                    <div className="stat-pill">CUSTOMERS <strong>2</strong></div>
+                    <div className="stat-pill" style={{ color: 'var(--primary-color)' }}>NEW LEADS <strong>14</strong></div>
+                </div>
             </footer>
         </section>
     );

@@ -51,6 +51,38 @@ function Sidebar({ currentView, onNavigate }) {
                 </a>
                 <a
                     href="#"
+                    className={`sidebar-icon ${currentView === 'projects' ? 'active' : ''}`}
+                    onClick={(e) => { e.preventDefault(); onNavigate('projects'); }}
+                    title="Projects"
+                >
+                    <i className="fas fa-building"></i>
+                </a>
+                <a
+                    href="#"
+                    className={`sidebar-icon ${currentView === 'deals' ? 'active' : ''}`}
+                    onClick={(e) => { e.preventDefault(); onNavigate('deals'); }}
+                    title="Deals"
+                >
+                    <i className="fas fa-handshake"></i>
+                </a>
+                <a
+                    href="#"
+                    className={`sidebar-icon ${currentView === 'activities' ? 'active' : ''}`}
+                    onClick={(e) => { e.preventDefault(); onNavigate('activities'); }}
+                    title="Activities"
+                >
+                    <i className="fas fa-tasks"></i>
+                </a>
+                <a
+                    href="#"
+                    className={`sidebar-icon ${currentView === 'inventory' ? 'active' : ''}`}
+                    onClick={(e) => { e.preventDefault(); onNavigate('inventory'); }}
+                    title="Inventory"
+                >
+                    <i className="fas fa-warehouse"></i>
+                </a>
+                <a
+                    href="#"
                     className={`sidebar-icon ${currentView === 'reports' ? 'active' : ''}`}
                     onClick={(e) => { e.preventDefault(); onNavigate('reports'); }}
                     title="Reports"
