@@ -1069,6 +1069,23 @@ body {
     letter-spacing: 0.5px;
 }
 
+.booking-list-grid {
+    display: grid;
+    grid-template-columns: 40px 50px 110px 120px 170px 180px 130px 130px 130px 130px 200px;
+    gap: 20px;
+    align-items: center;
+    padding: 12px 15px;
+}
+
+.list-header.booking-list-grid {
+    padding: 15px 20px;
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
 .wizard-actions {
     padding: 1.25rem 3rem;
     display: flex;

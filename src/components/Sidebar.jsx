@@ -75,6 +75,22 @@ function Sidebar({ currentView, onNavigate }) {
                 </a>
                 <a
                     href="#"
+                    className={`sidebar-icon ${currentView === 'communication' ? 'active' : ''}`}
+                    onClick={(e) => { e.preventDefault(); onNavigate('communication'); }}
+                    title="Communication"
+                >
+                    <i className="fas fa-comments"></i>
+                </a>
+                <a
+                    href="#"
+                    className={`sidebar-icon ${currentView === 'booking' || currentView === 'account' ? 'active' : ''}`}
+                    onClick={(e) => { e.preventDefault(); onNavigate('booking'); }}
+                    title="Post Sale"
+                >
+                    <i className="fas fa-file-invoice-dollar"></i>
+                </a>
+                <a
+                    href="#"
                     className={`sidebar-icon ${currentView === 'inventory' ? 'active' : ''}`}
                     onClick={(e) => { e.preventDefault(); onNavigate('inventory'); }}
                     title="Inventory"

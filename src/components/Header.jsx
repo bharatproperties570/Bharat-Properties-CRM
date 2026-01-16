@@ -15,6 +15,7 @@ function Header() {
                         <a href="#"><i className="fas fa-handshake"></i> Add Deal</a>
                         <a href="#"><i className="fas fa-building"></i> Add Project</a>
                         <a href="#"><i className="fas fa-boxes"></i> Add Inventory</a>
+                        <a href="#"><i className="fas fa-tasks"></i> Add Activities</a>
                     </div>
                 </div>
             </div>

@@ -9,6 +9,9 @@ import ProjectsView from './views/ProjectsView';
 import InventoryView from './views/InventoryView';
 import DealsView from './views/DealsView';
 import ActivitiesView from './views/ActivitiesView';
+import BookingView from './views/BookingView';
+import AccountView from './views/AccountView';
+import CommunicationView from './views/CommunicationView';
 
 function App() {
     const [currentView, setCurrentView] = useState('leads'); // leads | contacts | marketing | wizard
@@ -31,6 +34,12 @@ function App() {
                 return <DealsView />;
             case 'activities':
                 return <ActivitiesView />;
+            case 'booking':
+                return <BookingView onNavigate={setCurrentView} />;
+            case 'account':
+                return <AccountView onNavigate={setCurrentView} />;
+            case 'communication':
+                return <CommunicationView />;
             default:
                 return <LeadsView />;
         }
