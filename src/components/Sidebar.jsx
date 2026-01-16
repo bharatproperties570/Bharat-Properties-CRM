@@ -27,11 +27,19 @@ function Sidebar({ currentView, onNavigate }) {
                 </a>
                 <a
                     href="#"
-                    className={`sidebar-icon ${currentView === 'dashboard' ? 'active' : ''}`}
-                    onClick={(e) => { e.preventDefault(); onNavigate('dashboard'); }}
-                    title="Dashboard"
+                    className={`sidebar-icon ${currentView === 'contacts' ? 'active' : ''}`}
+                    onClick={(e) => { e.preventDefault(); onNavigate('contacts'); }}
+                    title="Contacts"
                 >
-                    <i className="fas fa-th-large"></i>
+                    <i className="fas fa-user-friends"></i>
+                </a>
+                <a
+                    href="#"
+                    className={`sidebar-icon ${currentView === 'company' ? 'active' : ''}`}
+                    onClick={(e) => { e.preventDefault(); onNavigate('company'); }}
+                    title="Company"
+                >
+                    <i className="fas fa-city"></i>
                 </a>
                 <a
                     href="#"
@@ -43,19 +51,19 @@ function Sidebar({ currentView, onNavigate }) {
                 </a>
                 <a
                     href="#"
-                    className={`sidebar-icon ${currentView === 'contacts' ? 'active' : ''}`}
-                    onClick={(e) => { e.preventDefault(); onNavigate('contacts'); }}
-                    title="Contacts"
+                    className={`sidebar-icon ${currentView === 'deals' ? 'active' : ''}`}
+                    onClick={(e) => { e.preventDefault(); onNavigate('deals'); }}
+                    title="Deals"
                 >
-                    <i className="fas fa-user-friends"></i>
+                    <i className="fas fa-handshake"></i>
                 </a>
                 <a
                     href="#"
-                    className={`sidebar-icon ${currentView === 'marketing' ? 'active' : ''}`}
-                    onClick={(e) => { e.preventDefault(); onNavigate('marketing'); }}
-                    title="Marketing"
+                    className={`sidebar-icon ${currentView === 'inventory' ? 'active' : ''}`}
+                    onClick={(e) => { e.preventDefault(); onNavigate('inventory'); }}
+                    title="Inventory"
                 >
-                    <i className="fas fa-bullhorn"></i>
+                    <i className="fas fa-warehouse"></i>
                 </a>
                 <a
                     href="#"
@@ -64,14 +72,6 @@ function Sidebar({ currentView, onNavigate }) {
                     title="Projects"
                 >
                     <i className="fas fa-building"></i>
-                </a>
-                <a
-                    href="#"
-                    className={`sidebar-icon ${currentView === 'deals' ? 'active' : ''}`}
-                    onClick={(e) => { e.preventDefault(); onNavigate('deals'); }}
-                    title="Deals"
-                >
-                    <i className="fas fa-handshake"></i>
                 </a>
                 <a
                     href="#"
@@ -91,19 +91,19 @@ function Sidebar({ currentView, onNavigate }) {
                 </a>
                 <a
                     href="#"
+                    className={`sidebar-icon ${currentView === 'marketing' ? 'active' : ''}`}
+                    onClick={(e) => { e.preventDefault(); onNavigate('marketing'); }}
+                    title="Marketing"
+                >
+                    <i className="fas fa-bullhorn"></i>
+                </a>
+                <a
+                    href="#"
                     className={`sidebar-icon ${currentView === 'booking' || currentView === 'account' ? 'active' : ''}`}
                     onClick={(e) => { e.preventDefault(); onNavigate('booking'); }}
                     title="Post Sale"
                 >
                     <i className="fas fa-file-invoice-dollar"></i>
-                </a>
-                <a
-                    href="#"
-                    className={`sidebar-icon ${currentView === 'inventory' ? 'active' : ''}`}
-                    onClick={(e) => { e.preventDefault(); onNavigate('inventory'); }}
-                    title="Inventory"
-                >
-                    <i className="fas fa-warehouse"></i>
                 </a>
                 <a
                     href="#"
@@ -116,14 +116,6 @@ function Sidebar({ currentView, onNavigate }) {
             </div>
 
             <div className="sidebar-footer">
-                <a
-                    href="#"
-                    className={`sidebar-icon settings-icon ${currentView === 'settings' ? 'active' : ''}`}
-                    onClick={(e) => { e.preventDefault(); onNavigate('settings'); }}
-                    title="Settings"
-                >
-                    <i className="fas fa-cog"></i>
-                </a>
                 <div
                     className={`user-profile-small ${currentView === 'profile' ? 'active-profile' : ''}`}
                     onClick={() => onNavigate('profile')}

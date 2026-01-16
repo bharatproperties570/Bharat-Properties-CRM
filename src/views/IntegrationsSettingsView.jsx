@@ -22,7 +22,8 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                         'Copy your Account SID and Auth Token.',
                         'Buy a phone number or use an existing one.',
                         'Configure the Webhook URL below in your Twilio Number settings.'
-                    ]
+                    ],
+                    showWebhook: true
                 };
             case 'whatsapp':
                 return {
@@ -34,7 +35,8 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                         'Create a Business App and get your Permanent Access Token.',
                         'Copy your WhatsApp Business Account ID.',
                         'Verify your sender phone number.'
-                    ]
+                    ],
+                    showWebhook: true
                 };
             case 'telegram':
                 return {
@@ -46,7 +48,8 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                         'Send /newbot and follow instructions.',
                         'Copy the API Token provided.',
                         'Send a test message to your bot to activate.'
-                    ]
+                    ],
+                    showWebhook: true
                 };
             case 'rcs':
                 return {
@@ -58,7 +61,8 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                         'Create your Business Profile.',
                         'Get your RBM Agent API credentials.',
                         'Enable high-fidelity media messaging.'
-                    ]
+                    ],
+                    showWebhook: true
                 };
             case 'messenger':
                 return {
@@ -70,7 +74,36 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                         'Create or select your Facebook App.',
                         'Add the Messenger product to your app.',
                         'Link your Facebook Page and generate an Access Token.'
+                    ],
+                    showWebhook: true
+                };
+            case 'google_calendar':
+                return {
+                    title: 'Google Calendar API',
+                    icon: 'fab fa-google',
+                    color: '#4285F4',
+                    steps: [
+                        'Go to Google Cloud Console and create a project.',
+                        'Enable the "Google Calendar API" for your project.',
+                        'Configure the OAuth Consent Screen (Internal or External).',
+                        'Create OAuth 2.0 Credentials (Web Application).',
+                        'Add "https://bharatcrm.com/oauth/google" to Authorized Redirect URIs.',
+                        'Copy your Client ID and Client Secret.'
                     ]
+                };
+            case 'apple_calendar':
+                return {
+                    title: 'iCloud Calendar (CalDAV)',
+                    icon: 'fab fa-apple',
+                    color: '#000000',
+                    steps: [
+                        'Log in to your Apple ID account (appleid.apple.com).',
+                        'Navigate to "Sign-In and Security" > "App-Specific Passwords".',
+                        'Generate a new password labeled "Bharat properties CRM".',
+                        'Copy the 16-character code (e.g., xxxx-xxxx-xxxx-xxxx).',
+                        'Ensure Two-Factor Authentication is enabled on your iCloud account.'
+                    ],
+                    showWebhook: false
                 };
             case 'webhook':
                 return {
@@ -82,7 +115,8 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                         'Generate a secure API Secret Key.',
                         'Set up your server to listen for POST requests.',
                         'Map incoming data fields to Bharat CRM schema.'
-                    ]
+                    ],
+                    showWebhook: true
                 };
             default: return {};
         }
@@ -111,15 +145,17 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                         ))}
                     </div>
 
-                    <div style={{ marginTop: '32px', padding: '16px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                        <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Your Webhook URL</label>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <div style={{ flex: 1, fontSize: '0.8rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: '#f1f5f9', padding: '8px', borderRadius: '6px' }}>{webhookUrl}</div>
-                            <button style={{ background: 'none', border: 'none', color: 'var(--primary-color)', cursor: 'pointer', fontSize: '0.9rem' }} title="Copy URL">
-                                <i className="far fa-copy"></i>
-                            </button>
+                    {guide.showWebhook && (
+                        <div style={{ marginTop: '32px', padding: '16px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                            <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Your Webhook URL</label>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <div style={{ flex: 1, fontSize: '0.8rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: '#f1f5f9', padding: '8px', borderRadius: '6px' }}>{webhookUrl}</div>
+                                <button style={{ background: 'none', border: 'none', color: 'var(--primary-color)', cursor: 'pointer', fontSize: '0.9rem' }} title="Copy URL">
+                                    <i className="far fa-copy"></i>
+                                </button>
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
 
                 {/* Right: Configuration Form */}
@@ -140,6 +176,10 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                                     <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '8px' }}>Auth Token</label>
                                     <input type="password" style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '10px' }} placeholder="••••••••••••••••" value={config.token} onChange={e => setConfig({ ...config, token: e.target.value })} />
                                 </div>
+                                <div>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '8px' }}>Verified Twilio Number</label>
+                                    <input type="text" style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '10px' }} placeholder="+1 234 567 8900" value={config.senderId} onChange={e => setConfig({ ...config, senderId: e.target.value })} />
+                                </div>
                             </>
                         )}
 
@@ -152,6 +192,10 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                                 <div>
                                     <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '8px' }}>Business Account ID</label>
                                     <input type="text" style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '10px' }} placeholder="10592837..." value={config.businessId} onChange={e => setConfig({ ...config, businessId: e.target.value })} />
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '8px' }}>WA Phone Number ID</label>
+                                    <input type="text" style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '10px' }} placeholder="10592837..." value={config.senderId} onChange={e => setConfig({ ...config, senderId: e.target.value })} />
                                 </div>
                             </>
                         )}
@@ -180,6 +224,36 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                                     <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '8px' }}>Facebook Page ID</label>
                                     <input type="text" style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '10px' }} placeholder="1029384756..." value={config.businessId} onChange={e => setConfig({ ...config, businessId: e.target.value })} />
                                 </div>
+                                <div>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '8px' }}>Page Identity Name</label>
+                                    <input type="text" style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '10px' }} placeholder="Bharat Properties Official" value={config.senderId} onChange={e => setConfig({ ...config, senderId: e.target.value })} />
+                                </div>
+                            </>
+                        )}
+
+                        {type === 'google_calendar' && (
+                            <>
+                                <div>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '8px' }}>Client ID</label>
+                                    <input type="text" style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '10px' }} placeholder="xxx-xxx.apps.googleusercontent.com" value={config.sid} onChange={e => setConfig({ ...config, sid: e.target.value })} />
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '8px' }}>Client Secret</label>
+                                    <input type="password" style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '10px' }} placeholder="GOCSPX-xxxxxxxxxxxxxxxx" value={config.token} onChange={e => setConfig({ ...config, token: e.target.value })} />
+                                </div>
+                            </>
+                        )}
+
+                        {type === 'apple_calendar' && (
+                            <>
+                                <div>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '8px' }}>Apple ID (Email)</label>
+                                    <input type="text" style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '10px' }} placeholder="user@icloud.com" value={config.sid} onChange={e => setConfig({ ...config, sid: e.target.value })} />
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '8px' }}>App-Specific Password</label>
+                                    <input type="password" style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '10px' }} placeholder="xxxx-xxxx-xxxx-xxxx" value={config.token} onChange={e => setConfig({ ...config, token: e.target.value })} />
+                                </div>
                             </>
                         )}
 
@@ -196,10 +270,7 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                             </>
                         )}
 
-                        <div>
-                            <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '8px' }}>Verified Sender ID / Number</label>
-                            <input type="text" style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '10px' }} placeholder="+91 99999 00000" value={config.senderId} onChange={e => setConfig({ ...config, senderId: e.target.value })} />
-                        </div>
+                        {/* Remove the global senderId input since it's now conditional */}
                     </div>
 
                     <div style={{ marginTop: '40px', display: 'flex', gap: '12px' }}>
@@ -219,7 +290,9 @@ const IntegrationsSettingsView = () => {
         whatsapp: { status: 'connected', label: 'WhatsApp Meta', icon: 'fab fa-whatsapp', color: '#25D366' },
         telegram: { status: 'disconnected', label: 'Telegram Bot', icon: 'fab fa-telegram', color: '#0088cc' },
         rcs: { status: 'disconnected', label: 'Google RCS', icon: 'fas fa-comment-dots', color: '#4285F4' },
-        messenger: { status: 'disconnected', label: 'FB Messenger', icon: 'fab fa-facebook-messenger', color: '#006AFF' }
+        messenger: { status: 'disconnected', label: 'FB Messenger', icon: 'fab fa-facebook-messenger', color: '#006AFF' },
+        google_calendar: { status: 'disconnected', label: 'Google Calendar', icon: 'fab fa-google', color: '#4285F4' },
+        apple_calendar: { status: 'disconnected', label: 'iCloud Calendar', icon: 'fab fa-apple', color: '#94a3b8' }
     });
 
     const handleConnect = () => {
@@ -263,6 +336,8 @@ const IntegrationsSettingsView = () => {
                                     {key === 'telegram' && 'Manage customer engagement via Telegram bots.'}
                                     {key === 'rcs' && 'The next generation of business messaging with rich media.'}
                                     {key === 'messenger' && 'Directly sync Facebook Page messages with Bharat CRM.'}
+                                    {key === 'google_calendar' && 'Sync your activities and meetings with Google Calendar.'}
+                                    {key === 'apple_calendar' && 'Connect your iCloud Calendar for seamless scheduling on iOS.'}
                                 </p>
 
                                 <div style={{ marginTop: '24px', borderTop: '1px solid #f1f5f9', paddingTop: '20px', display: 'flex', gap: '12px' }}>

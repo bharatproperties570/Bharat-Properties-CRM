@@ -16,6 +16,7 @@ import ReportsView from './views/ReportsView';
 import DashboardView from './views/DashboardView';
 import ProfileView from './views/ProfileView';
 import SettingsHubView from './views/SettingsHubView';
+import CompanyView from './views/CompanyView';
 
 function App() {
     const [currentView, setCurrentView] = useState('dashboard'); // leads | contacts | marketing | wizard | dashboard
@@ -24,6 +25,8 @@ function App() {
         switch (currentView) {
             case 'contacts':
                 return <ContactsView />;
+            case 'company':
+                return <CompanyView />;
             case 'leads':
                 return <LeadsView />;
             case 'marketing':
