@@ -5,6 +5,7 @@ import { getInitials } from '../utils/helpers';
 
 function LeadsView() {
     const [selectedIds, setSelectedIds] = useState([]);
+    const [searchTerm, setSearchTerm] = useState('');
 
     const toggleSelect = (name) => {
         if (selectedIds.includes(name)) {
@@ -17,6 +18,12 @@ function LeadsView() {
     const isSelected = (name) => selectedIds.includes(name);
     const selectedCount = selectedIds.length;
     const totalCount = leadData.length;
+
+    const filteredLeads = leadData.filter(lead =>
+        lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        lead.mobile.includes(searchTerm) ||
+        (lead.email && lead.email.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
 
     return (
         <section id="leadsView" className="view-section active">
@@ -81,9 +88,19 @@ function LeadsView() {
                             </div>
                         ) : (
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                                <input type="text" placeholder="Search for lead via name, mobile no and email" style={{ width: '300px', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem' }} />
+                                <div style={{ position: 'relative', width: '300px' }}>
+                                    <input
+                                        type="text"
+                                        className="search-input-premium"
+                                        placeholder="Search name, mobile, email..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        style={{ width: '100%' }}
+                                    />
+                                    <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
+                                </div>
                                 <div style={{ fontSize: '0.8rem', color: '#666' }}>
-                                    Items: <strong>100</strong> <span style={{ margin: '0 8px', color: '#ccc' }}>|</span>
+                                    Items: <strong>{filteredLeads.length}</strong> <span style={{ margin: '0 8px', color: '#ccc' }}>|</span>
                                     <span style={{ background: '#e3f2fd', color: '#1976d2', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>1</span>
                                     2 3 Next
                                 </div>
@@ -105,7 +122,7 @@ function LeadsView() {
 
                     {/* Data List (Div Grid) */}
                     <div id="leadListContent">
-                        {leadData.map((c, idx) => {
+                        {filteredLeads.map((c, idx) => {
                             // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
                             const intent = c.req.type.split(/[\s,]+/)[0];
                             const propertyType = c.req.type.replace(intent, '').replace(/^[\s,]+/, '');

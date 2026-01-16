@@ -5,6 +5,7 @@ function CommunicationView() {
     const [activeSubTab, setActiveSubTab] = useState('Matched');
     const [selectedIds, setSelectedIds] = useState([]);
     const [isFilterOpen, setIsFilterOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
 
     // Sample communication data - Calls
     const callsData = [
@@ -163,16 +164,31 @@ function CommunicationView() {
 
     // Get data based on active tab
     const getCommunicationData = () => {
+        let data = [];
         switch (activeTab) {
             case 'Calls':
-                return callsData;
+                data = callsData;
+                break;
             case 'Messages':
-                return messagesData;
+                data = messagesData;
+                break;
             case 'Email':
-                return emailData;
+                data = emailData;
+                break;
             default:
-                return callsData;
+                data = callsData;
         }
+
+        if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            return data.filter(item =>
+                item.participant.toLowerCase().includes(query) ||
+                (item.platform && item.platform.toLowerCase().includes(query)) ||
+                item.associatedDeals.includes(query) ||
+                item.type.toLowerCase().includes(query)
+            );
+        }
+        return data;
     };
 
     const communicationData = getCommunicationData();
@@ -251,16 +267,28 @@ function CommunicationView() {
                             ))}
                         </div>
                     </div>
+                    {/* Sub Tabs: Matched, Unmatched & Search */}
+                    <div style={{ padding: '0 2rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '40px' }}>
+                        {/* Search Input */}
+                        <div style={{ position: 'relative', width: '300px' }}>
+                            <input
+                                type="text"
+                                className="search-input-premium"
+                                placeholder="Search by name, platform or deal..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                style={{ width: '100%' }}
+                            />
+                            <i className={`fas fa-search search-icon-premium ${searchQuery ? 'active' : ''}`}></i>
+                        </div>
 
-                    {/* Sub Tabs: Matched, Unmatched */}
-                    <div style={{ padding: '11px 2rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                         <div style={{ display: 'flex', gap: '20px', borderBottom: '2px solid #e2e8f0' }}>
                             {['Matched', 'Unmatched'].map(tab => (
                                 <button
                                     key={tab}
                                     onClick={() => setActiveSubTab(tab)}
                                     style={{
-                                        padding: '7.5px 0',
+                                        padding: '11px 0',
                                         border: 'none',
                                         background: 'none',
                                         fontSize: '0.85rem',

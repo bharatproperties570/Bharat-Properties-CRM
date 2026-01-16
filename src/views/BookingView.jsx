@@ -3,6 +3,9 @@ import React, { useState } from 'react';
 function BookingView({ onNavigate }) {
     const [selectedIds, setSelectedIds] = useState([]);
     const [activeTab, setActiveTab] = useState('All Booking');
+    const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+    const [viewedBooking, setViewedBooking] = useState(null);
+    const [searchTerm, setSearchTerm] = useState('');
 
     // Sample booking/deals data based on the EXACT image structure
     const bookingData = [
@@ -233,6 +236,16 @@ function BookingView({ onNavigate }) {
         return sum + pending;
     }, 0);
 
+    const filteredBookings = bookingData.filter(booking => {
+        const search = searchTerm.toLowerCase();
+        return (
+            (booking.seller && booking.seller.name && booking.seller.name.toLowerCase().includes(search)) ||
+            (booking.buyer && booking.buyer.name && booking.buyer.name.toLowerCase().includes(search)) ||
+            (booking.project && booking.project.toLowerCase().includes(search)) ||
+            (booking.propertyNumber && booking.propertyNumber.toLowerCase().includes(search))
+        );
+    });
+
     return (
         <section className="main-content">
             <div className="page-container">
@@ -242,7 +255,7 @@ function BookingView({ onNavigate }) {
                         <i className="fas fa-file-invoice-dollar" style={{ color: '#68737d' }}></i>
                         <div>
                             <span className="working-list-label">Post Sale</span>
-                            <h1>Deals</h1>
+                            <h1>Post Sale</h1>
                         </div>
                     </div>
                     <div className="header-actions" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
@@ -301,31 +314,33 @@ function BookingView({ onNavigate }) {
                                 <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)' }}>
                                     {selectedIds.length} Selected
                                 </div>
-                                <button className="action-btn"><i className="fas fa-edit"></i> Edit</button>
-                                <button className="action-btn"><i className="fas fa-file-invoice"></i> Invoice</button>
-                                <button className="action-btn"><i className="fas fa-check-circle"></i> Approve</button>
+                                {selectedIds.length === 1 && (
+                                    <>
+                                        <button className="action-btn" title="Edit"><i className="fas fa-edit" style={{ color: '#4b5563' }}></i> Edit</button>
+                                        <button className="action-btn" title="Receipt"><i className="fas fa-receipt" style={{ color: '#0891b2' }}></i> Receipt</button>
+                                        <button className="action-btn" title="Agreement"><i className="fas fa-file-contract" style={{ color: '#0891b2' }}></i> Agreement</button>
+                                        <button className="action-btn" title="Schedule"><i className="fas fa-calendar-alt" style={{ color: '#f59e0b' }}></i> Schedule</button>
+                                    </>
+                                )}
+                                <button className="action-btn" title="View"><i className="fas fa-eye" style={{ color: '#6366f1' }}></i> View</button>
                                 <div style={{ flex: 1 }}></div>
-                                <button className="action-btn delete-btn"><i className="fas fa-trash-alt"></i> Delete</button>
+                                <button className="action-btn delete-btn" title="Delete"><i className="fas fa-trash-alt" style={{ color: '#ef4444' }}></i> Delete</button>
                             </div>
                         ) : (
                             <div style={{ display: 'flex', gap: '12px', alignItems: 'center', width: '100%' }}>
-                                <div className="search-box" style={{ flex: 1, maxWidth: '400px', position: 'relative' }}>
-                                    <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.85rem' }}></i>
+                                <div style={{ position: 'relative', width: '400px' }}>
                                     <input
                                         type="text"
-                                        placeholder="Search bookings by name, project, or unit..."
-                                        style={{
-                                            width: '100%',
-                                            padding: '8px 12px 8px 36px',
-                                            border: '1px solid #e2e8f0',
-                                            borderRadius: '6px',
-                                            fontSize: '0.85rem',
-                                            outline: 'none'
-                                        }}
+                                        className="search-input-premium"
+                                        placeholder="Search name, project, or unit..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        style={{ width: '100%' }}
                                     />
+                                    <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
                                 </div>
                                 <div style={{ flex: 1 }}></div>
-                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Items: {bookingData.length}</span>
+                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Items: {filteredBookings.length}</span>
                             </div>
                         )}
                     </div>
@@ -343,6 +358,7 @@ function BookingView({ onNavigate }) {
                         <div>Amount</div>
                         <div>Commission</div>
                         <div>Followup & Remarks</div>
+                        <div>Actions</div>
                     </div>
 
                     {/* Booking List */}
@@ -567,11 +583,40 @@ function BookingView({ onNavigate }) {
                                         </div>
                                     </div>
                                 </div>
+
+                                {/* Actions Column */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px' }}>
+                                    <button className="action-btn" style={{ fontSize: '0.65rem', padding: '4px 8px', borderColor: '#0891b2', color: '#0891b2' }} title="Receipt">
+                                        <i className="fas fa-receipt" style={{ marginRight: '4px' }}></i>Receipt
+                                    </button>
+                                    <button className="action-btn" style={{ fontSize: '0.65rem', padding: '4px 8px', borderColor: '#0891b2', color: '#0891b2' }} title="Agreement">
+                                        <i className="fas fa-file-contract" style={{ marginRight: '4px' }}></i>Agreement
+                                    </button>
+                                    <button className="action-btn" style={{ fontSize: '0.65rem', padding: '4px 8px', borderColor: '#10b981', color: '#10b981' }} title="Add Payment">
+                                        <i className="fas fa-plus-circle" style={{ marginRight: '4px' }}></i>Add Payment
+                                    </button>
+                                    <button className="action-btn" style={{ fontSize: '0.65rem', padding: '4px 8px', borderColor: '#f59e0b', color: '#f59e0b' }} title="Payment Schedule">
+                                        <i className="fas fa-calendar-alt" style={{ marginRight: '4px' }}></i>Payment Schedule
+                                    </button>
+                                    <button className="action-btn" style={{ fontSize: '0.65rem', padding: '4px 8px', borderColor: '#4b5563', color: '#4b5563' }} title="Edit">
+                                        <i className="fas fa-edit" style={{ marginRight: '4px' }}></i>Edit
+                                    </button>
+                                    <button
+                                        className="action-btn"
+                                        style={{ fontSize: '0.65rem', padding: '4px 8px', borderColor: '#6366f1', color: '#6366f1' }}
+                                        title="View"
+                                        onClick={() => {
+                                            setViewedBooking(booking);
+                                            setIsViewModalOpen(true);
+                                        }}
+                                    >
+                                        <i className="fas fa-eye" style={{ marginRight: '4px' }}></i>View
+                                    </button>
+                                </div>
                             </div>
                         ))}
                     </div>
 
-                    {/* Summary Footer */}
                     {/* Summary Footer */}
                     <div className="list-footer" style={{
                         padding: '15px 2rem',
@@ -612,17 +657,123 @@ function BookingView({ onNavigate }) {
                             <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#64748b' }}>₹0</div>
                         </div>
 
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Tot. Tax</div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#64748b' }}>₹0</div>
-                        </div>
-
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginLeft: 'auto' }}>
                             <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Balance</div>
                             <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#dc2626' }}>₹{totalPending.toLocaleString('en-IN')}</div>
                         </div>
                     </div>
                 </div>
+
+                {/* View Details Modal */}
+                {isViewModalOpen && viewedBooking && (
+                    <div className="modal-overlay" style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: 'rgba(0, 0, 0, 0.5)',
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        zIndex: 2000,
+                        backdropFilter: 'blur(4px)'
+                    }}>
+                        <div className="modal-content" style={{
+                            background: '#fff',
+                            borderRadius: '12px',
+                            width: '90%',
+                            maxWidth: '600px',
+                            maxHeight: '85vh',
+                            overflowY: 'auto',
+                            padding: '1.5rem',
+                            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                            position: 'relative',
+                            animation: 'modalIn 0.3s ease-out'
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #f1f5f9', paddingBottom: '15px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{ width: '40px', height: '40px', background: '#eff6ff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <i className="fas fa-file-invoice-dollar" style={{ color: '#3b82f6' }}></i>
+                                    </div>
+                                    <div>
+                                        <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
+                                            Booking Overview
+                                        </h2>
+                                        <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '2px 0 0' }}>Ref: {viewedBooking.formNumber}</p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => setIsViewModalOpen(false)}
+                                    style={{ border: 'none', background: '#f1f5f9', width: '30px', height: '30px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', cursor: 'pointer', transition: 'all 0.2s' }}
+                                    onMouseEnter={(e) => { e.currentTarget.style.background = '#fee2e2'; e.currentTarget.style.color = '#ef4444'; }}
+                                    onMouseLeave={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#64748b'; }}
+                                >
+                                    <i className="fas fa-times"></i>
+                                </button>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
+                                <button className="btn-primary" style={{ flex: 1, padding: '12px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.85rem' }}>
+                                    <i className="fas fa-calendar-alt"></i>View Schedule
+                                </button>
+                                <button className="btn-primary" style={{ flex: 1, padding: '12px', borderRadius: '10px', background: '#0891b2', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.85rem' }}>
+                                    <i className="fas fa-money-check-alt"></i>View Payment
+                                </button>
+                            </div>
+
+                            <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                <h3 style={{ fontSize: '0.8rem', fontWeight: 800, color: '#475569', marginBottom: '15px', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div style={{ width: '4px', height: '14px', background: '#3b82f6', borderRadius: '2px' }}></div>
+                                    Transaction Details
+                                </h3>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' }}>
+                                    <div>
+                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, marginBottom: '4px' }}>BUYER DETAILS</div>
+                                        <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{viewedBooking.buyer.name}</div>
+                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{viewedBooking.buyer.mobile}</div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, marginBottom: '4px' }}>SELLER DETAILS</div>
+                                        <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{viewedBooking.seller.name}</div>
+                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{viewedBooking.seller.mobile}</div>
+                                    </div>
+                                    <div style={{ gridColumn: 'span 2' }}>
+                                        <div style={{ width: '100%', height: '1px', background: '#e2e8f0', margin: '5px 0' }}></div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, marginBottom: '4px' }}>PROPERTY & PROJECT</div>
+                                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{viewedBooking.project}</div>
+                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{viewedBooking.propertyNumber} ({viewedBooking.block})</div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, marginBottom: '4px' }}>DEAL VALUE</div>
+                                        <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#10b981' }}>{viewedBooking.price}</div>
+                                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Plan: {viewedBooking.paymentPlan}</div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, marginBottom: '4px' }}>AGENT/EXECUTIVE</div>
+                                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{viewedBooking.executive}</div>
+                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Agent: {viewedBooking.agentName}</div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, marginBottom: '4px' }}>FINANCIAL SUMMARY</div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Received:</span>
+                                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0891b2' }}>{viewedBooking.paymentReceived}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Pending:</span>
+                                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#dc2626' }}>{viewedBooking.paymentPending}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </section>
     );

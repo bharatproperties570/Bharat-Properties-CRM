@@ -138,6 +138,17 @@ function DealsView() {
         }
     ];
 
+    const filteredDeals = dealsData.filter(deal => {
+        const search = searchTerm.toLowerCase();
+        return (
+            (deal.id && deal.id.toLowerCase().includes(search)) ||
+            (deal.owner && deal.owner.name && deal.owner.name.toLowerCase().includes(search)) ||
+            (deal.location && deal.location.toLowerCase().includes(search)) ||
+            (deal.propertyType && deal.propertyType.toLowerCase().includes(search)) ||
+            (deal.assigned && deal.assigned.toLowerCase().includes(search))
+        );
+    });
+
     const toggleSelect = (id) => {
         if (selectedIds.includes(id)) {
             setSelectedIds(selectedIds.filter(v => v !== id));
@@ -214,20 +225,20 @@ function DealsView() {
                             </div>
                         ) : (
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                                <div className="search-panel" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                    <div style={{ position: 'relative' }}>
-                                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.9rem' }}></i>
-                                        <input
-                                            type="text"
-                                            placeholder="Search deals by ID, property or owner..."
-                                            value={searchTerm}
-                                            onChange={(e) => setSearchTerm(e.target.value)}
-                                            style={{ width: '380px', padding: '10px 12px 10px 40px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem', outline: 'none', transition: 'all 0.2s' }}
-                                        />
-                                    </div>
+                                <div style={{ position: 'relative', width: '380px' }}>
+                                    <input
+                                        type="text"
+                                        className="search-input-premium"
+                                        placeholder="Search deals by ID, property or owner..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        style={{ width: '100%' }}
+                                    />
+                                    <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
                                 </div>
                                 <div className="toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                                     <div className="pagination-nums" style={{ display: 'flex', gap: '8px' }}>
+                                        <span style={{ fontSize: '0.8rem', color: '#64748b', marginRight: '10px' }}>Items: {filteredDeals.length}</span>
                                         <span className="page-num active">1</span>
                                         <span className="page-num">2</span>
                                         <span className="page-num">Next</span>
@@ -257,7 +268,7 @@ function DealsView() {
                     {currentView === 'list' ? (
                         <div className="list-content" style={{ background: '#fafbfc' }}>
                             <div className="list-group">
-                                {dealsData.map((deal, index) => (<div key={deal.id} className="list-item deals-list-grid" style={{ padding: '18px 1.5rem', borderBottom: '1px solid #e2e8f0', transition: 'all 0.2s ease', background: '#fff', marginBottom: '2px' }}>
+                                {filteredDeals.map((deal, index) => (<div key={deal.id} className="list-item deals-list-grid" style={{ padding: '18px 1.5rem', borderBottom: '1px solid #e2e8f0', transition: 'all 0.2s ease', background: '#fff', marginBottom: '2px' }}>
                                     <input
                                         type="checkbox"
                                         className="item-check"
@@ -384,25 +395,24 @@ function DealsView() {
                                 <div style={{ padding: '15px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
                                     <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
                                         <i className="fas fa-map-pin" style={{ color: '#ef4444', marginRight: '6px' }}></i>
-                                        Deals by Location ({dealsData.length})
+                                        Deals by Location ({filteredDeals.length})
                                     </div>
-                                    <input
-                                        type="text"
-                                        placeholder="Search deals by ID, property or owner..."
-                                        style={{
-                                            width: '100%',
-                                            padding: '8px 12px',
-                                            border: '1px solid #e2e8f0',
-                                            borderRadius: '6px',
-                                            fontSize: '0.8rem',
-                                            outline: 'none'
-                                        }}
-                                    />
+                                    <div style={{ position: 'relative' }}>
+                                        <input
+                                            type="text"
+                                            className="search-input-premium"
+                                            placeholder="Filter deals..."
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                            style={{ width: '100%', padding: '8px 12px 8px 35px', fontSize: '0.8rem' }}
+                                        />
+                                        <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`} style={{ fontSize: '0.75rem', left: '10px' }}></i>
+                                    </div>
                                 </div>
                                 <div style={{ flex: 1, overflowY: 'auto' }}>
-                                    {dealsData.map((deal, idx) => (
+                                    {filteredDeals.map((deal, idx) => (
                                         <div
-                                            key={idx}
+                                            key={deal.id}
                                             style={{
                                                 padding: '12px 15px',
                                                 borderBottom: '1px solid #f1f5f9',

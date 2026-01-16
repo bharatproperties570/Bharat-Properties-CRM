@@ -4,10 +4,18 @@ import { getInitials, getSourceBadgeClass } from '../utils/helpers';
 
 function ContactsView() {
     const [selectedIds, setSelectedIds] = useState([]);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    // Filtering logic
+    const filteredContacts = contactData.filter(contact =>
+        contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        contact.mobile.includes(searchTerm) ||
+        (contact.email && contact.email.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
 
     // Grouping Logic
     const groups = {};
-    contactData.forEach(c => {
+    filteredContacts.forEach(c => {
         if (!groups[c.group]) groups[c.group] = [];
         groups[c.group].push(c);
     });
@@ -69,12 +77,19 @@ function ContactsView() {
                             </div>
                         ) : (
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                                <div style={{ position: 'relative' }}>
-                                    <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.85rem' }}></i>
-                                    <input type="text" placeholder="Search by name or phone..." style={{ width: '350px', padding: '8px 12px 8px 40px', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: '0.85rem' }} />
+                                <div style={{ position: 'relative', width: '350px' }}>
+                                    <input
+                                        type="text"
+                                        className="search-input-premium"
+                                        placeholder="Search by name, phone or email..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        style={{ width: '100%' }}
+                                    />
+                                    <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
                                 </div>
                                 <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                                    Total Records: <strong>{totalCount}</strong>
+                                    Showing: <strong>{filteredContacts.length}</strong> / <strong>{totalCount}</strong>
                                 </div>
                             </div>
                         )}

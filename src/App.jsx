@@ -12,9 +12,11 @@ import ActivitiesView from './views/ActivitiesView';
 import BookingView from './views/BookingView';
 import AccountView from './views/AccountView';
 import CommunicationView from './views/CommunicationView';
+import ReportsView from './views/ReportsView';
+import DashboardView from './views/DashboardView';
 
 function App() {
-    const [currentView, setCurrentView] = useState('leads'); // leads | contacts | marketing | wizard
+    const [currentView, setCurrentView] = useState('dashboard'); // leads | contacts | marketing | wizard | dashboard
 
     const renderView = () => {
         switch (currentView) {
@@ -40,8 +42,12 @@ function App() {
                 return <AccountView onNavigate={setCurrentView} />;
             case 'communication':
                 return <CommunicationView />;
+            case 'reports':
+                return <ReportsView />;
+            case 'dashboard':
+                return <DashboardView />;
             default:
-                return <LeadsView />;
+                return <DashboardView />;
         }
     };
 
