@@ -299,7 +299,7 @@ function DealsView() {
                                     <div className="super-cell">
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
                                             <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem' }}></i>
-                                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{deal.location}</span>
+                                            <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{deal.location}</span>
                                         </div>
                                         {deal.projectName && (
                                             <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px' }}>
@@ -328,7 +328,7 @@ function DealsView() {
 
                                     {/* Col 6: Owner Details */}
                                     <div className="super-cell" style={{ background: '#fefce8', padding: '8px', borderRadius: '6px', borderLeft: '3px solid #eab308' }}>
-                                        <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.8rem', marginBottom: '4px' }}>{deal.owner.name}</div>
+                                        <div className="text-ellipsis" style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.8rem', marginBottom: '4px' }}>{deal.owner.name}</div>
                                         <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600, marginBottom: '2px' }}>
                                             <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>{deal.owner.phone}
                                         </div>
@@ -363,7 +363,7 @@ function DealsView() {
 
                                     {/* Col 9: Interaction (Remarks + Follow Up) */}
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                        <div style={{ fontSize: '0.75rem', color: deal.remarks ? '#334155' : '#94a3b8', fontStyle: deal.remarks ? 'italic' : 'normal' }}>
+                                        <div className="address-clamp" style={{ fontSize: '0.75rem', color: deal.remarks ? '#334155' : '#94a3b8', fontStyle: deal.remarks ? 'italic' : 'normal' }}>
                                             {deal.remarks || '--'}
                                         </div>
                                         {deal.followUp && (

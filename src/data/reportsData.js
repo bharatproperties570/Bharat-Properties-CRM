@@ -186,6 +186,11 @@ export const reportsData = {
             { id: 2, title: 'Payment Reminder', target: 'Rohan Verma', time: '11:45 AM', status: 'due' }
         ],
         siteVisits: [{ id: 1, target: 'Sector 5 Plot', client: 'Suresh Raina', time: '04:00 PM' }],
+        meetings: [
+            { id: 1, title: 'Project Sync', client: 'Internal Team', time: '11:00 AM', platform: 'Zoom', color: '#2D8CFF' },
+            { id: 2, title: 'Price Negotiation', client: 'Rajesh Mittal', time: '01:30 PM', platform: 'In-Person', color: '#10b981' },
+            { id: 3, title: 'Lead Pitch', client: 'Sunita Williams', time: '03:00 PM', platform: 'Google Meet', color: '#00ac47' }
+        ],
         recentActivity: [{ id: 1, user: 'Suraj', action: 'Met', target: 'Karan Mehra', time: '09:00 AM' }]
     },
     communication: { avgDurationGauge: 72 }

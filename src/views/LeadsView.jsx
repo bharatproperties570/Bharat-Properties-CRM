@@ -144,11 +144,11 @@ function LeadsView() {
                                                 {c.score.val}
                                             </div>
                                             <div>
-                                                <a href="#" className="primary-text" style={{ color: '#0f172a', fontWeight: 800, fontSize: '0.95rem', textDecoration: 'none' }}>{c.name}</a>
+                                                <a href="#" className="primary-text text-ellipsis" style={{ color: '#0f172a', fontWeight: 800, fontSize: '0.95rem', textDecoration: 'none', display: 'block' }}>{c.name}</a>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '3px' }}>
                                                     <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}><i className="fas fa-mobile-alt" style={{ marginRight: '6px', width: '12px' }}></i>{c.mobile}</div>
-                                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}><i className="fas fa-envelope" style={{ marginRight: '6px', width: '12px' }}></i>{c.name.split(' ')[0].toLowerCase()}@gmail.com</div>
-                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontStyle: 'italic' }}>Software Engineer</div>
+                                                    <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#64748b' }}><i className="fas fa-envelope" style={{ marginRight: '6px', width: '12px' }}></i>{c.name.split(' ')[0].toLowerCase()}@gmail.com</div>
+                                                    <div className="text-ellipsis" style={{ fontSize: '0.65rem', color: '#94a3b8', fontStyle: 'italic' }}>Software Engineer</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -190,7 +190,7 @@ function LeadsView() {
 
                                     <div className="col-interaction">
                                         <div style={{ lineHeight: 1.4, maxWidth: '240px' }}>
-                                            <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500, fontStyle: 'italic', marginBottom: '4px' }}>"{c.remarks}"</div>
+                                            <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500, fontStyle: 'italic', marginBottom: '4px' }}>"{c.remarks}"</div>
                                             <div style={{ color: '#27ae60', fontSize: '0.7rem', fontWeight: 700 }}>
                                                 <i className="fas fa-phone-alt" style={{ marginRight: '4px' }}></i>{c.activity} • <span style={{ color: '#64748b' }}>{c.lastAct}</span>
                                             </div>

@@ -14,6 +14,8 @@ import AccountView from './views/AccountView';
 import CommunicationView from './views/CommunicationView';
 import ReportsView from './views/ReportsView';
 import DashboardView from './views/DashboardView';
+import ProfileView from './views/ProfileView';
+import SettingsHubView from './views/SettingsHubView';
 
 function App() {
     const [currentView, setCurrentView] = useState('dashboard'); // leads | contacts | marketing | wizard | dashboard
@@ -46,6 +48,10 @@ function App() {
                 return <ReportsView />;
             case 'dashboard':
                 return <DashboardView />;
+            case 'profile':
+                return <ProfileView />;
+            case 'settings':
+                return <SettingsHubView />;
             default:
                 return <DashboardView />;
         }
@@ -58,7 +64,7 @@ function App() {
 
             {/* Main Area: Header + Views */}
             <main className="main-area">
-                <Header />
+                <Header onNavigate={setCurrentView} />
                 {renderView()}
             </main>
         </div>

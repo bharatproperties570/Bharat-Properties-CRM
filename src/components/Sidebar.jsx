@@ -116,10 +116,19 @@ function Sidebar({ currentView, onNavigate }) {
             </div>
 
             <div className="sidebar-footer">
-                <a href="#" className="sidebar-icon settings-icon" title="Settings">
+                <a
+                    href="#"
+                    className={`sidebar-icon settings-icon ${currentView === 'settings' ? 'active' : ''}`}
+                    onClick={(e) => { e.preventDefault(); onNavigate('settings'); }}
+                    title="Settings"
+                >
                     <i className="fas fa-cog"></i>
                 </a>
-                <div className="user-profile-small">
+                <div
+                    className={`user-profile-small ${currentView === 'profile' ? 'active-profile' : ''}`}
+                    onClick={() => onNavigate('profile')}
+                    style={{ cursor: 'pointer' }}
+                >
                     <img src="https://ui-avatars.com/api/?name=Suraj+Key&background=0D8ABC&color=fff" alt="User" />
                 </div>
             </div>

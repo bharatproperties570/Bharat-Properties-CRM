@@ -22,8 +22,8 @@ const DashboardView = () => {
     };
 
     return (
-        <section id="dashboardView" className="view-section active" style={{ background: '#f8fafc', minHeight: '100vh', padding: '24px 2rem' }}>
-            <div className="view-scroll-wrapper">
+        <section id="dashboardView" className="view-section active" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#f8fafc', overflow: 'hidden' }}>
+            <div className="view-scroll-wrapper" style={{ flex: 1, overflowY: 'auto', padding: '32px 2rem' }}>
 
                 {/* GLOBAL CONTROL BAR */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', background: '#fff', padding: '16px 24px', borderRadius: '24px', boxShadow: '0 4px 15px rgba(0,0,0,0.02)', border: '1px solid #f1f5f9' }}>
@@ -95,7 +95,7 @@ const DashboardView = () => {
                         </div>
 
                         {/* 3. FINANCIAL INTELLIGENCE (₹ Cr) */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
                             <div className="dashboard-card animate-in">
                                 <span className="section-label">Cash Flow Forecast (Next 120 Days)</span>
                                 <Chart
@@ -109,7 +109,7 @@ const DashboardView = () => {
                                     }}
                                     series={data.financialIntelligence.cashFlowProjection.series}
                                     type="area"
-                                    height={280}
+                                    height={300}
                                 />
                                 <p style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '10px', textAlign: 'center' }}>* Projections based on Post-Sale payment schedules and collection history.</p>
                             </div>
@@ -124,7 +124,7 @@ const DashboardView = () => {
                                     }}
                                     series={data.financialIntelligence.portfolioMix.series}
                                     type="donut"
-                                    height={280}
+                                    height={300}
                                 />
                             </div>
                         </div>
@@ -265,6 +265,36 @@ const DashboardView = () => {
                                         </button>
                                     </div>
                                 ))}
+                            </div>
+
+                            {/* SCHEDULED MEETINGS */}
+                            <div style={{ marginBottom: '32px' }}>
+                                <span className="section-label">Scheduled Meetings</span>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '12px' }}>
+                                    {data.agenda.meetings.map((meet) => (
+                                        <div key={meet.id} style={{
+                                            padding: '16px',
+                                            background: '#fff',
+                                            borderRadius: '16px',
+                                            border: '1px solid #e2e8f0',
+                                            boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                                        }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                                <div style={{ padding: '4px 8px', borderRadius: '6px', background: `${meet.color}15`, color: meet.color, fontSize: '0.65rem', fontWeight: 800 }}>
+                                                    {meet.platform}
+                                                </div>
+                                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>{meet.time}</span>
+                                            </div>
+                                            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b' }}>{meet.title}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>{meet.client}</div>
+
+                                            <div style={{ marginTop: '14px', display: 'flex', gap: '8px' }}>
+                                                <button className="btn-primary" style={{ flex: 1, padding: '8px', fontSize: '0.7rem', borderRadius: '8px' }}>Join Meet</button>
+                                                <button className="btn-outline" style={{ flex: 1, padding: '8px', fontSize: '0.7rem', borderRadius: '8px' }}>Details</button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
 
                             {/* RECENT FEED */}

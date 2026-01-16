@@ -345,10 +345,10 @@ function InventoryView() {
                                     </div>
 
                                     <div className="super-cell">
-                                        <div className="cell-value-main" style={{ fontSize: '0.85rem', fontWeight: 700, lineHeight: 1.2, color: '#0f172a' }}>{item.area}</div>
-                                        <div className="cell-value-sub" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>{item.location}</div>
+                                        <div className="cell-value-main text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, lineHeight: 1.2, color: '#0f172a' }}>{item.area}</div>
+                                        <div className="cell-value-sub text-ellipsis" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>{item.location}</div>
                                         <div style={{ marginTop: '6px' }}>
-                                            <span className="verified-badge" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800 }}>BLOCK: {item.location.split(' ')[0]}</span>
+                                            <span className="verified-badge text-ellipsis" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800, display: 'inline-block', maxWidth: '100%' }}>BLOCK: {item.location.split(' ')[0]}</span>
                                         </div>
                                     </div>
 
@@ -365,7 +365,7 @@ function InventoryView() {
                                         {item.ownerName ? (
                                             <>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-                                                    <div style={{ fontWeight: 800, color: 'var(--primary-color)', fontSize: '0.85rem' }}>{item.ownerName}</div>
+                                                    <div className="text-ellipsis" style={{ fontWeight: 800, color: 'var(--primary-color)', fontSize: '0.85rem' }}>{item.ownerName}</div>
                                                 </div>
                                                 <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px' }}>{item.ownerPhone}</div>
                                                 <div className="address-clamp" style={{ fontSize: '0.68rem', lineHeight: '1.2' }} title={item.ownerAddress}>

@@ -169,7 +169,7 @@ function CommunicationView() {
             case 'Calls':
                 data = callsData;
                 break;
-            case 'Messages':
+            case 'Messaging':
                 data = messagesData;
                 break;
             case 'Email':
@@ -246,7 +246,7 @@ function CommunicationView() {
                     {/* Main Tabs: Email, Calls, Text Messages */}
                     <div style={{ padding: '15px 2rem', background: '#fff', borderBottom: '1px solid #e2e8f0' }}>
                         <div style={{ display: 'flex', gap: '30px', borderBottom: '2px solid #e2e8f0' }}>
-                            {['Email', 'Calls', 'Messages'].map(tab => (
+                            {['Email', 'Calls', 'Messaging'].map(tab => (
                                 <button
                                     key={tab}
                                     onClick={() => setActiveTab(tab)}
