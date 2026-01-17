@@ -107,14 +107,12 @@ function CompanyView() {
                         letterSpacing: '0.5px'
                     }}>
                         <div><input type="checkbox" style={{ cursor: 'pointer' }} /></div>
-                        <div>PERSONAL DETAILS</div>
+                        <div>COMPANY NAME</div>
                         <div>ADDRESS</div>
                         <div>EMPLOYEES</div>
                         <div>CATEGORY</div>
                         <div>SOURCE</div>
-                        <div>TEAM</div>
                         <div>OWNERSHIP</div>
-                        <div>ADD ON</div>
                     </div>
 
                     {/* List Content */}
