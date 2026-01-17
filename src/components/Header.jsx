@@ -31,15 +31,24 @@ function Header({ onNavigate }) {
 
             <div className="header-right">
                 <div className="search-min">
-                    <i className="fas fa-search" style={{ fontSize: '0.8rem', color: '#68737d', marginRight: '6px' }}></i>
-                    <input type="text" placeholder="Search" />
+                    <i className="fas fa-search" style={{ fontSize: '0.9rem', color: '#68737d', marginRight: '8px' }}></i>
+                    <input type="text" placeholder="Search contacts, leads, properties..." />
                 </div>
-                <i className="fas fa-phone-alt header-icon"></i>
+
+                {/* Phone Icon - tilted left from top */}
+                <i
+                    className="fas fa-phone-alt header-icon"
+                    style={{
+                        transform: 'rotate(-15deg)',
+                        fontSize: '1.15rem'
+                    }}
+                ></i>
 
                 {/* Notification Bell */}
                 <div style={{ position: 'relative' }}>
                     <i
                         className="fas fa-bell header-icon"
+                        style={{ fontSize: '1.3rem' }}
                         onClick={() => {
                             setShowNotifications(!showNotifications);
                             setUnreadCount(0);
@@ -98,8 +107,6 @@ function Header({ onNavigate }) {
                         </div>
                     )}
                 </div>
-
-                <i className="fas fa-th header-icon"></i>
 
                 {/* Profile BP Dropdown */}
                 <div className="profile-wrapper">
