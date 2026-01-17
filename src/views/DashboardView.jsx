@@ -4,7 +4,8 @@ import { reportsData } from '../data/reportsData';
 
 const DashboardView = () => {
     const [role, setRole] = useState('owner'); // owner | agent | investor
-    const [activeSector, setActiveSector] = useState('All Sectors');
+    const [selectedTeam, setSelectedTeam] = useState('Select Team');
+    const [selectedExecutive, setSelectedExecutive] = useState('Select Executive');
     const data = reportsData;
 
     // Filter Logic for Role-Based View
@@ -29,9 +30,24 @@ const DashboardView = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', background: '#fff', padding: '16px 24px', borderRadius: '24px', boxShadow: '0 4px 15px rgba(0,0,0,0.02)', border: '1px solid #f1f5f9' }}>
                     <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
                         <div style={{ padding: '8px 16px', borderRadius: '12px', background: '#f1f5f9', fontSize: '0.85rem', fontWeight: 700, display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <i className="fas fa-filter" style={{ color: '#64748b' }}></i>
-                            <select value={activeSector} onChange={(e) => setActiveSector(e.target.value)} style={{ border: 'none', background: 'transparent', fontWeight: 700, color: '#0f172a', outline: 'none' }}>
-                                {data.filterOptions.sectors.map(s => <option key={s} value={s}>{s}</option>)}
+                            <i className="fas fa-users" style={{ color: '#64748b' }}></i>
+                            <select value={selectedTeam} onChange={(e) => setSelectedTeam(e.target.value)} style={{ border: 'none', background: 'transparent', fontWeight: 700, color: '#0f172a', outline: 'none' }}>
+                                <option value="Select Team">Select Team</option>
+                                <option value="Sales Team">Sales Team</option>
+                                <option value="Marketing Team">Marketing Team</option>
+                                <option value="Operations Team">Operations Team</option>
+                                <option value="Support Team">Support Team</option>
+                            </select>
+                        </div>
+                        <div style={{ padding: '8px 16px', borderRadius: '12px', background: '#f1f5f9', fontSize: '0.85rem', fontWeight: 700, display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <i className="fas fa-user-tie" style={{ color: '#64748b' }}></i>
+                            <select value={selectedExecutive} onChange={(e) => setSelectedExecutive(e.target.value)} style={{ border: 'none', background: 'transparent', fontWeight: 700, color: '#0f172a', outline: 'none' }}>
+                                <option value="Select Executive">Select Executive</option>
+                                <option value="Suraj Kumar">Suraj Kumar</option>
+                                <option value="Rahul Sharma">Rahul Sharma</option>
+                                <option value="Priya Gupta">Priya Gupta</option>
+                                <option value="Amit Patel">Amit Patel</option>
+                                <option value="Neha Singh">Neha Singh</option>
                             </select>
                         </div>
                         <div style={{ padding: '8px 16px', borderRadius: '12px', background: '#f1f5f9', fontSize: '0.85rem', fontWeight: 700, display: 'flex', gap: '8px', alignItems: 'center' }}>

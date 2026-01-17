@@ -39,7 +39,6 @@ function LeadsView() {
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                         <button className="btn-outline"><i className="fas fa-filter"></i> Filters</button>
-                        <button className="btn-primary">Add Lead</button>
                     </div>
                 </div>
 

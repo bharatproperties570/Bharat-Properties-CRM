@@ -76,7 +76,7 @@ function ContactsView() {
                             Sync Contacts
                         </button>
                         <button className="btn-outline">Download CSV</button>
-                        <button className="btn-primary">Add Contact</button>
+                        <button className="btn-outline"><i className="fas fa-filter"></i> Filters</button>
                     </div>
                 </div>
 

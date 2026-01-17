@@ -1,8 +1,38 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 function Header({ onNavigate }) {
     const [showNotifications, setShowNotifications] = useState(false);
     const [unreadCount, setUnreadCount] = useState(3);
+    const [profilePicture, setProfilePicture] = useState('');
+    const fileInputRef = useRef(null);
+
+    // Load profile picture from localStorage
+    useEffect(() => {
+        const savedPicture = localStorage.getItem('userProfilePicture');
+        if (savedPicture) {
+            setProfilePicture(savedPicture);
+        }
+    }, []);
+
+    // Handle profile picture upload
+    const handlePictureUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            // Check file size (max 2MB)
+            if (file.size > 2 * 1024 * 1024) {
+                alert('Image size should be less than 2MB');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = () => {
+                const base64 = reader.result;
+                setProfilePicture(base64);
+                localStorage.setItem('userProfilePicture', base64);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
 
     const notifications = [
         { id: 1, type: 'assignment', text: 'New Lead assigned to you: Ramesh Kumar', time: '2 mins ago', icon: 'fas fa-bullseye', color: '#2563eb' },
@@ -114,7 +144,34 @@ function Header({ onNavigate }) {
 
                 {/* Profile BP Dropdown */}
                 <div className="profile-wrapper">
-                    <div className="profile-circle">BP</div>
+                    <div
+                        className="profile-circle"
+                        onClick={() => fileInputRef.current?.click()}
+                        style={{ cursor: 'pointer', position: 'relative', overflow: 'hidden' }}
+                        title="Click to upload profile picture"
+                    >
+                        {profilePicture ? (
+                            <img
+                                src={profilePicture}
+                                alt="Profile"
+                                style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    borderRadius: '50%',
+                                    objectFit: 'cover'
+                                }}
+                            />
+                        ) : (
+                            'BP'
+                        )}
+                    </div>
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        accept="image/*"
+                        style={{ display: 'none' }}
+                        onChange={handlePictureUpload}
+                    />
                     <div className="profile-dropdown-content">
                         <div className="p-dropdown-header">
                             <strong>Bharat Properties</strong>
