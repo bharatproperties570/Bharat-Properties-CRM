@@ -5,7 +5,6 @@ import { getInitials } from '../utils/helpers';
 function CompanyView() {
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
-    const [activeFilter, setActiveFilter] = useState('Total Company');
 
     const toggleSelect = (id) => {
         if (selectedIds.includes(id)) {
@@ -25,9 +24,7 @@ function CompanyView() {
             company.phone.includes(searchTerm) ||
             company.address.toLowerCase().includes(searchTerm.toLowerCase());
 
-        const matchesType = activeFilter === 'Total Company' || company.type === activeFilter;
-
-        return matchesSearch && matchesType;
+        return matchesSearch;
     });
 
     const totalCount = companyData.length;
