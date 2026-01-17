@@ -228,6 +228,7 @@ function CompanyView() {
                                 }}
                                 onMouseOut={(e) => {
                                     if (!isSelected(company.id)) e.currentTarget.style.background = '#fff';
+                                    else e.currentTarget.style.background = '#f0f9ff';
                                 }}
                             >
                                 <input
