@@ -2,7 +2,7 @@ export const companyData = [
     {
         id: 1,
         name: 'Bharat Properties Private Limited',
-        type: 'Private Limited Companies',
+        type: 'Pvt Ltd',
         category: 'Real Estate Development',
         address: 'Sector 12, Kurukshetra, Haryana - 136118',
         employees: '45-60',
@@ -18,7 +18,7 @@ export const companyData = [
     {
         id: 2,
         name: 'Haryana Housing Board',
-        type: 'Government Company',
+        type: 'Govt',
         category: 'Government Housing Authority',
         address: 'Civil Lines, Panchkula, Haryana - 134109',
         employees: '200+',
@@ -34,7 +34,7 @@ export const companyData = [
     {
         id: 3,
         name: 'Alpha Realty Solutions',
-        type: 'Partnership Firm',
+        type: 'Partnership',
         category: 'Property Consultancy',
         address: 'Sector 18, Chandigarh - 160018',
         employees: '15-25',
@@ -50,7 +50,7 @@ export const companyData = [
     {
         id: 4,
         name: 'Green Valley Developers',
-        type: 'Private Limited Companies',
+        type: 'Pvt Ltd',
         category: 'Real Estate Development',
         address: 'Model Town, Panipat, Haryana - 132103',
         employees: '35-50',
@@ -66,7 +66,7 @@ export const companyData = [
     {
         id: 5,
         name: 'Municipal Corporation of Kurukshetra',
-        type: 'Government Company',
+        type: 'Govt',
         category: 'Urban Development Authority',
         address: 'Municipal Complex, Kurukshetra - 136118',
         employees: '150+',
@@ -82,7 +82,7 @@ export const companyData = [
     {
         id: 6,
         name: 'Sunrise Infra Projects',
-        type: 'Public Limited Companies',
+        type: 'Public Ltd',
         category: 'Infrastructure Development',
         address: 'Industrial Area Phase 2, Mohali - 160062',
         employees: '80-100',
@@ -98,7 +98,7 @@ export const companyData = [
     {
         id: 7,
         name: 'Royal Estates',
-        type: 'Sole Proprietorship',
+        type: 'Proprietorship',
         category: 'Luxury Real Estate',
         address: 'Sector 17, Gurgaon, Haryana - 122001',
         employees: '25-35',
@@ -114,7 +114,7 @@ export const companyData = [
     {
         id: 8,
         name: 'HSIIDC - Haryana State Industrial',
-        type: 'Government Company',
+        type: 'Govt',
         category: 'Industrial Development Corporation',
         address: 'HSIIDC Bhawan, Panchkula - 134109',
         employees: '300+',
@@ -130,7 +130,7 @@ export const companyData = [
     {
         id: 9,
         name: 'Eco Homes LLP',
-        type: 'Limited Liability Partnership',
+        type: 'LLP',
         category: 'Sustainable Housing',
         address: 'Sector 8, Karnal, Haryana - 132001',
         employees: '20-30',
@@ -146,7 +146,7 @@ export const companyData = [
     {
         id: 10,
         name: 'Build Smart OPC',
-        type: 'One-Person Companies',
+        type: 'OPC',
         category: 'Construction',
         address: 'Industrial Area, Panipat - 132103',
         employees: '5-10',
@@ -162,7 +162,7 @@ export const companyData = [
     {
         id: 11,
         name: 'Habitat for Humanity India',
-        type: 'Non-Government Organization (NGO)',
+        type: 'NGO',
         category: 'Social Housing',
         address: 'Sector 5, Chandigarh - 160047',
         employees: '40-50',
@@ -178,7 +178,7 @@ export const companyData = [
     {
         id: 12,
         name: 'Urban Development Section 8',
-        type: 'Section 8 Company',
+        type: 'Section 8',
         category: 'Community Development',
         address: 'Sector 10, Kurukshetra - 136118',
         employees: '15-20',
@@ -194,7 +194,7 @@ export const companyData = [
     {
         id: 13,
         name: 'Indo-Japan Real Estate JV',
-        type: 'Joint Venture Company',
+        type: 'JV',
         category: 'International Real Estate',
         address: 'Cyber City, Gurgaon - 122002',
         employees: '60-80',
@@ -210,16 +210,16 @@ export const companyData = [
 ];
 
 export const companyTypes = [
-    'Sole Proprietorship',
-    'Partnership Firm',
-    'Limited Liability Partnership',
-    'Private Limited Companies',
-    'Public Limited Companies',
-    'One-Person Companies',
-    'Section 8 Company',
-    'Joint Venture Company',
-    'Government Company',
-    'Non-Government Organization (NGO)'
+    'Proprietorship',
+    'Partnership',
+    'LLP',
+    'Pvt Ltd',
+    'Public Ltd',
+    'OPC',
+    'Section 8',
+    'JV',
+    'Govt',
+    'NGO'
 ];
 
 export const companyCategories = [
