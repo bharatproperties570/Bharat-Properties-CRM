@@ -39,7 +39,7 @@ function Header({ onNavigate }) {
                 <i
                     className="fas fa-phone-alt header-icon"
                     style={{
-                        transform: 'scaleX(-1) rotate(15deg)',
+                        transform: 'scaleX(-1) rotate(5deg)',
                         fontSize: '1.15rem'
                     }}
                 ></i>
