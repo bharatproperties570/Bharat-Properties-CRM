@@ -179,7 +179,7 @@ function CompanyView() {
                                         </button>
                                     </div>
                                 </div>
-                            </>
+                            </div>
                         )}
                     </div>
 
