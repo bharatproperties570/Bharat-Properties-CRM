@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import contactSyncManager from '../services/contactSyncManager';
 
 const ConnectionModal = ({ type, onClose, onConnect }) => {
     const [config, setConfig] = useState({
@@ -303,6 +304,94 @@ const IntegrationsSettingsView = () => {
         setActiveModal(null);
     };
 
+    // Contact Sync State
+    const [syncConfig, setSyncConfig] = useState({
+        autoSync: true,
+        google: { enabled: false, connected: false },
+        apple: { enabled: false, connected: false }
+    });
+    const [showGoogleConfig, setShowGoogleConfig] = useState(false);
+    const [showAppleConfig, setShowAppleConfig] = useState(false);
+    const [googleCredentials, setGoogleCredentials] = useState({
+        clientId: '',
+        apiKey: ''
+    });
+    const [appleCredentials, setAppleCredentials] = useState({
+        username: '',
+        appPassword: ''
+    });
+
+    // Load sync status on mount
+    useEffect(() => {
+        const status = contactSyncManager.getSyncStatus();
+        setSyncConfig({
+            autoSync: status.autoSync,
+            google: {
+                enabled: status.providers.google.enabled,
+                connected: status.providers.google.connected
+            },
+            apple: {
+                enabled: status.providers.apple.enabled,
+                connected: status.providers.apple.connected
+            }
+        });
+    }, []);
+
+    // Handle Google Connect
+    const handleGoogleConnect = async () => {
+        try {
+            await contactSyncManager.initializeProvider('google', googleCredentials);
+            const result = await contactSyncManager.signIn('google');
+
+            if (result.success) {
+                setSyncConfig(prev => ({
+                    ...prev,
+                    google: { enabled: true, connected: true }
+                }));
+                setShowGoogleConfig(false);
+                alert('✅ Google Contacts connected successfully!');
+            } else {
+                alert('❌ Failed to connect: ' + result.error);
+            }
+        } catch (error) {
+            alert('❌ Error: ' + error.message);
+        }
+    };
+
+    // Handle Apple Connect
+    const handleAppleConnect = async () => {
+        try {
+            await contactSyncManager.initializeProvider('apple', appleCredentials);
+            await contactSyncManager.signIn('apple');
+
+            setSyncConfig(prev => ({
+                ...prev,
+                apple: { enabled: true, connected: true }
+            }));
+            setShowAppleConfig(false);
+            alert('✅ Apple Contacts connected successfully!');
+        } catch (error) {
+            alert('❌ Error: ' + error.message);
+        }
+    };
+
+    // Handle Disconnect
+    const handleDisconnect = async (provider) => {
+        await contactSyncManager.signOut(provider);
+        setSyncConfig(prev => ({
+            ...prev,
+            [provider]: { enabled: false, connected: false }
+        }));
+        alert(`Disconnected from ${provider === 'google' ? 'Google' : 'Apple'} Contacts`);
+    };
+
+    // Handle Auto-Sync Toggle
+    const handleAutoSyncToggle = () => {
+        const newValue = !syncConfig.autoSync;
+        contactSyncManager.setAutoSync(newValue);
+        setSyncConfig(prev => ({ ...prev, autoSync: newValue }));
+    };
+
     return (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#fff', overflow: 'hidden' }}>
             <div style={{ padding: '32px 40px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -352,6 +441,240 @@ const IntegrationsSettingsView = () => {
                                 </div>
                             </div>
                         ))}
+
+                        {/* Contact Sync Section */}
+                        <div style={{ gridColumn: '1 / -1', marginTop: '40px' }}>
+                            <div style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', borderRadius: '16px', padding: '32px', color: '#fff', marginBottom: '24px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div>
+                                        <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                            <i className="fas fa-sync-alt"></i>
+                                            Contact Sync
+                                        </h2>
+                                        <p style={{ fontSize: '0.9rem', color: '#d1fae5', marginTop: '8px', marginBottom: 0 }}>
+                                            Automatically sync your CRM contacts with Google and Apple Contacts
+                                        </p>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <span style={{ fontSize: '0.85rem', color: '#ecfdf5' }}>Auto-Sync:</span>
+                                        <label style={{ position: 'relative', display: 'inline-block', width: '52px', height: '28px', cursor: 'pointer' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={syncConfig.autoSync}
+                                                onChange={handleAutoSyncToggle}
+                                                style={{ opacity: 0, width: 0, height: 0 }}
+                                            />
+                                            <span style={{
+                                                position: 'absolute',
+                                                cursor: 'pointer',
+                                                top: 0,
+                                                left: 0,
+                                                right: 0,
+                                                bottom: 0,
+                                                background: syncConfig.autoSync ? '#fff' : 'rgba(255,255,255,0.3)',
+                                                transition: '0.3s',
+                                                borderRadius: '28px'
+                                            }}>
+                                                <span style={{
+                                                    position: 'absolute',
+                                                    content: '""',
+                                                    height: '20px',
+                                                    width: '20px',
+                                                    left: syncConfig.autoSync ? '28px' : '4px',
+                                                    bottom: '4px',
+                                                    background: syncConfig.autoSync ? '#10b981' : '#94a3b8',
+                                                    transition: '0.3s',
+                                                    borderRadius: '50%'
+                                                }}></span>
+                                            </span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '24px' }}>
+                                {/* Google Contacts */}
+                                <div style={{ background: '#fff', border: '2px solid #e2e8f0', borderRadius: '16px', padding: '24px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+                                        <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#4285F410', color: '#4285F4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
+                                            <i className="fab fa-google"></i>
+                                        </div>
+                                        <div style={{
+                                            background: syncConfig.google.connected ? '#ecfdf5' : '#f8fafc',
+                                            color: syncConfig.google.connected ? '#059669' : '#64748b',
+                                            padding: '4px 12px',
+                                            borderRadius: '20px',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 700,
+                                            border: `1px solid ${syncConfig.google.connected ? '#d1fae5' : '#e2e8f0'}`
+                                        }}>
+                                            {syncConfig.google.connected ? '✓ CONNECTED' : 'NOT CONNECTED'}
+                                        </div>
+                                    </div>
+
+                                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Google Contacts</h3>
+                                    <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '8px', lineHeight: '1.6' }}>
+                                        Sync contacts to your Google account using People API
+                                    </p>
+
+                                    {!syncConfig.google.connected ? (
+                                        <>
+                                            {!showGoogleConfig ? (
+                                                <button
+                                                    onClick={() => setShowGoogleConfig(true)}
+                                                    style={{ marginTop: '20px', width: '100%', padding: '10px', borderRadius: '8px', border: 'none', background: '#4285F4', color: '#fff', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}
+                                                >
+                                                    <i className="fas fa-link" style={{ marginRight: '8px' }}></i>
+                                                    Connect Google
+                                                </button>
+                                            ) : (
+                                                <div style={{ marginTop: '20px', padding: '16px', background: '#f8fafc', borderRadius: '8px' }}>
+                                                    <div style={{ marginBottom: '12px' }}>
+                                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Client ID</label>
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Your Google OAuth Client ID"
+                                                            value={googleCredentials.clientId}
+                                                            onChange={(e) => setGoogleCredentials({ ...googleCredentials, clientId: e.target.value })}
+                                                            style={{ width: '100%', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem' }}
+                                                        />
+                                                    </div>
+                                                    <div style={{ marginBottom: '12px' }}>
+                                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>API Key</label>
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Your Google API Key"
+                                                            value={googleCredentials.apiKey}
+                                                            onChange={(e) => setGoogleCredentials({ ...googleCredentials, apiKey: e.target.value })}
+                                                            style={{ width: '100%', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem' }}
+                                                        />
+                                                    </div>
+                                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                                        <button
+                                                            onClick={handleGoogleConnect}
+                                                            style={{ flex: 1, padding: '8px', borderRadius: '6px', border: 'none', background: '#4285F4', color: '#fff', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}
+                                                        >
+                                                            Authorize
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setShowGoogleConfig(false)}
+                                                            style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: '0.85rem', cursor: 'pointer' }}
+                                                        >
+                                                            Cancel
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <div style={{ marginTop: '20px', display: 'flex', gap: '8px' }}>
+                                            <button style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', color: '#1e293b', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>
+                                                <i className="fas fa-cog" style={{ marginRight: '8px' }}></i>
+                                                Settings
+                                            </button>
+                                            <button
+                                                onClick={() => handleDisconnect('google')}
+                                                style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #fee2e2', background: '#fff', color: '#dc2626', fontSize: '0.85rem', cursor: 'pointer' }}
+                                            >
+                                                <i className="fas fa-unlink"></i>
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Apple Contacts */}
+                                <div style={{ background: '#fff', border: '2px solid #e2e8f0', borderRadius: '16px', padding: '24px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+                                        <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#94a3b810', color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
+                                            <i className="fab fa-apple"></i>
+                                        </div>
+                                        <div style={{
+                                            background: syncConfig.apple.connected ? '#ecfdf5' : '#f8fafc',
+                                            color: syncConfig.apple.connected ? '#059669' : '#64748b',
+                                            padding: '4px 12px',
+                                            borderRadius: '20px',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 700,
+                                            border: `1px solid ${syncConfig.apple.connected ? '#d1fae5' : '#e2e8f0'}`
+                                        }}>
+                                            {syncConfig.apple.connected ? '✓ CONNECTED' : 'NOT CONNECTED'}
+                                        </div>
+                                    </div>
+
+                                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Apple Contacts</h3>
+                                    <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '8px', lineHeight: '1.6' }}>
+                                        Sync contacts to iCloud using CardDAV protocol
+                                    </p>
+
+                                    {!syncConfig.apple.connected ? (
+                                        <>
+                                            {!showAppleConfig ? (
+                                                <button
+                                                    onClick={() => setShowAppleConfig(true)}
+                                                    style={{ marginTop: '20px', width: '100%', padding: '10px', borderRadius: '8px', border: 'none', background: '#64748b', color: '#fff', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}
+                                                >
+                                                    <i className="fas fa-link" style={{ marginRight: '8px' }}></i>
+                                                    Connect Apple
+                                                </button>
+                                            ) : (
+                                                <div style={{ marginTop: '20px', padding: '16px', background: '#f8fafc', borderRadius: '8px' }}>
+                                                    <div style={{ marginBottom: '12px', padding: '8px', background: '#fef3c7', borderRadius: '6px', fontSize: '0.7rem', color: '#92400e', lineHeight: '1.4' }}>
+                                                        <strong>Note:</strong> Use an app-specific password, not your regular Apple ID password. Generate one at appleid.apple.com
+                                                    </div>
+                                                    <div style={{ marginBottom: '12px' }}>
+                                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Apple ID Email</label>
+                                                        <input
+                                                            type="email"
+                                                            placeholder="your.email@icloud.com"
+                                                            value={appleCredentials.username}
+                                                            onChange={(e) => setAppleCredentials({ ...appleCredentials, username: e.target.value })}
+                                                            style={{ width: '100%', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem' }}
+                                                        />
+                                                    </div>
+                                                    <div style={{ marginBottom: '12px' }}>
+                                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>App-Specific Password</label>
+                                                        <input
+                                                            type="password"
+                                                            placeholder="xxxx-xxxx-xxxx-xxxx"
+                                                            value={appleCredentials.appPassword}
+                                                            onChange={(e) => setAppleCredentials({ ...appleCredentials, appPassword: e.target.value })}
+                                                            style={{ width: '100%', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem' }}
+                                                        />
+                                                    </div>
+                                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                                        <button
+                                                            onClick={handleAppleConnect}
+                                                            style={{ flex: 1, padding: '8px', borderRadius: '6px', border: 'none', background: '#64748b', color: '#fff', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}
+                                                        >
+                                                            Connect
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setShowAppleConfig(false)}
+                                                            style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: '0.85rem', cursor: 'pointer' }}
+                                                        >
+                                                            Cancel
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <div style={{ marginTop: '20px', display: 'flex', gap: '8px' }}>
+                                            <button style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', color: '#1e293b', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>
+                                                <i className="fas fa-cog" style={{ marginRight: '8px' }}></i>
+                                                Settings
+                                            </button>
+                                            <button
+                                                onClick={() => handleDisconnect('apple')}
+                                                style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #fee2e2', background: '#fff', color: '#dc2626', fontSize: '0.85rem', cursor: 'pointer' }}
+                                            >
+                                                <i className="fas fa-unlink"></i>
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
 
                         {/* Custom Webhook Card */}
                         <div style={{ background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', borderRadius: '16px', padding: '24px', color: '#fff', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }}>
