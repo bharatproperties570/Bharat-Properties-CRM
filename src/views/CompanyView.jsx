@@ -84,7 +84,7 @@ function CompanyView() {
                                 </div>
                             </div>
                         ) : (
-                            <>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '15px' }}>
                                 <div style={{ position: 'relative', flex: 1, maxWidth: '500px' }}>
                                     <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.85rem' }}></i>
                                     <input
