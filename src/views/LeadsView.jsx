@@ -6,6 +6,8 @@ import { getInitials } from '../utils/helpers';
 function LeadsView() {
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [recordsPerPage, setRecordsPerPage] = useState(25);
 
     const toggleSelect = (name) => {
         if (selectedIds.includes(name)) {
@@ -24,6 +26,25 @@ function LeadsView() {
         lead.mobile.includes(searchTerm) ||
         (lead.email && lead.email.toLowerCase().includes(searchTerm.toLowerCase()))
     );
+
+    // Pagination
+    const indexOfLastRecord = currentPage * recordsPerPage;
+    const indexOfFirstRecord = indexOfLastRecord - recordsPerPage;
+    const currentRecords = filteredLeads.slice(indexOfFirstRecord, indexOfLastRecord);
+    const totalPages = Math.ceil(filteredLeads.length / recordsPerPage);
+
+    const goToNextPage = () => {
+        if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+    };
+
+    const goToPreviousPage = () => {
+        if (currentPage > 1) setCurrentPage(currentPage - 1);
+    };
+
+    const handleRecordsPerPageChange = (e) => {
+        setRecordsPerPage(Number(e.target.value));
+        setCurrentPage(1);
+    };
 
     return (
         <section id="leadsView" className="view-section active">
@@ -121,7 +142,7 @@ function LeadsView() {
 
                     {/* Data List (Div Grid) */}
                     <div id="leadListContent">
-                        {filteredLeads.map((c, idx) => {
+                        {currentRecords.map((c, idx) => {
                             // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
                             const intent = c.req.type.split(/[\s,]+/)[0];
                             const propertyType = c.req.type.replace(intent, '').replace(/^[\s,]+/, '');

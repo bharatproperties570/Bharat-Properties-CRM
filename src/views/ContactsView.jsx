@@ -37,13 +37,6 @@ function ContactsView() {
         (contact.email && contact.email.toLowerCase().includes(searchTerm.toLowerCase()))
     );
 
-    // Grouping Logic
-    const groups = {};
-    filteredContacts.forEach(c => {
-        if (!groups[c.group]) groups[c.group] = [];
-        groups[c.group].push(c);
-    });
-
     // Selection Handling
     const toggleSelect = (mobile) => {
         if (selectedIds.includes(mobile)) {
