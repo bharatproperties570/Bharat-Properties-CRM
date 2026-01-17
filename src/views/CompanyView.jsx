@@ -125,7 +125,7 @@ function CompanyView() {
                                 className="list-item"
                                 style={{
                                     display: 'grid',
-                                    gridTemplateColumns: '40px 2fr 1.5fr 1fr 1fr 1fr 1.5fr',
+                                    gridTemplateColumns: '40px 2fr 1.5fr 1fr 1fr 1fr 1fr',
                                     padding: '16px 2rem',
                                     borderBottom: '1px solid #f1f5f9',
                                     alignItems: 'center',
@@ -212,20 +212,10 @@ function CompanyView() {
                                     </span>
                                 </div>
 
-                                {/* Team / Ownership / Date */}
-                                <div style={{ fontSize: '0.75rem', lineHeight: 1.6 }}>
-                                    <div style={{ color: '#0f172a', fontWeight: 700 }}>
-                                        <i className="fas fa-users" style={{ marginRight: '6px', color: '#64748b', fontSize: '0.7rem' }}></i>
-                                        {company.team}
-                                    </div>
-                                    <div style={{ color: '#64748b', marginTop: '4px' }}>
-                                        <i className="fas fa-user" style={{ marginRight: '6px', fontSize: '0.7rem' }}></i>
-                                        {company.ownership}
-                                    </div>
-                                    <div style={{ color: '#94a3b8', fontWeight: 600, marginTop: '4px', fontSize: '0.7rem' }}>
-                                        <i className="far fa-calendar" style={{ marginRight: '6px' }}></i>
-                                        {company.addedOn}
-                                    </div>
+                                {/* Ownership */}
+                                <div style={{ fontSize: '0.75rem', color: '#0f172a', fontWeight: 600 }}>
+                                    <i className="fas fa-user" style={{ marginRight: '6px', color: '#64748b', fontSize: '0.7rem' }}></i>
+                                    {company.ownership}
                                 </div>
                             </div>
                         ))}
