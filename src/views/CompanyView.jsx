@@ -91,37 +91,6 @@ function CompanyView() {
                         )}
                     </div>
 
-                    {/* Summary Pills */}
-                    <div style={{ padding: '15px 2rem', display: 'flex', gap: '16px', background: '#fafbfc', borderBottom: '1px solid #eef2f5' }}>
-                        {companyTypes.map(type => {
-                            const count = type === 'Total Company'
-                                ? companyData.length
-                                : companyData.filter(c => c.type === type).length;
-                            return (
-                                <div
-                                    key={type}
-                                    onClick={() => setActiveFilter(type)}
-                                    style={{
-                                        padding: '8px 16px',
-                                        background: activeFilter === type ? 'var(--primary-color)' : '#fff',
-                                        color: activeFilter === type ? '#fff' : '#475569',
-                                        borderRadius: '20px',
-                                        fontSize: '0.8rem',
-                                        fontWeight: 700,
-                                        cursor: 'pointer',
-                                        transition: 'all 0.2s',
-                                        border: `2px solid ${activeFilter === type ? 'var(--primary-color)' : '#e2e8f0'}`,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '8px'
-                                    }}
-                                >
-                                    {type} <span style={{ opacity: 0.8 }}>({count})</span>
-                                </div>
-                            );
-                        })}
-                    </div>
-
                     {/* List Header - Dark */}
                     <div className="list-header" style={{
                         position: 'sticky',
