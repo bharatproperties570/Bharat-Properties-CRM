@@ -107,8 +107,8 @@ function LeadsView() {
                                 </div>
                             </div>
                         ) : (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                                <div style={{ position: 'relative', width: '300px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', width: '100%' }}>
+                                <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
                                     <input
                                         type="text"
                                         className="search-input-premium"
@@ -119,10 +119,76 @@ function LeadsView() {
                                     />
                                     <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
                                 </div>
-                                <div style={{ fontSize: '0.8rem', color: '#666' }}>
-                                    Items: <strong>{filteredLeads.length}</strong> <span style={{ margin: '0 8px', color: '#ccc' }}>|</span>
-                                    <span style={{ background: '#e3f2fd', color: '#1976d2', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>1</span>
-                                    2 3 Next
+
+                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                    Items: <strong>{filteredLeads.length}</strong> / <strong>{totalCount}</strong>
+                                </div>
+
+                                {/* Records Per Page */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#64748b' }}>
+                                    <span>Show:</span>
+                                    <select
+                                        value={recordsPerPage}
+                                        onChange={handleRecordsPerPageChange}
+                                        style={{
+                                            padding: '4px 8px',
+                                            border: '1px solid #e2e8f0',
+                                            borderRadius: '6px',
+                                            fontSize: '0.8rem',
+                                            fontWeight: 600,
+                                            color: '#0f172a',
+                                            outline: 'none',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        <option value={10}>10</option>
+                                        <option value={25}>25</option>
+                                        <option value={50}>50</option>
+                                        <option value={100}>100</option>
+                                        <option value={300}>300</option>
+                                        <option value={500}>500</option>
+                                        <option value={700}>700</option>
+                                        <option value={1000}>1000</option>
+                                    </select>
+                                </div>
+
+                                {/* Pagination Controls */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <button
+                                        onClick={goToPreviousPage}
+                                        disabled={currentPage === 1}
+                                        style={{
+                                            padding: '6px 12px',
+                                            border: '1px solid #e2e8f0',
+                                            borderRadius: '6px',
+                                            background: currentPage === 1 ? '#f8fafc' : '#fff',
+                                            color: currentPage === 1 ? '#cbd5e1' : '#0f172a',
+                                            cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 600
+                                        }}
+                                    >
+                                        <i className="fas fa-chevron-left"></i> Prev
+                                    </button>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a', minWidth: '80px', textAlign: 'center' }}>
+                                        {currentPage} / {totalPages || 1}
+                                    </span>
+                                    <button
+                                        onClick={goToNextPage}
+                                        disabled={currentPage >= totalPages}
+                                        style={{
+                                            padding: '6px 12px',
+                                            border: '1px solid #e2e8f0',
+                                            borderRadius: '6px',
+                                            background: currentPage >= totalPages ? '#f8fafc' : '#fff',
+                                            color: currentPage >= totalPages ? '#cbd5e1' : '#0f172a',
+                                            cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 600
+                                        }}
+                                    >
+                                        Next <i className="fas fa-chevron-right"></i>
+                                    </button>
                                 </div>
                             </div>
                         )}
