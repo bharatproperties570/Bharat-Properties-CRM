@@ -107,7 +107,7 @@ function LeadsView() {
                                 </div>
                             </div>
                         ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', width: '100%' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '15px' }}>
                                 <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
                                     <input
                                         type="text"
