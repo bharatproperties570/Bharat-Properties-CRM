@@ -35,20 +35,23 @@ function Header({ onNavigate }) {
                     <input type="text" placeholder="Search contacts, leads, properties..." />
                 </div>
 
-                {/* Phone Icon - tilted left from top */}
+                {/* Phone Icon - left hand position */}
                 <i
                     className="fas fa-phone-alt header-icon"
                     style={{
-                        transform: 'rotate(-15deg)',
+                        transform: 'scaleX(-1) rotate(15deg)',
                         fontSize: '1.15rem'
                     }}
                 ></i>
 
-                {/* Notification Bell */}
+                {/* Notification Bell - Enhanced with animation */}
                 <div style={{ position: 'relative' }}>
                     <i
                         className="fas fa-bell header-icon"
-                        style={{ fontSize: '1.3rem' }}
+                        style={{
+                            fontSize: '1.4rem',
+                            animation: unreadCount > 0 ? 'bellRing 2s ease-in-out infinite' : 'none'
+                        }}
                         onClick={() => {
                             setShowNotifications(!showNotifications);
                             setUnreadCount(0);
@@ -57,14 +60,15 @@ function Header({ onNavigate }) {
                     {unreadCount > 0 && (
                         <span style={{
                             position: 'absolute',
-                            top: '4px',
-                            right: '4px',
+                            top: '2px',
+                            right: '2px',
                             background: '#ef4444',
                             color: '#fff',
                             borderRadius: '50%',
-                            width: '8px',
-                            height: '8px',
-                            border: '2px solid #fff'
+                            width: '10px',
+                            height: '10px',
+                            border: '2px solid #fff',
+                            animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
                         }}></span>
                     )}
 
