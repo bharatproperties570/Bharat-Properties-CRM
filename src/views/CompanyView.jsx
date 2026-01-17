@@ -5,6 +5,8 @@ import { getInitials } from '../utils/helpers';
 function CompanyView() {
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [recordsPerPage, setRecordsPerPage] = useState(25);
 
     const toggleSelect = (id) => {
         if (selectedIds.includes(id)) {
@@ -28,6 +30,25 @@ function CompanyView() {
     });
 
     const totalCount = companyData.length;
+
+    // Pagination
+    const indexOfLastRecord = currentPage * recordsPerPage;
+    const indexOfFirstRecord = indexOfLastRecord - recordsPerPage;
+    const currentRecords = filteredCompanies.slice(indexOfFirstRecord, indexOfLastRecord);
+    const totalPages = Math.ceil(filteredCompanies.length / recordsPerPage);
+
+    const goToNextPage = () => {
+        if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+    };
+
+    const goToPreviousPage = () => {
+        if (currentPage > 1) setCurrentPage(currentPage - 1);
+    };
+
+    const handleRecordsPerPageChange = (e) => {
+        setRecordsPerPage(Number(e.target.value));
+        setCurrentPage(1);
+    };
 
     return (
         <section id="companyView" className="view-section active">
@@ -59,7 +80,7 @@ function CompanyView() {
                                 <button className="action-btn" title="Assign Team"><i className="fas fa-users"></i> Assign</button>
                                 <button className="action-btn" title="Add Tags"><i className="fas fa-tag"></i> Tag</button>
                                 <div style={{ marginLeft: 'auto' }}>
-                                    <button className="action-btn danger" onClick={() => setSelectedIds([])}><i className="fas fa-times"></i> Cancel</button>
+                                    <button className="action-btn danger" onClick={() => setSelectedIds([])}><i className="fas fa-trash-alt"></i> Delete</button>
                                 </div>
                             </div>
                         ) : (
@@ -84,8 +105,79 @@ function CompanyView() {
                                         onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
                                     />
                                 </div>
-                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                                    Items: <strong>{filteredCompanies.length}</strong> / <strong>{totalCount}</strong>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                        Items: <strong>{filteredCompanies.length}</strong> / <strong>{totalCount}</strong>
+                                    </div>
+
+                                    {/* Records Per Page */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#64748b' }}>
+                                        <span>Show:</span>
+                                        <select
+                                            value={recordsPerPage}
+                                            onChange={handleRecordsPerPageChange}
+                                            style={{
+                                                padding: '4px 8px',
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: '6px',
+                                                fontSize: '0.8rem',
+                                                fontWeight: 600,
+                                                color: '#0f172a',
+                                                outline: 'none',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            <option value={10}>10</option>
+                                            <option value={25}>25</option>
+                                            <option value={50}>50</option>
+                                            <option value={100}>100</option>
+                                            <option value={300}>300</option>
+                                            <option value={500}>500</option>
+                                            <option value={700}>700</option>
+                                            <option value={1000}>1000</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Pagination Controls */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <button
+                                            onClick={goToPreviousPage}
+                                            disabled={currentPage === 1}
+                                            style={{
+                                                padding: '6px 12px',
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: '6px',
+                                                background: currentPage === 1 ? '#f8fafc' : '#fff',
+                                                color: currentPage === 1 ? '#cbd5e1' : '#0f172a',
+                                                cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 600,
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            <i className="fas fa-chevron-left"></i> Prev
+                                        </button>
+                                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a', minWidth: '80px', textAlign: 'center' }}>
+                                            {currentPage} / {totalPages || 1}
+                                        </span>
+                                        <button
+                                            onClick={goToNextPage}
+                                            disabled={currentPage >= totalPages}
+                                            style={{
+                                                padding: '6px 12px',
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: '6px',
+                                                background: currentPage >= totalPages ? '#f8fafc' : '#fff',
+                                                color: currentPage >= totalPages ? '#cbd5e1' : '#0f172a',
+                                                cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 600,
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            Next <i className="fas fa-chevron-right"></i>
+                                        </button>
+                                    </div>
                                 </div>
                             </>
                         )}
@@ -117,7 +209,7 @@ function CompanyView() {
 
                     {/* List Content */}
                     <div id="companyListContent" style={{ background: '#fff' }}>
-                        {filteredCompanies.map((company, idx) => (
+                        {currentRecords.map((company, idx) => (
                             <div
                                 key={company.id}
                                 className="list-item"
@@ -210,10 +302,20 @@ function CompanyView() {
                                     </span>
                                 </div>
 
-                                {/* Ownership */}
-                                <div style={{ fontSize: '0.75rem', color: '#0f172a', fontWeight: 600 }}>
-                                    <i className="fas fa-user" style={{ marginRight: '6px', color: '#64748b', fontSize: '0.7rem' }}></i>
-                                    {company.ownership}
+                                {/* Ownership / Team / Date Combined */}
+                                <div style={{ fontSize: '0.75rem', lineHeight: 1.6 }}>
+                                    <div style={{ color: '#0f172a', fontWeight: 700 }}>
+                                        <i className="fas fa-user" style={{ marginRight: '6px', color: '#64748b', fontSize: '0.7rem' }}></i>
+                                        {company.ownership}
+                                    </div>
+                                    <div style={{ color: '#64748b', marginTop: '4px', fontSize: '0.7rem' }}>
+                                        <i className="fas fa-users" style={{ marginRight: '6px', fontSize: '0.65rem' }}></i>
+                                        {company.team}
+                                    </div>
+                                    <div style={{ color: '#94a3b8', fontWeight: 600, marginTop: '4px', fontSize: '0.7rem' }}>
+                                        <i className="far fa-calendar" style={{ marginRight: '6px' }}></i>
+                                        {company.addedOn}
+                                    </div>
                                 </div>
                             </div>
                         ))}
