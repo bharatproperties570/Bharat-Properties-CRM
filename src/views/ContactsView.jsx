@@ -1,10 +1,32 @@
 import React, { useState } from 'react';
 import { contactData } from '../data/mockData';
 import { getInitials, getSourceBadgeClass } from '../utils/helpers';
+import { useContactSync } from '../hooks/useContactSync';
 
 function ContactsView() {
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
+
+    // Contact Sync Hook
+    const { getSyncStatus, syncMultipleContacts } = useContactSync();
+
+    // Handle bulk sync
+    const handleBulkSync = async () => {
+        const contactsToSync = contactData.filter(c => selectedIds.includes(c.mobile));
+        if (contactsToSync.length === 0) {
+            alert('Please select contacts to sync');
+            return;
+        }
+
+        const result = await syncMultipleContacts(contactsToSync);
+        if (result.success) {
+            const totalSynced = result.results.google.synced + result.results.apple.synced;
+            alert(`✅ Successfully synced ${totalSynced} contact(s)!`);
+            setSelectedIds([]); // Clear selection
+        } else {
+            alert('❌ Sync failed: ' + result.error);
+        }
+    };
 
     // Filtering logic
     const filteredContacts = contactData.filter(contact =>
@@ -45,6 +67,14 @@ function ContactsView() {
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                        <button
+                            className="btn-outline"
+                            onClick={handleBulkSync}
+                            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                        >
+                            <i className="fas fa-sync-alt"></i>
+                            Sync Contacts
+                        </button>
                         <button className="btn-outline">Download CSV</button>
                         <button className="btn-primary">Add Contact</button>
                     </div>
@@ -124,9 +154,35 @@ function ContactsView() {
                                                 </div>
                                                 <div>
                                                     <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.95rem' }}>{item.name}</div>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px', flexWrap: 'wrap' }}>
                                                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>{item.mobile}</span>
                                                         <span className={`source-badge ${getSourceBadgeClass(item.source)}`} style={{ fontSize: '0.65rem', padding: '1px 8px' }}>{item.source}</span>
+
+                                                        {/* Sync Status Indicators */}
+                                                        {(() => {
+                                                            const syncStatus = getSyncStatus(item);
+                                                            return (
+                                                                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                                                    {syncStatus.google.synced && (
+                                                                        <span title={`Synced to Google Contacts on ${new Date(syncStatus.google.lastSyncTime).toLocaleDateString()}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', padding: '2px 6px', background: '#4285F410', borderRadius: '4px' }}>
+                                                                            <i className="fab fa-google" style={{ color: '#4285F4', fontSize: '0.7rem' }}></i>
+                                                                            <span style={{ fontSize: '0.6rem', color: '#4285F4', fontWeight: 700 }}>G</span>
+                                                                        </span>
+                                                                    )}
+                                                                    {syncStatus.apple.synced && (
+                                                                        <span title={`Synced to Apple Contacts on ${new Date(syncStatus.apple.lastSyncTime).toLocaleDateString()}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', padding: '2px 6px', background: '#64748b10', borderRadius: '4px' }}>
+                                                                            <i className="fab fa-apple" style={{ color: '#64748b', fontSize: '0.7rem' }}></i>
+                                                                            <span style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 700 }}>A</span>
+                                                                        </span>
+                                                                    )}
+                                                                    {!syncStatus.google.synced && !syncStatus.apple.synced && (
+                                                                        <span title="Not synced to any cloud provider" style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 6px', background: '#f1f5f9', borderRadius: '4px' }}>
+                                                                            <i className="fas fa-cloud-upload-alt" style={{ color: '#cbd5e1', fontSize: '0.7rem' }}></i>
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })()}
                                                     </div>
                                                 </div>
                                             </div>
