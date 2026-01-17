@@ -694,7 +694,7 @@ function WizardPreview({ type, formData }) {
                             <div style={{ fontSize: '0.6rem', opacity: 0.8 }}>online</div>
                         </div>
                         <i className="fas fa-video"></i>
-                        <i className="fas fa-phone"></i>
+                        <i className="fas fa-phone" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i>
                     </div>
                     <div className="wa-body">
                         <div className="wa-bubble sent">

@@ -59,7 +59,7 @@ function LeadsView() {
                                 {/* Single Selection Only */}
                                 {selectedCount === 1 && (
                                     <>
-                                        <button className="action-btn" title="Call Lead"><i className="fas fa-phone-alt"></i> Call</button>
+                                        <button className="action-btn" title="Call Lead"><i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call</button>
                                         <button className="action-btn" title="Email Lead"><i className="fas fa-envelope"></i> Email</button>
                                         <button className="action-btn" title="Start Sequence"><i className="fas fa-paper-plane"></i> Sequence</button>
                                         <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
@@ -192,7 +192,7 @@ function LeadsView() {
                                         <div style={{ lineHeight: 1.4, maxWidth: '240px' }}>
                                             <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500, fontStyle: 'italic', marginBottom: '4px' }}>"{c.remarks}"</div>
                                             <div style={{ color: '#27ae60', fontSize: '0.7rem', fontWeight: 700 }}>
-                                                <i className="fas fa-phone-alt" style={{ marginRight: '4px' }}></i>{c.activity} • <span style={{ color: '#64748b' }}>{c.lastAct}</span>
+                                                <i className="fas fa-phone-alt" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>{c.activity} • <span style={{ color: '#64748b' }}>{c.lastAct}</span>
                                             </div>
                                         </div>
                                     </div>

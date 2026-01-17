@@ -211,7 +211,7 @@ function DealsView() {
                                     <>
                                         <button className="action-btn" title="Edit Deal"><i className="fas fa-edit"></i> Edit</button>
                                         <button className="action-btn" title="Move Stage"><i className="fas fa-step-forward"></i> Move</button>
-                                        <button className="action-btn" title="Call Owner"><i className="fas fa-phone-alt"></i> Call</button>
+                                        <button className="action-btn" title="Call Owner"><i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call</button>
                                         <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
                                         <button className="action-btn" title="View Quote"><i className="fas fa-file-invoice-dollar"></i> Quote</button>
                                     </>

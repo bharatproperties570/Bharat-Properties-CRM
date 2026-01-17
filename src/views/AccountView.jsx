@@ -312,7 +312,7 @@ function AccountView({ onNavigate }) {
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                                     <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0f172a' }}>{payment.customerName}</div>
                                     <div style={{ fontSize: '0.7rem', color: '#8e44ad', fontWeight: 600 }}>
-                                        <i className="fas fa-phone" style={{ marginRight: '4px' }}></i>{payment.contact}
+                                        <i className="fas fa-phone" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>{payment.contact}
                                     </div>
                                 </div>
 

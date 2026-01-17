@@ -457,7 +457,7 @@ function BookingView({ onNavigate }) {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                                         <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0f172a' }}>{booking.seller.name}</div>
                                         <div style={{ fontSize: '0.65rem', color: '#8e44ad', fontWeight: 600 }}>
-                                            <i className="fas fa-phone" style={{ marginRight: '3px', fontSize: '0.6rem' }}></i>{booking.seller.mobile}
+                                            <i className="fas fa-phone" style={{ marginRight: '3px', fontSize: '0.6rem', transform: 'scaleX(-1) rotate(5deg)' }}></i>{booking.seller.mobile}
                                         </div>
                                     </div>
                                     <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, marginTop: '-2px' }}>Seller</div>
@@ -465,7 +465,7 @@ function BookingView({ onNavigate }) {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
                                         <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0f172a' }}>{booking.buyer.name}</div>
                                         <div style={{ fontSize: '0.65rem', color: '#8e44ad', fontWeight: 600 }}>
-                                            <i className="fas fa-phone" style={{ marginRight: '3px', fontSize: '0.6rem' }}></i>{booking.buyer.mobile}
+                                            <i className="fas fa-phone" style={{ marginRight: '3px', fontSize: '0.6rem', transform: 'scaleX(-1) rotate(5deg)' }}></i>{booking.buyer.mobile}
                                         </div>
                                     </div>
                                     <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, marginTop: '-2px' }}>Buyer</div>

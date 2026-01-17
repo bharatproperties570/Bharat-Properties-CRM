@@ -96,7 +96,7 @@ const ProfileView = () => {
                     {/* Contact Info Card */}
                     <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0', flex: 1 }}>
                         <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <i className="fas fa-phone-alt" style={{ color: 'var(--primary-color)', fontSize: '0.8rem' }}></i> Contact Details
+                            <i className="fas fa-phone-alt" style={{ color: 'var(--primary-color)', fontSize: '0.8rem', transform: 'scaleX(-1) rotate(5deg)' }}></i> Contact Details
                         </h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                             <div>

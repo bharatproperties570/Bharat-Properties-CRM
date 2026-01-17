@@ -258,7 +258,7 @@ function InventoryView() {
                                             <button className="action-btn" title="Add Owner"><i className="fas fa-user-plus"></i> Owner</button>
                                             <button className="action-btn" title="Matched Lead"><i className="fas fa-handshake"></i> Match</button>
                                             <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
-                                            <button className="action-btn" title="Call Owner"><i className="fas fa-phone-alt"></i> Call</button>
+                                            <button className="action-btn" title="Call Owner"><i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call</button>
                                             <button className="action-btn" title="Message Owner"><i className="fas fa-comment-alt"></i> Msg</button>
                                             <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
                                         </>

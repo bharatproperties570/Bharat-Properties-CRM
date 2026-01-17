@@ -241,7 +241,7 @@ const DashboardView = () => {
                                             </div>
                                             <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{task.target}</div>
                                             <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                                                <button className="btn-primary" style={{ padding: '6px 10px', fontSize: '0.6rem' }}><i className="fas fa-phone-alt"></i></button>
+                                                <button className="btn-primary" style={{ padding: '6px 10px', fontSize: '0.6rem' }}><i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i></button>
                                                 <button className="btn-outline" style={{ padding: '6px 10px', fontSize: '0.6rem' }}><i className="fab fa-whatsapp"></i></button>
                                                 <button className="btn-outline" style={{ padding: '6px 10px', fontSize: '0.6rem', marginLeft: 'auto' }}><i className="fas fa-check"></i></button>
                                             </div>

@@ -744,7 +744,7 @@ function ActivitiesView() {
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
                                                 <div className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{activity.contactName}</div>
                                                 <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600 }}>
-                                                    <i className="fas fa-phone" style={{ marginRight: '4px' }}></i>{activity.contactPhone}
+                                                    <i className="fas fa-phone" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>{activity.contactPhone}
                                                 </div>
                                                 {activity.contactEmail && (
                                                     <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#64748b' }}>

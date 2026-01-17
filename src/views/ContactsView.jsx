@@ -92,7 +92,7 @@ function ContactsView() {
                                 {/* Single Selection Only */}
                                 {selectedCount === 1 && (
                                     <>
-                                        <button className="action-btn" title="Call Contact"><i className="fas fa-phone-alt"></i> Call</button>
+                                        <button className="action-btn" title="Call Contact"><i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call</button>
                                         <button className="action-btn" title="Email Contact"><i className="fas fa-envelope"></i> Email</button>
                                         <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
                                     </>
@@ -207,7 +207,7 @@ function ContactsView() {
                                                 <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{item.lastComm}</div>
                                                 <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>Active: {item.actionable}</div>
                                                 <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
-                                                    <i className="fas fa-phone-alt" style={{ color: '#388E3C', fontSize: '0.75rem' }}></i>
+                                                    <i className="fas fa-phone-alt" style={{ color: '#388E3C', fontSize: '0.75rem', transform: 'scaleX(-1) rotate(5deg)' }}></i>
                                                     <i className="fab fa-whatsapp" style={{ color: '#25D366', fontSize: '0.75rem' }}></i>
                                                 </div>
                                             </div>
