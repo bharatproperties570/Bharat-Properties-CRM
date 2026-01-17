@@ -238,6 +238,39 @@ function CompanyView() {
                             <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '8px' }}>Try adjusting your search or filters</div>
                         </div>
                     )}
+
+                    {/* Footer Summary */}
+                    <div style={{
+                        position: 'sticky',
+                        bottom: 0,
+                        background: '#f8fafc',
+                        borderTop: '2px solid #e2e8f0',
+                        padding: '16px 2rem',
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '20px',
+                        alignItems: 'center',
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        color: '#475569',
+                        zIndex: 100,
+                        boxShadow: '0 -4px 6px -1px rgba(0, 0, 0, 0.02)'
+                    }}>
+                        <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.85rem' }}>
+                            Total Company: <span style={{ color: 'var(--primary-color)' }}>{companyData.length}</span>
+                        </div>
+                        <div style={{ width: '2px', height: '20px', background: '#cbd5e1' }}></div>
+                        {companyTypes.map((type, idx) => {
+                            const count = companyData.filter(c => c.type === type).length;
+                            if (count === 0) return null;
+                            return (
+                                <div key={type} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span style={{ color: '#64748b' }}>{type}:</span>
+                                    <span style={{ fontWeight: 800, color: '#0f172a' }}>{count}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             </div>
         </section>

@@ -2,7 +2,7 @@ export const companyData = [
     {
         id: 1,
         name: 'Bharat Properties Private Limited',
-        type: 'Private Company',
+        type: 'Private Limited Companies',
         category: 'Real Estate Development',
         address: 'Sector 12, Kurukshetra, Haryana - 136118',
         employees: '45-60',
@@ -18,7 +18,7 @@ export const companyData = [
     {
         id: 2,
         name: 'Haryana Housing Board',
-        type: 'Govt. Company/Organisation',
+        type: 'Government Company',
         category: 'Government Housing Authority',
         address: 'Civil Lines, Panchkula, Haryana - 134109',
         employees: '200+',
@@ -34,7 +34,7 @@ export const companyData = [
     {
         id: 3,
         name: 'Alpha Realty Solutions',
-        type: 'Private Company',
+        type: 'Partnership Firm',
         category: 'Property Consultancy',
         address: 'Sector 18, Chandigarh - 160018',
         employees: '15-25',
@@ -50,7 +50,7 @@ export const companyData = [
     {
         id: 4,
         name: 'Green Valley Developers',
-        type: 'Private Company',
+        type: 'Private Limited Companies',
         category: 'Real Estate Development',
         address: 'Model Town, Panipat, Haryana - 132103',
         employees: '35-50',
@@ -66,7 +66,7 @@ export const companyData = [
     {
         id: 5,
         name: 'Municipal Corporation of Kurukshetra',
-        type: 'Govt. Company/Organisation',
+        type: 'Government Company',
         category: 'Urban Development Authority',
         address: 'Municipal Complex, Kurukshetra - 136118',
         employees: '150+',
@@ -82,7 +82,7 @@ export const companyData = [
     {
         id: 6,
         name: 'Sunrise Infra Projects',
-        type: 'Private Company',
+        type: 'Public Limited Companies',
         category: 'Infrastructure Development',
         address: 'Industrial Area Phase 2, Mohali - 160062',
         employees: '80-100',
@@ -97,8 +97,8 @@ export const companyData = [
     },
     {
         id: 7,
-        name: 'Royal Estates Limited',
-        type: 'Private Company',
+        name: 'Royal Estates',
+        type: 'Sole Proprietorship',
         category: 'Luxury Real Estate',
         address: 'Sector 17, Gurgaon, Haryana - 122001',
         employees: '25-35',
@@ -114,7 +114,7 @@ export const companyData = [
     {
         id: 8,
         name: 'HSIIDC - Haryana State Industrial',
-        type: 'Govt. Company/Organisation',
+        type: 'Government Company',
         category: 'Industrial Development Corporation',
         address: 'HSIIDC Bhawan, Panchkula - 134109',
         employees: '300+',
@@ -126,7 +126,100 @@ export const companyData = [
         addedOn: '2023-10-05',
         status: 'Active',
         website: 'www.hsiidc.org'
+    },
+    {
+        id: 9,
+        name: 'Eco Homes LLP',
+        type: 'Limited Liability Partnership',
+        category: 'Sustainable Housing',
+        address: 'Sector 8, Karnal, Haryana - 132001',
+        employees: '20-30',
+        source: 'Referral',
+        team: 'Sales Team A',
+        ownership: 'Amit Patel',
+        email: 'contact@ecohomes.in',
+        phone: '+91-9876543211',
+        addedOn: '2024-03-01',
+        status: 'Active',
+        website: 'www.ecohomes.in'
+    },
+    {
+        id: 10,
+        name: 'Build Smart OPC',
+        type: 'One-Person Companies',
+        category: 'Construction',
+        address: 'Industrial Area, Panipat - 132103',
+        employees: '5-10',
+        source: 'Direct',
+        team: 'Sales Team B',
+        ownership: 'Rahul Sharma',
+        email: 'info@buildsmart.in',
+        phone: '+91-9988776656',
+        addedOn: '2024-02-15',
+        status: 'Active',
+        website: 'www.buildsmart.in'
+    },
+    {
+        id: 11,
+        name: 'Habitat for Humanity India',
+        type: 'Non-Government Organization (NGO)',
+        category: 'Social Housing',
+        address: 'Sector 5, Chandigarh - 160047',
+        employees: '40-50',
+        source: 'Partnership',
+        team: 'CSR Team',
+        ownership: 'Board of Trustees',
+        email: 'india@habitat.org',
+        phone: '+91-172-4567890',
+        addedOn: '2023-08-10',
+        status: 'Active',
+        website: 'www.habitatindia.org'
+    },
+    {
+        id: 12,
+        name: 'Urban Development Section 8',
+        type: 'Section 8 Company',
+        category: 'Community Development',
+        address: 'Sector 10, Kurukshetra - 136118',
+        employees: '15-20',
+        source: 'Government',
+        team: 'Civic Team',
+        ownership: 'Board of Directors',
+        email: 'contact@urbandev8.org',
+        phone: '+91-1744-567890',
+        addedOn: '2023-12-05',
+        status: 'Active',
+        website: 'www.urbandev8.org'
+    },
+    {
+        id: 13,
+        name: 'Indo-Japan Real Estate JV',
+        type: 'Joint Venture Company',
+        category: 'International Real Estate',
+        address: 'Cyber City, Gurgaon - 122002',
+        employees: '60-80',
+        source: 'Partnership',
+        team: 'Corporate Team',
+        ownership: 'Joint Board',
+        email: 'info@indojapanrealty.com',
+        phone: '+91-124-4567890',
+        addedOn: '2024-01-20',
+        status: 'Active',
+        website: 'www.indojapanrealty.com'
     }
+];
+
+export const companyTypes = [
+    'Sole Proprietorship',
+    'Partnership Firm',
+    'Limited Liability Partnership',
+    'Private Limited Companies',
+    'Public Limited Companies',
+    'One-Person Companies',
+    'Section 8 Company',
+    'Joint Venture Company',
+    'Government Company',
+    'Non-Government Organization (NGO)'
 ];
 
 export const companyCategories = [
@@ -138,10 +231,4 @@ export const companyCategories = [
     'Luxury Real Estate',
     'Urban Development Authority',
     'Industrial Development Corporation'
-];
-
-export const companyTypes = [
-    'Total Company',
-    'Private Company',
-    'Govt. Company/Organisation'
 ];
