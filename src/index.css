@@ -2980,3 +2980,12 @@ body {
     gap: 1rem;
     align-items: center;
 }
+/* Hide Scrollbar */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
