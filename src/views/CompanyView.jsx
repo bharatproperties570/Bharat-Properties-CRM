@@ -7,6 +7,7 @@ function CompanyView() {
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
+    const [viewMode, setViewMode] = useState('list'); // 'list' or 'card'
 
     const toggleSelect = (id) => {
         if (selectedIds.includes(id)) {
@@ -50,6 +51,19 @@ function CompanyView() {
         setCurrentPage(1);
     };
 
+    // Select All Handler
+    const toggleSelectAll = () => {
+        if (selectedIds.length === currentRecords.length && currentRecords.length > 0) {
+            setSelectedIds([]);
+        } else {
+            setSelectedIds(currentRecords.map(c => c.id));
+        }
+    };
+
+    // Check if all visible companies are selected
+    const isAllSelected = currentRecords.length > 0 && selectedIds.length === currentRecords.length;
+    const isIndeterminate = selectedIds.length > 0 && selectedIds.length < currentRecords.length;
+
     return (
         <section id="companyView" className="view-section active">
             <div className="view-scroll-wrapper">
@@ -62,7 +76,20 @@ function CompanyView() {
                             <h1>Company Portfolio</h1>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                        {/* Sync Status Indicator */}
+                        <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 border border-green-200 rounded-lg">
+                            <i className="fas fa-check-circle text-green-600 text-sm"></i>
+                            <span className="text-xs font-semibold text-green-700">Synced</span>
+                        </div>
+                        {/* View Toggle Button */}
+                        <button
+                            className="btn-outline"
+                            onClick={() => setViewMode(viewMode === 'list' ? 'card' : 'list')}
+                            title={viewMode === 'list' ? 'Switch to Card View' : 'Switch to List View'}
+                        >
+                            <i className={`fas ${viewMode === 'list' ? 'fa-th-large' : 'fa-list'}`}></i> {viewMode === 'list' ? 'Card' : 'List'}
+                        </button>
                         <button className="btn-outline"><i className="fas fa-filter"></i> Filters</button>
                     </div>
                 </div>
@@ -72,7 +99,19 @@ function CompanyView() {
                     {/* Toolbar - Sticky */}
                     <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', minHeight: '45px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #eef2f5', background: '#fff' }}>
                         {selectedCount > 0 ? (
-                            <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingBottom: '2px' }}>
+                            <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingTop: '4px', paddingBottom: '2px' }}>
+                                {/* Select All Checkbox - Always visible */}
+                                <input
+                                    type="checkbox"
+                                    checked={isAllSelected}
+                                    ref={input => {
+                                        if (input) {
+                                            input.indeterminate = isIndeterminate;
+                                        }
+                                    }}
+                                    onChange={toggleSelectAll}
+                                    style={{ cursor: 'pointer' }}
+                                />
                                 <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>
                                     {selectedCount} Selected
                                 </div>
@@ -84,26 +123,42 @@ function CompanyView() {
                                 </div>
                             </div>
                         ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '15px' }}>
-                                <div style={{ position: 'relative', flex: 1, maxWidth: '500px' }}>
-                                    <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.85rem' }}></i>
-                                    <input
-                                        type="text"
-                                        placeholder="search by name, email, mobile, company and tags"
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        style={{
-                                            width: '100%',
-                                            padding: '8px 12px 8px 36px',
-                                            border: '1px solid #e2e8f0',
-                                            borderRadius: '6px',
-                                            fontSize: '0.85rem',
-                                            outline: 'none',
-                                            transition: 'all 0.2s'
-                                        }}
-                                        onFocus={(e) => e.target.style.borderColor = 'var(--primary-color)'}
-                                        onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                                    />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                    {/* Select All Checkbox - Only for Card View */}
+                                    {viewMode === 'card' && (
+                                        <input
+                                            type="checkbox"
+                                            checked={isAllSelected}
+                                            ref={input => {
+                                                if (input) {
+                                                    input.indeterminate = isIndeterminate;
+                                                }
+                                            }}
+                                            onChange={toggleSelectAll}
+                                            style={{ cursor: 'pointer' }}
+                                        />
+                                    )}
+                                    <div style={{ position: 'relative', flex: 1, maxWidth: '500px' }}>
+                                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.85rem' }}></i>
+                                        <input
+                                            type="text"
+                                            placeholder="search by name, email, mobile, company and tags"
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                            style={{
+                                                width: '100%',
+                                                padding: '8px 12px 8px 36px',
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: '6px',
+                                                fontSize: '0.85rem',
+                                                outline: 'none',
+                                                transition: 'all 0.2s'
+                                            }}
+                                            onFocus={(e) => e.target.style.borderColor = 'var(--primary-color)'}
+                                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                                        />
+                                    </div>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                     <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
@@ -183,144 +238,268 @@ function CompanyView() {
                         )}
                     </div>
 
-                    {/* List Header - Dark */}
-                    <div className="list-header" style={{
-                        position: 'sticky',
-                        top: '45px',
-                        background: '#f8fafc',
-                        color: '#64748b',
-                        zIndex: 100,
-                        borderBottom: '2px solid #e2e8f0',
-                        display: 'grid',
-                        gridTemplateColumns: '40px 2fr 1.5fr 1fr 1fr 1fr 1fr',
-                        padding: '12px 2rem',
-                        fontSize: '0.75rem',
-                        fontWeight: 800,
-                        letterSpacing: '0.5px'
-                    }}>
-                        <div><input type="checkbox" style={{ cursor: 'pointer' }} /></div>
-                        <div>COMPANY NAME</div>
-                        <div>ADDRESS</div>
-                        <div>EMPLOYEES</div>
-                        <div>CATEGORY</div>
-                        <div>SOURCE</div>
-                        <div>OWNERSHIP</div>
-                    </div>
-
-                    {/* List Content */}
-                    <div id="companyListContent" style={{ background: '#fff' }}>
-                        {currentRecords.map((company, idx) => (
-                            <div
-                                key={company.id}
-                                className="list-item"
-                                style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: '40px 2fr 1.5fr 1fr 1fr 1fr 1fr',
-                                    padding: '16px 2rem',
-                                    borderBottom: '1px solid #f1f5f9',
-                                    alignItems: 'center',
-                                    background: isSelected(company.id) ? '#f0f9ff' : '#fff',
-                                    transition: 'all 0.2s',
-                                    cursor: 'pointer'
-                                }}
-                                onMouseOver={(e) => {
-                                    if (!isSelected(company.id)) e.currentTarget.style.background = '#fafbfc';
-                                }}
-                                onMouseOut={(e) => {
-                                    if (!isSelected(company.id)) e.currentTarget.style.background = '#fff';
-                                    else e.currentTarget.style.background = '#f0f9ff';
-                                }}
-                            >
+                    {/* List Header - Only in List View */}
+                    {viewMode === 'list' && (
+                        <div className="list-header" style={{
+                            position: 'sticky',
+                            top: '45px',
+                            background: '#f8fafc',
+                            color: '#64748b',
+                            zIndex: 100,
+                            borderBottom: '2px solid #e2e8f0',
+                            display: 'grid',
+                            gridTemplateColumns: '40px 2fr 1.5fr 1fr 1fr 1fr 1fr',
+                            padding: '12px 2rem',
+                            fontSize: '0.75rem',
+                            fontWeight: 800,
+                            letterSpacing: '0.5px'
+                        }}>
+                            <div>
                                 <input
                                     type="checkbox"
-                                    className="item-check"
-                                    checked={isSelected(company.id)}
-                                    onChange={() => toggleSelect(company.id)}
+                                    checked={isAllSelected}
+                                    ref={input => {
+                                        if (input) {
+                                            input.indeterminate = isIndeterminate;
+                                        }
+                                    }}
+                                    onChange={toggleSelectAll}
                                     style={{ cursor: 'pointer' }}
                                 />
-
-                                {/* Personal Details */}
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <div className={`avatar-circle avatar-${(idx % 5) + 1}`} style={{
-                                        width: '40px',
-                                        height: '40px',
-                                        fontSize: '0.85rem',
-                                        flexShrink: 0
-                                    }}>
-                                        {getInitials(company.name)}
-                                    </div>
-                                    <div style={{ overflow: 'hidden' }}>
-                                        <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                            {company.name}
-                                        </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
-                                            <span style={{ fontSize: '0.7rem', color: '#8e44ad', fontWeight: 600 }}>
-                                                <i className="fas fa-envelope" style={{ marginRight: '4px', fontSize: '0.65rem' }}></i>
-                                                {company.email}
-                                            </span>
-                                        </div>
-                                        <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '2px' }}>
-                                            <i className="fas fa-phone-alt" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>
-                                            {company.phone}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Address */}
-                                <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.4, overflow: 'hidden' }}>
-                                    <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.7rem', marginRight: '6px' }}></i>
-                                    <span className="address-clamp" style={{ fontSize: '0.75rem' }}>{company.address}</span>
-                                </div>
-
-                                {/* Employees */}
-                                <div style={{ fontSize: '0.8rem', color: '#0f172a', fontWeight: 700, textAlign: 'center' }}>
-                                    <i className="fas fa-users" style={{ marginRight: '6px', color: '#64748b', fontSize: '0.75rem' }}></i>
-                                    {company.employees}
-                                </div>
-
-                                {/* Category */}
-                                <div style={{ fontSize: '0.75rem', color: '#64748b', lineHeight: 1.3 }}>
-                                    {company.category}
-                                </div>
-
-                                {/* Source */}
-                                <div>
-                                    <span style={{
-                                        padding: '3px 10px',
-                                        borderRadius: '12px',
-                                        fontSize: '0.65rem',
-                                        fontWeight: 800,
-                                        background: company.source === 'Direct' ? '#dbeafe' :
-                                            company.source === 'Government' ? '#fef3c7' :
-                                                company.source === 'Referral' ? '#dcfce7' :
-                                                    company.source === 'Partnership' ? '#ede9fe' : '#f1f5f9',
-                                        color: company.source === 'Direct' ? '#1e40af' :
-                                            company.source === 'Government' ? '#92400e' :
-                                                company.source === 'Referral' ? '#166534' :
-                                                    company.source === 'Partnership' ? '#5b21b6' : '#475569'
-                                    }}>
-                                        {company.source}
-                                    </span>
-                                </div>
-
-                                {/* Ownership / Team / Date Combined */}
-                                <div style={{ fontSize: '0.75rem', lineHeight: 1.6 }}>
-                                    <div style={{ color: '#0f172a', fontWeight: 700 }}>
-                                        <i className="fas fa-user" style={{ marginRight: '6px', color: '#64748b', fontSize: '0.7rem' }}></i>
-                                        {company.ownership}
-                                    </div>
-                                    <div style={{ color: '#64748b', marginTop: '4px', fontSize: '0.7rem' }}>
-                                        <i className="fas fa-users" style={{ marginRight: '6px', fontSize: '0.65rem' }}></i>
-                                        {company.team}
-                                    </div>
-                                    <div style={{ color: '#94a3b8', fontWeight: 600, marginTop: '4px', fontSize: '0.7rem' }}>
-                                        <i className="far fa-calendar" style={{ marginRight: '6px' }}></i>
-                                        {company.addedOn}
-                                    </div>
-                                </div>
                             </div>
-                        ))}
-                    </div>
+                            <div>COMPANY NAME</div>
+                            <div>ADDRESS</div>
+                            <div>EMPLOYEES</div>
+                            <div>CATEGORY</div>
+                            <div>SOURCE</div>
+                            <div>OWNERSHIP</div>
+                        </div>
+                    )}
+
+                    {/* List Content - Only in List View */}
+                    {viewMode === 'list' && (
+                        <div id="companyListContent" style={{ background: '#fff' }}>
+                            {currentRecords.map((company, idx) => (
+                                <div
+                                    key={company.id}
+                                    className="list-item"
+                                    style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: '40px 2fr 1.5fr 1fr 1fr 1fr 1fr',
+                                        padding: '16px 2rem',
+                                        borderBottom: '1px solid #f1f5f9',
+                                        alignItems: 'center',
+                                        background: isSelected(company.id) ? '#f0f9ff' : '#fff',
+                                        transition: 'all 0.2s',
+                                        cursor: 'pointer'
+                                    }}
+                                    onMouseOver={(e) => {
+                                        if (!isSelected(company.id)) e.currentTarget.style.background = '#fafbfc';
+                                    }}
+                                    onMouseOut={(e) => {
+                                        if (!isSelected(company.id)) e.currentTarget.style.background = '#fff';
+                                        else e.currentTarget.style.background = '#f0f9ff';
+                                    }}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        className="item-check"
+                                        checked={isSelected(company.id)}
+                                        onChange={() => toggleSelect(company.id)}
+                                        style={{ cursor: 'pointer' }}
+                                    />
+
+                                    {/* Personal Details */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <div className={`avatar-circle avatar-${(idx % 5) + 1}`} style={{
+                                            width: '40px',
+                                            height: '40px',
+                                            fontSize: '0.85rem',
+                                            flexShrink: 0
+                                        }}>
+                                            {getInitials(company.name)}
+                                        </div>
+                                        <div style={{ overflow: 'hidden' }}>
+                                            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                {company.name}
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+                                                <span style={{ fontSize: '0.7rem', color: '#8e44ad', fontWeight: 600 }}>
+                                                    <i className="fas fa-envelope" style={{ marginRight: '4px', fontSize: '0.65rem' }}></i>
+                                                    {company.email}
+                                                </span>
+                                            </div>
+                                            <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '2px' }}>
+                                                <i className="fas fa-phone-alt" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>
+                                                {company.phone}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Address */}
+                                    <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.4, overflow: 'hidden' }}>
+                                        <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.7rem', marginRight: '6px' }}></i>
+                                        <span className="address-clamp" style={{ fontSize: '0.75rem' }}>{company.address}</span>
+                                    </div>
+
+                                    {/* Employees */}
+                                    <div style={{ fontSize: '0.8rem', color: '#0f172a', fontWeight: 700, textAlign: 'center' }}>
+                                        <i className="fas fa-users" style={{ marginRight: '6px', color: '#64748b', fontSize: '0.75rem' }}></i>
+                                        {company.employees}
+                                    </div>
+
+                                    {/* Category */}
+                                    <div style={{ fontSize: '0.75rem', color: '#64748b', lineHeight: 1.3 }}>
+                                        {company.category}
+                                    </div>
+
+                                    {/* Source */}
+                                    <div>
+                                        <span style={{
+                                            padding: '3px 10px',
+                                            borderRadius: '12px',
+                                            fontSize: '0.65rem',
+                                            fontWeight: 800,
+                                            background: company.source === 'Direct' ? '#dbeafe' :
+                                                company.source === 'Government' ? '#fef3c7' :
+                                                    company.source === 'Referral' ? '#dcfce7' :
+                                                        company.source === 'Partnership' ? '#ede9fe' : '#f1f5f9',
+                                            color: company.source === 'Direct' ? '#1e40af' :
+                                                company.source === 'Government' ? '#92400e' :
+                                                    company.source === 'Referral' ? '#166534' :
+                                                        company.source === 'Partnership' ? '#5b21b6' : '#475569'
+                                        }}>
+                                            {company.source}
+                                        </span>
+                                    </div>
+
+                                    {/* Ownership / Team / Date Combined */}
+                                    <div style={{ fontSize: '0.75rem', lineHeight: 1.6 }}>
+                                        <div style={{ color: '#0f172a', fontWeight: 700 }}>
+                                            <i className="fas fa-user" style={{ marginRight: '6px', color: '#64748b', fontSize: '0.7rem' }}></i>
+                                            {company.ownership}
+                                        </div>
+                                        <div style={{ color: '#64748b', marginTop: '4px', fontSize: '0.7rem' }}>
+                                            <i className="fas fa-users" style={{ marginRight: '6px', fontSize: '0.65rem' }}></i>
+                                            {company.team}
+                                        </div>
+                                        <div style={{ color: '#94a3b8', fontWeight: 600, marginTop: '4px', fontSize: '0.7rem' }}>
+                                            <i className="far fa-calendar" style={{ marginRight: '6px' }}></i>
+                                            {company.addedOn}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Card View - Only in Card Mode */}
+                    {viewMode === 'card' && (
+                        <div style={{ padding: '2rem', background: '#f8fafc' }}>
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))',
+                                gap: '1.5rem'
+                            }}>
+                                {currentRecords.map((company, idx) => (
+                                    <div
+                                        key={company.id}
+                                        style={{
+                                            background: '#fff',
+                                            border: isSelected(company.id) ? '2px solid var(--primary-color)' : '1px solid #e2e8f0',
+                                            borderRadius: '12px',
+                                            padding: '20px',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s',
+                                            position: 'relative',
+                                            boxShadow: isSelected(company.id) ? '0 4px 6px -1px rgba(0,0,0,0.1)' : '0 1px 3px 0 rgba(0,0,0,0.05)'
+                                        }}
+                                        onMouseOver={(e) => {
+                                            e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.1)';
+                                            e.currentTarget.style.transform = 'translateY(-2px)';
+                                        }}
+                                        onMouseOut={(e) => {
+                                            if (!isSelected(company.id)) {
+                                                e.currentTarget.style.boxShadow = '0 1px 3px 0 rgba(0,0,0,0.05)';
+                                            }
+                                            e.currentTarget.style.transform = 'translateY(0)';
+                                        }}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={isSelected(company.id)}
+                                            onChange={(e) => {
+                                                e.stopPropagation();
+                                                toggleSelect(company.id);
+                                            }}
+                                            style={{
+                                                position: 'absolute',
+                                                top: '15px',
+                                                right: '15px',
+                                                cursor: 'pointer',
+                                                width: '18px',
+                                                height: '18px'
+                                            }}
+                                        />
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                                            <div className={`avatar-circle avatar-${(idx % 5) + 1}`} style={{
+                                                width: '50px',
+                                                height: '50px',
+                                                fontSize: '1rem',
+                                                flexShrink: 0
+                                            }}>
+                                                {getInitials(company.name)}
+                                            </div>
+                                            <div style={{ flex: 1, overflow: 'hidden' }}>
+                                                <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '1.05rem', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    {company.name}
+                                                </div>
+                                                <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                                                    {company.category}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <i className="fas fa-envelope" style={{ fontSize: '0.75rem', color: '#8e44ad', width: '16px' }}></i>
+                                                <span style={{ fontSize: '0.8rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {company.email}
+                                                </span>
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <i className="fas fa-phone-alt" style={{ fontSize: '0.75rem', color: '#3498db', width: '16px', transform: 'scaleX(-1) rotate(5deg)' }}></i>
+                                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                                    {company.phone}
+                                                </span>
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <i className="fas fa-map-marker-alt" style={{ fontSize: '0.75rem', color: '#e74c3c', width: '16px' }}></i>
+                                                <span style={{ fontSize: '0.8rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {company.address}
+                                                </span>
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <i className="fas fa-users" style={{ fontSize: '0.75rem', color: '#27ae60', width: '16px' }}></i>
+                                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                                    {company.employees} Employees
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div>
+                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Source</div>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a' }}>{company.source}</div>
+                                            </div>
+                                            <div style={{ textAlign: 'right' }}>
+                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Owner</div>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a' }}>{company.ownership}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* No Results */}
                     {filteredCompanies.length === 0 && (

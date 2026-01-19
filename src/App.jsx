@@ -17,6 +17,9 @@ import DashboardView from './views/DashboardView';
 import ProfileView from './views/ProfileView';
 import SettingsHubView from './views/SettingsHubView';
 import CompanyView from './views/CompanyView';
+import PersonView from './views/PersonView';
+import AddContactFormView from './views/AddContactFormView';
+import FormsHubView from './views/FormsHubView';
 
 function App() {
     const [currentView, setCurrentView] = useState('dashboard'); // leads | contacts | marketing | wizard | dashboard
@@ -27,6 +30,8 @@ function App() {
                 return <ContactsView />;
             case 'company':
                 return <CompanyView />;
+            case 'person':
+                return <PersonView />;
             case 'leads':
                 return <LeadsView />;
             case 'marketing':
@@ -41,6 +46,8 @@ function App() {
                 return <DealsView />;
             case 'activities':
                 return <ActivitiesView />;
+            case 'forms':
+                return <FormsHubView />;
             case 'booking':
                 return <BookingView onNavigate={setCurrentView} />;
             case 'account':

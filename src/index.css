@@ -567,6 +567,34 @@ body {
     color: #14b8a6;
 }
 
+.action-btn:hover .fa-envelope {
+    color: #8b5cf6;
+}
+
+.action-btn:hover .fa-calendar-check {
+    color: #10b981;
+}
+
+.action-btn:hover .fa-exchange-alt {
+    color: #0ea5e9;
+}
+
+.action-btn:hover .fa-stream {
+    color: #6366f1;
+}
+
+.action-btn:hover .fa-paper-plane {
+    color: #3b82f6;
+}
+
+.action-btn:hover .fa-file-export {
+    color: #22c55e;
+}
+
+.action-btn:hover .fa-users {
+    color: #f59e0b;
+}
+
 .action-btn.primary {
     background: var(--primary-color);
     color: white;
@@ -1274,11 +1302,11 @@ body {
 /* Hardened Action Bar */
 .contact-list-grid {
     display: grid;
-    grid-template-columns: 40px 280px 300px 180px 200px 180px;
-    gap: 20px;
+    grid-template-columns: 40px 250px 280px 170px 140px 170px 180px 160px;
+    gap: 16px;
     align-items: center;
     padding: 12px 20px;
-    min-width: 1250px;
+    min-width: 1390px;
 }
 
 .lead-list-grid {

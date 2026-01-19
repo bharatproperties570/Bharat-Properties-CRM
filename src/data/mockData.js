@@ -87,7 +87,9 @@ export const contactData = [
         mobile: '9468081966',
         email: 'naveen.k@gmail.com',
         address: 'Sector 17, Chandigarh',
-        professional: 'Project Manager',
+        professional: 'Corporate',
+        designation: 'Project Manager',
+        company: 'Tech Solutions Ltd',
         tags: 'High Priority',
         source: 'Walk-In',
         lastComm: 'Called today at 10 AM',
@@ -96,14 +98,18 @@ export const contactData = [
         addOnDate: '11/01/2026',
         addOnTime: '5:04:00 PM',
         group: 'January 2026',
-        icon: 'fa-user'
+        icon: 'fa-user',
+        crmLinks: { leads: 2, deals: 1, activities: 3 },
+        category: 'Customer'
     },
     {
         name: 'Mr. Pawan Kumar',
         mobile: '9466937965',
         email: 'pawankumar@outlook.com',
         address: 'Panchkula, Haryana',
-        professional: 'Corporate Lawyer',
+        professional: 'Legal',
+        designation: 'Corporate Lawyer',
+        company: 'Kumar & Associates',
         tags: '-',
         source: 'Whatsapp',
         lastComm: 'Message sent yesterday',
@@ -112,14 +118,18 @@ export const contactData = [
         addOnDate: '11/01/2026',
         addOnTime: '3:59:32 PM',
         group: 'January 2026',
-        icon: 'fa-user'
+        icon: 'fa-user',
+        crmLinks: { property: 1, booking: 1 },
+        category: 'Prospect'
     },
     {
         name: 'Mr. Deepak Bhardwaj',
         mobile: '9467238581',
         email: 'deepaknrww@gmail.com',
         address: 'Narwana Jind, Haryana',
-        professional: 'Software Engineer',
+        professional: 'IT',
+        designation: 'Software Engineer',
+        company: 'Infosys',
         tags: 'Interested',
         source: 'Facebook',
         lastComm: 'Meeting scheduled',
@@ -128,14 +138,18 @@ export const contactData = [
         addOnDate: '11/01/2026',
         addOnTime: '3:40:44 PM',
         group: 'January 2026',
-        icon: 'fa-user'
+        icon: 'fa-user',
+        crmLinks: { leads: 1, deals: 1, property: 2, activities: 1 },
+        category: 'Customer'
     },
     {
         name: 'Mr. Raghbir Maan',
         mobile: '8901550334',
         email: 'raghbir.maan@yahoo.com',
         address: '36 Urban Estate Kurukshetra',
-        professional: 'Business Owner',
+        professional: 'Business',
+        designation: 'Business Owner',
+        company: 'Maan Enterprises',
         tags: 'VIP',
         source: 'Walkin',
         lastComm: 'No communication yet',
@@ -144,14 +158,18 @@ export const contactData = [
         addOnDate: '06/01/2026',
         addOnTime: '6:26:29 PM',
         group: 'January 2026',
-        icon: 'fa-user'
+        icon: 'fa-user',
+        crmLinks: {},
+        category: 'Real Estate Agent'
     },
     {
         name: 'Mrs. Manpreet Kaur',
         mobile: '7009550400',
         email: 'manpreetsaini75@gmail.com',
         address: 'Zirakpur 140306',
-        professional: 'Marketing Head',
+        professional: 'Marketing',
+        designation: 'Marketing Head',
+        company: 'Saini Marketing Dept',
         tags: 'Warm Lead',
         source: '99 Acre',
         lastComm: 'Voice call 2 days ago',
@@ -160,7 +178,9 @@ export const contactData = [
         addOnDate: '06/01/2026',
         addOnTime: '12:04:09 PM',
         group: 'January 2026',
-        icon: 'fa-user'
+        icon: 'fa-user',
+        crmLinks: { project: 1, activities: 2 },
+        category: 'Prospect'
     }
 ];
 

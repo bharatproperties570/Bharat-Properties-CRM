@@ -1,18 +1,17 @@
 import React, { useState } from 'react';
 import { contactData } from '../data/mockData';
-import { getInitials, getSourceBadgeClass } from '../utils/helpers';
+import { getInitials } from '../utils/helpers';
 import { useContactSync } from '../hooks/useContactSync';
 
-function ContactsView() {
+function PersonView() {
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'card'
-    const [isSyncing, setIsSyncing] = useState(false);
 
     // Contact Sync Hook
-    const { getSyncStatus, syncMultipleContacts } = useContactSync();
+    const { syncMultipleContacts } = useContactSync();
 
     // Filtering logic
     const filteredContacts = contactData.filter(contact =>
@@ -72,14 +71,14 @@ function ContactsView() {
     const isIndeterminate = selectedIds.length > 0 && selectedIds.length < paginatedContacts.length;
 
     return (
-        <section id="contactsView" className="view-section active">
+        <section id="personView" className="view-section active">
             <div className="view-scroll-wrapper">
                 <div className="page-header">
                     <div className="page-title-group">
                         <i className="fas fa-bars" style={{ color: '#68737d' }}></i>
                         <div>
                             <span className="working-list-label">Database CRM</span>
-                            <h1>Contacts Portfolio</h1>
+                            <h1>Person Portfolio</h1>
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -98,9 +97,7 @@ function ContactsView() {
                             <i className={`fas ${viewMode === 'list' ? 'fa-th-large' : 'fa-list'}`}></i>
                             {viewMode === 'list' ? 'Card' : 'List'}
                         </button>
-                        <button className="btn-outline">
-                            <i className="fas fa-filter"></i> Filters
-                        </button>
+                        <button className="btn-outline"><i className="fas fa-filter"></i> Filters</button>
                     </div>
                 </div>
 
@@ -108,7 +105,7 @@ function ContactsView() {
                     {/* Toolbar */}
                     <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 101, padding: '15px 2rem', borderBottom: '1px solid #eef2f5', minHeight: '65px', display: 'flex', alignItems: 'center', background: '#fff' }}>
                         {selectedCount > 0 ? (
-                            <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingTop: '4px', paddingBottom: '2px' }}>
+                            <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingBottom: '2px' }}>
                                 {/* Select All Checkbox - Always visible */}
                                 <input
                                     type="checkbox"
@@ -146,7 +143,7 @@ function ContactsView() {
 
                                 {/* Action Buttons - Available for all selections */}
                                 <button className="action-btn" title="Activities"><i className="fas fa-calendar-check"></i> Activities</button>
-                                <button className="action-btn" title="Assigned"><i className="fas fa-exchange-alt"></i> Assigned</button>
+                                <button className="action-btn" title="Transfer Contact"><i className="fas fa-exchange-alt"></i> Transfer Contact</button>
                                 <button className="action-btn" title="Sequence"><i className="fas fa-stream"></i> Sequence</button>
                                 <button className="action-btn" title="Send Message"><i className="fas fa-paper-plane"></i> Send Message</button>
                                 <button className="action-btn" title="Add Tag"><i className="fas fa-tag"></i> Tag</button>
@@ -263,7 +260,7 @@ function ContactsView() {
                     {/* List View */}
                     {viewMode === 'list' ? (
                         <>
-                            {/* Header Strip (Pati) */}
+                            {/* Header Strip */}
                             <div className="list-header contact-list-grid" style={{ position: 'sticky', top: '65px', background: '#f8fafc', zIndex: 100, borderBottom: '2px solid #e2e8f0' }}>
                                 <div>
                                     <input
@@ -287,7 +284,7 @@ function ContactsView() {
                                 <div>Assigned</div>
                             </div>
 
-                            <div id="contactListContent">
+                            <div id="personListContent">
                                 {Object.keys(groups).map(groupName => (
                                     <div key={groupName} className="list-group">
                                         <div className="group-header" style={{ padding: '12px 2rem', letterSpacing: '0.5px' }}>{groupName.toUpperCase()}</div>
@@ -379,37 +376,79 @@ function ContactsView() {
                                                     {item.crmLinks && Object.keys(item.crmLinks).length > 0 ? (
                                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                                                             {item.crmLinks.leads && (
-                                                                <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#dbeafe', color: '#1e40af', borderRadius: '4px', fontWeight: 700 }}>
+                                                                <span style={{
+                                                                    fontSize: '0.65rem',
+                                                                    padding: '2px 6px',
+                                                                    background: '#dbeafe',
+                                                                    color: '#1e40af',
+                                                                    borderRadius: '4px',
+                                                                    fontWeight: 700
+                                                                }}>
                                                                     <i className="fas fa-user-plus" style={{ marginRight: '2px', fontSize: '0.6rem' }}></i>
                                                                     Leads ({item.crmLinks.leads})
                                                                 </span>
                                                             )}
                                                             {item.crmLinks.deals && (
-                                                                <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#dcfce7', color: '#166534', borderRadius: '4px', fontWeight: 700 }}>
+                                                                <span style={{
+                                                                    fontSize: '0.65rem',
+                                                                    padding: '2px 6px',
+                                                                    background: '#dcfce7',
+                                                                    color: '#166534',
+                                                                    borderRadius: '4px',
+                                                                    fontWeight: 700
+                                                                }}>
                                                                     <i className="fas fa-handshake" style={{ marginRight: '2px', fontSize: '0.6rem' }}></i>
                                                                     Deals ({item.crmLinks.deals})
                                                                 </span>
                                                             )}
                                                             {item.crmLinks.property && (
-                                                                <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#fef3c7', color: '#92400e', borderRadius: '4px', fontWeight: 700 }}>
+                                                                <span style={{
+                                                                    fontSize: '0.65rem',
+                                                                    padding: '2px 6px',
+                                                                    background: '#fef3c7',
+                                                                    color: '#92400e',
+                                                                    borderRadius: '4px',
+                                                                    fontWeight: 700
+                                                                }}>
                                                                     <i className="fas fa-building" style={{ marginRight: '2px', fontSize: '0.6rem' }}></i>
                                                                     Property ({item.crmLinks.property})
                                                                 </span>
                                                             )}
                                                             {item.crmLinks.booking && (
-                                                                <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#fce7f3', color: '#9f1239', borderRadius: '4px', fontWeight: 700 }}>
+                                                                <span style={{
+                                                                    fontSize: '0.65rem',
+                                                                    padding: '2px 6px',
+                                                                    background: '#fce7f3',
+                                                                    color: '#9f1239',
+                                                                    borderRadius: '4px',
+                                                                    fontWeight: 700
+                                                                }}>
                                                                     <i className="fas fa-calendar-check" style={{ marginRight: '2px', fontSize: '0.6rem' }}></i>
                                                                     Booking ({item.crmLinks.booking})
                                                                 </span>
                                                             )}
                                                             {item.crmLinks.project && (
-                                                                <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#e0e7ff', color: '#3730a3', borderRadius: '4px', fontWeight: 700 }}>
+                                                                <span style={{
+                                                                    fontSize: '0.65rem',
+                                                                    padding: '2px 6px',
+                                                                    background: '#e0e7ff',
+                                                                    color: '#3730a3',
+                                                                    borderRadius: '4px',
+                                                                    fontWeight: 700
+                                                                }}>
                                                                     <i className="fas fa-project-diagram" style={{ marginRight: '2px', fontSize: '0.6rem' }}></i>
                                                                     Project ({item.crmLinks.project})
                                                                 </span>
                                                             )}
                                                             {item.crmLinks.activities && (
-                                                                <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#fed7aa', color: '#7c2d12', borderRadius: '4px', fontWeight: 700 }}>
+                                                                <span style={{
+                                                                    fontSize: '0.65rem',
+                                                                    padding: '2px 6px',
+                                                                    background: '#fed7aa',
+                                                                    color: '#7c2d12',
+                                                                    borderRadius: '4px',
+                                                                    fontWeight: 700
+                                                                }}>
                                                                     <i className="fas fa-tasks" style={{ marginRight: '2px', fontSize: '0.6rem' }}></i>
                                                                     Activities ({item.crmLinks.activities})
                                                                 </span>
@@ -688,4 +727,4 @@ function ContactsView() {
     );
 }
 
-export default ContactsView;
+export default PersonView;

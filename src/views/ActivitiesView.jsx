@@ -646,7 +646,7 @@ function ActivitiesView() {
                             {/* Action Bar / Toolbar */}
                             <div className="toolbar-container" style={{ padding: '5px 2rem', borderBottom: '1px solid #eef2f5', minHeight: '45px', display: 'flex', alignItems: 'center', background: '#fff', zIndex: 105 }}>
                                 {selectedIds.length > 0 ? (
-                                    <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingBottom: '2px' }}>
+                                    <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingTop: '4px', paddingBottom: '2px' }}>
                                         <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>
                                             {selectedIds.length} Selected
                                         </div>

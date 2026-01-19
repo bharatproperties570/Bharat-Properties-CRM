@@ -43,6 +43,14 @@ function Sidebar({ currentView, onNavigate }) {
                 </a>
                 <a
                     href="#"
+                    className={`sidebar-icon ${currentView === 'person' ? 'active' : ''}`}
+                    onClick={(e) => { e.preventDefault(); onNavigate('person'); }}
+                    title="Person"
+                >
+                    <i className="fas fa-user"></i>
+                </a>
+                <a
+                    href="#"
                     className={`sidebar-icon ${currentView === 'leads' ? 'active' : ''}`}
                     onClick={(e) => { e.preventDefault(); onNavigate('leads'); }}
                     title="Leads"
@@ -80,6 +88,14 @@ function Sidebar({ currentView, onNavigate }) {
                     title="Activities"
                 >
                     <i className="fas fa-tasks"></i>
+                </a>
+                <a
+                    href="#"
+                    className={`sidebar-icon ${currentView === 'forms' ? 'active' : ''}`}
+                    onClick={(e) => { e.preventDefault(); onNavigate('forms'); }}
+                    title="Forms"
+                >
+                    <i className="fas fa-clipboard-list"></i>
                 </a>
                 <a
                     href="#"
