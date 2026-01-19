@@ -3,7 +3,7 @@ import { contactData } from '../data/mockData';
 import { getInitials, getSourceBadgeClass } from '../utils/helpers';
 import { useContactSync } from '../hooks/useContactSync';
 
-function ContactsView() {
+function ContactsView({ onEdit }) {
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -70,6 +70,15 @@ function ContactsView() {
     // Check if all visible contacts are selected
     const isAllSelected = paginatedContacts.length > 0 && selectedIds.length === paginatedContacts.length;
     const isIndeterminate = selectedIds.length > 0 && selectedIds.length < paginatedContacts.length;
+
+    // Handle Edit Click
+    const handleEditClick = () => {
+        // Find the selected contact object
+        const selectedContact = contactData.find(c => c.mobile === selectedIds[0]);
+        if (selectedContact && onEdit) {
+            onEdit(selectedContact);
+        }
+    };
 
     return (
         <section id="contactsView" className="view-section active">
@@ -139,7 +148,7 @@ function ContactsView() {
                                 {/* Single Selection Only - Edit & Create Lead */}
                                 {selectedCount === 1 && (
                                     <>
-                                        <button className="action-btn" title="Edit Contact"><i className="fas fa-edit"></i> Edit</button>
+                                        <button className="action-btn" title="Edit Contact" onClick={handleEditClick}><i className="fas fa-edit"></i> Edit</button>
                                         <button className="action-btn" title="Create Lead"><i className="fas fa-user-plus"></i> Create Lead</button>
                                     </>
                                 )}
