@@ -20,7 +20,7 @@ import ProfileView from './views/ProfileView';
 import SettingsHubView from './views/SettingsHubView';
 import CompanyView from './views/CompanyView';
 
-import AddContactFormView from './views/AddContactFormView';
+
 import FormsHubView from './views/FormsHubView';
 
 function App() {
