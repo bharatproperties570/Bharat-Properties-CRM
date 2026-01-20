@@ -49,6 +49,7 @@ function App() {
                 email: formData.emails[0]?.address || '',
                 address: [
                     formData.personalAddress.hNo,
+                    formData.personalAddress.street,
                     formData.personalAddress.location,
                     formData.personalAddress.area,
                     formData.personalAddress.postOffice,
@@ -85,6 +86,7 @@ function App() {
             email: formData.emails[0]?.address || '',
             address: [
                 formData.personalAddress.hNo,
+                formData.personalAddress.street,
                 formData.personalAddress.location,
                 formData.personalAddress.area,
                 formData.personalAddress.postOffice,
