@@ -2,141 +2,77 @@ import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import AddContactModal from './components/AddContactModal';
+import AppRouter from './router/AppRouter';
+
+// Data
 import { contactData, leadData } from './data/mockData';
-import ContactsView from './views/ContactsView';
-import LeadsView from './views/LeadsView';
-import MarketingView from './views/MarketingView';
-import WizardView from './views/WizardView';
-import ProjectsView from './views/ProjectsView';
-import InventoryView from './views/InventoryView';
-import DealsView from './views/DealsView';
-import ActivitiesView from './views/ActivitiesView';
-import BookingView from './views/BookingView';
-import AccountView from './views/AccountView';
-import CommunicationView from './views/CommunicationView';
-import ReportsView from './views/ReportsView';
-import DashboardView from './views/DashboardView';
-import ProfileView from './views/ProfileView';
-import SettingsHubView from './views/SettingsHubView';
-import CompanyView from './views/CompanyView';
-
-
-import FormsHubView from './views/FormsHubView';
 
 function App() {
-    const [currentView, setCurrentView] = useState('dashboard'); // leads | contacts | marketing | wizard | dashboard
+    // Global Navigation State
+    const [currentView, setCurrentView] = useState('dashboard');
+    const [lastView, setLastView] = useState('dashboard'); // For history (simple)
+
+    // Global Modal State
     const [showAddContactModal, setShowAddContactModal] = useState(false);
     const [modalEntityType, setModalEntityType] = useState('contact'); // 'contact' or 'lead'
-
-
     const [editingContact, setEditingContact] = useState(null);
 
+    // Handlers
     const handleEditContact = (contact) => {
         setEditingContact(contact);
+        setModalEntityType('contact');
         setShowAddContactModal(true);
-    };
-
-    const handleUpdateContact = (formData) => {
-        // Find index of contact being edited
-        // In real app we use ID, here finding by mobile or fallback to name matching for mock
-        const index = contactData.findIndex(c => c.mobile === editingContact.mobile);
-
-        if (index !== -1) {
-            const updatedContact = {
-                ...contactData[index],
-                name: `${formData.title} ${formData.name} ${formData.surname}`.trim(),
-                mobile: formData.phones[0]?.number || '',
-                email: formData.emails[0]?.address || '',
-                address: [
-                    formData.personalAddress.hNo,
-                    formData.personalAddress.street,
-                    formData.personalAddress.location,
-                    formData.personalAddress.area,
-                    formData.personalAddress.postOffice,
-                    formData.personalAddress.tehsil,
-                    formData.personalAddress.city,
-                    formData.personalAddress.state,
-                    formData.personalAddress.pinCode ? `- ${formData.personalAddress.pinCode}` : ''
-                ].filter(Boolean).join(', '),
-                professional: formData.professionCategory || 'General',
-                designation: formData.designation || '',
-                company: formData.company || '',
-                tags: formData.tags.join(', ') || '-',
-                source: formData.source || 'Direct',
-                // Keep existing system fields unless changed
-                category: formData.professionSubCategory || contactData[index].category
-            };
-            contactData[index] = updatedContact;
-        }
-
-        setEditingContact(null);
-        setShowAddContactModal(false);
-        setCurrentView('contacts');
     };
 
     const handleSaveContact = (formData) => {
         if (editingContact) {
-            handleUpdateContact(formData);
-            return;
+            // Edit Mode - Update existing
+            const index = contactData.findIndex(c => c.mobile === editingContact.mobile);
+            if (index !== -1) {
+                contactData[index] = { ...contactData[index], ...formData };
+            }
+        } else {
+            // Add Mode
+            const newContact = {
+                ...formData,
+                professional: 'Investor', // Default or derived
+                designation: 'New Client',
+                company: 'Self',
+                source: 'Direct',
+                tags: 'New',
+                crmLinks: {},
+                lastComm: 'Just Added',
+                date: new Date().toLocaleDateString('en-GB'),
+                actionable: 'Call',
+                category: 'Prospect'
+            };
+            contactData.unshift(newContact);
         }
-
-        const newContact = {
-            name: `${formData.title} ${formData.name} ${formData.surname}`.trim(),
-            mobile: formData.phones[0]?.number || '',
-            email: formData.emails[0]?.address || '',
-            address: [
-                formData.personalAddress.hNo,
-                formData.personalAddress.street,
-                formData.personalAddress.location,
-                formData.personalAddress.area,
-                formData.personalAddress.postOffice,
-                formData.personalAddress.tehsil,
-                formData.personalAddress.city,
-                formData.personalAddress.state,
-                formData.personalAddress.pinCode ? `- ${formData.personalAddress.pinCode}` : ''
-            ].filter(Boolean).join(', '),
-            professional: formData.professionCategory || 'General',
-            designation: formData.designation || '',
-            company: formData.company || '',
-            tags: formData.tags.join(', ') || '-',
-            source: formData.source || 'Direct',
-            lastComm: 'Just Added',
-            actionable: 'Review',
-            ownership: 'Bharat Properties (Admin)',
-            addOnDate: new Date().toLocaleDateString('en-GB'),
-            addOnTime: new Date().toLocaleTimeString(),
-            group: new Date().toLocaleString('default', { month: 'long', year: 'numeric' }),
-            icon: 'fa-user',
-            crmLinks: {},
-            category: formData.professionSubCategory || 'Contact'
-        };
-
-        // Add to mock data (in-memory update)
-        contactData.unshift(newContact);
-
-        // Close modal and switch view
         setShowAddContactModal(false);
-        setCurrentView('contacts');
+        setEditingContact(null);
     };
 
     const handleSaveLead = (formData) => {
+        // Add Lead Logic
         const newLead = {
-            score: { val: 50, class: 'medium' }, // Default score
-            name: `${formData.title} ${formData.name} ${formData.surname}`.trim(),
-            mobile: formData.phones[0]?.number || '',
-            // Mapping contact fields to lead requirements as best as possible or leaving generic
-            req: {
-                type: 'Buy Residential', // Default for now as form doesn't have these specific lead tabs anymore
-                size: '2000 Sq. Ft'
-            },
-            budget: '₹50L - ₹1Cr', // Default placeholder
-            location: [
-                formData.personalAddress.city,
-                formData.personalAddress.tehsil
-            ].filter(Boolean).join(', ') || 'Any',
+            ...formData,
+            req: { type: 'Buy Residential', size: 'N/A' }, // Defaults
+            score: { val: 60, class: 'medium' },
             matched: 0,
+            budget: '₹ TBD',
+            location: 'Gurgaon',
             status: { label: 'New', class: 'new' },
-            source: formData.source || 'Direct',
+            source: 'Direct',
+            remarks: 'New Lead Entry',
+            activity: 'Call', // Next action
+            lastAct: 'Today',
+            owner: 'Assign Pending',
+            addOn: 'Just Now',
+            crmLinks: {},
+            professional: 'Investor',
+            designation: 'New Client',
+            company: 'Self',
+            tags: 'New',
             lastComm: 'Just Added',
             date: new Date().toLocaleDateString('en-GB'),
             actionable: 'Call',
@@ -149,60 +85,18 @@ function App() {
         setCurrentView('leads');
     };
 
-
-    const renderView = () => {
-        switch (currentView) {
-            case 'contacts':
-                return <ContactsView onEdit={handleEditContact} />;
-            case 'company':
-                return <CompanyView />;
-
-            case 'leads':
-                return <LeadsView />;
-            case 'marketing':
-                return <MarketingView onNavigate={setCurrentView} />;
-            case 'wizard':
-                return <WizardView onBack={() => setCurrentView('marketing')} />;
-            case 'projects':
-                return <ProjectsView />;
-            case 'inventory':
-                return <InventoryView />;
-            case 'deals':
-                return <DealsView />;
-            case 'activities':
-                return <ActivitiesView />;
-            case 'forms':
-                return <FormsHubView />;
-            case 'booking':
-                return <BookingView onNavigate={setCurrentView} />;
-            case 'account':
-                return <AccountView onNavigate={setCurrentView} />;
-            case 'communication':
-                return <CommunicationView />;
-            case 'reports':
-                return <ReportsView />;
-            case 'dashboard':
-                return <DashboardView />;
-            case 'profile':
-                return <ProfileView />;
-            case 'settings':
-                return <SettingsHubView />;
-            default:
-                return <DashboardView />;
-        }
-    };
-
     return (
         <div className="app-container">
             {/* Sidebar handles navigation */}
             <Sidebar currentView={currentView} onNavigate={setCurrentView} />
 
-            {/* Main Area: Header + Views */}
+            {/* Main Area: Header + AppRouter */}
             <main className="main-area">
                 <Header
                     onNavigate={setCurrentView}
                     onAddContact={() => {
                         setModalEntityType('contact');
+                        setEditingContact(null);
                         setShowAddContactModal(true);
                     }}
                     onAddLead={() => {
@@ -210,7 +104,14 @@ function App() {
                         setShowAddContactModal(true);
                     }}
                 />
-                {renderView()}
+
+                {/* Router Component Handling View Switch */}
+                <AppRouter
+                    currentView={currentView}
+                    onNavigate={setCurrentView}
+                    onEditContact={handleEditContact}
+                />
+
                 <AddContactModal
                     isOpen={showAddContactModal}
                     onClose={() => {
