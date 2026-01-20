@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { contactData } from '../data/mockData';
 import { getInitials, getSourceBadgeClass } from '../utils/helpers';
 import { useContactSync } from '../hooks/useContactSync';
+import SendMailModal from '../components/SendMailModal';
 
 function ContactsView({ onEdit }) {
     const [selectedIds, setSelectedIds] = useState([]);
@@ -10,6 +11,7 @@ function ContactsView({ onEdit }) {
     const [recordsPerPage, setRecordsPerPage] = useState(25);
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'card'
     const [isSyncing, setIsSyncing] = useState(false);
+    const [isSendMailOpen, setIsSendMailOpen] = useState(false);
 
     // Contact Sync Hook
     const { getSyncStatus, syncMultipleContacts } = useContactSync();
@@ -80,6 +82,14 @@ function ContactsView({ onEdit }) {
         }
     };
 
+    const getSelectedContacts = () => {
+        return contactData.filter(c => selectedIds.includes(c.mobile));
+    };
+
+    const handleSendMail = () => {
+        setIsSendMailOpen(true);
+    };
+
     return (
         <section id="contactsView" className="view-section active">
             <div className="view-scroll-wrapper">
@@ -143,7 +153,13 @@ function ContactsView({ onEdit }) {
                                 )}
 
                                 {/* Email - Always show */}
-                                <button className="action-btn" title="Email Contact"><i className="fas fa-envelope"></i> Email</button>
+                                <button
+                                    className="action-btn"
+                                    title="Email Contact"
+                                    onClick={handleSendMail}
+                                >
+                                    <i className="fas fa-envelope"></i> Email
+                                </button>
 
                                 {/* Single Selection Only - Edit & Create Lead */}
                                 {selectedCount === 1 && (
@@ -693,7 +709,13 @@ function ContactsView({ onEdit }) {
                     <div className="stat-pill" style={{ color: 'var(--primary-color)' }}>REAL ESTATE AGENTS <strong>{contactData.filter(c => c.category === 'Real Estate Agent').length}</strong></div>
                 </div>
             </footer>
-        </section>
+            <SendMailModal
+                isOpen={isSendMailOpen}
+                onClose={() => setIsSendMailOpen(false)}
+                recipients={getSelectedContacts()}
+                onSend={() => alert('Email sent successfully!')}
+            />
+        </section >
     );
 }
 

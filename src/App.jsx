@@ -19,7 +19,7 @@ import DashboardView from './views/DashboardView';
 import ProfileView from './views/ProfileView';
 import SettingsHubView from './views/SettingsHubView';
 import CompanyView from './views/CompanyView';
-import PersonView from './views/PersonView';
+
 import AddContactFormView from './views/AddContactFormView';
 import FormsHubView from './views/FormsHubView';
 
@@ -156,8 +156,7 @@ function App() {
                 return <ContactsView onEdit={handleEditContact} />;
             case 'company':
                 return <CompanyView />;
-            case 'person':
-                return <PersonView />;
+
             case 'leads':
                 return <LeadsView />;
             case 'marketing':

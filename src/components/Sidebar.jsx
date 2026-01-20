@@ -41,14 +41,7 @@ function Sidebar({ currentView, onNavigate }) {
                 >
                     <i className="fas fa-city"></i>
                 </a>
-                <a
-                    href="#"
-                    className={`sidebar-icon ${currentView === 'person' ? 'active' : ''}`}
-                    onClick={(e) => { e.preventDefault(); onNavigate('person'); }}
-                    title="Person"
-                >
-                    <i className="fas fa-user"></i>
-                </a>
+
                 <a
                     href="#"
                     className={`sidebar-icon ${currentView === 'leads' ? 'active' : ''}`}

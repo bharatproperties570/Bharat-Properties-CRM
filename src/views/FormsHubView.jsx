@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import AddContactModal from '../components/AddContactModal';
+import SendMailModal from '../components/SendMailModal';
 
 const FormsHubView = () => {
     const [isAddContactModalOpen, setIsAddContactModalOpen] = useState(false);
+    const [isSendMailOpen, setIsSendMailOpen] = useState(false);
 
     const handleAddContact = (contactData) => {
         console.log('New contact:', contactData);
@@ -15,7 +17,8 @@ const FormsHubView = () => {
         { id: 'add-user', label: 'Add User', icon: 'fa-user-shield', description: 'Add a new user to the system' },
         { id: 'add-lead', label: 'Add Lead', icon: 'fa-filter', description: 'Create a new lead entry' },
         { id: 'add-deal', label: 'Add Deal', icon: 'fa-handshake', description: 'Create a new deal' },
-        { id: 'add-property', label: 'Add Property', icon: 'fa-building', description: 'Add a new property to inventory' }
+        { id: 'add-property', label: 'Add Property', icon: 'fa-building', description: 'Add a new property to inventory' },
+        { id: 'send-email', label: 'Send Email', icon: 'fa-envelope', description: 'Compose and send emails to contacts' }
     ];
     return (
         <>
@@ -31,6 +34,8 @@ const FormsHubView = () => {
                                     onClick={() => {
                                         if (form.id === 'add-contact') {
                                             setIsAddContactModalOpen(true);
+                                        } else if (form.id === 'send-email') {
+                                            setIsSendMailOpen(true);
                                         }
                                     }}
                                     style={{
@@ -39,10 +44,10 @@ const FormsHubView = () => {
                                         fontWeight: 500,
                                         color: '#64748b',
                                         background: 'transparent',
-                                        cursor: form.id === 'add-contact' ? 'pointer' : 'default',
+                                        cursor: (form.id === 'add-contact' || form.id === 'send-email') ? 'pointer' : 'default',
                                         borderLeft: '4px solid transparent',
                                         transition: 'all 0.2s',
-                                        opacity: form.id === 'add-contact' ? 1 : 0.6
+                                        opacity: (form.id === 'add-contact' || form.id === 'send-email') ? 1 : 0.6
                                     }}
                                 >
                                     {form.label}
@@ -71,12 +76,16 @@ const FormsHubView = () => {
                         }}>
                             {formsList.map(form => {
                                 const isAddContact = form.id === 'add-contact';
+                                const isSendMail = form.id === 'send-email';
+                                const isClickable = isAddContact || isSendMail;
                                 return (
                                     <div
                                         key={form.id}
                                         onClick={() => {
                                             if (isAddContact) {
                                                 setIsAddContactModalOpen(true);
+                                            } else if (isSendMail) {
+                                                setIsSendMailOpen(true);
                                             }
                                         }}
                                         style={{
@@ -84,13 +93,13 @@ const FormsHubView = () => {
                                             border: '1px solid #e2e8f0',
                                             borderRadius: '12px',
                                             padding: '24px',
-                                            cursor: isAddContact ? 'pointer' : 'default',
+                                            cursor: isClickable ? 'pointer' : 'default',
                                             transition: 'all 0.2s',
                                             boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
-                                            opacity: isAddContact ? 1 : 0.6
+                                            opacity: isClickable ? 1 : 0.6
                                         }}
                                         onMouseEnter={(e) => {
-                                            if (isAddContact) {
+                                            if (isClickable) {
                                                 e.currentTarget.style.boxShadow = '0 8px 16px rgba(0,0,0,0.1)';
                                                 e.currentTarget.style.transform = 'translateY(-2px)';
                                                 e.currentTarget.style.borderColor = 'var(--primary-color)';
@@ -116,7 +125,7 @@ const FormsHubView = () => {
                                         </div>
                                         <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>{form.label}</h3>
                                         <p style={{ fontSize: '0.8rem', color: '#64748b', lineHeight: '1.4', marginBottom: '12px' }}>{form.description}</p>
-                                        {!isAddContact && (
+                                        {!isAddContact && form.id !== 'send-email' && (
                                             <div style={{
                                                 display: 'inline-block',
                                                 background: '#f1f5f9',
@@ -131,6 +140,18 @@ const FormsHubView = () => {
                                             </div>
                                         )}
                                         {isAddContact && (
+                                            <div style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '6px',
+                                                color: 'var(--primary-color)',
+                                                fontSize: '0.8rem',
+                                                fontWeight: 600
+                                            }}>
+                                                Open Form <i className="fas fa-arrow-right" style={{ fontSize: '0.7rem' }}></i>
+                                            </div>
+                                        )}
+                                        {isSendMail && (
                                             <div style={{
                                                 display: 'inline-flex',
                                                 alignItems: 'center',
@@ -172,6 +193,16 @@ const FormsHubView = () => {
                 isOpen={isAddContactModalOpen}
                 onClose={() => setIsAddContactModalOpen(false)}
                 onAdd={handleAddContact}
+            />
+
+            {/* Send Mail Modal */}
+            <SendMailModal
+                isOpen={isSendMailOpen}
+                onClose={() => setIsSendMailOpen(false)}
+                recipients={[]} // Empty for new form
+                onSend={(payload) => {
+                    alert('Email sent successfully!');
+                }}
             />
         </>
     );
