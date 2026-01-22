@@ -1,10 +1,16 @@
 import React, { useState } from 'react';
 import AddContactModal from '../../components/AddContactModal';
 import SendMailModal from '../Contacts/components/SendMailModal';
+import CreateActivityModal from '../../components/CreateActivityModal';
+import SendMessageModal from '../../components/SendMessageModal';
+import CallModal from '../../components/CallModal';
 
 const FormsPage = () => {
     const [isAddContactModalOpen, setIsAddContactModalOpen] = useState(false);
     const [isSendMailOpen, setIsSendMailOpen] = useState(false);
+    const [isCreateActivityModalOpen, setIsCreateActivityModalOpen] = useState(false);
+    const [isSendMessageOpen, setIsSendMessageOpen] = useState(false);
+    const [isCallModalOpen, setIsCallModalOpen] = useState(false);
 
     const handleAddContact = (contactData) => {
         console.log('New contact:', contactData);
@@ -14,6 +20,9 @@ const FormsPage = () => {
 
     const formsList = [
         { id: 'add-contact', label: 'Add Contact', icon: 'fa-user-plus', description: 'Create a new contact with detailed information' },
+        { id: 'create-activity', label: 'Create Activity', icon: 'fa-calendar-plus', description: 'Schedule a call, meeting, or task' },
+        { id: 'call-contact', label: 'Call Contact', icon: 'fa-phone-alt', description: 'Initiate GSM or IVR call' },
+        { id: 'send-message', label: 'Send Message', icon: 'fa-comment-alt', description: 'Send SMS, WhatsApp, or RCS to contacts' },
         { id: 'add-user', label: 'Add User', icon: 'fa-user-shield', description: 'Add a new user to the system' },
         { id: 'add-lead', label: 'Add Lead', icon: 'fa-filter', description: 'Create a new lead entry' },
         { id: 'add-deal', label: 'Add Deal', icon: 'fa-handshake', description: 'Create a new deal' },
@@ -32,11 +41,11 @@ const FormsPage = () => {
                                 <div
                                     key={form.id}
                                     onClick={() => {
-                                        if (form.id === 'add-contact') {
-                                            setIsAddContactModalOpen(true);
-                                        } else if (form.id === 'send-email') {
-                                            setIsSendMailOpen(true);
-                                        }
+                                        if (form.id === 'add-contact') setIsAddContactModalOpen(true);
+                                        else if (form.id === 'send-email') setIsSendMailOpen(true);
+                                        else if (form.id === 'create-activity') setIsCreateActivityModalOpen(true);
+                                        else if (form.id === 'call-contact') setIsCallModalOpen(true);
+                                        else if (form.id === 'send-message') setIsSendMessageOpen(true);
                                     }}
                                     style={{
                                         padding: '8px 24px',
@@ -44,10 +53,10 @@ const FormsPage = () => {
                                         fontWeight: 500,
                                         color: '#64748b',
                                         background: 'transparent',
-                                        cursor: (form.id === 'add-contact' || form.id === 'send-email') ? 'pointer' : 'default',
+                                        cursor: ['add-contact', 'send-email', 'create-activity', 'call-contact', 'send-message'].includes(form.id) ? 'pointer' : 'default',
                                         borderLeft: '4px solid transparent',
                                         transition: 'all 0.2s',
-                                        opacity: (form.id === 'add-contact' || form.id === 'send-email') ? 1 : 0.6
+                                        opacity: ['add-contact', 'send-email', 'create-activity', 'call-contact', 'send-message'].includes(form.id) ? 1 : 0.6
                                     }}
                                 >
                                     {form.label}
@@ -75,18 +84,16 @@ const FormsPage = () => {
                             gap: '24px'
                         }}>
                             {formsList.map(form => {
-                                const isAddContact = form.id === 'add-contact';
-                                const isSendMail = form.id === 'send-email';
-                                const isClickable = isAddContact || isSendMail;
+                                const isClickable = ['add-contact', 'send-email', 'create-activity', 'call-contact', 'send-message'].includes(form.id);
                                 return (
                                     <div
                                         key={form.id}
                                         onClick={() => {
-                                            if (isAddContact) {
-                                                setIsAddContactModalOpen(true);
-                                            } else if (isSendMail) {
-                                                setIsSendMailOpen(true);
-                                            }
+                                            if (form.id === 'add-contact') setIsAddContactModalOpen(true);
+                                            else if (form.id === 'send-email') setIsSendMailOpen(true);
+                                            else if (form.id === 'create-activity') setIsCreateActivityModalOpen(true);
+                                            else if (form.id === 'call-contact') setIsCallModalOpen(true);
+                                            else if (form.id === 'send-message') setIsSendMessageOpen(true);
                                         }}
                                         style={{
                                             background: '#fff',
@@ -125,7 +132,7 @@ const FormsPage = () => {
                                         </div>
                                         <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>{form.label}</h3>
                                         <p style={{ fontSize: '0.8rem', color: '#64748b', lineHeight: '1.4', marginBottom: '12px' }}>{form.description}</p>
-                                        {!isAddContact && form.id !== 'send-email' && (
+                                        {!isClickable && (
                                             <div style={{
                                                 display: 'inline-block',
                                                 background: '#f1f5f9',
@@ -139,19 +146,7 @@ const FormsPage = () => {
                                                 Coming Soon
                                             </div>
                                         )}
-                                        {isAddContact && (
-                                            <div style={{
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                gap: '6px',
-                                                color: 'var(--primary-color)',
-                                                fontSize: '0.8rem',
-                                                fontWeight: 600
-                                            }}>
-                                                Open Form <i className="fas fa-arrow-right" style={{ fontSize: '0.7rem' }}></i>
-                                            </div>
-                                        )}
-                                        {isSendMail && (
+                                        {isClickable && (
                                             <div style={{
                                                 display: 'inline-flex',
                                                 alignItems: 'center',
@@ -199,9 +194,40 @@ const FormsPage = () => {
             <SendMailModal
                 isOpen={isSendMailOpen}
                 onClose={() => setIsSendMailOpen(false)}
-                recipients={[]} // Empty for new form
-                onSend={(payload) => {
+                onSend={() => {
                     alert('Email sent successfully!');
+                    setIsSendMailOpen(false);
+                }}
+            />
+
+            {/* Create Activity Modal */}
+            <CreateActivityModal
+                isOpen={isCreateActivityModalOpen}
+                onClose={() => setIsCreateActivityModalOpen(false)}
+                onSave={(data) => {
+                    console.log('Activity Created:', data);
+                    alert('Activity Created Successfully!');
+                }}
+            />
+
+            {/* Send Message Modal */}
+            <SendMessageModal
+                isOpen={isSendMessageOpen}
+                onClose={() => setIsSendMessageOpen(false)}
+                onSend={(data) => {
+                    console.log('Message Sent:', data);
+                    alert(`${data.channel} campaign sent successfully!`);
+                }}
+            />
+
+            {/* Call Modal */}
+            <CallModal
+                isOpen={isCallModalOpen}
+                onClose={() => setIsCallModalOpen(false)}
+                contact={{ name: 'Demo Contact', mobile: '9876543210' }} // Mock contact for forms page demo
+                onCallEnd={(data) => {
+                    console.log('Call Ended:', data);
+                    // In a real app, this would refresh the activity list
                 }}
             />
         </>

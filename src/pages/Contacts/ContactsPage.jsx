@@ -1,10 +1,16 @@
 import React, { useState } from 'react';
-import { contactData } from '../../data/mockData';
+import { contactData as initialContactData } from '../../data/mockData';
 import { getInitials, getSourceBadgeClass } from '../../utils/helpers';
 import { useContactSync } from '../../hooks/useContactSync';
 import SendMailModal from './components/SendMailModal';
+import AddLeadModal from '../../components/AddLeadModal';
+import SendMessageModal from '../../components/SendMessageModal';
+import AssignContactModal from '../../components/AssignContactModal';
+import ManageTagsModal from '../../components/ManageTagsModal';
+import CallModal from '../../components/CallModal';
 
-function ContactsPage({ onEdit }) {
+function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
+    const [contacts, setContacts] = useState(initialContactData);
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -12,12 +18,44 @@ function ContactsPage({ onEdit }) {
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'card'
     const [isSyncing, setIsSyncing] = useState(false);
     const [isSendMailOpen, setIsSendMailOpen] = useState(false);
+    const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
+    const [contactForLead, setContactForLead] = useState(null);
+
+    // Send Message Modal State
+    const [isSendMessageOpen, setIsSendMessageOpen] = useState(false);
+    const [selectedContactsForMessage, setSelectedContactsForMessage] = useState([]);
+
+    // Assign Modal State
+    const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+    const [selectedContactsForAssign, setSelectedContactsForAssign] = useState([]);
+
+    // Manage Tags Modal State
+    const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
+    const [selectedContactsForTags, setSelectedContactsForTags] = useState([]);
+
+    // Call Modal State
+    const [isCallModalOpen, setIsCallModalOpen] = useState(false);
+    const [selectedContactForCall, setSelectedContactForCall] = useState(null);
+
+    const handleAssignClick = () => {
+        const selected = getSelectedContacts();
+        if (selected.length === 0) return;
+        setSelectedContactsForAssign(selected);
+        setIsAssignModalOpen(true);
+    };
+
+    const handleTagClick = () => {
+        const selected = getSelectedContacts();
+        if (selected.length === 0) return;
+        setSelectedContactsForTags(selected);
+        setIsTagsModalOpen(true);
+    };
 
     // Contact Sync Hook
     const { getSyncStatus, syncMultipleContacts } = useContactSync();
 
     // Filtering logic
-    const filteredContacts = contactData.filter(contact =>
+    const filteredContacts = contacts.filter(contact =>
         contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         contact.mobile.includes(searchTerm) ||
         (contact.email && contact.email.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -40,7 +78,7 @@ function ContactsPage({ onEdit }) {
     };
 
     const isSelected = (mobile) => selectedIds.includes(mobile);
-    const totalCount = contactData.length;
+    const totalCount = contacts.length;
     const selectedCount = selectedIds.length;
 
     // Pagination
@@ -76,18 +114,24 @@ function ContactsPage({ onEdit }) {
     // Handle Edit Click
     const handleEditClick = () => {
         // Find the selected contact object
-        const selectedContact = contactData.find(c => c.mobile === selectedIds[0]);
+        const selectedContact = contacts.find(c => c.mobile === selectedIds[0]);
         if (selectedContact && onEdit) {
             onEdit(selectedContact);
         }
     };
 
     const getSelectedContacts = () => {
-        return contactData.filter(c => selectedIds.includes(c.mobile));
+        return contacts.filter(c => selectedIds.includes(c.mobile));
     };
 
     const handleSendMail = () => {
         setIsSendMailOpen(true);
+    };
+
+    const handleSendMessage = () => {
+        const selected = getSelectedContacts().map(c => ({ name: c.name, phone: c.mobile }));
+        setSelectedContactsForMessage(selected);
+        setIsSendMessageOpen(true);
     };
 
     return (
@@ -147,7 +191,19 @@ function ContactsPage({ onEdit }) {
                                 {/* Single Selection Only */}
                                 {selectedCount === 1 && (
                                     <>
-                                        <button className="action-btn" title="Call Contact"><i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call</button>
+                                        <button
+                                            className="action-btn"
+                                            title="Call Contact"
+                                            onClick={() => {
+                                                const selected = getSelectedContacts()[0];
+                                                if (selected) {
+                                                    setSelectedContactForCall(selected);
+                                                    setIsCallModalOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call
+                                        </button>
                                         <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
                                     </>
                                 )}
@@ -165,16 +221,42 @@ function ContactsPage({ onEdit }) {
                                 {selectedCount === 1 && (
                                     <>
                                         <button className="action-btn" title="Edit Contact" onClick={handleEditClick}><i className="fas fa-edit"></i> Edit</button>
-                                        <button className="action-btn" title="Create Lead"><i className="fas fa-user-plus"></i> Create Lead</button>
+                                        <button
+                                            className="action-btn"
+                                            title="Create Lead"
+                                            onClick={() => {
+                                                const selectedContact = contacts.find(c => c.mobile === selectedIds[0]);
+                                                if (selectedContact) {
+                                                    setContactForLead(selectedContact);
+                                                    setIsAddLeadModalOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-user-plus"></i> Create Lead
+                                        </button>
                                     </>
                                 )}
 
                                 {/* Action Buttons - Available for all selections */}
-                                <button className="action-btn" title="Activities"><i className="fas fa-calendar-check"></i> Activities</button>
-                                <button className="action-btn" title="Assigned"><i className="fas fa-exchange-alt"></i> Assigned</button>
+                                <button
+                                    className="action-btn"
+                                    title="Activities"
+                                    onClick={() => {
+                                        const selectedContacts = contacts.filter(c => selectedIds.includes(c.mobile));
+                                        const relatedTo = selectedContacts.map(c => ({
+                                            id: c.id || c.mobile,
+                                            name: c.name,
+                                            mobile: c.mobile
+                                        }));
+                                        onAddActivity(relatedTo);
+                                    }}
+                                >
+                                    <i className="fas fa-calendar-check"></i> Activities
+                                </button>
+                                <button className="action-btn" title="Assign" onClick={handleAssignClick}><i className="fas fa-exchange-alt"></i> Assign</button>
+                                <button className="action-btn" title="Tag" onClick={handleTagClick}><i className="fas fa-tag"></i> Tag</button>
                                 <button className="action-btn" title="Sequence"><i className="fas fa-stream"></i> Sequence</button>
-                                <button className="action-btn" title="Send Message"><i className="fas fa-paper-plane"></i> Send Message</button>
-                                <button className="action-btn" title="Add Tag"><i className="fas fa-tag"></i> Tag</button>
+                                <button className="action-btn" onClick={handleSendMessage} title="Send Message"><i className="fas fa-paper-plane"></i> Send Message</button>
 
                                 <div style={{ marginLeft: 'auto' }}>
                                     <button className="action-btn danger" title="Delete"><i className="fas fa-trash-alt"></i></button>
@@ -309,7 +391,7 @@ function ContactsPage({ onEdit }) {
                                 <div>Source & Tags</div>
                                 <div>CRM Linkage</div>
                                 <div>Last Interaction</div>
-                                <div>Assigned</div>
+                                <div style={{ paddingLeft: '10px' }}>Assign</div>
                             </div>
 
                             <div id="contactListContent">
@@ -345,7 +427,12 @@ function ContactsPage({ onEdit }) {
                                                             {getInitials(item.name)}
                                                         </div>
                                                         <div>
-                                                            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.95rem' }}>{item.name}</div>
+                                                            <div
+                                                                style={{ fontWeight: 800, color: 'var(--primary-color)', fontSize: '0.95rem', cursor: 'pointer' }}
+                                                                onClick={() => onNavigate('contact-detail', item.mobile)}
+                                                            >
+                                                                {item.name}
+                                                            </div>
                                                             <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginTop: '3px' }}>{item.mobile}</div>
                                                             {item.email && (
                                                                 <div style={{ fontSize: '0.7rem', color: '#8e44ad', fontWeight: 600, marginTop: '2px' }}>
@@ -513,7 +600,10 @@ function ContactsPage({ onEdit }) {
                                                     {getInitials(item.name)}
                                                 </div>
                                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{ fontWeight: 800, color: '#111827', fontSize: '0.9rem', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    <div
+                                                        style={{ fontWeight: 800, color: 'var(--primary-color)', fontSize: '0.9rem', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
+                                                        onClick={() => onNavigate('contact-detail', item.mobile)}
+                                                    >
                                                         {item.name}
                                                     </div>
                                                     <div style={{ fontSize: '0.7rem', color: '#6b7280', fontWeight: 600 }}>
@@ -704,16 +794,122 @@ function ContactsPage({ onEdit }) {
                 <div className="summary-label" style={{ background: '#334155', color: '#fff', padding: '4px 12px', borderRadius: '6px', fontSize: '0.7rem' }}>SUMMARY</div>
                 <div style={{ display: 'flex', gap: '20px' }}>
                     <div className="stat-pill">TOTAL CONTACTS <strong>{totalCount}</strong></div>
-                    <div className="stat-pill">CUSTOMERS <strong>{contactData.filter(c => c.category === 'Customer').length}</strong></div>
-                    <div className="stat-pill">PROSPECTS <strong>{contactData.filter(c => c.category === 'Prospect').length}</strong></div>
-                    <div className="stat-pill" style={{ color: 'var(--primary-color)' }}>REAL ESTATE AGENTS <strong>{contactData.filter(c => c.category === 'Real Estate Agent').length}</strong></div>
+                    <div className="stat-pill">CUSTOMERS <strong>{contacts.filter(c => c.category === 'Customer').length}</strong></div>
+                    <div className="stat-pill">PROSPECTS <strong>{contacts.filter(c => c.category === 'Prospect').length}</strong></div>
+                    <div className="stat-pill" style={{ color: 'var(--primary-color)' }}>REAL ESTATE AGENTS <strong>{contacts.filter(c => c.category === 'Real Estate Agent').length}</strong></div>
                 </div>
             </footer>
+
+            {/* Call Modal */}
+            <CallModal
+                isOpen={isCallModalOpen}
+                onClose={() => setIsCallModalOpen(false)}
+                contact={selectedContactForCall}
+            />
+
             <SendMailModal
                 isOpen={isSendMailOpen}
                 onClose={() => setIsSendMailOpen(false)}
-                recipients={getSelectedContacts()}
-                onSend={() => alert('Email sent successfully!')}
+                onSend={() => {
+                    alert('Email sent successfully!');
+                    setIsSendMailOpen(false);
+                }}
+            />
+
+
+            {/* Add Lead Modal */}
+            <AddLeadModal
+                isOpen={isAddLeadModalOpen}
+                onClose={() => {
+                    setIsAddLeadModalOpen(false);
+                    setContactForLead(null);
+                }}
+                contactData={contactForLead}
+                onAdd={(leadData) => {
+                    console.log('Lead Added:', leadData);
+
+                    // Update the leads count for the contact in local state
+                    if (contactForLead) {
+                        setContacts(prevContacts => prevContacts.map(c => {
+                            if (c.mobile === contactForLead.mobile) {
+                                const currentLeads = c.crmLinks?.leads || 0;
+                                return {
+                                    ...c,
+                                    crmLinks: { ...c.crmLinks, leads: currentLeads + 1 }
+                                };
+                            }
+                            return c;
+                        }));
+                    }
+
+                    alert('Lead Created Successfully!');
+                    setIsAddLeadModalOpen(false);
+                    setContactForLead(null);
+                }}
+            />
+
+            {/* Send Message Modal */}
+            <SendMessageModal
+                isOpen={isSendMessageOpen}
+                onClose={() => setIsSendMessageOpen(false)}
+                initialRecipients={selectedContactsForMessage}
+                onSend={(data) => {
+                    console.log('Sending Message:', data);
+                    alert('Message Sent Successfully!');
+                    setIsSendMessageOpen(false);
+                }}
+            />
+
+            {/* Assign Contact Modal */}
+            <AssignContactModal
+                isOpen={isAssignModalOpen}
+                onClose={() => setIsAssignModalOpen(false)}
+                selectedContacts={selectedContactsForAssign}
+                onAssign={(assignmentDetails) => {
+                    console.log('Assignment Details:', assignmentDetails);
+                    // Update local state to reflect assignment
+                    setContacts(prev => prev.map(c => {
+                        const contactId = c.id || c.mobile;
+                        if (assignmentDetails.contacts.includes(contactId)) {
+                            return { ...c, ownership: 'Assigned User' };
+                        }
+                        return c;
+                    }));
+                    setIsAssignModalOpen(false);
+                    setSelectedIds([]); // Clear selection after assignment
+                }}
+            />
+
+            {/* Manage Tags Modal */}
+            <ManageTagsModal
+                isOpen={isTagsModalOpen}
+                onClose={() => setIsTagsModalOpen(false)}
+                selectedContacts={selectedContactsForTags}
+                onUpdateTags={(payload) => {
+                    console.log('Tags Updated:', payload);
+                    // Update local state
+                    setContacts(prev => prev.map(c => {
+                        const contactId = c.id || c.mobile;
+                        if (payload.contactIds.includes(contactId)) {
+                            let newTags = c.tags && c.tags !== '-' ? c.tags.split(',').map(t => t.trim()) : [];
+
+                            if (payload.mode === 'overwrite') {
+                                newTags = payload.tags;
+                            } else if (payload.mode === 'add') {
+                                newTags = [...new Set([...newTags, ...payload.tags])];
+                            } else if (payload.mode === 'remove') {
+                                newTags = newTags.filter(t => !payload.tags.includes(t));
+                            }
+
+                            return { ...c, tags: newTags.length > 0 ? newTags.join(', ') : '-' };
+                        }
+                        return c;
+                    }));
+                    setIsTagsModalOpen(false);
+                    // Don't clear selection for bulk tag actions usually, as user might want to do more?
+                    // But prompt implies flow is done. Let's clear to be consistent.
+                    setSelectedIds([]);
+                }}
             />
         </section >
     );

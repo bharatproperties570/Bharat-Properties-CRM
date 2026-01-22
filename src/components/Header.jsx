@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-function Header({ onNavigate, onAddContact, onAddLead }) {
+function Header({ onNavigate, onAddContact, onAddLead, onAddActivity }) {
     const [showNotifications, setShowNotifications] = useState(false);
     const [unreadCount, setUnreadCount] = useState(3);
     const [profilePicture, setProfilePicture] = useState('');
@@ -55,7 +55,7 @@ function Header({ onNavigate, onAddContact, onAddLead }) {
                         <a href="#"><i className="fas fa-handshake"></i> Add Deal</a>
                         <a href="#"><i className="fas fa-building"></i> Add Project</a>
                         <a href="#"><i className="fas fa-boxes"></i> Add Inventory</a>
-                        <a href="#"><i className="fas fa-tasks"></i> Add Activities</a>
+                        <a href="#" onClick={(e) => { e.preventDefault(); onAddActivity(); }}><i className="fas fa-tasks"></i> Add Activities</a>
                     </div>
                 </div>
             </div>

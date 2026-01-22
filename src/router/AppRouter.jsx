@@ -27,16 +27,27 @@ import NotificationSettingsPage from '../pages/Settings/views/NotificationSettin
 import SalesGoalsSettingsPage from '../pages/Settings/views/SalesGoalsSettingsPage';
 import VoiceSettingsPage from '../pages/Settings/views/VoiceSettingsPage';
 
-const AppRouter = ({ currentView, onNavigate, onEditContact }) => {
+import ContactDetail from '../pages/Contacts/ContactDetail';
+
+import { leadData } from '../data/mockData';
+
+const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, onAddActivity }) => {
     switch (currentView) {
         case 'dashboard':
             return <DashboardPage />;
         case 'contacts':
-            return <ContactsPage onEdit={onEditContact} />;
+            return <ContactsPage onEdit={onEditContact} onAddActivity={onAddActivity} onNavigate={onNavigate} />;
+        case 'contact-detail':
+            const isLead = leadData.some(l => l.mobile === currentContactId);
+            return <ContactDetail
+                contactId={currentContactId}
+                onBack={() => onNavigate(isLead ? 'leads' : 'contacts')}
+                onAddActivity={onAddActivity}
+            />;
         case 'company':
             return <CompanyPage />;
         case 'leads':
-            return <LeadsPage />;
+            return <LeadsPage onAddActivity={onAddActivity} onEdit={onEditContact} onNavigate={onNavigate} />;
         case 'forms':
             return <FormsPage />;
         case 'deals':

@@ -20,7 +20,7 @@ export const leadData = [
         name: 'Dr. Digvijay Kumar',
         mobile: '07047752734',
         req: { type: 'Rent Commercial Shop', size: 'Booth, SCO, DSS' },
-        budget: '₹40,000 - ₹50,000',
+        budget: '₹40,00,000 - ₹50,00,000',
         location: 'Sector 17, Kurukshetra',
         matched: 9,
         status: { label: 'Prospect', class: 'warm' },
@@ -202,3 +202,31 @@ export const mockCampaigns = {
         { id: 3, name: 'Blog: Top Properties', source: 'Website', date: '05/01/2026' }
     ]
 };
+
+export const ivrOptions = {
+    numbers: [
+        { id: 1, label: 'Sales Line', number: '+91 8000 123 456' },
+        { id: 2, label: 'Support Line', number: '+91 8000 987 654' }
+    ],
+    flows: [
+        { id: 'sales', label: 'Sales Flow' },
+        { id: 'support', label: 'Support Flow' },
+        { id: 'followup', label: 'Follow-up Flow' }
+    ],
+    agents: [
+        { id: 'self', label: 'Self (Suraj)' },
+        { id: 'roundrobin', label: 'Round Robin' }
+    ]
+};
+
+export const users = [
+    { id: 'u1', name: 'Suraj Keshwar', role: 'Sales Manager', avatar: 'SK', availability: 'Available' },
+    { id: 'u2', name: 'Amit Sharma', role: 'Sales Executive', avatar: 'AS', availability: 'In Meeting' },
+    { id: 'u3', name: 'Priya Singh', role: 'Support Agent', avatar: 'PS', availability: 'Available' },
+    { id: 'u4', name: 'Rahul Verma', role: 'Field Agent', avatar: 'RV', availability: 'Offline' },
+    { id: 'u5', name: 'Vikram Singh', role: 'Senior Manager', avatar: 'VS', availability: 'Available' }
+];
+
+export const suggestedTags = [
+    'Hot Lead', 'Investor', 'Nurture', 'VIP', 'High Budget', 'Immediate Buys', 'NRI Client', 'Referral', 'Follow-up Required'
+];

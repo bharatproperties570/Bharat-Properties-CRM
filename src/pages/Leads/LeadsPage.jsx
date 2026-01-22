@@ -2,12 +2,38 @@ import React, { useState } from 'react';
 import PipelineDashboard from '../../components/PipelineDashboard';
 import { leadData } from '../../data/mockData';
 import { getInitials } from '../../utils/helpers';
+import SendMessageModal from '../../components/SendMessageModal';
+import ManageTagsModal from '../../components/ManageTagsModal';
+import AssignContactModal from '../../components/AssignContactModal';
+import CallModal from '../../components/CallModal';
+import SendMailModal from '../Contacts/components/SendMailModal';
+import AddLeadModal from '../../components/AddLeadModal';
 
-function LeadsPage() {
+function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
+
+    // Modals State
+    const [isSendMessageOpen, setIsSendMessageOpen] = useState(false);
+    const [selectedLeadsForMessage, setSelectedLeadsForMessage] = useState([]);
+
+    const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
+    const [selectedLeadsForTags, setSelectedLeadsForTags] = useState([]);
+
+    const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+    const [selectedLeadsForAssign, setSelectedLeadsForAssign] = useState([]);
+
+    const [isCallModalOpen, setIsCallModalOpen] = useState(false);
+    const [selectedLeadForCall, setSelectedLeadForCall] = useState(null);
+
+    const [isSendMailOpen, setIsSendMailOpen] = useState(false);
+    const [selectedLeadsForMail, setSelectedLeadsForMail] = useState([]);
+
+    // Edit/Add Lead Modal State
+    const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
+    const [editingLead, setEditingLead] = useState(null);
 
     const toggleSelect = (name) => {
         if (selectedIds.includes(name)) {
@@ -16,6 +42,13 @@ function LeadsPage() {
             setSelectedIds([...selectedIds, name]);
         }
     }
+
+    const getSelectedLeads = () => {
+        return leadData.filter(l => selectedIds.includes(l.name)).map(l => ({
+            ...l,
+            id: l.mobile // Ensure ID exists for shared components
+        }));
+    };
 
     const isSelected = (name) => selectedIds.includes(name);
     const selectedCount = selectedIds.length;
@@ -79,11 +112,67 @@ function LeadsPage() {
                                 {/* Single Selection Only */}
                                 {selectedCount === 1 && (
                                     <>
-                                        <button className="action-btn" title="Call Lead"><i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call</button>
-                                        <button className="action-btn" title="Email Lead"><i className="fas fa-envelope"></i> Email</button>
+                                        <button
+                                            className="action-btn"
+                                            title="Edit Lead"
+                                            onClick={() => {
+                                                const selectedLead = leadData.find(l => l.name === selectedIds[0]);
+                                                if (selectedLead) {
+                                                    setEditingLead(selectedLead);
+                                                    setIsAddLeadModalOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-edit"></i> Edit
+                                        </button>
+                                        <button
+                                            className="action-btn"
+                                            title="Call Lead"
+                                            onClick={() => {
+                                                const selectedLead = leadData.find(l => l.name === selectedIds[0]);
+                                                if (selectedLead) {
+                                                    setSelectedLeadForCall({ ...selectedLead, id: selectedLead.mobile });
+                                                    setIsCallModalOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call
+                                        </button>
+                                        <button
+                                            className="action-btn"
+                                            title="Email Lead"
+                                            onClick={() => {
+                                                const selectedLead = leadData.find(l => l.name === selectedIds[0]);
+                                                if (selectedLead) {
+                                                    setSelectedLeadsForMail([{
+                                                        id: selectedLead.mobile,
+                                                        name: selectedLead.name,
+                                                        email: selectedLead.email
+                                                    }]);
+                                                    setIsSendMailOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-envelope"></i> Email
+                                        </button>
+                                        <button
+                                            className="action-btn"
+                                            title="Add Activity"
+                                            onClick={() => {
+                                                const selectedLead = leadData.find(l => l.name === selectedIds[0]);
+                                                if (selectedLead && onAddActivity) {
+                                                    const relatedAccount = [{
+                                                        id: selectedLead.mobile, // Using mobile as ID for now since leadData doesn't have ID
+                                                        name: selectedLead.name,
+                                                        mobile: selectedLead.mobile
+                                                    }];
+                                                    onAddActivity(relatedAccount);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-calendar-check"></i> Activities
+                                        </button>
                                         <button className="action-btn" title="Start Sequence"><i className="fas fa-paper-plane"></i> Sequence</button>
-                                        <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
-                                        <button className="action-btn" title="Enrich Data" style={{ color: '#8e44ad', borderColor: '#8e44ad' }}><i className="fas fa-magic"></i> Enrich</button>
                                     </>
                                 )}
 
@@ -91,9 +180,45 @@ function LeadsPage() {
                                 {selectedCount > 0 && (
                                     <>
                                         {selectedCount === 1 && <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>}
-                                        <button className="action-btn" title="Create Task"><i className="fas fa-tasks"></i> Task</button>
-                                        <button className="action-btn" title="Add Tag"><i className="fas fa-tag"></i> Tag</button>
-                                        <button className="action-btn" title="Reassign"><i className="fas fa-user-friends"></i> Assign</button>
+                                        <button
+                                            className="action-btn"
+                                            title="Add Tag"
+                                            onClick={() => {
+                                                const selected = getSelectedLeads();
+                                                if (selected.length > 0) {
+                                                    setSelectedLeadsForTags(selected);
+                                                    setIsTagsModalOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-tag"></i> Tag
+                                        </button>
+                                        <button
+                                            className="action-btn"
+                                            title="Reassign"
+                                            onClick={() => {
+                                                const selected = getSelectedLeads();
+                                                if (selected.length > 0) {
+                                                    setSelectedLeadsForAssign(selected);
+                                                    setIsAssignModalOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-user-friends"></i> Assign
+                                        </button>
+                                        <button
+                                            className="action-btn"
+                                            title="Send Message"
+                                            onClick={() => {
+                                                const selected = getSelectedLeads();
+                                                if (selected.length > 0) {
+                                                    setSelectedLeadsForMessage(selected);
+                                                    setIsSendMessageOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-comment-alt"></i> Send Message
+                                        </button>
                                     </>
                                 )}
 
@@ -230,7 +355,17 @@ function LeadsPage() {
                                                 {c.score.val}
                                             </div>
                                             <div>
-                                                <a href="#" className="primary-text text-ellipsis" style={{ color: '#0f172a', fontWeight: 800, fontSize: '0.95rem', textDecoration: 'none', display: 'block' }}>{c.name}</a>
+                                                <a
+                                                    href="#"
+                                                    className="primary-text text-ellipsis"
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        if (onNavigate) onNavigate('contact-detail', c.mobile);
+                                                    }}
+                                                    style={{ color: '#0f172a', fontWeight: 800, fontSize: '0.95rem', textDecoration: 'none', display: 'block' }}
+                                                >
+                                                    {c.name}
+                                                </a>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '3px' }}>
                                                     <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}><i className="fas fa-mobile-alt" style={{ marginRight: '6px', width: '12px' }}></i>{c.mobile}</div>
                                                     <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#64748b' }}><i className="fas fa-envelope" style={{ marginRight: '6px', width: '12px' }}></i>{c.name.split(' ')[0].toLowerCase()}@gmail.com</div>
@@ -309,6 +444,79 @@ function LeadsPage() {
                     <div className="stat-group">RETURNING <span className="stat-val-bold" style={{ color: '#e74c3c' }}>9</span></div>
                 </div>
             </footer>
+
+            {/* Send Message Modal */}
+            <SendMessageModal
+                isOpen={isSendMessageOpen}
+                onClose={() => setIsSendMessageOpen(false)}
+                initialRecipients={selectedLeadsForMessage}
+                onSend={(data) => {
+                    console.log('Sending Message to Leads:', data);
+                    // In real app, integrate with message service
+                    // alert('Message Sent Successfully!');
+                    setIsSendMessageOpen(false);
+                }}
+            />
+
+            {/* Manage Tags Modal */}
+            <ManageTagsModal
+                isOpen={isTagsModalOpen}
+                onClose={() => setIsTagsModalOpen(false)}
+                selectedContacts={selectedLeadsForTags}
+                onUpdateTags={(payload) => {
+                    console.log('Tags Updated:', payload);
+                    setIsTagsModalOpen(false);
+                    setSelectedIds([]);
+                }}
+            />
+
+            {/* Assign Contact Modal */}
+            <AssignContactModal
+                isOpen={isAssignModalOpen}
+                onClose={() => setIsAssignModalOpen(false)}
+                selectedContacts={selectedLeadsForAssign}
+                entityName="Lead"
+                onAssign={(assignmentDetails) => {
+                    console.log('Assignment Details:', assignmentDetails);
+                    setIsAssignModalOpen(false);
+                    setSelectedIds([]);
+                }}
+            />
+
+            {/* Call Modal */}
+            <CallModal
+                isOpen={isCallModalOpen}
+                onClose={() => setIsCallModalOpen(false)}
+                contact={selectedLeadForCall}
+            />
+
+            {/* Send Mail Modal */}
+            <SendMailModal
+                isOpen={isSendMailOpen}
+                onClose={() => setIsSendMailOpen(false)}
+                recipients={selectedLeadsForMail}
+                onSend={(data) => {
+                    console.log('Sending Mail:', data);
+                    setIsSendMailOpen(false);
+                }}
+            />
+
+            {/* Update Lead Modal */}
+            <AddLeadModal
+                isOpen={isAddLeadModalOpen}
+                onClose={() => setIsAddLeadModalOpen(false)}
+                contactData={editingLead} // Pass selected lead data
+                title={editingLead ? "Edit Update Lead" : "Add New Lead"}
+                saveLabel={editingLead ? "Update" : "Save"}
+                mode="edit"
+                onAdd={(updatedData) => {
+                    console.log('Lead Updated:', updatedData);
+                    setIsAddLeadModalOpen(false);
+                    setEditingLead(null);
+                    setSelectedIds([]);
+                    // Trigger refresh if needed
+                }}
+            />
         </section>
     );
 }
