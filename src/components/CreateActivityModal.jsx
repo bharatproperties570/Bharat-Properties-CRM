@@ -1,16 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { contactData } from '../data/mockData';
+import { PROJECT_DATA } from '../data/projectData';
 
 const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
     const [formData, setFormData] = useState({
         activityType: 'Call',
         subject: '',
         relatedTo: [], // Array of selected items {id, name}
+        participants: [], // Array of selected participants {name, mobile}
         dueDate: '',
         dueTime: '',
         priority: 'Normal',
         status: 'Not Started', // Not Started, In Progress, Completed, Deferred
         description: '',
+        work: '',
 
         // Dynamic Fields
         callPurpose: 'Prospecting',
@@ -21,10 +24,10 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         meetingType: 'Office', // Office, On-Site, Virtual, Developer Office
         meetingLocation: '', // Link or Address
         agenda: '',
-
-        property: '',
-        pickupLocation: '',
         clientFeedback: '',
+
+        visitType: 'Site Visit',
+        visitConfirmation: 'Tentative',
 
         reminder: false,
         reminderTime: '',
@@ -33,7 +36,14 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         direction: 'Outgoing Call',
         completionResult: '',
         completionDate: '',
-        completionDuration: ''
+        completionTime: '',
+        completionDuration: '',
+        meetingOutcomeStatus: '',
+
+        // Site Visit Specifics
+        visitedProperties: [{ project: '', block: '', property: '', result: '', feedback: '' }], // Multi-property support
+        selectedPropertyNo: '',
+        cancellationReason: ''
     });
 
     const [errors, setErrors] = useState({});
@@ -45,11 +55,13 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                 activityType: 'Call',
                 subject: '',
                 relatedTo: initialData?.relatedTo || [],
-                dueDate: new Date().toISOString().split('T')[0],
+                participants: [],
+                dueDate: new Date().toISOString().slice(0, 16),
                 dueTime: '10:00',
                 priority: 'Normal',
+                description: '', // Remark
+                work: '',
                 status: 'Not Started',
-                description: '',
 
                 callPurpose: 'Prospecting',
                 emailPurpose: 'Follow-up',
@@ -59,10 +71,10 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                 meetingType: 'Office',
                 meetingLocation: '',
                 agenda: '',
-
-                property: '',
-                pickupLocation: '',
                 clientFeedback: '',
+
+                visitType: 'Site Visit',
+                visitConfirmation: 'Tentative',
 
                 reminder: false,
                 reminderTime: '',
@@ -70,7 +82,12 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                 direction: 'Outgoing Call',
                 completionResult: '',
                 completionDate: new Date().toISOString().split('T')[0],
-                completionDuration: ''
+                completionTime: new Date().toTimeString().slice(0, 5),
+                completionDuration: '',
+                meetingOutcomeStatus: '',
+                visitedProperties: [{ project: '', block: '', property: '', result: '', feedback: '' }],
+                selectedPropertyNo: '',
+                cancellationReason: ''
             });
             setErrors({});
         }
@@ -96,12 +113,10 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
             const purpose = formData.callPurpose || 'Call';
             // Format: [Purpose] with [Related] on [DD/MM/YYYY] at [Time]
             newSubject = `${purpose} with ${related} on ${dateStr}${timeStr}`;
-        } else if (formData.activityType === 'Meeting') {
-            const agenda = formData.agenda || 'Meeting';
-            const location = formData.meetingLocation ? ` at ${formData.meetingLocation}` : '';
-            const type = formData.meetingType ? ` (${formData.meetingType} Meeting)` : '';
-            // Format: [Agenda] with [Related] at [Location] on [Date] at [Time] [Type]
-            newSubject = `${agenda} with ${related}${location} on ${dateStr}${timeStr}${type}`;
+        } else if (formData.activityType === 'Site Visit') {
+            const props = formData.visitedProperties.map(p => p.project || 'Property').join(', ');
+            const vType = formData.visitType || 'Visit';
+            newSubject = `${vType} at ${props} with ${related} on ${dateStr}${timeStr}`;
         }
 
         if (newSubject) {
@@ -116,7 +131,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         formData.meetingType,
         formData.relatedTo,
         formData.dueDate,
-        formData.dueTime
+        formData.visitedProperties
     ]);
 
     const locationInputRef = useRef(null);
@@ -161,17 +176,44 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         if (!formData.dueDate) newErrors.dueDate = 'Date is required';
 
         // Dynamic Validation
-        if (formData.activityType === 'Site Visit' && !formData.property) {
-            newErrors.property = 'Property is required for Site Visits';
-        }
         if (formData.activityType === 'Meeting' && !formData.meetingLocation) {
-            newErrors.meetingLocation = formData.meetingType === 'Online' ? 'Meeting Link is required' : 'Location is required';
+            newErrors.meetingLocation = formData.meetingType === 'Virtual' ? 'Meeting Link is required' : 'Location is required';
         }
         if (formData.status === 'Completed' && formData.activityType === 'Call') {
             if (!formData.callOutcome) newErrors.callOutcome = 'Outcome is required';
             if (formData.callOutcome === 'Connected' && !formData.completionResult) {
                 newErrors.completionResult = 'Result is required';
             }
+        }
+        if (formData.status === 'Completed' && formData.activityType === 'Meeting') {
+            if (!formData.meetingOutcomeStatus) newErrors.meetingOutcomeStatus = 'Status is required';
+            if (!formData.completionResult) newErrors.completionResult = 'Result is required';
+        }
+
+        if (formData.activityType === 'Site Visit') {
+            if (!formData.visitType) newErrors.visitType = 'Visit Type is required';
+            if (!formData.visitConfirmation) newErrors.visitConfirmation = 'Confirmation is required';
+
+            if (formData.status === 'Completed') {
+                if (!formData.meetingOutcomeStatus) {
+                    newErrors.meetingOutcomeStatus = 'Status is required';
+                } else if (formData.meetingOutcomeStatus === 'Conducted') {
+                    if (!formData.selectedPropertyNo) newErrors.selectedPropertyNo = 'Property Number is required';
+                    // Per-property validation
+                    formData.visitedProperties.forEach((item, index) => {
+                        if (!item.result) newErrors[`prop_${index}_result`] = 'Result is required';
+                    });
+                } else if (formData.meetingOutcomeStatus === 'Rescheduled' || formData.meetingOutcomeStatus === 'Postponed') {
+                    if (!formData.completionDate) newErrors.completionDate = 'Date is required';
+                    if (!formData.completionTime) newErrors.completionTime = 'Time is required';
+                } else if (formData.meetingOutcomeStatus === 'Cancelled' || formData.meetingOutcomeStatus === 'Did Not Visit') {
+                    if (!formData.cancellationReason) newErrors.cancellationReason = 'Reason is required';
+                }
+            }
+
+            formData.visitedProperties.forEach((item, index) => {
+                if (!item.project) newErrors[`prop_${index}_project`] = 'Project is required';
+            });
         }
 
         setErrors(newErrors);
@@ -207,7 +249,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
     const modalStyle = {
         backgroundColor: '#fff',
         borderRadius: '16px',
-        width: formData.status === 'Completed' ? '1200px' : '800px', // Wider for split view
+        width: formData.status === 'Completed' ? '1200px' : '750px', // Increased width for better space
         maxWidth: '95vw',
         maxHeight: '90vh',
         boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
@@ -263,6 +305,18 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         backgroundColor: '#f8fafc'
     });
 
+    const customSelectStyle = (hasError) => ({
+        ...inputStyle(hasError),
+        paddingRight: '30px', // Space for arrow
+        appearance: 'none',
+        WebkitAppearance: 'none',
+        MozAppearance: 'none',
+        backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23475569%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`,
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'right 12px center',
+        backgroundSize: '12px'
+    });
+
     const rowStyle = {
         display: 'flex',
         gap: '16px',
@@ -282,7 +336,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
             <div style={rowStyle}>
                 <div style={colStyle}>
                     <label style={labelStyle}>Call Purpose</label>
-                    <select name="callPurpose" value={formData.callPurpose} onChange={handleChange} style={inputStyle(false)}>
+                    <select name="callPurpose" value={formData.callPurpose} onChange={handleChange} style={customSelectStyle(false)}>
                         <option value="Prospecting">Prospecting</option>
                         <option value="Follow-up">Follow-up</option>
                         <option value="Negotiation">Negotiation</option>
@@ -296,7 +350,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                         name="priority"
                         value={formData.priority}
                         onChange={handleChange}
-                        style={inputStyle(false)}
+                        style={customSelectStyle(false)}
                     >
                         <option value="High">High</option>
                         <option value="Normal">Normal</option>
@@ -370,7 +424,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
 
             <div>
                 <label style={labelStyle}>Agenda</label>
-                <select name="agenda" value={formData.agenda} onChange={handleChange} style={inputStyle(false)}>
+                <select name="agenda" value={formData.agenda} onChange={handleChange} style={customSelectStyle(false)}>
                     <option value="">Select Agenda</option>
                     <option value="First Meeting / Introduction">First Meeting / Introduction</option>
                     <option value="Project Presentation">Project Presentation</option>
@@ -387,53 +441,204 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         </div>
     );
 
-    const renderSiteVisitFields = () => (
-        <div style={{ backgroundColor: '#ecfdf5', padding: '12px', borderRadius: '8px', marginBottom: formData.status === 'Completed' ? '12px' : '16px', border: '1px solid #a7f3d0' }}>
-            <h4 style={{ margin: '0 0 8px 0', fontSize: '0.9rem', color: '#047857', display: 'flex', alignItems: 'center' }}>
-                <i className="fas fa-map-marked-alt" style={{ marginRight: '8px' }}></i> Site Visit Details
-            </h4>
-            <div style={{ marginBottom: '12px' }}>
-                <label style={labelStyle}>Property <span style={{ color: '#ef4444' }}>*</span></label>
-                <div style={{ position: 'relative' }}>
-                    <i className="fas fa-building" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
-                    <input
-                        type="text"
-                        name="property"
-                        value={formData.property}
-                        onChange={handleChange}
-                        style={{ ...inputStyle(errors.property), paddingLeft: '32px' }}
-                        placeholder="Search Property..."
-                    />
+    const renderSiteVisitFields = () => {
+        const addPropertyRow = () => {
+            setFormData(prev => ({
+                ...prev,
+                visitedProperties: [...prev.visitedProperties, { project: '', block: '', property: '', result: '', feedback: '' }]
+            }));
+        };
+
+        const removePropertyRow = (index) => {
+            if (formData.visitedProperties.length <= 1) return;
+            setFormData(prev => ({
+                ...prev,
+                visitedProperties: prev.visitedProperties.filter((_, i) => i !== index)
+            }));
+        };
+
+        const updatePropertyRow = (index, field, value) => {
+            const newProps = [...formData.visitedProperties];
+            newProps[index] = { ...newProps[index], [field]: value };
+            // Reset block if project changes
+            if (field === 'project') newProps[index].block = '';
+            setFormData(prev => ({ ...prev, visitedProperties: newProps }));
+        };
+
+        // Flatten projects for the dropdown
+        const allProjects = [];
+        Object.keys(PROJECT_DATA).forEach(city => {
+            PROJECT_DATA[city].forEach(proj => {
+                allProjects.push({ ...proj, city });
+            });
+        });
+
+        return (
+            <div style={{ backgroundColor: '#ecfdf5', padding: '16px', borderRadius: '12px', marginBottom: formData.status === 'Completed' ? '12px' : '16px', border: '1px solid #a7f3d0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h4 style={{ margin: 0, fontSize: '0.95rem', color: '#047857', display: 'flex', alignItems: 'center', fontWeight: 700 }}>
+                        <i className="fas fa-map-marked-alt" style={{ marginRight: '8px' }}></i> Site Visit Properties
+                    </h4>
+                    <button
+                        onClick={addPropertyRow}
+                        style={{
+                            padding: '6px 12px',
+                            backgroundColor: '#10b981',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '6px',
+                            fontSize: '0.8rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                        }}
+                    >
+                        <i className="fas fa-plus"></i> Add Property
+                    </button>
                 </div>
-                {errors.property && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.property}</span>}
+
+                {formData.visitedProperties.map((row, index) => {
+                    const selectedProject = allProjects.find(p => p.name === row.project);
+                    const towers = selectedProject ? selectedProject.towers : [];
+
+                    return (
+                        <div key={index} style={{
+                            display: 'flex',
+                            gap: '10px',
+                            marginBottom: '12px',
+                            alignItems: 'flex-start',
+                            padding: '12px',
+                            background: 'rgba(255, 255, 255, 0.5)',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(16, 185, 129, 0.2)'
+                        }}>
+                            <div style={{ flex: 1.5 }}>
+                                <label style={{ ...labelStyle, fontSize: '0.75rem' }}>Project/Location</label>
+                                <select
+                                    value={row.project}
+                                    onChange={(e) => updatePropertyRow(index, 'project', e.target.value)}
+                                    style={customSelectStyle(errors[`prop_${index}_project`])}
+                                >
+                                    <option value="">Select Project</option>
+                                    {allProjects.map(p => (
+                                        <option key={p.id} value={p.name}>{p.name} ({p.city})</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ ...labelStyle, fontSize: '0.75rem' }}>Block</label>
+                                <select
+                                    value={row.block}
+                                    onChange={(e) => updatePropertyRow(index, 'block', e.target.value)}
+                                    style={customSelectStyle(false)}
+                                    disabled={!row.project}
+                                >
+                                    <option value="">Select Block</option>
+                                    {towers.map(t => (
+                                        <option key={t} value={t}>{t}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ ...labelStyle, fontSize: '0.75rem' }}>Property</label>
+                                <input
+                                    type="text"
+                                    placeholder="Unit No."
+                                    value={row.property}
+                                    onChange={(e) => updatePropertyRow(index, 'property', e.target.value)}
+                                    style={inputStyle(false)}
+                                />
+                            </div>
+                            {formData.visitedProperties.length > 1 && (
+                                <button
+                                    onClick={() => removePropertyRow(index)}
+                                    style={{
+                                        marginTop: '24px',
+                                        padding: '10px',
+                                        color: '#ef4444',
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        fontSize: '1rem'
+                                    }}
+                                >
+                                    <i className="fas fa-trash-alt"></i>
+                                </button>
+                            )}
+                        </div>
+                    );
+                })}
+
+                <div style={{ marginTop: '16px', display: 'flex', gap: '16px' }}>
+                    <div style={{ flex: 1 }}>
+                        <label style={labelStyle}>Visit Type <span style={{ color: '#ef4444' }}>*</span></label>
+                        <select
+                            name="visitType"
+                            value={formData.visitType}
+                            onChange={handleChange}
+                            style={customSelectStyle(errors.visitType)}
+                        >
+                            <option value="Site Visit">Site Visit</option>
+                            <option value="Re Visit">Re Visit</option>
+                            <option value="Sample Visit">Sample Visit</option>
+                            <option value="Virtual Tour">Virtual Tour</option>
+                        </select>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <label style={labelStyle}>Confirmation <span style={{ color: '#ef4444' }}>*</span></label>
+                        <select
+                            name="visitConfirmation"
+                            value={formData.visitConfirmation}
+                            onChange={handleChange}
+                            style={customSelectStyle(errors.visitConfirmation)}
+                        >
+                            <option value="Confirmed">Confirmed</option>
+                            <option value="Tentative">Tentative</option>
+                        </select>
+                    </div>
+                </div>
             </div>
-            <div style={{ marginBottom: '12px' }}>
-                <label style={labelStyle}>Pickup Location (if applicable)</label>
+        );
+    };
+
+    const renderTaskFields = () => (
+        <div style={{ backgroundColor: '#f5f3ff', padding: '12px', borderRadius: '8px', marginBottom: formData.status === 'Completed' ? '12px' : '16px', border: '1px solid #ddd6fe' }}>
+            <h4 style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: '#6d28d9', display: 'flex', alignItems: 'center', fontWeight: 700 }}>
+                <i className="fas fa-tasks" style={{ marginRight: '8px' }}></i> Task Details & Reminders
+            </h4>
+
+            <div style={{ marginBottom: '16px' }}>
+                <label style={labelStyle}>Specific Work / Task Item</label>
                 <input
                     type="text"
-                    name="pickupLocation"
-                    value={formData.pickupLocation}
+                    name="work"
+                    value={formData.work}
                     onChange={handleChange}
+                    placeholder="Describe the specific work to be done..."
                     style={inputStyle(false)}
-                    placeholder="e.g. Client Office, Metro Station"
                 />
             </div>
 
-        </div>
-    );
-
-    const renderTaskFields = () => (
-        <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600, color: '#334155' }}>
-                <input type="checkbox" name="reminder" checked={formData.reminder} onChange={handleChange} style={{ accentColor: 'var(--primary-color)' }} />
-                Set Reminder
-            </label>
-            {formData.reminder && (
-                <div style={{ marginTop: '10px' }}>
-                    <label style={labelStyle}>Reminder Time</label>
-                    <input type="time" name="reminderTime" value={formData.reminderTime} onChange={handleChange} style={inputStyle(false)} />
-                </div>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', borderTop: '1px dashed #ddd6fe', paddingTop: '12px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600, color: '#4c1d95' }}>
+                    <input type="checkbox" name="reminder" checked={formData.reminder} onChange={handleChange} style={{ accentColor: '#7c3aed' }} />
+                    Enable Reminder
+                </label>
+                {formData.reminder && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', animation: 'fadeIn 0.3s ease-out' }}>
+                        <span style={{ fontSize: '0.85rem', color: '#6d28d9', fontWeight: 500 }}>at</span>
+                        <input
+                            type="time"
+                            name="reminderTime"
+                            value={formData.reminderTime}
+                            onChange={handleChange}
+                            style={{ ...inputStyle(false), padding: '6px 12px', width: 'auto' }}
+                        />
+                    </div>
+                )}
+            </div>
         </div>
     );
 
@@ -445,7 +650,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
             <div style={rowStyle}>
                 <div style={colStyle}>
                     <label style={labelStyle}>Email Purpose</label>
-                    <select name="emailPurpose" value={formData.emailPurpose} onChange={handleChange} style={inputStyle(false)}>
+                    <select name="emailPurpose" value={formData.emailPurpose} onChange={handleChange} style={customSelectStyle(false)}>
                         <option value="Prospecting">Prospecting</option>
                         <option value="Follow-up">Follow-up</option>
                         <option value="Negotiation">Negotiation</option>
@@ -460,7 +665,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                         name="priority"
                         value={formData.priority}
                         onChange={handleChange}
-                        style={inputStyle(false)}
+                        style={customSelectStyle(false)}
                     >
                         <option value="High">High</option>
                         <option value="Normal">Normal</option>
@@ -472,91 +677,350 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
     );
 
     const renderCompletionForm = () => {
-        if (formData.activityType !== 'Call') return (
-            <div style={{ color: '#64748b', fontStyle: 'italic', textAlign: 'center', padding: '20px' }}>
-                Specific completion fields for {formData.activityType} usually go here.
-            </div>
-        );
+        if (formData.activityType === 'Call') {
+            return (
+                <div className="animate-fade-in" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                    <h3 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#10b981', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <i className="fas fa-clipboard-check"></i> Completion Details
+                    </h3>
+
+                    {/* Direction Toggle - Reverted to Buttons */}
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={labelStyle}>Direction</label>
+                        <div style={{ display: 'flex', gap: '12px' }}>
+                            <button
+                                onClick={() => setFormData(prev => ({ ...prev, direction: 'Incoming Call' }))}
+                                style={{
+                                    flex: 1, padding: '10px', borderRadius: '8px', border: `1px solid ${formData.direction === 'Incoming Call' ? 'var(--primary-color)' : '#e2e8f0'}`,
+                                    background: formData.direction === 'Incoming Call' ? 'rgba(59, 130, 246, 0.05)' : '#fff',
+                                    color: formData.direction === 'Incoming Call' ? 'var(--primary-color)' : '#64748b',
+                                    fontWeight: 600, fontSize: '0.9rem', cursor: 'pointer', transition: 'all 0.2s',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+                                }}
+                            >
+                                <i className="fas fa-arrow-down"></i> Incoming
+                            </button>
+                            <button
+                                onClick={() => setFormData(prev => ({ ...prev, direction: 'Outgoing Call' }))}
+                                style={{
+                                    flex: 1, padding: '10px', borderRadius: '8px', border: `1px solid ${formData.direction === 'Outgoing Call' ? 'var(--primary-color)' : '#e2e8f0'}`,
+                                    background: formData.direction === 'Outgoing Call' ? 'rgba(59, 130, 246, 0.05)' : '#fff',
+                                    color: formData.direction === 'Outgoing Call' ? 'var(--primary-color)' : '#64748b',
+                                    fontWeight: 600, fontSize: '0.9rem', cursor: 'pointer', transition: 'all 0.2s',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+                                }}
+                            >
+                                <i className="fas fa-arrow-up"></i> Outgoing
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Call Outcome - Stacked */}
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={labelStyle}>Call Outcome <span style={{ color: '#ef4444' }}>*</span></label>
+                        <select name="callOutcome" value={formData.callOutcome} onChange={handleChange} style={customSelectStyle(errors.callOutcome)}>
+                            <option value="">Select Outcome</option>
+                            <option value="Connected">Answered / Connected</option>
+                            <option value="No Answer">No Answer</option>
+                            <option value="Busy">Busy</option>
+                            <option value="Wrong Number">Wrong Number</option>
+                            <option value="Left Voicemail">Left Voicemail</option>
+                        </select>
+                        {errors.callOutcome && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.callOutcome}</span>}
+                    </div>
+
+                    {/* Result - Stacked (Conditional) */}
+                    {formData.callOutcome === 'Connected' && (
+                        <div className="animate-fade-in" style={{ marginBottom: '16px' }}>
+                            <label style={labelStyle}>Result <span style={{ color: '#ef4444' }}>*</span></label>
+                            <select name="completionResult" value={formData.completionResult} onChange={handleChange} style={customSelectStyle(errors.completionResult)}>
+                                <option value="">Select Result</option>
+                                <option value="Interested">Interested</option>
+                                <option value="Not Interested">Not Interested</option>
+                                <option value="Follow Up Required">Follow Up Required</option>
+                                <option value="Meeting Scheduled">Meeting Scheduled</option>
+                                <option value="Sale Closed">Sale Closed</option>
+                            </select>
+                            {errors.completionResult && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.completionResult}</span>}
+                        </div>
+                    )}
+
+                    {/* Feedback */}
+                    <div>
+                        <label style={labelStyle}>Feedback / Notes</label>
+                        <textarea
+                            name="clientFeedback"
+                            value={formData.clientFeedback}
+                            onChange={handleChange}
+                            rows="4"
+                            placeholder="Additional notes..."
+                            style={{ ...inputStyle(false), resize: 'vertical' }}
+                        />
+                    </div>
+                </div>
+            );
+        }
+
+        if (formData.activityType === 'Meeting') {
+            return (
+                <div className="animate-fade-in" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{
+                        borderTop: '2px solid #e2e8f0',
+                        margin: '20px 0',
+                        padding: '24px',
+                        backgroundColor: '#f0fdf4', // Subtle green for completion
+                        borderRadius: '12px',
+                        border: '1px solid #dcfce7'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+                            <div style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '50%',
+                                backgroundColor: '#22c55e',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: 'white',
+                                fontSize: '0.8rem'
+                            }}>
+                                <i className="fas fa-check" style={{ margin: '0 auto' }}></i>
+                            </div>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#166534', margin: 0, letterSpacing: '-0.3px' }}>
+                                Complete Meeting
+                            </h3>
+                        </div>
+
+                        <div style={rowStyle}>
+                            <div style={colStyle}>
+                                <label style={labelStyle}>Status <span style={{ color: '#ef4444' }}>*</span></label>
+                                <select name="meetingOutcomeStatus" value={formData.meetingOutcomeStatus} onChange={handleChange} style={customSelectStyle(errors.meetingOutcomeStatus)}>
+                                    <option value="">Select Status</option>
+                                    <option value="Conducted">Conducted</option>
+                                    <option value="Rescheduled">Rescheduled</option>
+                                    <option value="Cancelled">Cancelled</option>
+                                    <option value="No Show">No Show</option>
+                                </select>
+                                {errors.meetingOutcomeStatus && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.meetingOutcomeStatus}</span>}
+                            </div>
+                            <div style={colStyle}>
+                                <label style={labelStyle}>Result <span style={{ color: '#ef4444' }}>*</span></label>
+                                <select name="completionResult" value={formData.completionResult} onChange={handleChange} style={customSelectStyle(errors.completionResult)}>
+                                    <option value="">Select Result</option>
+                                    <option value="Interested">Interested</option>
+                                    <option value="Not Interested">Not Interested</option>
+                                    <option value="Token Received">Token Received</option>
+                                    <option value="Follow-up Required">Follow-up Required</option>
+                                    <option value="Negotiation in Progress">Negotiation in Progress</option>
+                                    <option value="Dropped">Dropped</option>
+                                </select>
+                                {errors.completionResult && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.completionResult}</span>}
+                            </div>
+                        </div>
+
+                        <div style={rowStyle}>
+                            <div style={colStyle}>
+                                <label style={labelStyle}>Conducted Date</label>
+                                <input
+                                    type="date"
+                                    name="completionDate"
+                                    value={formData.completionDate}
+                                    onChange={handleChange}
+                                    style={inputStyle(false)}
+                                />
+                            </div>
+                            <div style={colStyle}>
+                                <label style={labelStyle}>Conducted Time</label>
+                                <input
+                                    type="time"
+                                    name="completionTime"
+                                    value={formData.completionTime}
+                                    onChange={handleChange}
+                                    style={inputStyle(false)}
+                                />
+                            </div>
+                        </div>
+
+                        <div style={{ marginTop: '16px' }}>
+                            <label style={labelStyle}>Feedback</label>
+                            <textarea
+                                name="clientFeedback"
+                                value={formData.clientFeedback}
+                                onChange={handleChange}
+                                rows="4"
+                                placeholder="Write a summary of the meeting and client response..."
+                                style={{ ...inputStyle(false), height: '100px', resize: 'vertical', backgroundColor: '#fff' }}
+                            />
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        if (formData.activityType === 'Site Visit') {
+            return (
+                <div className="animate-fade-in" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{
+                        borderTop: '2px solid #e2e8f0',
+                        margin: '20px 0',
+                        padding: '24px',
+                        backgroundColor: '#f0fdf4', // Subtle green for completion
+                        borderRadius: '12px',
+                        border: '1px solid #dcfce7'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+                            <div style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '50%',
+                                backgroundColor: '#22c55e',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: 'white',
+                                fontSize: '0.8rem'
+                            }}>
+                                <i className="fas fa-clipboard-check" style={{ margin: '0 auto' }}></i>
+                            </div>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#166534', margin: 0, letterSpacing: '-0.3px' }}>
+                                Complete Site Visit
+                            </h3>
+                        </div>
+
+                        <div style={rowStyle}>
+                            <div style={colStyle}>
+                                <label style={labelStyle}>Status <span style={{ color: '#ef4444' }}>*</span></label>
+                                <select name="meetingOutcomeStatus" value={formData.meetingOutcomeStatus} onChange={handleChange} style={customSelectStyle(errors.meetingOutcomeStatus)}>
+                                    <option value="">Select Status</option>
+                                    <option value="Conducted">Conducted</option>
+                                    <option value="Rescheduled">Rescheduled</option>
+                                    <option value="Postponed">Postponed</option>
+                                    <option value="Cancelled">Cancelled</option>
+                                    <option value="Did Not Visit">Did Not Visit</option>
+                                </select>
+                                {errors.meetingOutcomeStatus && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.meetingOutcomeStatus}</span>}
+                            </div>
+                        </div>
+
+                        {/* Status: Conducted - Per-Property Results */}
+                        {formData.meetingOutcomeStatus === 'Conducted' && (
+                            <div className="animate-fade-in">
+                                <div style={rowStyle}>
+                                    <div style={colStyle}>
+                                        <label style={labelStyle}>Conducted Date</label>
+                                        <input type="date" name="completionDate" value={formData.completionDate} onChange={handleChange} style={inputStyle(false)} />
+                                    </div>
+                                    <div style={colStyle}>
+                                        <label style={labelStyle}>Conducted Time</label>
+                                        <input type="time" name="completionTime" value={formData.completionTime} onChange={handleChange} style={inputStyle(false)} />
+                                    </div>
+                                </div>
+
+                                <div style={{ marginTop: '20px' }}>
+                                    <label style={{ ...labelStyle, fontSize: '0.9rem', color: '#166534', borderBottom: '1px solid #dcfce7', paddingBottom: '8px', marginBottom: '16px' }}>
+                                        Per-Property Feedback
+                                    </label>
+                                    {formData.visitedProperties.map((prop, idx) => (
+                                        <div key={idx} style={{
+                                            background: '#fff', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '16px',
+                                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                                        }}>
+                                            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#475569', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <i className="fas fa-building" style={{ color: '#22c55e' }}></i>
+                                                {prop.project || 'Unspecified Project'} {prop.property ? ` - ${prop.property}` : ''}
+                                            </div>
+                                            <div style={{ marginBottom: '12px' }}>
+                                                <label style={{ ...labelStyle, fontSize: '0.75rem' }}>Result <span style={{ color: '#ef4444' }}>*</span></label>
+                                                <select
+                                                    value={prop.result}
+                                                    style={customSelectStyle(errors[`prop_${idx}_result`])}
+                                                    onChange={(e) => {
+                                                        const newProps = [...formData.visitedProperties];
+                                                        newProps[idx].result = e.target.value;
+                                                        setFormData(prev => ({ ...prev, visitedProperties: newProps }));
+                                                    }}
+                                                >
+                                                    <option value="">Select Result</option>
+                                                    <option value="Interested in Project">Interested in Project</option>
+                                                    <option value="Interested in Specific Unit">Interested in Specific Unit</option>
+                                                    <option value="Visited Sample Flat">Visited Sample Flat</option>
+                                                    <option value="Token / Advance Received">Token / Advance Received</option>
+                                                    <option value="Negotiation in Progress">Negotiation in Progress</option>
+                                                    <option value="Comparison Mode">Comparison Mode</option>
+                                                    <option value="Not Interested / Budget Issue">Not Interested / Budget Issue</option>
+                                                    <option value="Not Interested / Location Issue">Not Interested / Location Issue</option>
+                                                    <option value="Follow-up Required">Follow-up Required</option>
+                                                </select>
+                                                {errors[`prop_${idx}_result`] && <span style={{ fontSize: '0.7rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors[`prop_${idx}_result`]}</span>}
+                                            </div>
+                                            <div>
+                                                <label style={{ ...labelStyle, fontSize: '0.75rem' }}>Feedback</label>
+                                                <textarea
+                                                    value={prop.feedback}
+                                                    placeholder="Client's specific reaction to this property..."
+                                                    style={{ ...inputStyle(false), height: '60px', resize: 'vertical', fontSize: '0.8rem' }}
+                                                    onChange={(e) => {
+                                                        const newProps = [...formData.visitedProperties];
+                                                        newProps[idx].feedback = e.target.value;
+                                                        setFormData(prev => ({ ...prev, visitedProperties: newProps }));
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Status: Rescheduled or Postponed */}
+                        {(formData.meetingOutcomeStatus === 'Rescheduled' || formData.meetingOutcomeStatus === 'Postponed') && (
+                            <div className="animate-fade-in">
+                                <div style={rowStyle}>
+                                    <div style={colStyle}>
+                                        <label style={labelStyle}>Proposed Date <span style={{ color: '#ef4444' }}>*</span></label>
+                                        <input type="date" name="completionDate" value={formData.completionDate} onChange={handleChange} style={inputStyle(errors.completionDate)} />
+                                    </div>
+                                    <div style={colStyle}>
+                                        <label style={labelStyle}>Proposed Time <span style={{ color: '#ef4444' }}>*</span></label>
+                                        <input type="time" name="completionTime" value={formData.completionTime} onChange={handleChange} style={inputStyle(errors.completionTime)} />
+                                    </div>
+                                </div>
+                                <div style={{ marginTop: '16px' }}>
+                                    <label style={labelStyle}>Reason / Remarks</label>
+                                    <textarea
+                                        name="clientFeedback"
+                                        value={formData.clientFeedback}
+                                        onChange={handleChange}
+                                        rows="3"
+                                        placeholder="Reason for rescheduling..."
+                                        style={{ ...inputStyle(false), height: '80px', resize: 'vertical' }}
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Status: Cancelled or Did Not Visit */}
+                        {(formData.meetingOutcomeStatus === 'Cancelled' || formData.meetingOutcomeStatus === 'Did Not Visit') && (
+                            <div className="animate-fade-in">
+                                <label style={labelStyle}>{formData.meetingOutcomeStatus === 'Cancelled' ? 'Cancellation Reason' : 'Reason for Not Visiting'} <span style={{ color: '#ef4444' }}>*</span></label>
+                                <textarea
+                                    name="cancellationReason"
+                                    value={formData.cancellationReason}
+                                    onChange={handleChange}
+                                    rows="4"
+                                    placeholder={formData.meetingOutcomeStatus === 'Cancelled' ? "Why was this visit cancelled?" : "Reason for not visiting the property..."}
+                                    style={{ ...inputStyle(errors.cancellationReason), height: '120px', resize: 'vertical' }}
+                                />
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
 
         return (
-            <div className="animate-fade-in" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                <h3 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#10b981', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <i className="fas fa-clipboard-check"></i> Completion Details
-                </h3>
-
-                {/* Direction Toggle - Reverted to Buttons */}
-                <div style={{ marginBottom: '16px' }}>
-                    <label style={labelStyle}>Direction</label>
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                        <button
-                            onClick={() => setFormData(prev => ({ ...prev, direction: 'Incoming Call' }))}
-                            style={{
-                                flex: 1, padding: '10px', borderRadius: '8px', border: `1px solid ${formData.direction === 'Incoming Call' ? 'var(--primary-color)' : '#e2e8f0'}`,
-                                background: formData.direction === 'Incoming Call' ? 'rgba(59, 130, 246, 0.05)' : '#fff',
-                                color: formData.direction === 'Incoming Call' ? 'var(--primary-color)' : '#64748b',
-                                fontWeight: 600, fontSize: '0.9rem', cursor: 'pointer', transition: 'all 0.2s',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
-                            }}
-                        >
-                            <i className="fas fa-arrow-down"></i> Incoming
-                        </button>
-                        <button
-                            onClick={() => setFormData(prev => ({ ...prev, direction: 'Outgoing Call' }))}
-                            style={{
-                                flex: 1, padding: '10px', borderRadius: '8px', border: `1px solid ${formData.direction === 'Outgoing Call' ? 'var(--primary-color)' : '#e2e8f0'}`,
-                                background: formData.direction === 'Outgoing Call' ? 'rgba(59, 130, 246, 0.05)' : '#fff',
-                                color: formData.direction === 'Outgoing Call' ? 'var(--primary-color)' : '#64748b',
-                                fontWeight: 600, fontSize: '0.9rem', cursor: 'pointer', transition: 'all 0.2s',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
-                            }}
-                        >
-                            <i className="fas fa-arrow-up"></i> Outgoing
-                        </button>
-                    </div>
-                </div>
-
-                {/* Call Outcome - Stacked */}
-                <div style={{ marginBottom: '16px' }}>
-                    <label style={labelStyle}>Call Outcome <span style={{ color: '#ef4444' }}>*</span></label>
-                    <select name="callOutcome" value={formData.callOutcome} onChange={handleChange} style={inputStyle(errors.callOutcome)}>
-                        <option value="">Select Outcome</option>
-                        <option value="Connected">Answered / Connected</option>
-                        <option value="No Answer">No Answer</option>
-                        <option value="Busy">Busy</option>
-                        <option value="Wrong Number">Wrong Number</option>
-                        <option value="Left Voicemail">Left Voicemail</option>
-                    </select>
-                    {errors.callOutcome && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.callOutcome}</span>}
-                </div>
-
-                {/* Result - Stacked (Conditional) */}
-                {formData.callOutcome === 'Connected' && (
-                    <div className="animate-fade-in" style={{ marginBottom: '16px' }}>
-                        <label style={labelStyle}>Result <span style={{ color: '#ef4444' }}>*</span></label>
-                        <select name="completionResult" value={formData.completionResult} onChange={handleChange} style={inputStyle(errors.completionResult)}>
-                            <option value="">Select Result</option>
-                            <option value="Interested">Interested</option>
-                            <option value="Not Interested">Not Interested</option>
-                            <option value="Follow Up Required">Follow Up Required</option>
-                            <option value="Meeting Scheduled">Meeting Scheduled</option>
-                            <option value="Sale Closed">Sale Closed</option>
-                        </select>
-                        {errors.completionResult && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.completionResult}</span>}
-                    </div>
-                )}
-
-                {/* Feedback */}
-                <div>
-                    <label style={labelStyle}>Feedback / Notes</label>
-                    <textarea
-                        name="clientFeedback"
-                        value={formData.clientFeedback}
-                        onChange={handleChange}
-                        rows="4"
-                        placeholder="Additional notes..."
-                        style={{ ...inputStyle(false), resize: 'vertical' }}
-                    />
-                </div>
+            <div style={{ color: '#64748b', fontStyle: 'italic', textAlign: 'center', padding: '20px' }}>
+                Specific completion fields for {formData.activityType} usually go here.
             </div>
         );
     };
@@ -618,8 +1082,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            transition: 'all 0.2s',
-                            border: '1px solid #e2e8f0'
+                            transition: 'all 0.2s'
                         }}
                         onMouseEnter={(e) => { e.currentTarget.style.background = '#fee2e2'; e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.borderColor = '#fecaca'; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
@@ -696,6 +1159,8 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                         </div>
 
 
+
+
                         {/* Dynamic Fields Section */}
                         {formData.activityType === 'Call' && renderCallFields()}
                         {formData.activityType === 'Meeting' && renderMeetingFields()}
@@ -720,17 +1185,18 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                         {/* Date & Time */}
                         <div style={rowStyle}>
                             <div style={colStyle}>
-                                <label style={labelStyle}>Due Date <span style={{ color: '#ef4444' }}>*</span></label>
+                                <label style={labelStyle}>{formData.activityType === 'Meeting' ? 'Select Due Date' : 'Due Date'}</label>
                                 <input
                                     type="date"
-                                    name="dueDate" // This is the Planned Date
+                                    name="dueDate"
                                     value={formData.dueDate}
                                     onChange={handleChange}
                                     style={inputStyle(errors.dueDate)}
                                 />
+                                {errors.dueDate && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.dueDate}</span>}
                             </div>
                             <div style={colStyle}>
-                                <label style={labelStyle}>Time</label>
+                                <label style={labelStyle}>Select Time</label>
                                 <input
                                     type="time"
                                     name="dueTime"
@@ -743,19 +1209,19 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
 
 
                         {/* Related To (Searchable Multi-Select) */}
-                        <div style={{ marginBottom: formData.status === 'Completed' ? '12px' : '16px' }}>
+                        <div style={{ marginBottom: '16px' }}>
                             <label style={labelStyle}>Related To</label>
 
                             {/* Selected Pills */}
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
                                 {formData.relatedTo.map((item, index) => (
                                     <div key={index} style={{
-                                        background: '#e2e8f0', borderRadius: '16px', padding: '4px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px'
+                                        background: '#e0f2fe', borderRadius: '16px', padding: '4px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #bae6fd', color: '#0369a1'
                                     }}>
                                         <span>{item.name}</span>
                                         <i
                                             className="fas fa-times"
-                                            style={{ cursor: 'pointer', color: '#64748b' }}
+                                            style={{ cursor: 'pointer', opacity: 0.7 }}
                                             onClick={() => {
                                                 setFormData(prev => ({
                                                     ...prev,
@@ -772,35 +1238,9 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                                 <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
                                 <input
                                     type="text"
-                                    placeholder="Search Contact..."
+                                    placeholder="Search Leads/Contacts..."
                                     style={{ ...inputStyle(false), paddingLeft: '32px' }}
-                                    onChange={(e) => {
-                                        const term = e.target.value.toLowerCase();
-                                        if (term.length > 0) {
-                                            // Simple mock search
-                                            /* In real app, this would set local search state */
-                                        }
-                                    }}
-                                    list="contact-suggestions"
-                                    onSelect={(e) => {
-                                        // This is a simplified implementation. 
-                                        // Real implementation needs a custom dropdown, but using datalist for now as a quick wins
-                                        // OR better: Just render a custom dropdown below
-                                    }}
-                                    // Custom Dropdown Logic Implementation
-                                    onFocus={(e) => e.target.setAttribute('data-focused', 'true')}
-                                    onBlur={(e) => setTimeout(() => e.target.removeAttribute('data-focused'), 200)}
                                 />
-                                {/* Custom Search Dropdown */}
-                                <div className="search-results" style={{
-                                    position: 'absolute', top: '100%', left: 0, right: 0,
-                                    background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px',
-                                    maxHeight: '200px', overflowY: 'auto', zIndex: 10,
-                                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                                    display: 'none' // Hidden by default, shown via CSS/JS logic usually. For now I'll inline a simple list if I can track state.
-                                }}>
-                                    {/* Ideally we need local state for search term to filter this list */}
-                                </div>
                                 <SearchDropdown
                                     contacts={contactData}
                                     onSelect={(contact) => {
@@ -815,15 +1255,68 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                             </div>
                         </div>
 
-                        {/* Description */}
+                        {/* Participants (Filtered Searchable Multi-Select) */}
+                        {(formData.activityType === 'Meeting' || formData.activityType === 'Site Visit') && (
+                            <div style={{ marginBottom: formData.status === 'Completed' ? '12px' : '16px' }}>
+                                <label style={labelStyle}>Participants</label>
+
+                                {/* Selected Pills */}
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+                                    {formData.participants.map((item, index) => (
+                                        <div key={index} style={{
+                                            background: '#f0fdf4', borderRadius: '16px', padding: '4px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #dcfce7', color: '#166534'
+                                        }}>
+                                            <span>{item.name}</span>
+                                            <i
+                                                className="fas fa-times"
+                                                style={{ cursor: 'pointer', opacity: 0.7 }}
+                                                onClick={() => {
+                                                    setFormData(prev => ({
+                                                        ...prev,
+                                                        participants: prev.participants.filter((_, i) => i !== index)
+                                                    }));
+                                                }}
+                                            ></i>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Search Input */}
+                                <div style={{ position: 'relative' }}>
+                                    <i className="fas fa-user-plus" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
+                                    <input
+                                        type="text"
+                                        placeholder="Search Sales/Agents..."
+                                        style={{ ...inputStyle(false), paddingLeft: '32px' }}
+                                    />
+                                    <SearchDropdown
+                                        contacts={contactData.filter(c =>
+                                            c.professionSubCategory === 'Sales Person' ||
+                                            c.professionSubCategory === 'Real Estate Agent' ||
+                                            c.category === 'Real Estate Agent'
+                                        )}
+                                        onSelect={(contact) => {
+                                            if (!formData.participants.some(c => c.mobile === contact.mobile)) {
+                                                setFormData(prev => ({
+                                                    ...prev,
+                                                    participants: [...prev.participants, { name: contact.name, mobile: contact.mobile }]
+                                                }));
+                                            }
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Remark / Description - Always at bottom now */}
                         <div>
-                            <label style={labelStyle}>Description</label>
+                            <label style={labelStyle}>{formData.activityType === 'Meeting' ? 'Remark' : 'Description'}</label>
                             <textarea
                                 name="description"
                                 value={formData.description}
                                 onChange={handleChange}
                                 rows="3"
-                                placeholder="Add any additional details here..."
+                                placeholder={formData.activityType === 'Meeting' ? "Enter meeting remarks..." : "Add any additional details here..."}
                                 style={{ ...inputStyle(false), resize: 'vertical', minHeight: '80px' }}
                             />
                         </div>

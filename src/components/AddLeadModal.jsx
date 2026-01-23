@@ -520,7 +520,6 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         areaMin: '',
         areaMax: '',
         areaMetric: 'Sq Yard',
-        areaMetric: 'Sq Yard',
         searchLocation: '',
         areaSearch: '', // New Field
         streetAddress: '',
@@ -636,17 +635,17 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 source: contactData.source || prev.source,
                 description: contactData.remarks || prev.description,
                 // Requirement stuff (Basic mapping for mock data)
-                requirement: contactData.req?.type?.toLowerCase().includes('rent') ? 'Rent' : 'Buy',
-                propertyType: contactData.req?.type?.toLowerCase().includes('residential') ? ['Residential'] :
-                    contactData.req?.type?.toLowerCase().includes('commercial') ? ['Commercial'] :
-                        contactData.req?.type?.toLowerCase().includes('industrial') ? ['Industrial'] :
-                            contactData.req?.type?.toLowerCase().includes('agriculture') ? ['Agriculture'] :
-                                contactData.req?.type?.toLowerCase().includes('institutional') ? ['Institutional'] : prev.propertyType,
+                requirement: contactData.req?.type?.toLowerCase()?.includes('rent') ? 'Rent' : 'Buy',
+                propertyType: contactData.req?.type?.toLowerCase()?.includes('residential') ? ['Residential'] :
+                    contactData.req?.type?.toLowerCase()?.includes('commercial') ? ['Commercial'] :
+                        contactData.req?.type?.toLowerCase()?.includes('industrial') ? ['Industrial'] :
+                            contactData.req?.type?.toLowerCase()?.includes('agriculture') ? ['Agriculture'] :
+                                contactData.req?.type?.toLowerCase()?.includes('institutional') ? ['Institutional'] : prev.propertyType,
             }));
 
             // Optional: Parse Budget and Location if they are strings from leadData
             if (contactData.budget) {
-                const parts = contactData.budget.replace(/₹/g, '').replace(/,/g, '').split(' - ');
+                const parts = contactData.budget?.replace(/₹/g, '')?.replace(/,/g, '')?.split(' - ') || [];
                 if (parts.length === 2) {
                     setFormData(prev => ({
                         ...prev,

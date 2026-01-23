@@ -8,6 +8,8 @@ import AssignContactModal from '../../components/AssignContactModal';
 import CallModal from '../../components/CallModal';
 import SendMailModal from '../Contacts/components/SendMailModal';
 import AddLeadModal from '../../components/AddLeadModal';
+import LeadConversionService from '../../services/LeadConversionService';
+import { calculateLeadScore } from '../../utils/leadScoring';
 
 function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const [selectedIds, setSelectedIds] = useState([]);
@@ -35,6 +37,16 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
     const [editingLead, setEditingLead] = useState(null);
 
+    // Popover States
+    const [activeScorePopover, setActiveScorePopover] = useState(null); // {leadName, x, y}
+    const [activeMatchPopover, setActiveMatchPopover] = useState(null); // {leadName, x, y}
+    const [toast, setToast] = useState(null);
+
+    const showToast = (msg) => {
+        setToast(msg);
+        setTimeout(() => setToast(null), 3000);
+    };
+
     const toggleSelect = (name) => {
         if (selectedIds.includes(name)) {
             setSelectedIds(selectedIds.filter(id => id !== name));
@@ -54,11 +66,13 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const selectedCount = selectedIds.length;
     const totalCount = leadData.length;
 
-    const filteredLeads = leadData.filter(lead =>
-        lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        lead.mobile.includes(searchTerm) ||
-        (lead.email && lead.email.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    const filteredLeads = (leadData || []).filter(lead => {
+        if (!lead) return false;
+        const nameMatch = lead.name?.toLowerCase()?.includes(searchTerm.toLowerCase());
+        const mobileMatch = lead.mobile?.includes(searchTerm);
+        const emailMatch = lead.email?.toLowerCase()?.includes(searchTerm.toLowerCase());
+        return nameMatch || mobileMatch || emailMatch;
+    });
 
     // Pagination
     const indexOfLastRecord = currentPage * recordsPerPage;
@@ -208,16 +222,40 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         </button>
                                         <button
                                             className="action-btn"
-                                            title="Send Message"
+                                            title="Send Properties"
                                             onClick={() => {
                                                 const selected = getSelectedLeads();
-                                                if (selected.length > 0) {
-                                                    setSelectedLeadsForMessage(selected);
-                                                    setIsSendMessageOpen(true);
+                                                showToast(`Sent top 5 matches to ${selected.length} leads.`);
+                                            }}
+                                        >
+                                            <i className="fas fa-share-square"></i> Send Matches
+                                        </button>
+                                        <button
+                                            className="action-btn"
+                                            title="Mark Dormant"
+                                            onClick={() => {
+                                                if (window.confirm(`Mark ${selectedCount} leads as dormant?`)) {
+                                                    showToast(`Marked ${selectedCount} leads as dormant.`);
+                                                    setSelectedIds([]);
                                                 }
                                             }}
                                         >
-                                            <i className="fas fa-comment-alt"></i> Send Message
+                                            <i className="fas fa-moon"></i> Dormant
+                                        </button>
+                                        <button
+                                            className="action-btn"
+                                            style={{ background: '#f0f9ff', color: '#0369a1', borderColor: '#bae6fd' }}
+                                            title="Convert to Contact"
+                                            onClick={() => {
+                                                const leads = getSelectedLeads();
+                                                leads.forEach(lead => {
+                                                    const res = LeadConversionService.convertLead(lead);
+                                                    showToast(res.message);
+                                                });
+                                                setSelectedIds([]);
+                                            }}
+                                        >
+                                            <i className="fas fa-user-check"></i> Convert
                                         </button>
                                     </>
                                 )}
@@ -228,7 +266,18 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                 )}
 
                                 <div style={{ marginLeft: 'auto' }}>
-                                    <button className="action-btn danger" title="Delete"><i className="fas fa-trash-alt"></i></button>
+                                    <button
+                                        className="action-btn danger"
+                                        title="Delete"
+                                        onClick={() => {
+                                            if (window.confirm(`Permanently delete ${selectedCount} leads?`)) {
+                                                showToast(`Deleted ${selectedCount} leads.`);
+                                                setSelectedIds([]);
+                                            }
+                                        }}
+                                    >
+                                        <i className="fas fa-trash-alt"></i>
+                                    </button>
                                 </div>
                             </div>
                         ) : (
@@ -334,9 +383,11 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     {/* Data List (Div Grid) */}
                     <div id="leadListContent">
                         {currentRecords.map((c, idx) => {
+                            if (!c) return null;
                             // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
-                            const intent = c.req.type.split(/[\s,]+/)[0];
-                            const propertyType = c.req.type.replace(intent, '').replace(/^[\s,]+/, '');
+                            const typeStr = c.req?.type || 'Requirement Missing';
+                            const intent = typeStr.split(/[\s,]+/)[0];
+                            const propertyType = typeStr.replace(intent, '').replace(/^[\s,]+/, '');
 
                             return (
                                 <div key={c.name} className="lead-list-grid" style={{ transition: 'all 0.2s ease' }}>
@@ -350,10 +401,42 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                     </div>
                                     <div className="col-profile">
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                            {/* Original Score Indicator Reverted */}
-                                            <div className={`score-indicator ${c.score.class}`} style={{ width: '40px', height: '40px', fontSize: '0.9rem', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', border: '2px solid rgba(0,0,0,0.05)' }}>
-                                                {c.score.val}
-                                            </div>
+                                            {/* Dynamic Lead Scoring Engine Badge */}
+                                            {(() => {
+                                                const scoring = calculateLeadScore(c, c.activities || []);
+                                                const temp = scoring.temperature;
+                                                return (
+                                                    <div
+                                                        className={`score-indicator ${temp.class}`}
+                                                        style={{
+                                                            width: '42px',
+                                                            height: '42px',
+                                                            fontSize: '0.95rem',
+                                                            borderRadius: '50%',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            fontWeight: '900',
+                                                            border: '2px solid rgba(255,255,255,0.2)',
+                                                            cursor: 'pointer',
+                                                            boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                                                            background: temp.color,
+                                                            color: '#fff'
+                                                        }}
+                                                        onClick={(e) => {
+                                                            const rect = e.currentTarget.getBoundingClientRect();
+                                                            setActiveScorePopover({
+                                                                name: c.name,
+                                                                x: rect.left,
+                                                                y: rect.bottom + 10,
+                                                                scoring
+                                                            });
+                                                        }}
+                                                    >
+                                                        {scoring.total}
+                                                    </div>
+                                                );
+                                            })()}
                                             <div>
                                                 <a
                                                     href="#"
@@ -366,10 +449,17 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                 >
                                                     {c.name}
                                                 </a>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '3px' }}>
-                                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}><i className="fas fa-mobile-alt" style={{ marginRight: '6px', width: '12px' }}></i>{c.mobile}</div>
-                                                    <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#64748b' }}><i className="fas fa-envelope" style={{ marginRight: '6px', width: '12px' }}></i>{c.name.split(' ')[0].toLowerCase()}@gmail.com</div>
-                                                    <div className="text-ellipsis" style={{ fontSize: '0.65rem', color: '#94a3b8', fontStyle: 'italic' }}>Software Engineer</div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+                                                    {LeadConversionService.isConverted(c.mobile) || c.isConverted ? (
+                                                        <span
+                                                            onClick={() => onNavigate('contact-detail', c.mobile)}
+                                                            style={{ background: '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
+                                                        >
+                                                            <i className="fas fa-check-circle"></i> CONVERTED
+                                                        </span>
+                                                    ) : (
+                                                        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}><i className="fas fa-mobile-alt" style={{ marginRight: '6px', width: '12px' }}></i>{c.mobile}</div>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
@@ -377,19 +467,35 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                                     <div className="col-intent">
                                         <div style={{ lineHeight: 1.4 }}>
-                                            {/* Only Intent (Buy/Rent) */}
-                                            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize' }}>{intent}</div>
+                                            <div
+                                                contentEditable
+                                                suppressContentEditableWarning
+                                                onBlur={() => showToast(`Requirement updated for ${c.name}`)}
+                                                style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', outline: 'none', padding: '2px 0' }}
+                                            >{intent}</div>
                                             <div style={{ marginTop: '4px', fontSize: '0.7rem' }}>
-                                                <span style={{ background: '#e0f2fe', color: '#0284c7', fontWeight: 700, padding: '2px 8px', borderRadius: '4px' }}>{c.matched} Matches</span>
+                                                <span
+                                                    onClick={(e) => {
+                                                        const rect = e.currentTarget.getBoundingClientRect();
+                                                        setActiveMatchPopover({ name: c.name, x: rect.left, y: rect.bottom + 10 });
+                                                    }}
+                                                    style={{ background: '#e0f2fe', color: '#0284c7', fontWeight: 800, padding: '3px 10px', borderRadius: '6px', cursor: 'pointer', border: '1px solid rgba(2, 132, 199, 0.1)' }}
+                                                >
+                                                    {c.matched} Matches
+                                                </span>
                                             </div>
                                         </div>
                                     </div>
 
                                     <div className="col-budget">
                                         <div style={{ lineHeight: 1.4 }}>
-                                            {/* Property Type Moved Here */}
-                                            <div style={{ color: '#0f172a', fontSize: '0.75rem', fontWeight: 700, marginBottom: '2px' }}>{propertyType}</div>
-                                            <div style={{ color: 'var(--primary-color)', fontWeight: 800, fontSize: '0.85rem' }}>{c.budget.replace('<br/>', ' ')}</div>
+                                            <div style={{ color: '#0f172a', fontSize: '0.75rem', fontWeight: 700, marginBottom: '2px' }}>{propertyType || 'Residential Plot'}</div>
+                                            <div
+                                                contentEditable
+                                                suppressContentEditableWarning
+                                                onBlur={() => showToast(`Budget updated for ${c.name}. Recalculating matches...`)}
+                                                style={{ color: 'var(--primary-color)', fontWeight: 800, fontSize: '0.85rem', outline: 'none' }}
+                                            >{(c.budget || '').replace('<br/>', ' ')}</div>
                                             <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, marginTop: '2px' }}>{c.req.size || 'Std. Size'}</div>
                                         </div>
                                     </div>
@@ -397,15 +503,23 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                     <div className="col-location">
                                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                                             <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '3px' }}></i>
-                                            <div style={{ fontWeight: 600, color: '#334155', fontSize: '0.8rem', lineHeight: 1.3 }}>{c.location}</div>
+                                            <div
+                                                contentEditable
+                                                suppressContentEditableWarning
+                                                onBlur={() => showToast(`Location preference updated for ${c.name}`)}
+                                                style={{ fontWeight: 600, color: '#334155', fontSize: '0.8rem', lineHeight: 1.3, outline: 'none' }}
+                                            >{c.location}</div>
                                         </div>
                                     </div>
 
                                     <div className="col-status">
                                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
-                                            <div style={{ fontWeight: 800, fontSize: '0.7rem', color: '#1a1f23', textTransform: 'uppercase' }}>{c.status.label}</div>
-                                            <span className={`status-badge ${c.status.class}`} style={{ height: '20px', fontSize: '0.65rem', padding: '0 8px', borderRadius: '4px' }}>{c.status.class.toUpperCase()}</span>
-                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>{c.source}</div>
+                                            <div style={{ fontWeight: 800, fontSize: '0.7rem', color: '#1a1f23', textTransform: 'uppercase' }}>{c.status?.label || 'NEW'}</div>
+                                            <span className={`status-badge ${c.status?.class || 'new'}`} style={{ height: '20px', fontSize: '0.65rem', padding: '0 8px', borderRadius: '4px' }}>{(c.status?.class || 'new').toUpperCase()}</span>
+                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                {c.source}
+                                                <i className="fas fa-info-circle" title="AI Insight: Facebook leads convert better when called within 30 mins" style={{ fontSize: '0.6rem', color: '#cbd5e1' }}></i>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -439,9 +553,10 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 <div style={{ display: 'flex', gap: '2.5rem' }}>
                     <div className="stat-group">Summary <span>Total Lead</span> <span className="stat-val-bold" style={{ color: '#2ecc71' }}>{totalCount}</span></div>
                     <div className="stat-group">UNASSIGNED <span className="stat-val-bold" style={{ color: '#2ecc71' }}>2</span></div>
-                    <div className="stat-group">UNTOUCHED <span className="stat-val-bold" style={{ color: '#2ecc71' }}>4</span></div>
-                    <div className="stat-group">NO FOLLOWUP <span className="stat-val-bold" style={{ color: '#f39c12' }}>12</span></div>
-                    <div className="stat-group">RETURNING <span className="stat-val-bold" style={{ color: '#e74c3c' }}>9</span></div>
+                    <div className="stat-group">UNTOUCHED <span className="stat-val-bold" style={{ color: '#f59e0b' }}>4</span></div>
+                    <div className="stat-group">NO FOLLOWUP <span className="stat-val-bold" style={{ color: '#ef4444' }}>12</span></div>
+                    <div className="stat-group">DORMANT <span className="stat-val-bold" style={{ color: '#94a3b8' }}>15</span></div>
+                    <div className="stat-group">RETURNING <span className="stat-val-bold" style={{ color: '#3b82f6' }}>9</span></div>
                 </div>
             </footer>
 
@@ -488,6 +603,18 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 isOpen={isCallModalOpen}
                 onClose={() => setIsCallModalOpen(false)}
                 contact={selectedLeadForCall}
+                onCallEnd={(callData) => {
+                    if (selectedLeadForCall) {
+                        const res = LeadConversionService.evaluateAutoConversion(
+                            selectedLeadForCall,
+                            'call_logged',
+                            { status: 'connected' }
+                        );
+                        if (res.success) {
+                            showToast(res.message);
+                        }
+                    }
+                }}
             />
 
             {/* Send Mail Modal */}
@@ -517,6 +644,83 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     // Trigger refresh if needed
                 }}
             />
+            {/* Score Breakdown Popover for Lead Scoring Engine */}
+            {activeScorePopover && (
+                <div
+                    style={{ position: 'fixed', top: activeScorePopover.y, left: activeScorePopover.x, zIndex: 2000, background: 'rgba(30, 41, 59, 0.95)', backdropFilter: 'blur(12px)', color: '#fff', padding: '16px', borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', minWidth: '240px' }}
+                    onMouseLeave={() => setActiveScorePopover(null)}
+                >
+                    <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.5px' }}>Lead Scoring Hub</div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>
+                        <div>
+                            <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>FORM SCORE</div>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#3b82f6' }}>{activeScorePopover.scoring.formScore}<span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>/52</span></div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>ACTIVITY</div>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#10b981' }}>+{activeScorePopover.scoring.activityScore}</div>
+                        </div>
+                    </div>
+
+                    {[
+                        { label: 'Requirement (32)', val: activeScorePopover.scoring.breakdown.requirement, max: 32 },
+                        { label: 'Budget Match (10)', val: activeScorePopover.scoring.breakdown.budget, max: 10 },
+                        { label: 'Location match (10)', val: activeScorePopover.scoring.breakdown.location, max: 10 },
+                        { label: 'Timeline (10)', val: activeScorePopover.scoring.breakdown.timeline, max: 10 },
+                        { label: 'Payment (10)', val: activeScorePopover.scoring.breakdown.payment, max: 10 },
+                    ].map((item, i) => (
+                        <div key={i} style={{ marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', marginBottom: '3px' }}>
+                                <span style={{ opacity: 0.8 }}>{item.label}</span>
+                                <span style={{ color: '#fff', fontWeight: 800 }}>{item.val}</span>
+                            </div>
+                            <div style={{ width: '100%', height: '3px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+                                <div style={{ width: `${(item.val / item.max) * 100}%`, height: '100%', background: '#3b82f6' }}></div>
+                            </div>
+                        </div>
+                    ))}
+
+                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontStyle: 'italic', marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
+                        AI Intent: <span style={{ color: '#10b981', fontWeight: 900 }}>{activeScorePopover.scoring.intent.toUpperCase()}</span>
+                    </div>
+                </div>
+            )}
+
+            {/* Top Matches Popover */}
+            {activeMatchPopover && (
+                <div
+                    style={{ position: 'fixed', top: activeMatchPopover.y, left: activeMatchPopover.x, zIndex: 2000, background: '#fff', color: '#0f172a', padding: '16px', borderRadius: '12px', boxShadow: '0 10px 40px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', minWidth: '280px' }}
+                    onMouseLeave={() => setActiveMatchPopover(null)}
+                >
+                    <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px' }}>Top 5 Property Matches</div>
+                    {[
+                        { title: 'Sector 17 - 3 Marla Plot', price: '₹1.05 Cr', match: '98%' },
+                        { title: 'Sector 4 - Residential', price: '₹1.20 Cr', match: '94%' },
+                        { title: 'Bharat Nagar - Plot', price: '₹1.15 Cr', match: '91%' },
+                        { title: 'Sector 6 - Comm. Plot', price: '₹2.10 Cr', match: '88%' },
+                        { title: 'DLF Phase 1 - 250 SqYd', price: '₹1.95 Cr', match: '85%' }
+                    ].map((item, i) => (
+                        <div key={i} className="match-item-hover" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', padding: '8px', borderRadius: '8px', marginBottom: '4px', cursor: 'pointer', transition: 'all 0.2s' }}>
+                            <div>
+                                <div style={{ fontWeight: 800 }}>{item.title}</div>
+                                <div style={{ fontSize: '0.65rem', color: '#64748b' }}>{item.price}</div>
+                            </div>
+                            <div style={{ background: '#dcfce7', color: '#166534', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 900 }}>{item.match}</div>
+                        </div>
+                    ))}
+                    <button style={{ width: '100%', marginTop: '10px', padding: '8px', background: 'var(--premium-blue)', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 900, cursor: 'pointer' }}>View All {leadData.find(l => l.name === activeMatchPopover.name)?.matched} Matches</button>
+                    <style>{`.match-item-hover:hover { background: #f8fafc; }`}</style>
+                </div>
+            )}
+
+            {/* Toast Notification */}
+            {toast && (
+                <div style={{ position: 'fixed', bottom: '80px', left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', padding: '10px 24px', borderRadius: '12px', zIndex: 3000, boxShadow: '0 10px 25px rgba(0,0,0,0.2)', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <i className="fas fa-check-circle" style={{ color: '#10b981' }}></i>
+                    {toast}
+                </div>
+            )}
         </section>
     );
 }

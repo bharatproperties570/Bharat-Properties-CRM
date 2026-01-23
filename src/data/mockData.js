@@ -1,30 +1,50 @@
 export const leadData = [
     {
-        score: { val: 90, class: 'high' },
         name: 'Mr. Intiyaz A Ali',
         mobile: '9898989898',
         req: { type: 'Buy Residential Plot', size: '1 Kanal, 14 Marla' },
+        detailedReq: {
+            propertyType: true, subType: true, unitType: true, area: true,
+            facing: true, road: true, direction: true, propertyUnitType: true
+        },
         budget: '₹1,00,00,000 - ₹1,50,00,000',
+        budgetMatch: 'perfect',
         location: 'Sector 4, Sector 6, Bharat Nagar',
-        matched: 20,
-        status: { label: 'Opportunity', class: 'hot' },
+        locationPref: 'level1',
+        timeline: 'urgent',
+        payment: ['self', 'white', 'collector'],
         source: 'Walk-In',
+        activities: [
+            { type: 'CONNECTED_CALL', date: '2026-01-22' },
+            { type: 'VISIT_COMPLETED', date: '2026-01-21' }
+        ],
         owner: 'Suraj Keshwar (Sales)',
         activity: '2 Calls',
-        lastAct: '6 Days Before',
+        lastAct: 'Today',
         remarks: 'int.',
+        isConverted: true,
+        contactId: '9898989898',
         addOn: '05/11/24<br>07:30:02'
     },
     {
-        score: { val: 67, class: 'med' },
         name: 'Dr. Digvijay Kumar',
         mobile: '07047752734',
         req: { type: 'Rent Commercial Shop', size: 'Booth, SCO, DSS' },
+        detailedReq: {
+            propertyType: true, subType: true, unitType: true, area: true,
+            facing: false, road: true, direction: false, propertyUnitType: false
+        },
         budget: '₹40,00,000 - ₹50,00,000',
+        budgetMatch: 'slightly_lower',
         location: 'Sector 17, Kurukshetra',
-        matched: 9,
-        status: { label: 'Prospect', class: 'warm' },
+        locationPref: 'level2',
+        timeline: '15days',
+        payment: ['loan', 'flexible'],
         source: 'Google',
+        activities: [
+            { type: 'CONNECTED_CALL', date: '2026-01-20' },
+            { type: 'WHATSAPP_REPLY', date: '2026-01-19' }
+        ],
         owner: 'Sukram Singh (Sales)',
         activity: '2 Calls',
         lastAct: '1 Days Before',
@@ -32,52 +52,28 @@ export const leadData = [
         addOn: '07/11/24<br>11:23:03'
     },
     {
-        score: { val: 49, class: 'low' },
         name: 'Mr. Vijay Kumar',
         mobile: '9812312345',
         req: { type: 'Buy, Agriculture Land', size: '' },
+        detailedReq: {
+            propertyType: true, subType: true, unitType: false, area: true,
+            facing: false, road: false, direction: false, propertyUnitType: false
+        },
         budget: '₹40,00,000 - ₹50,00,000',
+        budgetMatch: 'mismatch',
         location: 'Vill Umri, Kurukshetra',
-        matched: 4,
-        status: { label: 'Negotiation', class: 'hot' },
+        locationPref: 'level3',
+        timeline: '1month',
+        payment: ['loan'],
         source: 'Reference',
+        activities: [
+            { type: 'CONNECTED_CALL', date: '2026-01-15' }
+        ],
         owner: 'Suraj Keshwar (Sales)',
         activity: '2 Calls',
         lastAct: '5 Days Before',
         remarks: 'land in kkr',
         addOn: '10/08/24'
-    },
-    {
-        score: { val: 35, class: 'low' },
-        name: 'Mr. Sombir Singh',
-        mobile: '8678098215',
-        req: { type: 'Lease, Institutional', size: 'Hotel, Restaurant' },
-        budget: '₹3,00,000 - ₹5,00,000',
-        location: 'Patiala Road, Zirakpur',
-        matched: 2,
-        status: { label: 'Prospect', class: 'cold' },
-        source: 'Facebook',
-        owner: 'Ajitesh Singh (Post Sales)',
-        activity: '1 Call',
-        lastAct: '10 Days Before',
-        remarks: 'hotels',
-        addOn: '01/11/24<br>11:09:30'
-    },
-    {
-        score: { val: 17, class: 'none' },
-        name: 'Mr. Rohit Kumar',
-        mobile: '7814235421',
-        req: { type: 'Buy, Industrial Plot', size: '1 Kanal' },
-        budget: '₹1,00,00,000 - ₹2,50,00,000',
-        location: 'IT City, Mohali',
-        matched: 3,
-        status: { label: 'Prospect', class: 'warm' },
-        source: '99 Acre',
-        owner: 'Suraj Keshwar (Sales)',
-        activity: '1 Call',
-        lastAct: '6 Days Before',
-        remarks: 'int for ind plot',
-        addOn: '31/10/24'
     }
 ];
 
@@ -100,7 +96,41 @@ export const contactData = [
         group: 'January 2026',
         icon: 'fa-user',
         crmLinks: { leads: 2, deals: 1, activities: 3 },
-        category: 'Customer'
+        category: 'Customer',
+        professionSubCategory: 'Sales Person',
+        activities: [
+            {
+                activityType: 'Call',
+                subject: 'Follow up on Sector 17 Plot',
+                status: 'Completed',
+                dueDate: '2026-01-20',
+                completionResult: 'Interested',
+                clientFeedback: 'Client wants to see the plot again on Sunday.'
+            },
+            {
+                activityType: 'Meeting',
+                subject: 'Price Negotiation',
+                status: 'Overdue',
+                dueDate: '2026-01-18',
+                notes: 'Need to discuss final discount.'
+            },
+            {
+                activityType: 'Task',
+                subject: 'Send PPT for Bharat Nagar',
+                status: 'Upcoming',
+                dueDate: '2026-01-25'
+            }
+        ],
+        conversionMeta: {
+            date: '10/01/2026',
+            scoreAtConversion: 92,
+            source: 'Walk-In',
+            trigger: 'Rule B: High Intent Action'
+        },
+        documents: [
+            { documentName: 'ID Proof', documentNo: 'ABCD1234E', documentPicture: { name: 'aadhar_card.jpg' } },
+            { documentName: 'Address Proof', documentNo: '9876543210', documentPicture: { name: 'utility_bill.pdf' } }
+        ]
     },
     {
         name: 'Mr. Pawan Kumar',
@@ -160,7 +190,8 @@ export const contactData = [
         group: 'January 2026',
         icon: 'fa-user',
         crmLinks: {},
-        category: 'Real Estate Agent'
+        category: 'Real Estate Agent',
+        professionSubCategory: 'Real Estate Agent'
     },
     {
         name: 'Mrs. Manpreet Kaur',
@@ -180,7 +211,26 @@ export const contactData = [
         group: 'January 2026',
         icon: 'fa-user',
         crmLinks: { project: 1, activities: 2 },
-        category: 'Prospect'
+        category: 'Prospect',
+        activities: [
+            {
+                activityType: 'Email',
+                subject: 'Brochure Sent',
+                status: 'Completed',
+                dueDate: '2026-01-15',
+                completionResult: 'Sent',
+                clientFeedback: 'Acknowledged receipt.'
+            },
+            {
+                activityType: 'Call',
+                subject: 'Initial Query Handling',
+                status: 'Upcoming',
+                dueDate: '2026-01-24'
+            }
+        ],
+        documents: [
+            { documentName: 'ID Proof', documentNo: 'PAN998877', documentPicture: { name: 'pan_card.jpg' } }
+        ]
     }
 ];
 
@@ -229,4 +279,315 @@ export const users = [
 
 export const suggestedTags = [
     'Hot Lead', 'Investor', 'Nurture', 'VIP', 'High Budget', 'Immediate Buys', 'NRI Client', 'Referral', 'Follow-up Required'
+];
+
+export const inventoryData = [
+    {
+        id: 1,
+        unitNo: '1',
+        corner: 'Corner',
+        type: 'Plot(Residential)',
+        size: '4 Marla (100.00 Sq Yard)',
+        location: 'A Block',
+        area: 'Sector 66 Beta (IT City) Mohali',
+        direction: 'South East',
+        facing: 'Dividing Road',
+        road: '100 Ft. Road',
+        status: 'Active',
+        ownerName: 'Mr. Vijay Kumar',
+        ownerPhone: '9878299954',
+        ownerAddress: 'Vpo Lahra Gagga Samana, Patiala Punjab 147101, Near Main Chowk, Opposite Royal Garden, Block C, Street 12',
+        associatedContact: 'Amit Sharma',
+        associatedPhone: '9876543210',
+        remarks: 'Interested For Sale',
+        followUp: '-',
+        lastContactDate: '12/6/2025',
+        lastContactTime: '2:43 PM',
+        lastContactUser: 'Admin',
+        lat: 30.6695,
+        lng: 76.7112
+    },
+    {
+        id: 2,
+        unitNo: '1',
+        corner: 'Three Side Open',
+        type: 'School(Institutional)',
+        size: '18814.76 Sq Yard',
+        location: 'Third Block',
+        area: 'Sector 4 Kurukshetra',
+        direction: 'South',
+        facing: 'Mandir',
+        road: '24 Mtr Wide',
+        status: 'Active',
+        ownerName: 'Mr. VINOD RAWAL',
+        ownerPhone: '9812501234',
+        ownerAddress: '457 Urban Estate Sector 13, Kurukshetra Haryana 136118, Behind Government College, Flat No 22, Sector 13 Extension',
+        associatedContact: 'Deepak Gupta',
+        associatedPhone: '9416012345',
+        remarks: 'No -But wants to buy another property',
+        followUp: '-',
+        lastContactDate: '12/22/2025',
+        lastContactTime: '10:27 AM',
+        lastContactUser: 'Admin',
+        lat: 29.9691,
+        lng: 76.8406
+    },
+    {
+        id: 3,
+        unitNo: '1',
+        corner: 'Ordinary',
+        type: 'Shop(Residential)',
+        size: '-',
+        location: 'First Block',
+        area: 'Sector 8 Kurukshetra',
+        direction: '-',
+        facing: '-',
+        road: '-',
+        status: 'Active',
+        ownerName: 'Mr. Satish Sharma',
+        ownerPhone: '9812234567',
+        ownerAddress: 'Shop No 12, Main Market, Sector 8 Kurukshetra, Haryana, Near Railway Station Road',
+        associatedContact: 'Rahul Vats',
+        associatedPhone: '9896054321',
+        remarks: 'Call Not Picked',
+        followUp: '-',
+        lastContactDate: '11/29/2025',
+        lastContactTime: '9:32 PM',
+        lastContactUser: 'Varun Saini',
+        lat: 29.9642,
+        lng: 76.8258
+    },
+    {
+        id: 4,
+        unitNo: '1 SP',
+        corner: 'Corner',
+        type: 'Plot(Residential)',
+        size: '1 Kanal (623.59 Sq Yard)',
+        location: 'First Block',
+        area: 'Sector 3 Kurukshetra',
+        direction: 'North',
+        facing: 'Green Belt',
+        road: '9 Mtr Wide',
+        status: 'Active',
+        ownerName: 'Mr. SATWANTI',
+        ownerPhone: '941212937',
+        ownerAddress: '49 Urban Estate Sector 14, Rohtak Haryana 124001, Near Civil Hospital, House No 45A, Park View Apartment',
+        associatedContact: 'Vikram Singh',
+        associatedPhone: '9991122334',
+        remarks: 'Not Interested',
+        followUp: '-',
+        lastContactDate: '01/05/2026',
+        lastContactTime: '11:15 AM',
+        lastContactUser: 'Admin',
+        lat: 29.9754,
+        lng: 76.8123
+    },
+    {
+        id: 5,
+        unitNo: '1 P',
+        corner: 'Ordinary',
+        type: 'Showroom(Commercial)',
+        size: 'DSS (94.56 Sq Yard)',
+        location: 'Huda Market',
+        area: 'Sector 4 Kurukshetra',
+        direction: 'East',
+        facing: 'Parking',
+        road: '9 Mtr Wide',
+        status: 'Active',
+        ownerName: 'Mr. Akshay Kumar',
+        ownerPhone: '7015484257',
+        ownerAddress: 'Ekta Vihar, Kurukshetra Haryana 136118, Near Park Main Gate, Lane 3, House 102',
+        associatedContact: 'Sanjay Dutt',
+        associatedPhone: '8816077889',
+        remarks: '',
+        followUp: '-',
+        lastContactDate: '01/12/2026',
+        lastContactTime: '4:20 PM',
+        lastContactUser: 'Varun Saini',
+        lat: 29.9700,
+        lng: 76.8200
+    },
+    {
+        id: 6,
+        unitNo: '1 SP',
+        corner: 'Corner',
+        type: 'House(Residential)',
+        size: '10 Marla (233.12 Sq Yard)',
+        location: 'Fourth Block',
+        area: 'Sector 4 Kurukshetra',
+        direction: 'South',
+        facing: 'Green Belt',
+        road: '9 Mtr Wide',
+        status: 'Inactive',
+        ownerName: 'Smt. Kamlesh Devi',
+        ownerPhone: '981224230',
+        ownerAddress: 'Teh Thanesar Vpo Mathana, Kurukshetra Haryana 136131, Ward 15, Street 2',
+        associatedContact: 'Monu Kumar',
+        associatedPhone: '9034567890',
+        remarks: '',
+        followUp: '-',
+        lastContactDate: '01/08/2026',
+        lastContactTime: '9:45 AM',
+        lastContactUser: 'Admin',
+        lat: 29.9650,
+        lng: 76.8300
+    },
+    {
+        id: 7,
+        unitNo: '13',
+        corner: 'Ordinary',
+        type: 'Residential Plot',
+        size: 'Sector 13 Kurukshetra',
+        location: 'Sector 13',
+        area: 'Kurukshetra, Haryana',
+        direction: '-',
+        facing: '-',
+        road: '-',
+        status: 'Active',
+        ownerName: 'Admin Post',
+        ownerPhone: '9000000000',
+        ownerAddress: 'VPO Mathana, Kurukshetra, Haryana 136131, Block A, Plot 50',
+        associatedContact: 'Bharat Properties',
+        associatedPhone: '9988776655',
+        remarks: 'Verified Listing',
+        followUp: '-',
+        lastContactDate: '1/10/2026',
+        lastContactTime: '11:00 AM',
+        lastContactUser: 'Admin',
+        lat: 29.9720,
+        lng: 76.8450
+    },
+    {
+        id: 8,
+        unitNo: '45',
+        corner: 'Ordinary',
+        type: 'Residential Plot',
+        size: '1 Kanal',
+        location: 'Sector 17',
+        area: 'Kurukshetra, Haryana',
+        direction: 'East',
+        facing: 'Park',
+        road: '12 Mtr',
+        status: 'Active',
+        ownerName: 'Mr. Naveen Kumar',
+        ownerPhone: '9468081966',
+        ownerEmail: 'naveen.k@gmail.com',
+        ownerAddress: 'Sector 17, Chandigarh',
+        associatedContact: 'Suraj (Sales)',
+        associatedPhone: '9988776655',
+        remarks: 'Direct Owner',
+        followUp: '-',
+        lastContactDate: '1/20/2026',
+        lastContactTime: '10:00 AM',
+        lastContactUser: 'Admin'
+    },
+    {
+        id: 9,
+        unitNo: '12A',
+        corner: 'Corner',
+        type: 'Commercial SCO',
+        size: '120 Sq Yard',
+        location: 'Sector 17 Market',
+        area: 'Kurukshetra, Haryana',
+        direction: 'North',
+        facing: 'Main Road',
+        road: '24 Mtr',
+        status: 'Active',
+        ownerName: 'Naveen K (Alias)',
+        ownerPhone: '9468081966',
+        ownerEmail: 'naveen.k@gmail.com',
+        ownerAddress: 'Sector 17, Chandigarh',
+        associatedContact: 'Suraj (Sales)',
+        associatedPhone: '9988776655',
+        remarks: 'Potential owner match',
+        followUp: '-',
+        lastContactDate: '1/21/2026',
+        lastContactTime: '3:00 PM',
+        lastContactUser: 'Admin'
+    },
+    {
+        id: 10,
+        unitNo: '102',
+        corner: 'Ordinary',
+        type: 'Residential Plot',
+        size: '8 Marla',
+        location: 'Sector 24',
+        area: 'Kurukshetra, Haryana',
+        status: 'Active',
+        price: '1.25 Cr',
+        ownerName: 'Mr. Naveen Kumar',
+        ownerPhone: '9468081966',
+        ownerAddress: 'Sector 17, Chandigarh'
+    },
+    {
+        id: 11,
+        unitNo: 'DSS-15',
+        corner: 'Ordinary',
+        type: 'Commercial Shop',
+        size: '100 Sq Yard',
+        location: 'Sector 8 Market',
+        area: 'Kurukshetra, Haryana',
+        status: 'Inactive',
+        price: '45 Lac',
+        ownerName: 'Mr. Naveen Kumar',
+        ownerPhone: '9468081966',
+        ownerAddress: 'Sector 17, Chandigarh'
+    },
+    {
+        id: 12,
+        unitNo: 'P-99',
+        corner: 'Three Side Open',
+        type: 'Residential Plot',
+        size: '2 Kanal',
+        location: 'Sector 4',
+        area: 'Kurukshetra, Haryana',
+        status: 'Active',
+        price: '3.50 Cr',
+        ownerName: 'Mrs. Manpreet Kaur',
+        ownerPhone: '7009550400',
+        ownerAddress: 'Zirakpur 140306'
+    },
+    {
+        id: 13,
+        unitNo: 'Unit 4C',
+        corner: 'Ordinary',
+        type: 'Apartment',
+        size: '3BHK',
+        location: 'Royal Palms',
+        area: 'Mohali, Punjab',
+        status: 'Active',
+        price: '75 Lac',
+        ownerName: 'Mrs. Manpreet Kaur',
+        ownerPhone: '7009550400',
+        ownerAddress: 'Zirakpur 140306'
+    },
+    {
+        id: 14,
+        unitNo: '55',
+        corner: 'Ordinary',
+        type: 'Residential Plot',
+        size: '10 Marla',
+        location: 'Sector 3',
+        area: 'Kurukshetra, Haryana',
+        status: 'Active',
+        price: '95 Lac',
+        ownerName: 'Ashok Kumar',
+        ownerPhone: '9876543210',
+        previousOwnerPhone: '9468081966', // Naveen Kumar as Previous Owner
+        previousOwnerName: 'Mr. Naveen Kumar'
+    },
+    {
+        id: 15,
+        unitNo: 'Booth 12',
+        corner: 'Ordinary',
+        type: 'Commercial Shop',
+        size: '50 Sq Yard',
+        location: 'Old Market',
+        area: 'Zirakpur, Punjab',
+        status: 'Active',
+        ownerName: 'Sunil Verma',
+        ownerPhone: '9898980000',
+        previousOwnerPhone: '7009550400', // Manpreet Kaur as Previous Owner
+        previousOwnerName: 'Mrs. Manpreet Kaur'
+    }
 ];

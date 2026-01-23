@@ -195,8 +195,7 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [] }) =
         boxShadow: active ? '0 4px 6px -1px rgba(0,0,0,0.1)' : 'none',
         borderRadius: '12px', fontWeight: 700, fontSize: '0.95rem',
         cursor: 'pointer', transition: 'all 0.2s',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-        border: active ? '1px solid rgba(0,0,0,0.05)' : '1px solid transparent'
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
     });
 
     return (

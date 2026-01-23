@@ -212,7 +212,7 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
                                     />
                                     Assign all to selected user
                                 </label>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', color: '#94a3b8', cursor: 'not-allowed' }} title="Coming soon">
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', color: '#94a3b8', cursor: 'not-allowed' }} title="Coming soon">
                                     <input
                                         type="radio" name="strategy" value="distribute_evenly"
                                         checked={formData.strategy === 'distribute_evenly'} onChange={handleChange}

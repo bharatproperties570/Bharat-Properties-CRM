@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { companyData, companyTypes } from '../../data/companyData';
 import { getInitials } from '../../utils/helpers';
 
-function CompanyPage() {
+function CompanyPage({ onEdit }) {
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -115,6 +115,19 @@ function CompanyPage() {
                                 <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>
                                     {selectedCount} Selected
                                 </div>
+                                {selectedCount === 1 && (
+                                    <button
+                                        className="action-btn"
+                                        title="Edit Business"
+                                        onClick={() => {
+                                            const companyToEdit = companyData.find(c => c.id === selectedIds[0]);
+                                            if (companyToEdit) onEdit(companyToEdit);
+                                        }}
+                                        style={{ color: '#10b981', borderColor: '#10b981', background: '#f0fdf4' }}
+                                    >
+                                        <i className="fas fa-edit"></i> Edit
+                                    </button>
+                                )}
                                 <button className="action-btn" title="Export"><i className="fas fa-file-export"></i> Export</button>
                                 <button className="action-btn" title="Assign Team"><i className="fas fa-users"></i> Assign</button>
                                 <button className="action-btn" title="Add Tags"><i className="fas fa-tag"></i> Tag</button>
@@ -248,7 +261,7 @@ function CompanyPage() {
                             zIndex: 100,
                             borderBottom: '2px solid #e2e8f0',
                             display: 'grid',
-                            gridTemplateColumns: '40px 2fr 1.5fr 1fr 1fr 1fr 1fr',
+                            gridTemplateColumns: '40px 2fr 1.5fr 1fr 1.25fr 1fr 1fr',
                             padding: '12px 2rem',
                             fontSize: '0.75rem',
                             fontWeight: 800,
@@ -285,7 +298,7 @@ function CompanyPage() {
                                     className="list-item"
                                     style={{
                                         display: 'grid',
-                                        gridTemplateColumns: '40px 2fr 1.5fr 1fr 1fr 1fr 1fr',
+                                        gridTemplateColumns: '40px 2fr 1.5fr 1fr 1.25fr 1fr 1fr',
                                         padding: '16px 2rem',
                                         borderBottom: '1px solid #f1f5f9',
                                         alignItems: 'center',
@@ -300,12 +313,16 @@ function CompanyPage() {
                                         if (!isSelected(company.id)) e.currentTarget.style.background = '#fff';
                                         else e.currentTarget.style.background = '#f0f9ff';
                                     }}
+                                    onClick={() => toggleSelect(company.id)}
                                 >
                                     <input
                                         type="checkbox"
                                         className="item-check"
                                         checked={isSelected(company.id)}
-                                        onChange={() => toggleSelect(company.id)}
+                                        onChange={(e) => {
+                                            e.stopPropagation();
+                                            toggleSelect(company.id);
+                                        }}
                                         style={{ cursor: 'pointer' }}
                                     />
 
@@ -373,15 +390,11 @@ function CompanyPage() {
                                         </span>
                                     </div>
 
-                                    {/* Ownership / Team / Date Combined */}
+                                    {/* Ownership / Date Combined */}
                                     <div style={{ fontSize: '0.75rem', lineHeight: 1.6 }}>
                                         <div style={{ color: '#0f172a', fontWeight: 700 }}>
                                             <i className="fas fa-user" style={{ marginRight: '6px', color: '#64748b', fontSize: '0.7rem' }}></i>
                                             {company.ownership}
-                                        </div>
-                                        <div style={{ color: '#64748b', marginTop: '4px', fontSize: '0.7rem' }}>
-                                            <i className="fas fa-users" style={{ marginRight: '6px', fontSize: '0.65rem' }}></i>
-                                            {company.team}
                                         </div>
                                         <div style={{ color: '#94a3b8', fontWeight: 600, marginTop: '4px', fontSize: '0.7rem' }}>
                                             <i className="far fa-calendar" style={{ marginRight: '6px' }}></i>
@@ -424,6 +437,7 @@ function CompanyPage() {
                                             }
                                             e.currentTarget.style.transform = 'translateY(0)';
                                         }}
+                                        onClick={() => toggleSelect(company.id)}
                                     >
                                         <input
                                             type="checkbox"

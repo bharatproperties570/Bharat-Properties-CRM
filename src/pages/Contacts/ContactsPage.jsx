@@ -56,9 +56,9 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
 
     // Filtering logic
     const filteredContacts = contacts.filter(contact =>
-        contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        contact.mobile.includes(searchTerm) ||
-        (contact.email && contact.email.toLowerCase().includes(searchTerm.toLowerCase()))
+        (contact.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (contact.mobile || '').includes(searchTerm) ||
+        (contact.email && (contact.email || '').toLowerCase().includes(searchTerm.toLowerCase()))
     );
 
     // Selection Handling

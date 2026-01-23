@@ -1,17 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { contactData, leadData } from '../../data/mockData';
+import { contactData, leadData, inventoryData } from '../../data/mockData';
 import { getInitials } from '../../utils/helpers';
+import LeadConversionService from '../../services/LeadConversionService';
+import { calculateLeadScore, getLeadTemperature } from '../../utils/leadScoring';
 
 const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
     const [contact, setContact] = useState(null);
     const [composerTab, setComposerTab] = useState('note');
-    const [expandedSections, setExpandedSections] = useState(['core', 'pref', 'journey', 'negotiation', 'ai']);
+    const [expandedSections, setExpandedSections] = useState(['core', 'pref', 'journey', 'negotiation', 'ai', 'ownership', 'documents']);
     const [timelineFilter, setTimelineFilter] = useState('all');
 
     const [showMoreMenu, setShowMoreMoreMenu] = useState(false);
     const [showScoreBreakdown, setShowScoreBreakdown] = useState(false);
     const [toast, setToast] = useState(null);
     const [dealStatus, setDealStatus] = useState('active'); // 'active' or 'lost'
+    const [recordType, setRecordType] = useState('contact'); // 'contact' or 'lead'
 
     const showNotification = (message) => {
         setToast(message);
@@ -24,9 +27,12 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
     };
 
     useEffect(() => {
-        const foundContact = contactData.find(c => c.mobile === contactId) || leadData.find(l => l.mobile === contactId);
+        const isLeadSource = leadData.some(l => l.mobile === contactId);
+        const foundContact = isLeadSource ? leadData.find(l => l.mobile === contactId) : contactData.find(c => c.mobile === contactId);
+
         if (foundContact) {
             setContact(foundContact);
+            setRecordType(isLeadSource ? 'lead' : 'contact');
 
             // Simulate Auto Deal Stage Progression
             const timer = setTimeout(() => {
@@ -42,20 +48,78 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
         );
     };
 
-    // AI Logic Simulation
+    // Lead Scoring Engine Integration
     const getAIStats = () => {
-        const engagementScore = {
-            total: 92,
-            breakdown: [
-                { label: 'Property Views', value: '+35%' },
-                { label: 'Calls/WA', value: '+25%' },
-                { label: 'Shortlists', value: '+20%' },
-                { label: 'Negotiation discussions', value: '+12%' }
-            ]
+        const activities = contact?.activities || [];
+        const today = new Date().toISOString().split('T')[0];
+
+        const categorized = activities.reduce((acc, act) => {
+            const status = act.status || (act.type ? 'Completed' : 'Upcoming');
+            if (status === 'Completed' || act.type) {
+                acc.completed.push(act);
+            } else if (act.dueDate < today) {
+                acc.due.push(act);
+            } else {
+                acc.upcoming.push(act);
+            }
+            return acc;
+        }, { due: [], upcoming: [], completed: [] });
+
+        const scoring = calculateLeadScore(contact || {}, activities);
+
+        // Smart Property Ownership Matching
+        const normalize = (phone) => phone?.toString()?.replace(/\D/g, '')?.slice(-10);
+        const contactPhone = normalize(contact?.mobile);
+        const contactEmail = contact?.email?.toLowerCase()?.trim();
+
+        const ownedProperties = inventoryData.filter(p => {
+            const propPhone = normalize(p.ownerPhone);
+            const propEmail = p.ownerEmail?.toLowerCase()?.trim();
+            const prevPhone = normalize(p.previousOwnerPhone);
+            const prevEmail = p.previousOwnerEmail?.toLowerCase()?.trim();
+
+            return (propPhone && contactPhone && propPhone === contactPhone) ||
+                (propEmail && contactEmail && propEmail === contactEmail) ||
+                (prevPhone && contactPhone && prevPhone === contactPhone) ||
+                (prevEmail && contactEmail && prevEmail === contactEmail);
+        }).map(p => {
+            const propPhone = normalize(p.ownerPhone);
+            const propEmail = p.ownerEmail?.toLowerCase()?.trim();
+            const isCurrentMatch = (propPhone && contactPhone && propPhone === contactPhone) ||
+                (propEmail && contactEmail && propEmail === contactEmail);
+
+            let matchType = 'Previous Owner';
+            if (isCurrentMatch) {
+                const contactParts = contact?.name?.toLowerCase()?.split(' ') || [];
+                const propParts = p.ownerName?.toLowerCase()?.split(' ') || [];
+                const contactLast = contactParts[contactParts.length - 1] || '';
+                const propLast = propParts[propParts.length - 1] || '';
+
+                const nameMatch = (contactLast && p.ownerName?.toLowerCase()?.includes(contactLast)) ||
+                    (propLast && contact?.name?.toLowerCase()?.includes(propLast));
+
+                matchType = nameMatch ? 'Confirmed Owner' : 'Suggestion (Property Owner)';
+            }
+
+            return { ...p, matchType };
+        }).sort((a, b) => {
+            const order = { 'Confirmed Owner': 1, 'Suggestion (Property Owner)': 2, 'Previous Owner': 3 };
+            return order[a.matchType] - order[b.matchType];
+        });
+
+        const leadScore = {
+            total: scoring.total,
+            formScore: scoring.formScore,
+            activityScore: scoring.activityScore,
+            detail: scoring.breakdown,
+            intent: scoring.intent,
+            temp: scoring.temperature,
+            categorized, // Adding this for the timeline
+            ownedProperties // Ownership Section data
         };
 
         const dealProbability = {
-            score: 76,
+            score: leadScore.total >= 80 ? 92 : leadScore.total >= 60 ? 76 : leadScore.total >= 40 ? 55 : 32,
             trend: 'up',
             factors: ['Within negotiation range', 'Scheduled visit', 'Owner flex match']
         };
@@ -93,22 +157,22 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
         const rejectionAlert = "Avoid properties above ₹1.3 Cr or in Sector 5";
 
         const purchaseIntent = {
-            level: 'Extreme',
-            emoji: '🔥',
+            level: leadScore.intent,
+            emoji: leadScore.total >= 80 ? '🔥' : leadScore.total >= 60 ? '🌤' : leadScore.total >= 40 ? '❄' : '🧊',
             confidence: '95%',
-            color: '#ef4444'
+            color: leadScore.temp.color
         };
 
         const riskLevel = {
-            status: 'Stable',
-            reason: 'High view frequency',
-            color: '#0ea5e9'
+            status: leadScore.total >= 80 ? 'Stable' : leadScore.total >= 60 ? 'Predictable' : 'High Risk',
+            reason: leadScore.total >= 80 ? 'High view frequency' : 'Delayed follow-ups',
+            color: leadScore.total >= 80 ? '#0ea5e9' : '#f59e0b'
         };
 
         const priority = {
-            level: 'P1',
+            level: leadScore.total >= 80 ? 'P1' : leadScore.total >= 60 ? 'P2' : 'P3',
             reason: 'Negotiation Phase',
-            color: '#ef4444'
+            color: leadScore.total >= 80 ? '#ef4444' : '#64748b'
         };
 
         const preferences = {
@@ -116,12 +180,12 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
             budget: '₹1.1 - 1.5 Cr',
             flexibility: '15%',
             type: 'Residential Plot',
-            urgency: 'Extreme',
+            urgency: leadScore.total >= 80 ? 'Extreme' : 'Moderate',
             dealType: 'Direct Purchase'
         };
 
         const closingProbability = {
-            current: 76,
+            current: dealProbability.score,
             stages: [
                 { label: 'Inquiry', prob: 25, status: 'completed' },
                 { label: 'Interest', prob: 40, status: 'completed' },
@@ -181,19 +245,35 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
             ]
         };
 
-        return { engagementScore, dealProbability, priceInsight, ownerIntelligence, journeySteps, rejectionAlert, purchaseIntent, riskLevel, priority, preferences, closingProbability, commission, persona, lossAnalysis };
-    };
+        const propertyContext = {
+            unitNo: 'Unit #1',
+            block: 'A Block',
+            corner: 'Corner',
+            facing: 'Park Facing',
+            roadWidth: '100 Ft. Road',
+            verification: 'Verified'
+        };
 
-    const aiStats = getAIStats();
+        const financialDetails = {
+            priceWord: 'One crore twenty-five lakh only',
+            matchedDeals: 12
+        };
+
+        return { leadScore, dealProbability, priceInsight, ownerIntelligence, journeySteps, rejectionAlert, purchaseIntent, riskLevel, priority, preferences, closingProbability, commission, persona, lossAnalysis, propertyContext, financialDetails };
+    };
 
     if (!contact) {
         return (
-            <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
-                <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', marginBottom: '1rem' }}></i>
-                <p>Loading contact profile...</p>
+            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-gray)', color: 'var(--text-muted)' }}>
+                <i className="fas fa-search-plus" style={{ fontSize: '3rem', marginBottom: '1.5rem', color: 'var(--primary-color)', opacity: 0.5 }}></i>
+                <h2 style={{ color: 'var(--text-main)', marginBottom: '0.5rem' }}>Record Not Found</h2>
+                <p>No contact or lead found with ID: {contactId}</p>
+                <button onClick={onBack} className="btn-primary" style={{ marginTop: '20px' }}>Back to Sales Pipeline</button>
             </div>
         );
     }
+
+    const aiStats = getAIStats();
 
     return (
         <div className="contact-detail-page" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#f8fafc', overflow: 'hidden' }}>
@@ -205,44 +285,6 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                     --glass-bg: rgba(255, 255, 255, 0.7);
                     --glass-border: rgba(255, 255, 255, 0.3);
                     --soft-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
-                }
-                @media (max-width: 768px) {
-                    .detail-main-content {
-                        flex-direction: column !important;
-                        overflow-y: auto !important;
-                        height: 100% !important;
-                    }
-                    .detail-left-col, .detail-right-col {
-                        flex: none !important;
-                        width: 100% !important;
-                        border-right: none !important;
-                        padding: 1.5rem 1rem !important;
-                        overflow-y: visible !important; /* Disable double scroll on mobile */
-                        height: auto !important;
-                    }
-                    .mobile-hide { display: none !important; }
-                    .mobile-show { display: flex !important; }
-                    .mobile-bottom-bar { display: flex !important; }
-                    .detail-header-actions { display: none !important; }
-                    
-                    /* Mobile Journey Flow Fix */
-                    .journey-flow-container {
-                        flex-direction: column !important;
-                        gap: 20px !important;
-                        padding-left: 10px;
-                    }
-                    .journey-line-horizontal {
-                        display: none !important;
-                    }
-                    .journey-line-vertical {
-                        display: block !important;
-                        position: absolute;
-                        left: 15px;
-                        top: 20px;
-                        bottom: 0px;
-                        width: 2px;
-                        background: #f1f5f9;
-                    }
                 }
                 .glass-card {
                     background: var(--glass-bg);
@@ -314,8 +356,23 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                         <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
                                 <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.5px' }}>{contact.name}</h1>
+                                {contact && (
+                                    <div className={`score-indicator ${aiStats.leadScore.temp.class}`} style={{ width: '32px', height: '32px', fontSize: '0.8rem', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', border: '2px solid #fff', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', background: aiStats.leadScore.temp.color, color: '#fff' }}>
+                                        {aiStats.leadScore.total}
+                                    </div>
+                                )}
                                 <div style={{ display: 'flex', gap: '4px' }}>
-                                    <span style={{ background: '#ecfdf5', color: '#059669', fontSize: '0.6rem', padding: '2px 8px', borderRadius: '6px', fontWeight: 800, border: '1px solid #d1fae5' }}>LEAD</span>
+                                    <span style={{
+                                        background: recordType === 'lead' ? '#ecfdf5' : '#eff6ff',
+                                        color: recordType === 'lead' ? '#059669' : '#3b82f6',
+                                        fontSize: '0.6rem',
+                                        padding: '2px 8px',
+                                        borderRadius: '6px',
+                                        fontWeight: 800,
+                                        border: `1px solid ${recordType === 'lead' ? '#d1fae5' : '#dbeafe'}`
+                                    }}>
+                                        {recordType.toUpperCase()}
+                                    </span>
                                     <span style={{
                                         background: `${aiStats.persona.color}15`,
                                         color: aiStats.persona.color,
@@ -333,10 +390,14 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                     </span>
                                 </div>
                             </div>
-                            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-user-tie" style={{ fontSize: '0.7rem' }}></i> {contact.ownership}</span>
+                            <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-user-tie" style={{ fontSize: '0.7rem' }}></i> {contact.owner || contact.ownership}</span>
                                 <span style={{ color: '#cbd5e1' }}>|</span>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-clock" style={{ fontSize: '0.7rem' }}></i> Today, 10:45 AM</span>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-bullhorn" style={{ fontSize: '0.7rem', color: '#f59e0b' }}></i> {contact.source || 'Direct'}</span>
+                                <span style={{ color: '#cbd5e1' }}>|</span>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-history" style={{ fontSize: '0.7rem' }}></i> {contact.activity || '12 Activities'}</span>
+                                <span style={{ color: '#cbd5e1' }}>|</span>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-calendar-alt" style={{ fontSize: '0.7rem' }}></i> {contact.addOn || contact.addOnDate || 'Today'}</span>
                             </div>
                         </div>
                     </div>
@@ -345,8 +406,9 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                 <div className="detail-header-actions" style={{ display: 'flex', gap: '10px' }}>
                     <button
                         onClick={() => {
-                            setDealStatus(prev => prev === 'active' ? 'lost' : 'active');
-                            showNotification(`Deal status changed to ${dealStatus === 'active' ? 'LOST' : 'ACTIVE'}`);
+                            const newStatus = dealStatus === 'active' ? 'lost' : 'active';
+                            setDealStatus(newStatus);
+                            showNotification(`Deal marked as ${newStatus.toUpperCase()}`);
                         }}
                         style={{
                             background: dealStatus === 'active' ? '#fee2e2' : '#f0fdf4',
@@ -371,17 +433,76 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                     <button className="action-btn" title="Tag"><i className="fas fa-tag"></i> Tags</button>
                     <button className="action-btn" title="Assign"><i className="fas fa-user-plus"></i> Assign</button>
                     <div style={{ position: 'relative' }}>
-                        <button className="action-btn" title="More" onClick={() => setShowMoreMoreMenu(!showMoreMenu)}><i className="fas fa-ellipsis-h"></i></button>
+                        <button className="action-btn" title="More" onClick={() => setShowMoreMenu(!showMoreMenu)}><i className="fas fa-ellipsis-h"></i></button>
                         {showMoreMenu && (
-                            <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 1000, minWidth: '160px', padding: '8px 0' }}>
-                                <button style={{ width: '100%', textAlign: 'left', padding: '8px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer' }} onMouseEnter={e => e.target.style.background = '#f8fafc'} onMouseLeave={e => e.target.style.background = 'transparent'}>Create Deal</button>
-                                <button style={{ width: '100%', textAlign: 'left', padding: '8px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer' }} onMouseEnter={e => e.target.style.background = '#f8fafc'} onMouseLeave={e => e.target.style.background = 'transparent'}>Mark Dormant</button>
-                                <button style={{ width: '100%', textAlign: 'left', padding: '8px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#ef4444', cursor: 'pointer' }} onMouseEnter={e => e.target.style.background = '#fef2f2'} onMouseLeave={e => e.target.style.background = 'transparent'}>Export Contact</button>
+                            <div style={{
+                                position: 'absolute',
+                                top: '100%',
+                                right: 0,
+                                marginTop: '8px',
+                                background: 'rgba(255, 255, 255, 0.9)',
+                                backdropFilter: 'blur(15px)',
+                                WebkitBackdropFilter: 'blur(15px)',
+                                border: '1px solid rgba(226, 232, 240, 0.8)',
+                                borderRadius: '12px',
+                                boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
+                                zIndex: 1000,
+                                minWidth: '180px',
+                                padding: '10px 0',
+                                overflow: 'hidden'
+                            }}>
+                                <button style={{ width: '100%', textAlign: 'left', padding: '10px 20px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', transition: 'all 0.2s' }} onMouseEnter={e => e.target.style.background = 'rgba(241, 245, 249, 0.8)'} onMouseLeave={e => e.target.style.background = 'transparent'} onClick={() => { showNotification('Creating deal...'); setShowMoreMenu(false); }}>Create Deal</button>
+                                <button style={{ width: '100%', textAlign: 'left', padding: '10px 20px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', transition: 'all 0.2s' }} onMouseEnter={e => e.target.style.background = 'rgba(241, 245, 249, 0.8)'} onMouseLeave={e => e.target.style.background = 'transparent'} onClick={() => { showNotification('Contact marked dormant.'); setShowMoreMenu(false); }}>Mark Dormant</button>
+                                <div style={{ height: '1px', background: '#f1f5f9', margin: '5px 0' }}></div>
+                                <button style={{ width: '100%', textAlign: 'left', padding: '10px 20px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#ef4444', cursor: 'pointer', transition: 'all 0.2s' }} onMouseEnter={e => e.target.style.background = 'rgba(254, 242, 242, 1)'} onMouseLeave={e => e.target.style.background = 'transparent'} onClick={() => { showNotification('Exporting contact data...'); setShowMoreMenu(false); }}>Export Contact</button>
                             </div>
                         )}
                     </div>
                 </div>
             </header>
+
+            {/* A. LEAD CONTEXT STRIP */}
+            <div style={{
+                background: 'linear-gradient(90deg, #f8fafc 0%, rgba(255, 255, 255, 0.9) 100%)',
+                borderBottom: '1px solid #e2e8f0',
+                padding: '8px 2rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '20px',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                color: '#475569',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                overflowX: 'auto',
+                whiteSpace: 'nowrap'
+            }}
+                className="no-scrollbar"
+                onClick={() => showNotification("Navigating to full Lead History for #L124...")}
+                onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                onMouseLeave={e => e.currentTarget.style.background = 'linear-gradient(90deg, #f8fafc 0%, rgba(255, 255, 255, 0.9) 100%)'}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <i className="fas fa-link" style={{ color: '#6366f1' }}></i>
+                    <span style={{ fontWeight: 800, color: '#1e293b' }}>Converted from Lead</span>
+                </div>
+                <div style={{ width: '1px', height: '14px', background: '#e2e8f0' }}></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ color: '#94a3b8' }}>Lead Score:</span>
+                    <span style={{ fontWeight: 800, color: aiStats.purchaseIntent.color }}>{contact.conversionMeta?.scoreAtConversion || aiStats.leadScore.total}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ color: '#94a3b8' }}>Source:</span>
+                    <span style={{ fontWeight: 700 }}>{contact.conversionMeta?.source || contact.source || 'Direct'}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ color: '#94a3b8' }}>Converted on:</span>
+                    <span style={{ fontWeight: 700 }}>{contact.conversionMeta?.date || 'Today'}</span>
+                </div>
+                <div style={{ marginLeft: 'auto', color: '#6366f1', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    VIEW LEAD JOURNEY <i className="fas fa-external-link-alt" style={{ fontSize: '0.65rem' }}></i>
+                </div>
+            </div>
 
             {/* MAIN CONTENT AREA */}
             <div className="detail-main-content" style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
@@ -392,7 +513,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                     {/* 1. Profile 360 & Preferences Accordion */}
                     <div className="glass-card" style={{ borderRadius: '16px' }}>
                         <div onClick={() => toggleSection('core')} style={{ padding: '14px 20px', background: 'rgba(248, 250, 252, 0.5)', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#475569', textTransform: 'uppercase', letterSpacing: '1px' }}>Contact 360° Profile</span>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#475569', textTransform: 'uppercase', letterSpacing: '1px' }}>{recordType === 'lead' ? 'Lead' : 'Contact'} 360° Profile</span>
                             <i className={`fas fa-chevron-${expandedSections.includes('core') ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#94a3b8' }}></i>
                         </div>
                         {expandedSections.includes('core') && (
@@ -406,26 +527,86 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                     <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Email', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', padding: '2px 0' }}>{contact.email || '-'}</div>
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Engagement Score</label>
+                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Designation</label>
+                                    <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Designation', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', padding: '2px 0' }}>{contact.designation || 'Business Consultant'}</div>
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Professional / Cat</label>
+                                    <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Category', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', padding: '2px 0' }}>{contact.professional || 'Corporate'}</div>
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Company</label>
+                                    <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Company', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', padding: '2px 0' }}>{contact.company || 'Greenwood Ventures'}</div>
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Lead Intensity Hub</label>
                                     <div style={{ position: 'relative' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                                             <div style={{ flex: 1, height: '6px', background: '#f1f5f9', borderRadius: '3px', overflow: 'hidden' }}>
-                                                <div style={{ width: `${aiStats.engagementScore.total}%`, height: '100%', background: '#16a34a' }}></div>
+                                                <div style={{ width: `${Math.min(aiStats.leadScore.total, 100)}%`, height: '100%', background: aiStats.purchaseIntent.color }}></div>
                                             </div>
-                                            <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#16a34a' }}>{aiStats.engagementScore.total}%</span>
+                                            <span style={{ fontSize: '0.85rem', fontWeight: 800, color: aiStats.purchaseIntent.color }}>{aiStats.leadScore.total}</span>
                                             <i className="fas fa-info-circle" style={{ fontSize: '0.75rem', color: '#94a3b8', cursor: 'pointer' }} onMouseEnter={() => setShowScoreBreakdown(true)} onMouseLeave={() => setShowScoreBreakdown(false)}></i>
                                         </div>
                                         {showScoreBreakdown && (
-                                            <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: '8px', background: '#1e293b', color: '#fff', borderRadius: '8px', padding: '12px', zIndex: 1000, minWidth: '180px', boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}>
-                                                {aiStats.engagementScore.breakdown.map((item, idx) => (
-                                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', marginBottom: idx === aiStats.engagementScore.breakdown.length - 1 ? 0 : '6px' }}>
-                                                        <span>{item.label}</span>
-                                                        <span style={{ color: '#4ade80' }}>{item.value}</span>
+                                            <div style={{
+                                                position: 'absolute',
+                                                bottom: '100%',
+                                                right: 0,
+                                                marginBottom: '8px',
+                                                background: 'rgba(30, 41, 59, 0.95)',
+                                                backdropFilter: 'blur(12px)',
+                                                WebkitBackdropFilter: 'blur(12px)',
+                                                color: '#fff',
+                                                borderRadius: '12px',
+                                                padding: '16px',
+                                                zIndex: 1000,
+                                                minWidth: '240px',
+                                                boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
+                                                border: '1px solid rgba(255,255,255,0.1)'
+                                            }}>
+                                                <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px' }}>Official Scoring Breakdown</div>
+
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', background: 'rgba(255,255,255,0.05)', padding: '8px', borderRadius: '8px' }}>
+                                                    <div>
+                                                        <div style={{ fontSize: '0.6rem', color: '#94a3b8' }}>FORM SCORE</div>
+                                                        <div style={{ fontSize: '1rem', fontWeight: 900, color: '#3b82f6' }}>{aiStats.leadScore.formScore}/52</div>
+                                                    </div>
+                                                    <div style={{ textAlign: 'right' }}>
+                                                        <div style={{ fontSize: '0.6rem', color: '#94a3b8' }}>ACTIVITY</div>
+                                                        <div style={{ fontSize: '1rem', fontWeight: 900, color: '#10b981' }}>+{aiStats.leadScore.activityScore}</div>
+                                                    </div>
+                                                </div>
+
+                                                {[
+                                                    { label: 'Requirement (32)', val: aiStats.leadScore.detail.requirement, max: 32 },
+                                                    { label: 'Budget Match (10)', val: aiStats.leadScore.detail.budget, max: 10 },
+                                                    { label: 'Location Match (10)', val: aiStats.leadScore.detail.location, max: 10 },
+                                                    { label: 'Timeline (10)', val: aiStats.leadScore.detail.timeline, max: 10 },
+                                                    { label: 'Payment (10)', val: aiStats.leadScore.detail.payment, max: 10 },
+                                                    { label: 'Source (5)', val: aiStats.leadScore.detail.source, max: 5 },
+                                                    { label: 'Engagement', val: aiStats.leadScore.activityScore, max: Math.max(aiStats.leadScore.activityScore, 40) }
+                                                ].map((item, idx) => (
+                                                    <div key={idx} style={{ marginBottom: '8px' }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', marginBottom: '3px' }}>
+                                                            <span style={{ opacity: 0.8 }}>{item.label}</span>
+                                                            <span style={{ color: '#fff', fontWeight: 800 }}>{item.val}</span>
+                                                        </div>
+                                                        <div style={{ width: '100%', height: '2px', background: 'rgba(255,255,255,0.1)', borderRadius: '1px', overflow: 'hidden' }}>
+                                                            <div style={{ width: `${(item.val / item.max) * 100}%`, height: '100%', background: item.label === 'Engagement' ? '#10b981' : '#3b82f6' }}></div>
+                                                        </div>
                                                     </div>
                                                 ))}
+                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontStyle: 'italic', marginTop: '10px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
+                                                    Intent Quality: <span style={{ color: aiStats.purchaseIntent.color, fontWeight: 900 }}>{aiStats.leadScore.intent.toUpperCase()}</span>
+                                                </div>
                                             </div>
                                         )}
                                     </div>
+                                </div>
+                                <div style={{ gridColumn: 'span 3' }}>
+                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Full Address</label>
+                                    <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Address', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', padding: '2px 0' }}>{contact.address || 'H.No 452, Sector 17, Kurukshetra, Haryana - 136118'}</div>
                                 </div>
                             </div>
                         )}
@@ -551,55 +732,99 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', paddingLeft: '24px', borderLeft: '2px solid #f1f5f9', marginLeft: '12px' }}>
-                            {/* Property Shortlisted ⭐ */}
-                            <div style={{ position: 'relative' }}>
-                                <div style={{ position: 'absolute', left: '-36px', top: '0', background: '#eab308', color: '#fff', width: '24px', height: '24px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', border: '3px solid #fff', boxShadow: '0 2px 8px rgba(234, 179, 8, 0.3)' }}>
-                                    <i className="fas fa-star"></i>
-                                </div>
-                                <div className="glass-card" style={{ borderRadius: '14px', border: '1px solid rgba(234, 179, 8, 0.2)', padding: '14px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', alignItems: 'center' }}>
-                                        <div style={{ fontWeight: 900, fontSize: '0.85rem', color: '#854d0e', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            Property Shortlisted <div className="pulse-dot"></div>
+                            {/* Render Categorized Activities */}
+                            {['due', 'upcoming', 'completed'].map(cat => (
+                                aiStats.leadScore.categorized[cat].length > 0 && (
+                                    <div key={cat} style={{ marginBottom: '10px' }}>
+                                        <div style={{
+                                            fontSize: '0.65rem',
+                                            fontWeight: 900,
+                                            color: cat === 'due' ? '#ef4444' : cat === 'upcoming' ? 'var(--premium-blue)' : '#10b981',
+                                            textTransform: 'uppercase',
+                                            marginBottom: '12px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px'
+                                        }}>
+                                            <i className={`fas fa-${cat === 'due' ? 'exclamation-circle' : cat === 'upcoming' ? 'calendar-alt' : 'check-circle'}`}></i>
+                                            {cat} Activities
                                         </div>
-                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 800 }}>JUST NOW</div>
-                                    </div>
-                                    <div style={{ fontSize: '0.8rem', color: '#475569', display: 'flex', gap: '14px' }}>
-                                        <div style={{ width: '48px', height: '48px', background: '#fefce8', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1px solid #fef08a' }}><i className="fas fa-home" style={{ color: '#eab308', fontSize: '1.2rem' }}></i></div>
-                                        <div>
-                                            <div style={{ fontWeight: 800, color: '#1e293b' }}>Sector 17 Premium Plot</div>
-                                            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginTop: '2px' }}>₹1.25 Cr • 250 Sqyd • 95% Match</div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                            {aiStats.leadScore.categorized[cat].map((act, idx) => (
+                                                <div key={idx} style={{ position: 'relative' }}>
+                                                    <div style={{
+                                                        position: 'absolute',
+                                                        left: '-36px',
+                                                        top: '0',
+                                                        background: cat === 'due' ? '#ef4444' : cat === 'upcoming' ? 'var(--premium-blue)' : '#10b981',
+                                                        color: '#fff',
+                                                        width: '24px',
+                                                        height: '24px',
+                                                        borderRadius: '50%',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        fontSize: '0.7rem',
+                                                        border: '3px solid #fff',
+                                                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                                                    }}>
+                                                        <i className={`fas fa-${(act.activityType || act.type).toLowerCase().includes('call') ? 'phone-alt' :
+                                                            (act.activityType || act.type).toLowerCase().includes('meeting') ? 'users' :
+                                                                (act.activityType || act.type).toLowerCase().includes('task') ? 'tasks' : 'envelope'
+                                                            }`}></i>
+                                                    </div>
+                                                    <div className="glass-card" style={{
+                                                        borderRadius: '14px',
+                                                        padding: '12px',
+                                                        border: `1px solid ${cat === 'due' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(226, 232, 240, 0.8)'}`,
+                                                        background: cat === 'due' ? 'rgba(239, 68, 68, 0.02)' : 'rgba(255, 255, 255, 0.5)'
+                                                    }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', alignItems: 'center' }}>
+                                                            <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#1e293b' }}>
+                                                                {act.subject || act.activityType || act.type.replace(/_/g, ' ')}
+                                                            </div>
+                                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700 }}>
+                                                                {act.dueDate ? new Date(act.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : act.date}
+                                                            </div>
+                                                        </div>
+                                                        {act.completionResult && (
+                                                            <div style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 700, marginTop: '4px' }}>
+                                                                Result: {act.completionResult}
+                                                            </div>
+                                                        )}
+                                                        {act.clientFeedback && (
+                                                            <div style={{
+                                                                fontSize: '0.75rem',
+                                                                color: '#475569',
+                                                                marginTop: '8px',
+                                                                padding: '8px',
+                                                                background: '#f8fafc',
+                                                                borderRadius: '8px',
+                                                                fontStyle: 'italic',
+                                                                borderLeft: '3px solid #10b981'
+                                                            }}>
+                                                                "{act.clientFeedback}"
+                                                            </div>
+                                                        )}
+                                                        {act.notes && (
+                                                            <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '4px' }}>
+                                                                {act.notes}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
-                                </div>
-                            </div>
+                                )
+                            ))}
 
-                            {/* Property Viewed Eye */}
-                            <div style={{ position: 'relative' }}>
-                                <div style={{ position: 'absolute', left: '-36px', top: '0', background: '#3b82f6', color: '#fff', width: '24px', height: '24px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', border: '3px solid #fff', boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)' }}>
-                                    <i className="fas fa-eye"></i>
+                            {/* Legacy Items (if any as fallback) */}
+                            {(!aiStats.leadScore.categorized.due.length && !aiStats.leadScore.categorized.upcoming.length && !aiStats.leadScore.categorized.completed.length) && (
+                                <div style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '20px' }}>
+                                    No activities tracked yet.
                                 </div>
-                                <div className="glass-card" style={{ borderRadius: '14px', padding: '14px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                                        <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#1e293b' }}>Viewed: Bharat Nagar Villa</div>
-                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 700 }}>YESTERDAY</div>
-                                    </div>
-                                    <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>3rd repeat view • Duration: 4m 20s</div>
-                                </div>
-                            </div>
-
-                            {/* Property Rejected ❌ */}
-                            <div style={{ position: 'relative' }}>
-                                <div style={{ position: 'absolute', left: '-31px', top: '0', background: '#ef4444', color: '#fff', width: '20px', height: '20px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem' }}>
-                                    <i className="fas fa-times"></i>
-                                </div>
-                                <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #fee2e2', padding: '12px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                        <div style={{ fontWeight: 700, fontSize: '0.8rem', color: '#991b1b' }}>Property Rejected</div>
-                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>2 days ago</div>
-                                    </div>
-                                    <div style={{ fontSize: '0.75rem', color: '#475569' }}>Sector 5 Plot • Reason: "High tension wire nearby"</div>
-                                </div>
-                            </div>
+                            )}
                         </div>
                     </div>
 
@@ -635,7 +860,15 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                             }}>
                                                 {step.status === 'completed' ? <i className="fas fa-check"></i> : idx + 1}
                                             </div>
-                                            <div style={{ fontSize: '0.65rem', fontWeight: 800, color: step.status === 'pending' ? '#94a3b8' : '#0f172a', textAlign: 'center', textTransform: 'uppercase' }}>{step.label}</div>
+                                            <div style={{
+                                                fontSize: '0.65rem',
+                                                fontWeight: 800,
+                                                color: dealStatus === 'lost' && step.status === 'active' ? '#ef4444' : step.status === 'pending' ? '#94a3b8' : '#0f172a',
+                                                textAlign: 'center',
+                                                textTransform: 'uppercase'
+                                            }}>
+                                                {dealStatus === 'lost' && step.status === 'active' ? 'DEAL TERMINATED' : step.label}
+                                            </div>
 
                                             {step.status === 'active' && idx === 3 && (
                                                 <button style={{ marginTop: '12px', padding: '6px 14px', fontSize: '0.6rem', fontWeight: 900, background: 'var(--premium-blue)', color: '#fff', border: 'none', borderRadius: '6px', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.3)', cursor: 'pointer' }}>
@@ -682,8 +915,8 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                 width: '10px',
                                                 height: '10px',
                                                 borderRadius: '50%',
-                                                background: st.status === 'completed' ? 'var(--premium-blue)' : st.status === 'active' ? '#ef4444' : '#e2e8f0',
-                                                boxShadow: st.status === 'active' ? '0 0 10px rgba(239, 68, 68, 0.4)' : 'none',
+                                                background: dealStatus === 'lost' && st.status === 'active' ? '#ef4444' : st.status === 'completed' ? 'var(--premium-blue)' : st.status === 'active' ? '#ef4444' : '#e2e8f0',
+                                                boxShadow: st.status === 'active' ? `0 0 10px ${dealStatus === 'lost' ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.4)'}` : 'none',
                                                 zIndex: 2
                                             }}></div>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -761,28 +994,35 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                 <i className={`fas fa-${reason.icon}`} style={{ color: reason.type === 'auto' ? '#8b5cf6' : '#f59e0b', fontSize: '0.8rem' }}></i>
                                                 <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0f172a' }}>{reason.label}</span>
                                                 <span style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 600 }}>{reason.confidence}%</span>
-                                                <button style={{
-                                                    background: 'none',
-                                                    border: 'none',
-                                                    padding: '2px',
-                                                    cursor: 'pointer',
-                                                    color: '#94a3b8',
-                                                    fontSize: '0.7rem'
-                                                }} title="Override Reason">
+                                                <button
+                                                    style={{
+                                                        background: 'none',
+                                                        border: 'none',
+                                                        padding: '2px',
+                                                        cursor: 'pointer',
+                                                        color: '#94a3b8',
+                                                        fontSize: '0.7rem'
+                                                    }}
+                                                    title="Override Reason"
+                                                    onClick={() => showNotification('Edit Loss Reason modal opened.')}
+                                                >
                                                     <i className="fas fa-edit"></i>
                                                 </button>
                                             </div>
                                         ))}
-                                        <button style={{
-                                            padding: '8px 12px',
-                                            background: 'none',
-                                            border: '1px dashed #cbd5e1',
-                                            borderRadius: '10px',
-                                            fontSize: '0.75rem',
-                                            fontWeight: 600,
-                                            color: '#64748b',
-                                            cursor: 'pointer'
-                                        }}>
+                                        <button
+                                            style={{
+                                                padding: '8px 12px',
+                                                background: 'none',
+                                                border: '1px dashed #cbd5e1',
+                                                borderRadius: '10px',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 600,
+                                                color: '#64748b',
+                                                cursor: 'pointer'
+                                            }}
+                                            onClick={() => showNotification('Add New Reason tool selected.')}
+                                        >
                                             + Add Reason
                                         </button>
                                     </div>
@@ -838,16 +1078,19 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                     <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#065f46' }}>{opt.label}</div>
                                                     <div style={{ fontSize: '0.6rem', color: '#166534', opacity: 0.8 }}>{opt.description}</div>
                                                 </div>
-                                                <button style={{
-                                                    background: '#16a34a',
-                                                    color: '#fff',
-                                                    border: 'none',
-                                                    padding: '4px 10px',
-                                                    borderRadius: '6px',
-                                                    fontSize: '0.6rem',
-                                                    fontWeight: 900,
-                                                    cursor: 'pointer'
-                                                }}>
+                                                <button
+                                                    style={{
+                                                        background: '#16a34a',
+                                                        color: '#fff',
+                                                        border: 'none',
+                                                        padding: '4px 10px',
+                                                        borderRadius: '6px',
+                                                        fontSize: '0.6rem',
+                                                        fontWeight: 900,
+                                                        cursor: 'pointer'
+                                                    }}
+                                                    onClick={() => showNotification(`Executing: ${opt.label}`)}
+                                                >
                                                     RUN
                                                 </button>
                                             </div>
@@ -880,8 +1123,18 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                 }}>
                                     <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>Was this analysis accurate?</span>
                                     <div style={{ display: 'flex', gap: '8px' }}>
-                                        <button style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '0.7rem' }}><i className="far fa-thumbs-up" style={{ color: '#16a34a' }}></i></button>
-                                        <button style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '0.7rem' }}><i className="far fa-thumbs-down" style={{ color: '#ef4444' }}></i></button>
+                                        <button
+                                            style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '0.7rem' }}
+                                            onClick={() => showNotification('Feedback recorded: Helpful!')}
+                                        >
+                                            <i className="far fa-thumbs-up" style={{ color: '#16a34a' }}></i>
+                                        </button>
+                                        <button
+                                            style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '0.7rem' }}
+                                            onClick={() => showNotification('Feedback recorded: Improvement flagged.')}
+                                        >
+                                            <i className="far fa-thumbs-down" style={{ color: '#ef4444' }}></i>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -898,6 +1151,23 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                         </div>
                         {expandedSections.includes('ai') && (
                             <div style={{ padding: '20px' }}>
+                                <div style={{ marginBottom: '20px' }}>
+                                    <div style={{ fontSize: '0.65rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px' }}>Lead Intelligence Continuity</div>
+                                    <div style={{ background: 'rgba(79, 70, 229, 0.05)', borderRadius: '12px', padding: '16px', border: '1px solid rgba(79, 70, 229, 0.1)' }}>
+                                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--premium-blue)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fas fa-brain"></i> Intent High due to:
+                                        </div>
+                                        <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.75rem', color: '#475569', lineHeight: '1.6', fontWeight: 600 }}>
+                                            <li>Converted Lead with Score <span style={{ color: aiStats.purchaseIntent.color, fontWeight: 800 }}>{aiStats.leadScore.total}</span></li>
+                                            <li><span style={{ fontWeight: 800, color: '#0f172a' }}>{aiStats.leadScore.detail.match * 0.7 + 5 | 0} property matches</span> identified during lead stage</li>
+                                            <li><span style={{ fontWeight: 800, color: '#0f172a' }}>{(aiStats.leadScore.detail.engagement / 10).toFixed(0)} recent calls</span> (avg duration 4m 12s)</li>
+                                        </ul>
+                                        <div style={{ marginTop: '12px', fontSize: '0.7rem', color: '#64748b', fontStyle: 'italic', borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: '10px', lineHeight: '1.4' }}>
+                                            <i className="fas fa-exclamation-triangle" style={{ marginRight: '6px', color: '#f59e0b' }}></i>
+                                            AI Learning: Deals from <span style={{ fontWeight: 800 }}>{contact.source}</span> leads with score <span style={{ color: '#ef4444' }}>&lt;{aiStats.leadScore.total < 60 ? aiStats.leadScore.total : 60}</span> have <span style={{ color: '#ef4444', fontWeight: 800 }}>28% higher</span> loss risk.
+                                        </div>
+                                    </div>
+                                </div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
                                     {/* Card 1: Purchase Intent */}
                                     <div style={{ background: '#fff', padding: '14px', borderRadius: '12px', border: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
@@ -959,7 +1229,154 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                         )}
                     </div>
 
-                    {/* 2. Property Recommendations */}
+                    {/* Property Icon Helper */}
+                    {(() => {
+                        const getPropIcon = (type) => {
+                            const t = type?.toLowerCase() || '';
+                            if (t.includes('plot')) return 'fa-map-location-dot';
+                            if (t.includes('shop') || t.includes('showroom') || t.includes('sco')) return 'fa-store';
+                            if (t.includes('house') || t.includes('apartment')) return 'fa-home';
+                            if (t.includes('school') || t.includes('institutional')) return 'fa-university';
+                            return 'fa-building';
+                        };
+                        window._getPropIcon = getPropIcon; // Temporary exposure or just use in scope
+                        return null;
+                    })()}
+
+                    {/* 0. Owned Properties Section (Smart Match) */}
+                    <div className="glass-card" style={{ borderRadius: '16px', border: '1px solid rgba(16, 185, 129, 0.3)', boxShadow: '0 8px 32px 0 rgba(16, 185, 129, 0.08)' }}>
+                        <div onClick={() => toggleSection('ownership')} style={{ padding: '14px 20px', background: 'rgba(16, 185, 129, 0.05)', borderBottom: '1px solid rgba(16, 185, 129, 0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#059669', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-key"></i> Owned Properties
+                            </span>
+                            <i className={`fas fa-chevron-${expandedSections.includes('ownership') ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#059669' }}></i>
+                        </div>
+                        {expandedSections.includes('ownership') && (
+                            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {aiStats.leadScore.ownedProperties.length > 0 ? (
+                                    aiStats.leadScore.ownedProperties.map((prop, idx) => (
+                                        <div key={idx} style={{
+                                            padding: '10px 14px',
+                                            border: '1px solid #f1f5f9',
+                                            borderRadius: '12px',
+                                            background: prop.matchType === 'Previous Owner' ? '#f8fafc' : '#fff',
+                                            boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                                            position: 'relative',
+                                            opacity: prop.matchType === 'Previous Owner' ? 0.8 : 1
+                                        }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                                                <div style={{
+                                                    width: '40px', height: '40px',
+                                                    background: prop.matchType === 'Previous Owner' ? '#f1f5f9' : '#f0fdf4',
+                                                    border: `1px solid ${prop.matchType === 'Previous Owner' ? '#e2e8f0' : '#dcfce7'}`,
+                                                    borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+                                                }}>
+                                                    <i className={`fas ${(() => {
+                                                        const t = prop.type?.toLowerCase() || '';
+                                                        if (t.includes('plot')) return 'fa-map-location-dot';
+                                                        if (t.includes('shop') || t.includes('showroom') || t.includes('sco')) return 'fa-store';
+                                                        if (t.includes('house') || t.includes('apartment')) return 'fa-home';
+                                                        if (t.includes('school') || t.includes('institutional')) return 'fa-university';
+                                                        return 'fa-building';
+                                                    })()}`} style={{ color: prop.matchType === 'Previous Owner' ? '#94a3b8' : '#10b981', fontSize: '1rem' }}></i>
+                                                </div>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+                                                        <div>
+                                                            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>
+                                                                {prop.unitNo && `Unit #${prop.unitNo} • `}{prop.type}
+                                                            </div>
+                                                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>{prop.location || prop.area}</div>
+                                                        </div>
+                                                        <span style={{
+                                                            background: prop.matchType === 'Confirmed Owner' ? '#ecfdf5' :
+                                                                prop.matchType === 'Previous Owner' ? '#f1f5f9' : '#fff7ed',
+                                                            color: prop.matchType === 'Confirmed Owner' ? '#059669' :
+                                                                prop.matchType === 'Previous Owner' ? '#64748b' : '#c2410c',
+                                                            fontSize: '0.5rem',
+                                                            padding: '2px 6px',
+                                                            borderRadius: '4px',
+                                                            fontWeight: 900,
+                                                            border: `1px solid ${prop.matchType === 'Confirmed Owner' ? '#d1fae5' :
+                                                                prop.matchType === 'Previous Owner' ? '#e2e8f0' : '#ffedd5'}`,
+                                                            textTransform: 'uppercase',
+                                                            whiteSpace: 'nowrap'
+                                                        }}>
+                                                            {prop.matchType}
+                                                        </span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                            <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700 }}>{prop.size}</span>
+                                                            <span style={{ width: '3px', height: '3px', background: '#e2e8f0', borderRadius: '50%' }}></span>
+                                                            <span style={{ fontSize: '0.65rem', color: prop.status === 'Active' ? '#10b981' : '#ef4444', fontWeight: 800 }}>{prop.status}</span>
+                                                        </div>
+                                                        {prop.matchType !== 'Previous Owner' && (
+                                                            <button className="btn-outline" style={{ padding: '4px 10px', fontSize: '0.6rem', borderRadius: '6px' }}>View Record</button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', textAlign: 'center', padding: '10px' }}>No owned properties found.</div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* 3. Documents Section */}
+                    <div className="glass-card" style={{ borderRadius: '16px', border: '1px solid rgba(79, 70, 229, 0.2)', boxShadow: '0 8px 32px 0 rgba(79, 70, 229, 0.05)' }}>
+                        <div onClick={() => toggleSection('documents')} style={{ padding: '14px 20px', background: 'rgba(79, 70, 229, 0.05)', borderBottom: '1px solid rgba(79, 70, 229, 0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-file-invoice"></i> Documents & Attachments
+                            </span>
+                            <i className={`fas fa-chevron-${expandedSections.includes('documents') ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#4f46e5' }}></i>
+                        </div>
+                        {expandedSections.includes('documents') && (
+                            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {contact.documents && contact.documents.length > 0 ? (
+                                    contact.documents.map((doc, idx) => (
+                                        <div key={idx} style={{
+                                            padding: '12px 15px',
+                                            border: '1px solid #f1f5f9',
+                                            borderRadius: '12px',
+                                            background: '#fff',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '14px',
+                                            transition: 'all 0.2s'
+                                        }} onMouseEnter={(e) => e.currentTarget.style.borderColor = '#4f46e5'} onMouseLeave={(e) => e.currentTarget.style.borderColor = '#f1f5f9'}>
+                                            <div style={{
+                                                width: '40px', height: '40px',
+                                                background: '#f5f3ff',
+                                                border: '1px solid #ddd6fe',
+                                                borderRadius: '10px',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                flexShrink: 0
+                                            }}>
+                                                <i className={`fas ${doc.documentPicture?.name?.endsWith('.pdf') ? 'fa-file-pdf' : 'fa-file-image'}`} style={{ color: '#7c3aed', fontSize: '1.1rem' }}></i>
+                                            </div>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', marginBottom: '2px' }}>{doc.documentName}</div>
+                                                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>ID: {doc.documentNo}</div>
+                                            </div>
+                                            <button className="btn-outline" style={{ padding: '6px 12px', fontSize: '0.65rem', borderRadius: '8px', background: '#fff' }}>
+                                                View
+                                            </button>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div style={{ textAlign: 'center', padding: '10px' }}>
+                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>No documents uploaded yet.</div>
+                                        <button className="btn-outline" style={{ padding: '4px 10px', fontSize: '0.6rem', borderRadius: '6px' }}>Upload Now</button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
                     <div className="glass-card" style={{ borderRadius: '16px' }}>
                         <div onClick={() => toggleSection('properties')} style={{ padding: '14px 20px', background: 'rgba(248, 250, 252, 0.5)', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
                             <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#475569', textTransform: 'uppercase', letterSpacing: '1px' }}>Matching Properties</span>
@@ -1136,61 +1553,114 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                             <h4 style={{ fontSize: '0.75rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fas fa-warehouse" style={{ color: '#3b82f6' }}></i> Inventory Context
                             </h4>
-                            <div onClick={() => toggleSection('commission')} style={{ fontSize: '0.65rem', fontWeight: 800, color: '#3b82f6', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <div
+                                onClick={() => toggleSection('commission')}
+                                style={{
+                                    fontSize: '0.65rem',
+                                    fontWeight: 800,
+                                    color: 'var(--premium-blue)',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    background: 'rgba(79, 70, 229, 0.05)',
+                                    padding: '4px 10px',
+                                    borderRadius: '8px',
+                                    border: '1px solid rgba(79, 70, 229, 0.1)',
+                                    transition: 'all 0.2s',
+                                    position: 'relative'
+                                }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'rgba(79, 70, 229, 0.1)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'rgba(79, 70, 229, 0.05)'}
+                            >
                                 <i className="fas fa-coins"></i> COMM. INTEL
+                                {expandedSections.includes('commission') && (
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: '100%',
+                                        right: 0,
+                                        marginTop: '10px',
+                                        background: 'rgba(30, 41, 59, 0.95)',
+                                        backdropFilter: 'blur(12px)',
+                                        WebkitBackdropFilter: 'blur(12px)',
+                                        color: '#fff',
+                                        borderRadius: '14px',
+                                        padding: '18px',
+                                        zIndex: 1000,
+                                        minWidth: '260px',
+                                        boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
+                                        border: '1px solid rgba(255,255,255,0.1)',
+                                        cursor: 'default'
+                                    }} onClick={(e) => e.stopPropagation()}>
+                                        <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px' }}>Commission Intelligence</div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+                                            <div>
+                                                <div style={{ fontSize: '0.6rem', color: '#94a3b8', marginBottom: '4px' }}>Deal Value</div>
+                                                <div style={{ fontSize: '1rem', fontWeight: 900, color: '#fff' }}>{aiStats.commission.value}</div>
+                                            </div>
+                                            <div style={{ textAlign: 'right' }}>
+                                                <div style={{ fontSize: '0.6rem', color: '#4ade80', marginBottom: '4px' }}>Exp. Comm ({aiStats.commission.type})</div>
+                                                <div style={{ fontSize: '1rem', fontWeight: 900, color: '#4ade80' }}>{aiStats.commission.total}</div>
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', padding: '12px 0', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                                            {aiStats.commission.splits.map((s, i) => (
+                                                <div key={i}>
+                                                    <div style={{ fontSize: '0.6rem', color: '#94a3b8', marginBottom: '4px' }}>{s.label}</div>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>{s.value}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div style={{ background: 'rgba(74, 222, 128, 0.15)', padding: '10px', borderRadius: '8px', fontSize: '0.65rem', color: '#4ade80', marginTop: '10px', border: '1px solid rgba(74, 222, 128, 0.2)', display: 'flex', gap: '8px' }}>
+                                            <i className="fas fa-gift" style={{ marginTop: '2px' }}></i> <span>{aiStats.commission.bonus}</span>
+                                        </div>
+                                        <div style={{ marginTop: '12px' }}>
+                                            {aiStats.commission.risks.map((r, i) => (
+                                                <div key={i} style={{ fontSize: '0.65rem', color: '#fca5a5', marginBottom: '5px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                                                    <i className="fas fa-exclamation-circle" style={{ marginTop: '2px' }}></i> {r}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
 
-                        {/* Commission Intel Popover (Simulated as inline for now) */}
-                        {expandedSections.includes('commission') && (
-                            <div style={{ background: '#1e293b', borderRadius: '8px', padding: '12px', marginBottom: '16px', color: '#fff' }}>
-                                <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Commission Intelligence</div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
-                                    <div>
-                                        <div style={{ fontSize: '0.6rem', color: '#94a3b8' }}>Deal Value</div>
-                                        <div style={{ fontSize: '0.85rem', fontWeight: 800 }}>{aiStats.commission.value}</div>
-                                    </div>
-                                    <div style={{ textAlign: 'right' }}>
-                                        <div style={{ fontSize: '0.6rem', color: '#4ade80' }}>Exp. Commission ({aiStats.commission.type})</div>
-                                        <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#4ade80' }}>{aiStats.commission.total}</div>
-                                    </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                                    <span style={{ color: '#64748b', fontWeight: 600 }}>Unit # / Block</span>
+                                    <span style={{ color: '#0f172a', fontWeight: 800 }}>{aiStats.propertyContext.unitNo} • {aiStats.propertyContext.block}</span>
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', padding: '8px 0', borderTop: '1px solid #334155' }}>
-                                    {aiStats.commission.splits.map((s, i) => (
-                                        <div key={i}>
-                                            <div style={{ fontSize: '0.6rem', color: '#94a3b8' }}>{s.label}</div>
-                                            <div style={{ fontSize: '0.75rem', fontWeight: 700 }}>{s.value}</div>
-                                        </div>
-                                    ))}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                                    <span style={{ color: '#64748b', fontWeight: 600 }}>Corner Status</span>
+                                    <span style={{ color: '#0f172a', fontWeight: 800 }}>{aiStats.propertyContext.corner}</span>
                                 </div>
-                                <div style={{ background: 'rgba(74, 222, 128, 0.1)', padding: '6px', borderRadius: '4px', fontSize: '0.6rem', color: '#4ade80', marginTop: '8px', border: '1px solid rgba(74, 222, 128, 0.2)' }}>
-                                    <i className="fas fa-gift" style={{ marginRight: '6px' }}></i> {aiStats.commission.bonus}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                                    <span style={{ color: '#64748b', fontWeight: 600 }}>Facing</span>
+                                    <span style={{ color: '#0f172a', fontWeight: 800 }}>{aiStats.propertyContext.facing}</span>
                                 </div>
-                                <div style={{ marginTop: '8px' }}>
-                                    {aiStats.commission.risks.map((r, i) => (
-                                        <div key={i} style={{ fontSize: '0.6rem', color: '#fca5a5', marginBottom: '2px', display: 'flex', gap: '6px' }}>
-                                            <i className="fas fa-exclamation-circle"></i> {r}
-                                        </div>
-                                    ))}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                                    <span style={{ color: '#64748b', fontWeight: 600 }}>Road Width</span>
+                                    <span style={{ color: '#3b82f6', fontWeight: 800 }}>{aiStats.propertyContext.roadWidth}</span>
                                 </div>
                             </div>
-                        )}
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
-                                <span style={{ color: '#64748b', fontWeight: 600 }}>Freshness</span>
-                                <span style={{ color: '#16a34a', fontWeight: 800 }}>Listed 2d ago</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
-                                <span style={{ color: '#64748b', fontWeight: 600 }}>Owner Type</span>
-                                <span style={{ color: '#0f172a', fontWeight: 800 }}>Direct Party</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
-                                <span style={{ color: '#64748b', fontWeight: 600 }}>Negotiation Scope</span>
-                                <span style={{ color: '#3b82f6', fontWeight: 800 }}>Moderate (3-5%)</span>
-                            </div>
-                            <div style={{ padding: '8px', background: '#fff', borderRadius: '6px', border: '1px solid #eef2f6', fontSize: '0.7rem', color: '#64748b', fontStyle: 'italic' }}>
-                                "3 similar deals closed in Sector 17 last month at ₹1.15 Cr avg."
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                                    <span style={{ color: '#64748b', fontWeight: 600 }}>Freshness</span>
+                                    <span style={{ color: '#16a34a', fontWeight: 800 }}>Listed 2d ago</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                                    <span style={{ color: '#64748b', fontWeight: 600 }}>Owner Type</span>
+                                    <span style={{ color: '#0f172a', fontWeight: 800 }}>Direct Party</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                                    <span style={{ color: '#64748b', fontWeight: 600 }}>Verification</span>
+                                    <span style={{ color: '#16a34a', fontWeight: 800 }}><i className="fas fa-check-double" style={{ marginRight: '4px' }}></i> {aiStats.propertyContext.verification}</span>
+                                </div>
+                                <div style={{ padding: '8px', background: '#fff', borderRadius: '6px', border: '1px solid #eef2f6', fontSize: '0.7rem', color: '#64748b', fontStyle: 'italic' }}>
+                                    "3 similar deals closed in Sector 17 last month."
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1220,9 +1690,32 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                     {/* 4. Deals & Revenue */}
                     <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px' }}>
                         <h4 style={{ fontSize: '0.75rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', marginBottom: '10px' }}>Active Deals</h4>
-                        <div style={{ background: '#f0fdf4', padding: '10px', borderRadius: '8px', border: '1px solid #dcfce7' }}>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#166534' }}>₹15,00,000 Deal</div>
-                            <div style={{ fontSize: '0.7rem', color: '#166534' }}>Negotiation Stage</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {aiStats.leadScore.ownedProperties.filter(p => p.status === 'Active').length > 0 ? (
+                                aiStats.leadScore.ownedProperties.filter(p => p.status === 'Active').map((deal, idx) => (
+                                    <div key={idx} style={{ background: '#f0fdf4', padding: '12px', borderRadius: '12px', border: '1px solid #dcfce7', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                                            <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#166534' }}>
+                                                ₹{deal.price || 'Price TBA'} Deal
+                                            </div>
+                                            <span style={{ background: '#166534', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '0.6rem', fontWeight: 700 }}>
+                                                ACTIVE
+                                            </span>
+                                        </div>
+                                        <div style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 700, marginBottom: '2px' }}>
+                                            {deal.unitNo ? `Unit #${deal.unitNo} • ` : ''}{deal.type}
+                                        </div>
+                                        <div style={{ fontSize: '0.65rem', color: '#166534', fontWeight: 600, opacity: 0.8 }}>
+                                            at {deal.location || deal.area}
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <div style={{ textAlign: 'center', padding: '20px', background: '#f8fafc', borderRadius: '8px', border: '1px dashed #e2e8f0' }}>
+                                    <i className="fas fa-handshake-slash" style={{ color: '#94a3b8', fontSize: '1.2rem', marginBottom: '8px', display: 'block' }}></i>
+                                    <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>No Active Deals for this Contact</span>
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -1269,19 +1762,42 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                     </div>
                     <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#5b21b6' }}>Email</span>
                 </button>
-                <div style={{ padding: '0 12px', display: 'flex', alignItems: 'center' }}>
-                    <button style={{
-                        background: 'var(--premium-blue)',
-                        color: '#fff',
-                        padding: '12px 20px',
-                        borderRadius: '14px',
-                        fontSize: '0.75rem',
-                        fontWeight: 900,
-                        border: 'none',
-                        boxShadow: '0 8px 16px rgba(79, 70, 229, 0.3)',
-                        letterSpacing: '0.5px'
-                    }}>
-                        ADVANCE DEAL
+                <div style={{ padding: '0 12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button
+                        onClick={() => showNotification("Deal Stage Advanced: Negotiation → Closing")}
+                        style={{
+                            background: 'rgba(79, 70, 229, 0.1)',
+                            color: 'var(--premium-blue)',
+                            padding: '12px 14px',
+                            borderRadius: '14px',
+                            fontSize: '0.75rem',
+                            fontWeight: 900,
+                            border: '1px solid rgba(79, 70, 229, 0.2)',
+                        }}
+                    >
+                        ADVANCE
+                    </button>
+                    <button
+                        onClick={() => {
+                            if (recordType === 'lead') {
+                                const res = LeadConversionService.evaluateAutoConversion(contact, 'create_deal_clicked');
+                                if (res.success) showNotification(res.message);
+                            } else {
+                                showNotification("Opening Deal Creation interface...");
+                            }
+                        }}
+                        style={{
+                            background: 'var(--premium-blue)',
+                            color: '#fff',
+                            padding: '12px 18px',
+                            borderRadius: '14px',
+                            fontSize: '0.75rem',
+                            fontWeight: 900,
+                            border: 'none',
+                            boxShadow: '0 8px 16px rgba(79, 70, 229, 0.3)',
+                            letterSpacing: '0.5px'
+                        }}>
+                        CREATE DEAL
                     </button>
                 </div>
             </div>

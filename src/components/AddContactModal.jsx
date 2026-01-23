@@ -116,7 +116,7 @@ const DEGREE_OPTIONS = {
     "Postgraduate": ["M.Tech", "M.Sc", "M.Com", "M.A.", "MBA", "MCA", "MD", "MS", "M.Pharma", "LLM", "M.Arch"],
     "Doctorate": ["Ph.D", "M.Phil", "Pharm.D"]
 };
-const SUB_CATEGORIES = ['Real Estate', 'IT & Software', 'Banking & Finance', 'Manufacturing', 'Retail', 'Healthcare', 'Education', 'Legal', 'Construction', 'Government', 'Other'];
+const SUB_CATEGORIES = ['Sales Person', 'Real Estate Agent', 'Real Estate', 'IT & Software', 'Banking & Finance', 'Manufacturing', 'Retail', 'Healthcare', 'Education', 'Legal', 'Construction', 'Government', 'Other'];
 const DESIGNATIONS = ['Owner', 'CEO / Founder', 'Director', 'Manager', 'Team Lead', 'Senior Executive', 'Associate', 'Developer', 'Consultant', 'HR', 'Accountant', 'Other'];
 
 // Sources for Dropdown
@@ -518,7 +518,6 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
         budgetMax: '',
         areaMin: '',
         areaMax: '',
-        areaMetric: 'Sq Yard',
         areaMetric: 'Sq Yard',
         searchLocation: '',
         areaSearch: '', // New Field

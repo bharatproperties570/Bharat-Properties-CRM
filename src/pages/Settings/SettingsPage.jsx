@@ -7,6 +7,7 @@ import EmailSettingsPage from './views/EmailSettingsPage';
 import VoiceSettingsPage from './views/VoiceSettingsPage';
 import MessagingSettingsPage from './views/MessagingSettingsPage';
 import IntegrationsSettingsPage from './views/IntegrationsSettingsPage';
+import ScoringSettingsPage from './views/ScoringSettingsPage';
 
 // --- Sub-Components (Defined Outside to prevent re-creation crashes) ---
 
@@ -392,6 +393,8 @@ const SettingsHubPage = () => {
                         <MessagingSettingsPage />
                     ) : activeTab === 'integrations' ? (
                         <IntegrationsSettingsPage />
+                    ) : activeTab === 'scoring' ? (
+                        <ScoringSettingsPage />
                     ) : (
                         <EmptyState title={currentLabel} />
                     )}

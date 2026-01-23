@@ -1,21 +1,25 @@
 :root {
-    --primary-color: #1273e6;
-    --primary-hover: #0d5bb5;
+    --primary-color: #0066ff;
+    /* More vibrant blue */
+    --primary-hover: #0052cc;
     --bg-light: #ffffff;
-    --bg-gray: #f8f9fa;
-    --border-color: #e3e6e8;
-    --text-main: #2f3941;
-    --text-muted: #68737d;
-    --sidebar-bg: #1f2d3d;
-    --sidebar-text: #adb5bd;
-    --sidebar-active-bg: #2c3e50;
-    --danger-color: #d9393d;
-    --danger-bg: #fff5f5;
-    --success-color: #00a65a;
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
-    --marketing-blue: #1273e6;
-    --marketing-green: #27ae60;
-    --marketing-orange: #f39c12;
+    --bg-gray: #f8fafc;
+    /* Sleek slate gray */
+    --border-color: #e2e8f0;
+    --text-main: #0f172a;
+    /* Deep navy for clarity */
+    --text-muted: #64748b;
+    --sidebar-bg: #0f172a;
+    /* Matches deep navy */
+    --sidebar-text: #94a3b8;
+    --sidebar-active-bg: #1e293b;
+    --danger-color: #ef4444;
+    --danger-bg: #fef2f2;
+    --success-color: #10b981;
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --marketing-blue: #0ea5e9;
+    --marketing-green: #10b981;
+    --marketing-orange: #f59e0b;
 }
 
 * {
@@ -188,7 +192,8 @@ body {
     width: 42px;
     height: 42px;
     border-radius: 50%;
-    background: #e31e24;
+    background: #0066ff;
+    /* Matches primary vibrant blue */
     color: white;
     display: flex;
     align-items: center;
@@ -2980,12 +2985,13 @@ body {
     gap: 1rem;
     align-items: center;
 }
+
 /* Hide Scrollbar */
 .no-scrollbar::-webkit-scrollbar {
     display: none;
 }
+
 .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
 }
-

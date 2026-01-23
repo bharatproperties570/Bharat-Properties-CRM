@@ -31,7 +31,7 @@ import ContactDetail from '../pages/Contacts/ContactDetail';
 
 import { leadData } from '../data/mockData';
 
-const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, onAddActivity }) => {
+const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, onEditCompany, onAddActivity }) => {
     switch (currentView) {
         case 'dashboard':
             return <DashboardPage />;
@@ -45,7 +45,7 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
                 onAddActivity={onAddActivity}
             />;
         case 'company':
-            return <CompanyPage />;
+            return <CompanyPage onEdit={onEditCompany} />;
         case 'leads':
             return <LeadsPage onAddActivity={onAddActivity} onEdit={onEditContact} onNavigate={onNavigate} />;
         case 'forms':
