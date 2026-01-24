@@ -902,8 +902,94 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                     {/* Content */}
                     <div className="no-scrollbar" style={{ flex: 1, padding: '24px 32px 40px 32px', overflowY: 'auto', background: '#f8fafc' }}>
 
-                        {currentTab === 'basic' ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        {showOnlyRequired && entityType === 'lead' ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                                {/* Requirement Type */}
+                                <div style={sectionCardStyle}>
+                                    <h4 style={labelStyle}>Requirement Type</h4>
+                                    <AnimatedSegmentControl
+                                        options={['Buy', 'Rent', 'Lease']}
+                                        value={formData.requirement}
+                                        onChange={(val) => handleInputChange('requirement', val)}
+                                    />
+                                </div>
+
+                                {/* Property Category */}
+                                <div style={sectionCardStyle}>
+                                    <h4 style={labelStyle}>Property Category</h4>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))', gap: '8px' }}>
+                                        {[
+                                            { label: 'Residential', icon: 'fa-home' },
+                                            { label: 'Commercial', icon: 'fa-building' },
+                                            { label: 'Industrial', icon: 'fa-industry' },
+                                            { label: 'Agricultural', icon: 'fa-seedling' },
+                                            { label: 'Institutional', icon: 'fa-university' }
+                                        ].map(cat => (
+                                            <button
+                                                key={cat.label}
+                                                type="button"
+                                                onClick={() => {
+                                                    const newCats = formData.propertyType.includes(cat.label)
+                                                        ? formData.propertyType.filter(c => c !== cat.label)
+                                                        : [...formData.propertyType, cat.label];
+                                                    handleInputChange('propertyType', newCats);
+                                                }}
+                                                style={{
+                                                    padding: '6px',
+                                                    borderRadius: '8px',
+                                                    border: formData.propertyType.includes(cat.label) ? '1px solid #3b82f6' : '1px solid #e2e8f0',
+                                                    background: formData.propertyType.includes(cat.label) ? '#eff6ff' : '#fff',
+                                                    color: formData.propertyType.includes(cat.label) ? '#2563eb' : '#64748b',
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    alignItems: 'center',
+                                                    gap: '4px',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s',
+                                                    height: '100%'
+                                                }}
+                                            >
+                                                <i className={`fas ${cat.icon}`} style={{ fontSize: '0.9rem' }}></i>
+                                                <span style={{ fontSize: '0.75rem', fontWeight: 600, textAlign: 'center' }}>{cat.label}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Property Sub-Category */}
+                                {formData.propertyType.length > 0 && (
+                                    <div style={sectionCardStyle}>
+                                        <h4 style={labelStyle}>Property Sub-Category</h4>
+                                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                            {Array.from(new Set(formData.propertyType.flatMap(cat => PROPERTY_CATEGORIES[cat]?.subCategories || []))).map(sub => (
+                                                <button
+                                                    key={sub}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const newSubs = formData.subType.includes(sub)
+                                                            ? formData.subType.filter(s => s !== sub)
+                                                            : [...formData.subType, sub];
+                                                        handleInputChange('subType', newSubs);
+                                                    }}
+                                                    style={{
+                                                        padding: '6px 14px',
+                                                        borderRadius: '20px',
+                                                        border: formData.subType.includes(sub) ? '1px solid #6366f1' : '1px solid #e2e8f0',
+                                                        background: formData.subType.includes(sub) ? '#eef2ff' : '#fff',
+                                                        color: formData.subType.includes(sub) ? '#4f46e5' : '#64748b',
+                                                        fontSize: '0.85rem',
+                                                        cursor: 'pointer',
+                                                        fontWeight: formData.subType.includes(sub) ? 500 : 400,
+                                                        transition: 'all 0.2s'
+                                                    }}
+                                                >
+                                                    {sub}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* Identity Card */}
                                 <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                                     <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
@@ -944,18 +1030,6 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                 style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
                                             />
                                         </div>
-                                        {(!showOnlyRequired && entityType !== 'lead') && (
-                                            <div style={{ gridColumn: '1 / -1' }}>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Father/Husband Name</label>
-                                                <input
-                                                    type="text"
-                                                    value={formData.fatherName}
-                                                    onChange={(e) => handleInputChange('fatherName', e.target.value)}
-                                                    placeholder="Enter father or husband's name"
-                                                    style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
-                                                />
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
 
@@ -1056,255 +1130,49 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                     </div>
                                 </div>
 
-                                {entityType === 'lead' && (
-                                    <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                        <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                            <i className="fas fa-bullhorn" style={{ color: '#f59e0b' }}></i> Campaign Details
-                                        </h3>
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Campaign Name</label>
-                                                <select
-                                                    value={formData.campaign}
-                                                    onChange={(e) => handleInputChange('campaign', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Campaign</option>
-                                                    {CAMPAIGN_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
-                                                <select
-                                                    value={formData.source}
-                                                    onChange={(e) => handleInputChange('source', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Source</option>
-                                                    {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Sub Source</label>
-                                                <select
-                                                    value={formData.subSource}
-                                                    onChange={(e) => handleInputChange('subSource', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Sub Source</option>
-                                                    {SUB_SOURCE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                                                </select>
-                                            </div>
+                                {/* Campaign Details (Added for completeness) */}
+                                <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                    <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                                        <i className="fas fa-bullhorn" style={{ color: '#f59e0b' }}></i> Campaign Details
+                                    </h3>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Campaign Name</label>
+                                            <select
+                                                value={formData.campaign}
+                                                onChange={(e) => handleInputChange('campaign', e.target.value)}
+                                                style={customSelectStyle}
+                                            >
+                                                <option value="">Select Campaign</option>
+                                                {CAMPAIGN_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
+                                            <select
+                                                value={formData.source}
+                                                onChange={(e) => handleInputChange('source', e.target.value)}
+                                                style={customSelectStyle}
+                                            >
+                                                <option value="">Select Source</option>
+                                                {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Sub Source</label>
+                                            <select
+                                                value={formData.subSource}
+                                                onChange={(e) => handleInputChange('subSource', e.target.value)}
+                                                style={customSelectStyle}
+                                            >
+                                                <option value="">Select Sub Source</option>
+                                                {SUB_SOURCE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                                            </select>
                                         </div>
                                     </div>
-                                )}
+                                </div>
 
-                                {(!showOnlyRequired && entityType !== 'lead') && (
-                                    <>
-                                        {/* Tags & Source Card */}
-                                        <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                            <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                                <i className="fas fa-tags" style={{ color: '#8b5cf6' }}></i> Segmentation
-                                            </h3>
-                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
-                                                <div>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
-                                                    <select
-                                                        value={formData.source}
-                                                        onChange={(e) => handleInputChange('source', e.target.value)}
-                                                        style={customSelectStyle}
-                                                    >
-                                                        <option value="">Select Source</option>
-                                                        {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
-                                                    </select>
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Tags</label>
-                                                <div style={{
-                                                    width: '100%',
-                                                    padding: '6px 12px',
-                                                    borderRadius: '6px',
-                                                    border: '1px solid #cbd5e1',
-                                                    background: '#fff',
-                                                    display: 'flex',
-                                                    flexWrap: 'wrap',
-                                                    gap: '6px',
-                                                    alignItems: 'center',
-                                                    minHeight: '42px'
-                                                }}>
-                                                    {formData.tags.map((tag, index) => (
-                                                        <div key={index} style={{
-                                                            background: '#eff6ff',
-                                                            color: '#3b82f6',
-                                                            padding: '4px 10px',
-                                                            borderRadius: '16px',
-                                                            fontSize: '0.8rem',
-                                                            fontWeight: 500,
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            gap: '6px'
-                                                        }}>
-                                                            {tag}
-                                                            <span
-                                                                onClick={() => handleInputChange('tags', formData.tags.filter((_, i) => i !== index))}
-                                                                style={{ cursor: 'pointer', fontSize: '1rem', lineHeight: '0.8' }}
-                                                            >&times;</span>
-                                                        </div>
-                                                    ))}
-                                                    <input
-                                                        type="text"
-                                                        placeholder={formData.tags.length === 0 ? "Add tags (Press Enter)" : ""}
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === 'Enter' && e.target.value.trim()) {
-                                                                e.preventDefault();
-                                                                if (!formData.tags.includes(e.target.value.trim())) {
-                                                                    handleInputChange('tags', [...formData.tags, e.target.value.trim()]);
-                                                                }
-                                                                e.target.value = '';
-                                                            } else if (e.key === 'Backspace' && !e.target.value && formData.tags.length > 0) {
-                                                                handleInputChange('tags', formData.tags.slice(0, -1));
-                                                            }
-                                                        }}
-                                                        style={{
-                                                            border: 'none',
-                                                            outline: 'none',
-                                                            fontSize: '0.9rem',
-                                                            color: '#1e293b',
-                                                            flex: 1,
-                                                            minWidth: '120px'
-                                                        }}
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </>
-                                )}
-
-                                {/* Professional Details Card */}
-                                {(!showOnlyRequired && entityType !== 'lead') && (
-                                    <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                        <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                            <i className="fas fa-briefcase" style={{ color: '#0ea5e9' }}></i> Professional Details
-                                        </h3>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                            {/* 1. Profession Category */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Profession Category</label>
-                                                <select
-                                                    value={formData.professionCategory}
-                                                    onChange={(e) => handleInputChange('professionCategory', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Category</option>
-                                                    <option value="Salaried">Salaried</option>
-                                                    <option value="Self-Employed">Self-Employed</option>
-                                                    <option value="Business">Business</option>
-                                                </select>
-                                            </div>
-
-                                            {/* 2. Sub-Category */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Sub-Category</label>
-                                                <select
-                                                    value={formData.professionSubCategory}
-                                                    onChange={(e) => handleInputChange('professionSubCategory', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Sub-Category</option>
-                                                    {SUB_CATEGORIES.map(sc => <option key={sc} value={sc}>{sc}</option>)}
-                                                </select>
-                                            </div>
-
-                                            {/* 3. Designation */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Designation</label>
-                                                <select
-                                                    value={formData.designation}
-                                                    onChange={(e) => handleInputChange('designation', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Designation</option>
-                                                    {DESIGNATIONS.map(d => <option key={d} value={d}>{d}</option>)}
-                                                </select>
-                                            </div>
-
-                                            {/* 4. Company (Creatable Select) */}
-                                            <div style={{ position: 'relative' }}>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Company</label>
-                                                <div style={{ position: 'relative' }}>
-                                                    <input
-                                                        type="text"
-                                                        value={formData.company}
-                                                        onChange={(e) => {
-                                                            const val = e.target.value;
-                                                            handleInputChange('company', val);
-                                                            setCompanySearch(val);
-                                                            setShowCompanyDropdown(true);
-                                                        }}
-                                                        onFocus={() => {
-                                                            setCompanySearch(formData.company);
-                                                            setShowCompanyDropdown(true);
-                                                        }}
-                                                        onBlur={() => setTimeout(() => setShowCompanyDropdown(false), 200)}
-                                                        placeholder="Select or Type New Company"
-                                                        style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
-                                                        autoComplete="off"
-                                                    />
-                                                    {showCompanyDropdown && (
-                                                        <div style={{
-                                                            position: 'absolute', top: '100%', left: 0, right: 0,
-                                                            background: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px',
-                                                            marginTop: '4px', zIndex: 50, maxHeight: '200px', overflowY: 'auto',
-                                                            boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
-                                                        }}>
-                                                            {(() => {
-                                                                const filtered = companyList.filter(c => c.toLowerCase().includes(companySearch.toLowerCase()));
-                                                                const showAddNew = companySearch && !companyList.some(c => c.toLowerCase() === companySearch.toLowerCase());
-
-                                                                return (
-                                                                    <>
-                                                                        {filtered.map(comp => (
-                                                                            <div
-                                                                                key={comp}
-                                                                                onMouseDown={() => {
-                                                                                    handleInputChange('company', comp);
-                                                                                    setShowCompanyDropdown(false);
-                                                                                }}
-                                                                                style={{ padding: '10px 12px', cursor: 'pointer', fontSize: '0.9rem', color: '#334155' }}
-                                                                                className="hover:bg-slate-50"
-                                                                            >
-                                                                                {comp}
-                                                                            </div>
-                                                                        ))}
-                                                                        {showAddNew && (
-                                                                            <div
-                                                                                onMouseDown={() => {
-                                                                                    const newCompany = companySearch;
-                                                                                    setCompanyList(prev => [...prev, newCompany]);
-                                                                                    handleInputChange('company', newCompany);
-                                                                                    setShowCompanyDropdown(false);
-                                                                                }}
-                                                                                style={{ padding: '10px 12px', cursor: 'pointer', fontSize: '0.9rem', color: '#2563eb', borderTop: '1px dashed #e2e8f0', background: '#eff6ff' }}
-                                                                            >
-                                                                                + Add "{companySearch}"
-                                                                            </div>
-                                                                        )}
-                                                                        {!showAddNew && filtered.length === 0 && (
-                                                                            <div style={{ padding: '12px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>No matches</div>
-                                                                        )}
-                                                                    </>
-                                                                );
-                                                            })()}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* System Assignment Card */}
+                                {/* System Assignment (Added for completeness) */}
                                 <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                                     <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
                                         <i className="fas fa-sliders-h" style={{ color: '#64748b' }}></i> System Assignment
@@ -1349,43 +1217,466 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         </div>
                                     </div>
                                 </div>
+
                             </div>
+                        ) : currentTab === 'basic' ? (<div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            {/* Identity Card */}
+                            <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                                    <i className="fas fa-user-circle" style={{ color: '#3b82f6' }}></i> Identity Details
+                                </h3>
+                                <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr 1fr', gap: '20px' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Title</label>
+                                        <select
+                                            value={formData.title}
+                                            onChange={(e) => handleInputChange('title', e.target.value)}
+                                            style={customSelectStyle}
+                                        >
+                                            <option value="">Select</option>
+                                            <option value="Mr.">Mr.</option>
+                                            <option value="Ms.">Ms.</option>
+                                            <option value="Mrs.">Mrs.</option>
+                                            <option value="Dr.">Dr.</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>First Name <span style={{ color: '#ef4444' }}>*</span></label>
+                                        <input
+                                            type="text"
+                                            value={formData.name}
+                                            onChange={(e) => handleInputChange('name', e.target.value)}
+                                            placeholder="Enter first name"
+                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Last Name</label>
+                                        <input
+                                            type="text"
+                                            value={formData.surname}
+                                            onChange={(e) => handleInputChange('surname', e.target.value)}
+                                            placeholder="Enter last name"
+                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
+                                        />
+                                    </div>
+                                    {(!showOnlyRequired && entityType !== 'lead') && (
+                                        <div style={{ gridColumn: '1 / -1' }}>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Father/Husband Name</label>
+                                            <input
+                                                type="text"
+                                                value={formData.fatherName}
+                                                onChange={(e) => handleInputChange('fatherName', e.target.value)}
+                                                placeholder="Enter father or husband's name"
+                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Contact Card */}
+                            <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                                    <i className="fas fa-address-book" style={{ color: '#10b981' }}></i> Contact Methods
+                                </h3>
+
+                                {/* Phones */}
+                                <div style={{ marginBottom: '24px' }}>
+                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '12px' }}>Mobile Numbers <span style={{ color: '#ef4444' }}>*</span></label>
+                                    {formData.phones.map((phone, index) => (
+                                        <div key={index} style={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 120px) 1fr minmax(100px, 120px) 40px', gap: '12px', marginBottom: '12px' }}>
+                                            <select
+                                                value={formData.countryCode}
+                                                onChange={(e) => handleInputChange('countryCode', e.target.value)}
+                                                style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#f8fafc', fontSize: '0.9rem', color: '#475569' }}
+                                            >
+                                                {COUNTRY_CODES.map(c => <option key={c.code} value={c.dial_code}>{c.dial_code} ({c.code})</option>)}
+                                            </select>
+                                            <input
+                                                type="tel"
+                                                value={phone.number}
+                                                onChange={(e) => {
+                                                    const newPhones = [...formData.phones];
+                                                    newPhones[index].number = e.target.value;
+                                                    handleInputChange('phones', newPhones);
+                                                }}
+                                                placeholder="Enter mobile number"
+                                                style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
+                                            />
+                                            <select
+                                                value={phone.type}
+                                                onChange={(e) => {
+                                                    const newPhones = [...formData.phones];
+                                                    newPhones[index].type = e.target.value;
+                                                    handleInputChange('phones', newPhones);
+                                                }}
+                                                style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', color: '#475569' }}
+                                            >
+                                                <option value="Personal">Personal</option>
+                                                <option value="Work">Work</option>
+                                                <option value="Home">Home</option>
+                                            </select>
+                                            <button type="button" onClick={() => {
+                                                if (index === 0) handleInputChange('phones', [...formData.phones, { number: '', type: 'Personal' }]);
+                                                else {
+                                                    const newPhones = formData.phones.filter((_, i) => i !== index);
+                                                    handleInputChange('phones', newPhones);
+                                                }
+                                            }} style={{ borderRadius: '6px', border: 'none', background: index === 0 ? '#eff6ff' : '#fef2f2', color: index === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                <i className={`fas ${index === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Emails */}
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '12px' }}>Email Addresses</label>
+                                    {formData.emails.map((email, index) => (
+                                        <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr minmax(100px, 120px) 40px', gap: '12px', marginBottom: '12px' }}>
+                                            <input
+                                                type="email"
+                                                value={email.address}
+                                                onChange={(e) => {
+                                                    const newEmails = [...formData.emails];
+                                                    newEmails[index].address = e.target.value;
+                                                    handleInputChange('emails', newEmails);
+                                                }}
+                                                placeholder="Enter email address"
+                                                style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
+                                            />
+                                            <select
+                                                value={email.type}
+                                                onChange={(e) => {
+                                                    const newEmails = [...formData.emails];
+                                                    newEmails[index].type = e.target.value;
+                                                    handleInputChange('emails', newEmails);
+                                                }}
+                                                style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', color: '#475569' }}
+                                            >
+                                                <option value="Personal">Personal</option>
+                                                <option value="Work">Work</option>
+                                            </select>
+                                            <button type="button" onClick={() => {
+                                                if (index === 0) handleInputChange('emails', [...formData.emails, { address: '', type: 'Personal' }]);
+                                                else {
+                                                    const newEmails = formData.emails.filter((_, i) => i !== index);
+                                                    handleInputChange('emails', newEmails);
+                                                }
+                                            }} style={{ borderRadius: '6px', border: 'none', background: index === 0 ? '#eff6ff' : '#fef2f2', color: index === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                <i className={`fas ${index === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {entityType === 'lead' && (
+                                <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                    <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                                        <i className="fas fa-bullhorn" style={{ color: '#f59e0b' }}></i> Campaign Details
+                                    </h3>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Campaign Name</label>
+                                            <select
+                                                value={formData.campaign}
+                                                onChange={(e) => handleInputChange('campaign', e.target.value)}
+                                                style={customSelectStyle}
+                                            >
+                                                <option value="">Select Campaign</option>
+                                                {CAMPAIGN_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
+                                            <select
+                                                value={formData.source}
+                                                onChange={(e) => handleInputChange('source', e.target.value)}
+                                                style={customSelectStyle}
+                                            >
+                                                <option value="">Select Source</option>
+                                                {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Sub Source</label>
+                                            <select
+                                                value={formData.subSource}
+                                                onChange={(e) => handleInputChange('subSource', e.target.value)}
+                                                style={customSelectStyle}
+                                            >
+                                                <option value="">Select Sub Source</option>
+                                                {SUB_SOURCE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {(!showOnlyRequired && entityType !== 'lead') && (
+                                <>
+                                    {/* Tags & Source Card */}
+                                    <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                        <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                                            <i className="fas fa-tags" style={{ color: '#8b5cf6' }}></i> Segmentation
+                                        </h3>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
+                                                <select
+                                                    value={formData.source}
+                                                    onChange={(e) => handleInputChange('source', e.target.value)}
+                                                    style={customSelectStyle}
+                                                >
+                                                    <option value="">Select Source</option>
+                                                    {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Tags</label>
+                                            <div style={{
+                                                width: '100%',
+                                                padding: '6px 12px',
+                                                borderRadius: '6px',
+                                                border: '1px solid #cbd5e1',
+                                                background: '#fff',
+                                                display: 'flex',
+                                                flexWrap: 'wrap',
+                                                gap: '6px',
+                                                alignItems: 'center',
+                                                minHeight: '42px'
+                                            }}>
+                                                {formData.tags.map((tag, index) => (
+                                                    <div key={index} style={{
+                                                        background: '#eff6ff',
+                                                        color: '#3b82f6',
+                                                        padding: '4px 10px',
+                                                        borderRadius: '16px',
+                                                        fontSize: '0.8rem',
+                                                        fontWeight: 500,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '6px'
+                                                    }}>
+                                                        {tag}
+                                                        <span
+                                                            onClick={() => handleInputChange('tags', formData.tags.filter((_, i) => i !== index))}
+                                                            style={{ cursor: 'pointer', fontSize: '1rem', lineHeight: '0.8' }}
+                                                        >&times;</span>
+                                                    </div>
+                                                ))}
+                                                <input
+                                                    type="text"
+                                                    placeholder={formData.tags.length === 0 ? "Add tags (Press Enter)" : ""}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' && e.target.value.trim()) {
+                                                            e.preventDefault();
+                                                            if (!formData.tags.includes(e.target.value.trim())) {
+                                                                handleInputChange('tags', [...formData.tags, e.target.value.trim()]);
+                                                            }
+                                                            e.target.value = '';
+                                                        } else if (e.key === 'Backspace' && !e.target.value && formData.tags.length > 0) {
+                                                            handleInputChange('tags', formData.tags.slice(0, -1));
+                                                        }
+                                                    }}
+                                                    style={{
+                                                        border: 'none',
+                                                        outline: 'none',
+                                                        fontSize: '0.9rem',
+                                                        color: '#1e293b',
+                                                        flex: 1,
+                                                        minWidth: '120px'
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+
+                            {/* Professional Details Card */}
+                            {(!showOnlyRequired && entityType !== 'lead') && (
+                                <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                    <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                                        <i className="fas fa-briefcase" style={{ color: '#0ea5e9' }}></i> Professional Details
+                                    </h3>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                        {/* 1. Profession Category */}
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Profession Category</label>
+                                            <select
+                                                value={formData.professionCategory}
+                                                onChange={(e) => handleInputChange('professionCategory', e.target.value)}
+                                                style={customSelectStyle}
+                                            >
+                                                <option value="">Select Category</option>
+                                                <option value="Salaried">Salaried</option>
+                                                <option value="Self-Employed">Self-Employed</option>
+                                                <option value="Business">Business</option>
+                                            </select>
+                                        </div>
+
+                                        {/* 2. Sub-Category */}
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Sub-Category</label>
+                                            <select
+                                                value={formData.professionSubCategory}
+                                                onChange={(e) => handleInputChange('professionSubCategory', e.target.value)}
+                                                style={customSelectStyle}
+                                            >
+                                                <option value="">Select Sub-Category</option>
+                                                {SUB_CATEGORIES.map(sc => <option key={sc} value={sc}>{sc}</option>)}
+                                            </select>
+                                        </div>
+
+                                        {/* 3. Designation */}
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Designation</label>
+                                            <select
+                                                value={formData.designation}
+                                                onChange={(e) => handleInputChange('designation', e.target.value)}
+                                                style={customSelectStyle}
+                                            >
+                                                <option value="">Select Designation</option>
+                                                {DESIGNATIONS.map(d => <option key={d} value={d}>{d}</option>)}
+                                            </select>
+                                        </div>
+
+                                        {/* 4. Company (Creatable Select) */}
+                                        <div style={{ position: 'relative' }}>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Company</label>
+                                            <div style={{ position: 'relative' }}>
+                                                <input
+                                                    type="text"
+                                                    value={formData.company}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        handleInputChange('company', val);
+                                                        setCompanySearch(val);
+                                                        setShowCompanyDropdown(true);
+                                                    }}
+                                                    onFocus={() => {
+                                                        setCompanySearch(formData.company);
+                                                        setShowCompanyDropdown(true);
+                                                    }}
+                                                    onBlur={() => setTimeout(() => setShowCompanyDropdown(false), 200)}
+                                                    placeholder="Select or Type New Company"
+                                                    style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
+                                                    autoComplete="off"
+                                                />
+                                                {showCompanyDropdown && (
+                                                    <div style={{
+                                                        position: 'absolute', top: '100%', left: 0, right: 0,
+                                                        background: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px',
+                                                        marginTop: '4px', zIndex: 50, maxHeight: '200px', overflowY: 'auto',
+                                                        boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
+                                                    }}>
+                                                        {(() => {
+                                                            const filtered = companyList.filter(c => c.toLowerCase().includes(companySearch.toLowerCase()));
+                                                            const showAddNew = companySearch && !companyList.some(c => c.toLowerCase() === companySearch.toLowerCase());
+
+                                                            return (
+                                                                <>
+                                                                    {filtered.map(comp => (
+                                                                        <div
+                                                                            key={comp}
+                                                                            onMouseDown={() => {
+                                                                                handleInputChange('company', comp);
+                                                                                setShowCompanyDropdown(false);
+                                                                            }}
+                                                                            style={{ padding: '10px 12px', cursor: 'pointer', fontSize: '0.9rem', color: '#334155' }}
+                                                                            className="hover:bg-slate-50"
+                                                                        >
+                                                                            {comp}
+                                                                        </div>
+                                                                    ))}
+                                                                    {showAddNew && (
+                                                                        <div
+                                                                            onMouseDown={() => {
+                                                                                const newCompany = companySearch;
+                                                                                setCompanyList(prev => [...prev, newCompany]);
+                                                                                handleInputChange('company', newCompany);
+                                                                                setShowCompanyDropdown(false);
+                                                                            }}
+                                                                            style={{ padding: '10px 12px', cursor: 'pointer', fontSize: '0.9rem', color: '#2563eb', borderTop: '1px dashed #e2e8f0', background: '#eff6ff' }}
+                                                                        >
+                                                                            + Add "{companySearch}"
+                                                                        </div>
+                                                                    )}
+                                                                    {!showAddNew && filtered.length === 0 && (
+                                                                        <div style={{ padding: '12px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>No matches</div>
+                                                                    )}
+                                                                </>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* System Assignment Card */}
+                            <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                                    <i className="fas fa-sliders-h" style={{ color: '#64748b' }}></i> System Assignment
+                                </h3>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Assign Team</label>
+                                        <select
+                                            value={formData.team}
+                                            onChange={(e) => handleInputChange('team', e.target.value)}
+                                            style={customSelectStyle}
+                                        >
+                                            <option value="">Select Team</option>
+                                            <option value="Sales">Sales</option>
+                                            <option value="Marketing">Marketing</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Assign Owner</label>
+                                        <select
+                                            value={formData.owner}
+                                            onChange={(e) => handleInputChange('owner', e.target.value)}
+                                            style={customSelectStyle}
+                                        >
+                                            <option value="">Select Owner</option>
+                                            <option value="Self">Self</option>
+                                            {/* Add more owners here or map from props */}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Visibility</label>
+                                        <select
+                                            value={formData.visibleTo}
+                                            onChange={(e) => handleInputChange('visibleTo', e.target.value)}
+                                            style={customSelectStyle}
+                                        >
+                                            <option value="">Select Visibility</option>
+                                            <option value="Public">Public</option>
+                                            <option value="Private">Private</option>
+                                            <option value="Team">Team Only</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                         ) : currentTab === 'requirement' ? (
                             <div className="no-scrollbar" style={{ padding: '4px' }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
-                                    {/* Requirement Type */}
                                     <div style={sectionCardStyle}>
                                         <h4 style={labelStyle}>Requirement Type</h4>
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-                                            {[
-                                                { label: 'Buy', icon: 'fa-shopping-cart' },
-                                                { label: 'Rent', icon: 'fa-key' },
-                                                { label: 'Lease', icon: 'fa-file-contract' }
-                                            ].map(opt => (
-                                                <button
-                                                    key={opt.label}
-                                                    type="button"
-                                                    onClick={() => handleInputChange('requirement', opt.label)}
-                                                    style={{
-                                                        padding: '6px', // Further reduced padding
-                                                        borderRadius: '8px',
-                                                        border: formData.requirement === opt.label ? '1px solid #3b82f6' : '1px solid #e2e8f0',
-                                                        background: formData.requirement === opt.label ? '#eff6ff' : '#fff',
-                                                        color: formData.requirement === opt.label ? '#2563eb' : '#64748b',
-                                                        display: 'flex',
-                                                        flexDirection: 'column',
-                                                        alignItems: 'center',
-                                                        gap: '4px',
-                                                        cursor: 'pointer',
-                                                        transition: 'all 0.2s'
-                                                    }}
-                                                >
-                                                    <i className={`fas ${opt.icon}`} style={{ fontSize: '0.9rem' }}></i> {/* Further reduced icon size */}
-                                                    <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{opt.label}</span> {/* Reduced font size */}
-                                                </button>
-                                            ))}
-                                        </div>
+                                        <AnimatedSegmentControl
+                                            options={['Buy', 'Rent', 'Lease']}
+                                            value={formData.requirement}
+                                            onChange={(val) => handleInputChange('requirement', val)}
+                                        />
                                     </div>
 
                                     {/* Property Category */}

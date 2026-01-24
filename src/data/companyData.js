@@ -4,7 +4,16 @@ export const companyData = [
         name: 'Bharat Properties Private Limited',
         type: 'Pvt Ltd',
         category: 'Real Estate Development',
-        address: 'Sector 12, Kurukshetra, Haryana - 136118',
+        addresses: {
+            'Registered Office': { hNo: '101', street: 'Sector 12', city: 'Kurukshetra', state: 'Haryana', tehsil: 'Thanesar', postOffice: 'Kurukshetra', pinCode: '136118', country: 'India' },
+            'Branch Office': [
+                { branchName: 'Main Hub', hNo: '50', street: 'MG Road', city: 'Gurgaon', state: 'Haryana', tehsil: 'Gurgaon', postOffice: 'Gurgaon', pinCode: '122001', country: 'India' },
+                { branchName: 'Regional West', hNo: '201', street: 'Sector 18', city: 'Chandigarh', state: 'Chandigarh', tehsil: 'Chandigarh', postOffice: 'Chandigarh', pinCode: '160018', country: 'India' }
+            ],
+            'Site Office': [
+                { branchName: 'Project Green Garden', hNo: 'Site 1', street: 'Model Town', city: 'Panipat', state: 'Haryana', tehsil: 'Panipat', postOffice: 'Panipat', pinCode: '132103', country: 'India' }
+            ]
+        },
         employees: '45-60',
         source: 'Direct',
         team: 'Sales Team A',

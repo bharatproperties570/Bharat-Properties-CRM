@@ -81,12 +81,43 @@ export const contactData = [
     {
         name: 'Mr. Naveen Kumar',
         mobile: '9468081966',
-        email: 'naveen.k@gmail.com',
+        phones: [{ number: '9468081966', type: 'Personal' }, { number: '01744-238500', type: 'Office' }],
+        emails: [{ address: 'naveen.k@gmail.com', type: 'Personal' }, { address: 'n.kumar@techsolutions.com', type: 'Work' }],
         address: 'Sector 17, Chandigarh',
+        personalAddress: {
+            hNo: '452', street: 'Kirmach Road', city: 'Kurukshetra', state: 'Haryana', tehsil: 'Thanesar', postOffice: 'Kurukshetra', pinCode: '136118', country: 'India', area: 'Sector 17', location: 'Near Red Cross'
+        },
+        correspondenceAddress: {
+            hNo: '12-B', street: 'Madhya Marg', city: 'Chandigarh', state: 'Chandigarh', tehsil: 'Chandigarh', postOffice: 'Chandigarh', pinCode: '160018', country: 'India', area: 'Sector 17', location: 'Commercial Hub'
+        },
         professional: 'Corporate',
-        designation: 'Project Manager',
-        company: 'Tech Solutions Ltd',
-        tags: 'High Priority',
+        professionCategory: 'Salaried',
+        professionSubCategory: 'Project Manager',
+        designation: 'Senior Project Manager',
+        company: 'Bharat Properties Private Limited',
+        workOffice: 'Main Hub',
+        fatherName: 'Late Sh. Ram Kumar',
+        gender: 'Male',
+        maritalStatus: 'Married',
+        birthDate: '1985-05-15',
+        anniversaryDate: '2012-11-20',
+        educations: [
+            { education: 'Post Graduation', degree: 'MBA in Finance', school: 'Kurukshetra University' },
+            { education: 'Graduation', degree: 'B.Tech Civil', school: 'NIT Kurukshetra' }
+        ],
+        loans: [
+            { loanType: 'Home Loan', bank: 'HDFC Bank', loanAmount: '4500000' },
+            { loanType: 'Car Loan', bank: 'ICICI Bank', loanAmount: '800000' }
+        ],
+        incomes: [
+            { incomeType: 'Salary', amount: '125000' },
+            { incomeType: 'Rental', amount: '25000' }
+        ],
+        socialMedia: [
+            { platform: 'LinkedIn', url: 'linkedin.com/in/naveenkumar' },
+            { platform: 'Facebook', url: 'facebook.com/naveen.k' }
+        ],
+        tags: ['High Priority', 'Investor'],
         source: 'Walk-In',
         lastComm: 'Called today at 10 AM',
         actionable: 'Follow up',
@@ -97,7 +128,6 @@ export const contactData = [
         icon: 'fa-user',
         crmLinks: { leads: 2, deals: 1, activities: 3 },
         category: 'Customer',
-        professionSubCategory: 'Sales Person',
         activities: [
             {
                 activityType: 'Call',
@@ -128,8 +158,8 @@ export const contactData = [
             trigger: 'Rule B: High Intent Action'
         },
         documents: [
-            { documentName: 'ID Proof', documentNo: 'ABCD1234E', documentPicture: { name: 'aadhar_card.jpg' } },
-            { documentName: 'Address Proof', documentNo: '9876543210', documentPicture: { name: 'utility_bill.pdf' } }
+            { documentName: 'Aadhar Card', documentNo: '1234 5678 9012', documentPicture: { name: 'aadhar.jpg' } },
+            { documentName: 'PAN Card', documentNo: 'ABCDE1234F', documentPicture: { name: 'pan.jpg' } }
         ]
     },
     {
@@ -442,8 +472,8 @@ export const inventoryData = [
         area: 'Kurukshetra, Haryana',
         direction: '-',
         facing: '-',
-        road: '-',
         status: 'Active',
+        stage: 'Prospecting',
         ownerName: 'Admin Post',
         ownerPhone: '9000000000',
         ownerAddress: 'VPO Mathana, Kurukshetra, Haryana 136131, Block A, Plot 50',
@@ -469,6 +499,7 @@ export const inventoryData = [
         facing: 'Park',
         road: '12 Mtr',
         status: 'Active',
+        stage: 'Site Visit',
         ownerName: 'Mr. Naveen Kumar',
         ownerPhone: '9468081966',
         ownerEmail: 'naveen.k@gmail.com',
@@ -493,6 +524,7 @@ export const inventoryData = [
         facing: 'Main Road',
         road: '24 Mtr',
         status: 'Active',
+        stage: 'Negotiation',
         ownerName: 'Naveen K (Alias)',
         ownerPhone: '9468081966',
         ownerEmail: 'naveen.k@gmail.com',
@@ -512,8 +544,8 @@ export const inventoryData = [
         type: 'Residential Plot',
         size: '8 Marla',
         location: 'Sector 24',
-        area: 'Kurukshetra, Haryana',
         status: 'Active',
+        stage: 'Closing',
         price: '1.25 Cr',
         ownerName: 'Mr. Naveen Kumar',
         ownerPhone: '9468081966',
@@ -540,8 +572,8 @@ export const inventoryData = [
         type: 'Residential Plot',
         size: '2 Kanal',
         location: 'Sector 4',
-        area: 'Kurukshetra, Haryana',
         status: 'Active',
+        stage: 'Negotiation',
         price: '3.50 Cr',
         ownerName: 'Mrs. Manpreet Kaur',
         ownerPhone: '7009550400',
@@ -554,8 +586,8 @@ export const inventoryData = [
         type: 'Apartment',
         size: '3BHK',
         location: 'Royal Palms',
-        area: 'Mohali, Punjab',
         status: 'Active',
+        stage: 'Registration',
         price: '75 Lac',
         ownerName: 'Mrs. Manpreet Kaur',
         ownerPhone: '7009550400',
@@ -568,8 +600,8 @@ export const inventoryData = [
         type: 'Residential Plot',
         size: '10 Marla',
         location: 'Sector 3',
-        area: 'Kurukshetra, Haryana',
         status: 'Active',
+        stage: 'Closing',
         price: '95 Lac',
         ownerName: 'Ashok Kumar',
         ownerPhone: '9876543210',
@@ -583,8 +615,8 @@ export const inventoryData = [
         type: 'Commercial Shop',
         size: '50 Sq Yard',
         location: 'Old Market',
-        area: 'Zirakpur, Punjab',
         status: 'Active',
+        stage: 'Prospecting',
         ownerName: 'Sunil Verma',
         ownerPhone: '9898980000',
         previousOwnerPhone: '7009550400', // Manpreet Kaur as Previous Owner

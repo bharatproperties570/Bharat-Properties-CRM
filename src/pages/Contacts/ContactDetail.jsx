@@ -7,7 +7,7 @@ import { calculateLeadScore, getLeadTemperature } from '../../utils/leadScoring'
 const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
     const [contact, setContact] = useState(null);
     const [composerTab, setComposerTab] = useState('note');
-    const [expandedSections, setExpandedSections] = useState(['core', 'pref', 'journey', 'negotiation', 'ai', 'ownership', 'documents']);
+    const [expandedSections, setExpandedSections] = useState(['core', 'professional', 'location', 'financial', 'education', 'personal', 'pref', 'journey', 'negotiation', 'ai', 'ownership', 'documents']);
     const [timelineFilter, setTimelineFilter] = useState('all');
 
     const [showMoreMenu, setShowMoreMoreMenu] = useState(false);
@@ -15,6 +15,8 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
     const [toast, setToast] = useState(null);
     const [dealStatus, setDealStatus] = useState('active'); // 'active' or 'lost'
     const [recordType, setRecordType] = useState('contact'); // 'contact' or 'lead'
+    const [pendingTasks, setPendingTasks] = useState([{ id: Date.now(), subject: '', dueDate: '', reminder: false }]);
+    const [composerContent, setComposerContent] = useState('');
 
     const showNotification = (message) => {
         setToast(message);
@@ -25,6 +27,43 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
         showNotification(`${field} auto-saved!`);
         // In real app: save to backend
     };
+
+    const addTask = () => {
+        setPendingTasks([...pendingTasks, { id: Date.now(), subject: '', dueDate: '', reminder: false }]);
+    };
+
+    const removeTask = (id) => {
+        if (pendingTasks.length > 1) {
+            setPendingTasks(pendingTasks.filter(task => task.id !== id));
+        }
+    };
+
+    const updateTask = (id, field, value) => {
+        setPendingTasks(pendingTasks.map(task =>
+            task.id === id ? { ...task, [field]: value } : task
+        ));
+    };
+
+    const handleSaveActivity = () => {
+        if (composerTab === 'task') {
+            const tasksToSave = pendingTasks.filter(t => t.subject.trim());
+            if (tasksToSave.length === 0) {
+                showNotification('Please enter at least one task subject.');
+                return;
+            }
+            // In real app: call onAddActivity or API
+            showNotification(`${tasksToSave.length} task(s) saved!`);
+            setPendingTasks([{ id: Date.now(), subject: '', dueDate: '', reminder: false }]);
+        } else {
+            if (!composerContent.trim()) {
+                showNotification('Please enter details.');
+                return;
+            }
+            showNotification(`${composerTab.charAt(0).toUpperCase() + composerTab.slice(1)} logged!`);
+            setComposerContent('');
+        }
+    };
+
 
     useEffect(() => {
         const isLeadSource = leadData.some(l => l.mobile === contactId);
@@ -510,107 +549,288 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                 {/* LEFT COLUMN - Primary */}
                 <div className="detail-left-col no-scrollbar" style={{ flex: '1.5', overflowY: 'auto', padding: '1.5rem 2rem', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
-                    {/* 1. Profile 360 & Preferences Accordion */}
+                    {/* 1. Unified Profile 360° Dashboard */}
                     <div className="glass-card" style={{ borderRadius: '16px' }}>
                         <div onClick={() => toggleSection('core')} style={{ padding: '14px 20px', background: 'rgba(248, 250, 252, 0.5)', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#475569', textTransform: 'uppercase', letterSpacing: '1px' }}>{recordType === 'lead' ? 'Lead' : 'Contact'} 360° Profile</span>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#475569', textTransform: 'uppercase', letterSpacing: '1px' }}>{recordType === 'lead' ? 'Lead' : 'Contact'} 360° Unified Dashboard</span>
                             <i className={`fas fa-chevron-${expandedSections.includes('core') ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#94a3b8' }}></i>
                         </div>
                         {expandedSections.includes('core') && (
-                            <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Phone</label>
-                                    <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Phone', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', padding: '2px 0' }}>{contact.mobile}</div>
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Email</label>
-                                    <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Email', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', padding: '2px 0' }}>{contact.email || '-'}</div>
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Designation</label>
-                                    <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Designation', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', padding: '2px 0' }}>{contact.designation || 'Business Consultant'}</div>
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Professional / Cat</label>
-                                    <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Category', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', padding: '2px 0' }}>{contact.professional || 'Corporate'}</div>
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Company</label>
-                                    <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Company', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', padding: '2px 0' }}>{contact.company || 'Greenwood Ventures'}</div>
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Lead Intensity Hub</label>
-                                    <div style={{ position: 'relative' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                            <div style={{ flex: 1, height: '6px', background: '#f1f5f9', borderRadius: '3px', overflow: 'hidden' }}>
-                                                <div style={{ width: `${Math.min(aiStats.leadScore.total, 100)}%`, height: '100%', background: aiStats.purchaseIntent.color }}></div>
+                            <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                {/* Row 1: Primary Identity & Lead Status */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '32px' }}>
+                                    <div>
+                                        <h4 style={{ fontSize: '0.7rem', fontWeight: 900, color: '#3b82f6', textTransform: 'uppercase', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fas fa-id-card"></i> Primary Identity
+                                        </h4>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Phone Details</label>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                    {Array.isArray(contact.phones) ? contact.phones.map((p, i) => (
+                                                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Phone', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{p.number}</div>
+                                                            <span style={{ fontSize: '0.65rem', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>{p.type}</span>
+                                                        </div>
+                                                    )) : (
+                                                        <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Phone', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{contact.mobile}</div>
+                                                    )}
+                                                </div>
                                             </div>
-                                            <span style={{ fontSize: '0.85rem', fontWeight: 800, color: aiStats.purchaseIntent.color }}>{aiStats.leadScore.total}</span>
-                                            <i className="fas fa-info-circle" style={{ fontSize: '0.75rem', color: '#94a3b8', cursor: 'pointer' }} onMouseEnter={() => setShowScoreBreakdown(true)} onMouseLeave={() => setShowScoreBreakdown(false)}></i>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Email Details</label>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                    {Array.isArray(contact.emails) ? contact.emails.map((e, i) => (
+                                                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Email', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{e.address}</div>
+                                                            <span style={{ fontSize: '0.65rem', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>{e.type}</span>
+                                                        </div>
+                                                    )) : (
+                                                        <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Email', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{contact.email || '-'}</div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Social Connect Icons */}
+                                            {contact.socialMedia && contact.socialMedia.length > 0 && (
+                                                <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                                    {contact.socialMedia.map((soc, i) => (
+                                                        <a key={i} href={soc.url.startsWith('http') ? soc.url : `https://${soc.url}`} target="_blank" rel="noopener noreferrer" style={{
+                                                            width: '28px', height: '28px', borderRadius: '6px', background: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', transition: 'all 0.2s'
+                                                        }} title={soc.platform}>
+                                                            <i className={`fab fa-${soc.platform.toLowerCase()}`} style={{ fontSize: '0.9rem' }}></i>
+                                                        </a>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
-                                        {showScoreBreakdown && (
-                                            <div style={{
-                                                position: 'absolute',
-                                                bottom: '100%',
-                                                right: 0,
-                                                marginBottom: '8px',
-                                                background: 'rgba(30, 41, 59, 0.95)',
-                                                backdropFilter: 'blur(12px)',
-                                                WebkitBackdropFilter: 'blur(12px)',
-                                                color: '#fff',
-                                                borderRadius: '12px',
-                                                padding: '16px',
-                                                zIndex: 1000,
-                                                minWidth: '240px',
-                                                boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
-                                                border: '1px solid rgba(255,255,255,0.1)'
-                                            }}>
-                                                <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px' }}>Official Scoring Breakdown</div>
+                                    </div>
 
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', background: 'rgba(255,255,255,0.05)', padding: '8px', borderRadius: '8px' }}>
-                                                    <div>
-                                                        <div style={{ fontSize: '0.6rem', color: '#94a3b8' }}>FORM SCORE</div>
-                                                        <div style={{ fontSize: '1rem', fontWeight: 900, color: '#3b82f6' }}>{aiStats.leadScore.formScore}/52</div>
-                                                    </div>
-                                                    <div style={{ textAlign: 'right' }}>
-                                                        <div style={{ fontSize: '0.6rem', color: '#94a3b8' }}>ACTIVITY</div>
-                                                        <div style={{ fontSize: '1rem', fontWeight: 900, color: '#10b981' }}>+{aiStats.leadScore.activityScore}</div>
-                                                    </div>
-                                                </div>
-
-                                                {[
-                                                    { label: 'Requirement (32)', val: aiStats.leadScore.detail.requirement, max: 32 },
-                                                    { label: 'Budget Match (10)', val: aiStats.leadScore.detail.budget, max: 10 },
-                                                    { label: 'Location Match (10)', val: aiStats.leadScore.detail.location, max: 10 },
-                                                    { label: 'Timeline (10)', val: aiStats.leadScore.detail.timeline, max: 10 },
-                                                    { label: 'Payment (10)', val: aiStats.leadScore.detail.payment, max: 10 },
-                                                    { label: 'Source (5)', val: aiStats.leadScore.detail.source, max: 5 },
-                                                    { label: 'Engagement', val: aiStats.leadScore.activityScore, max: Math.max(aiStats.leadScore.activityScore, 40) }
-                                                ].map((item, idx) => (
-                                                    <div key={idx} style={{ marginBottom: '8px' }}>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', marginBottom: '3px' }}>
-                                                            <span style={{ opacity: 0.8 }}>{item.label}</span>
-                                                            <span style={{ color: '#fff', fontWeight: 800 }}>{item.val}</span>
-                                                        </div>
-                                                        <div style={{ width: '100%', height: '2px', background: 'rgba(255,255,255,0.1)', borderRadius: '1px', overflow: 'hidden' }}>
-                                                            <div style={{ width: `${(item.val / item.max) * 100}%`, height: '100%', background: item.label === 'Engagement' ? '#10b981' : '#3b82f6' }}></div>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontStyle: 'italic', marginTop: '10px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
-                                                    Intent Quality: <span style={{ color: aiStats.purchaseIntent.color, fontWeight: 900 }}>{aiStats.leadScore.intent.toUpperCase()}</span>
-                                                </div>
+                                    <div>
+                                        <h4 style={{ fontSize: '0.7rem', fontWeight: 900, color: '#8b5cf6', textTransform: 'uppercase', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fas fa-users-cog"></i> Family Connect
+                                        </h4>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Father's Name</label>
+                                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Father Name', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{contact.fatherName || '-'}</div>
                                             </div>
-                                        )}
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Gender</label>
+                                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Gender', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{contact.gender || '-'}</div>
+                                            </div>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Birth Date</label>
+                                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Birth Date', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{contact.birthDate || '-'}</div>
+                                            </div>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Marital Status</label>
+                                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Marital Status', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{contact.maritalStatus || '-'}</div>
+                                            </div>
+                                            <div style={{ gridColumn: 'span 2' }}>
+                                                <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Anniversary Date</label>
+                                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Anniversary Date', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{contact.anniversaryDate || '-'}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <h4 style={{ fontSize: '0.7rem', fontWeight: 900, color: '#10b981', textTransform: 'uppercase', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fas fa-chart-line"></i> Intelligence
+                                        </h4>
+                                        <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Lead Intensity Hub</label>
+                                        <div style={{ position: 'relative' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                                <div style={{ flex: 1, height: '6px', background: '#f1f5f9', borderRadius: '3px', overflow: 'hidden' }}>
+                                                    <div style={{ width: `${Math.min(aiStats.leadScore.total, 100)}%`, height: '100%', background: aiStats.purchaseIntent.color }}></div>
+                                                </div>
+                                                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: aiStats.purchaseIntent.color }}>{aiStats.leadScore.total}</span>
+                                                <i className="fas fa-info-circle" style={{ fontSize: '0.75rem', color: '#94a3b8', cursor: 'pointer' }} onMouseEnter={() => setShowScoreBreakdown(true)} onMouseLeave={() => setShowScoreBreakdown(false)}></i>
+                                            </div>
+                                            {showScoreBreakdown && (
+                                                <div style={{
+                                                    position: 'absolute',
+                                                    bottom: '100%',
+                                                    right: 0,
+                                                    marginBottom: '8px',
+                                                    background: 'rgba(30, 41, 59, 0.95)',
+                                                    backdropFilter: 'blur(12px)',
+                                                    WebkitBackdropFilter: 'blur(12px)',
+                                                    color: '#fff',
+                                                    borderRadius: '12px',
+                                                    padding: '16px',
+                                                    zIndex: 1000,
+                                                    minWidth: '240px',
+                                                    boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
+                                                    border: '1px solid rgba(255,255,255,0.1)'
+                                                }}>
+                                                    <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px' }}>Official Scoring Breakdown</div>
+                                                    {[
+                                                        { label: 'Requirement (32)', val: aiStats.leadScore.detail.requirement, max: 32 },
+                                                        { label: 'Budget Match (10)', val: aiStats.leadScore.detail.budget, max: 10 },
+                                                        { label: 'Location Match (10)', val: aiStats.leadScore.detail.location, max: 10 },
+                                                        { label: 'Timeline (10)', val: aiStats.leadScore.detail.timeline, max: 10 },
+                                                        { label: 'Engagement', val: aiStats.leadScore.activityScore, max: Math.max(aiStats.leadScore.activityScore, 40) }
+                                                    ].map((item, idx) => (
+                                                        <div key={idx} style={{ marginBottom: '8px' }}>
+                                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', marginBottom: '3px' }}>
+                                                                <span style={{ opacity: 0.8 }}>{item.label}</span>
+                                                                <span style={{ color: '#fff', fontWeight: 800 }}>{item.val}</span>
+                                                            </div>
+                                                            <div style={{ width: '100%', height: '2px', background: 'rgba(255,255,255,0.1)', borderRadius: '1px', overflow: 'hidden' }}>
+                                                                <div style={{ width: `${(item.val / item.max) * 100}%`, height: '100%', background: '#3b82f6' }}></div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
-                                <div style={{ gridColumn: 'span 3' }}>
-                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Full Address</label>
-                                    <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Address', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', padding: '2px 0' }}>{contact.address || 'H.No 452, Sector 17, Kurukshetra, Haryana - 136118'}</div>
+
+                                <div style={{ height: '1px', background: '#f1f5f9', margin: '4px 0' }}></div>
+
+                                {/* Row 2: Location Intelligence */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                    <div style={{ gridColumn: 'span 2' }}>
+                                        <h4 style={{ fontSize: '0.7rem', fontWeight: 900, color: '#f59e0b', textTransform: 'uppercase', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fas fa-map-marked-alt"></i> Location Portfolio
+                                        </h4>
+                                    </div>
+                                    <div style={{ padding: '12px', background: 'rgba(248, 250, 252, 0.4)', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
+                                        <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Permanent Address</label>
+                                        <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Permanent Address', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', lineHeight: '1.4' }}>
+                                            {[
+                                                contact.personalAddress?.hNo,
+                                                contact.personalAddress?.street,
+                                                contact.personalAddress?.area,
+                                                contact.personalAddress?.location,
+                                                contact.personalAddress?.city,
+                                                contact.personalAddress?.state,
+                                                contact.personalAddress?.pinCode
+                                            ].filter(Boolean).join(', ') || 'No Permanent Address Provided'}
+                                        </div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: 'rgba(248, 250, 252, 0.4)', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
+                                        <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Correspondence Address</label>
+                                        <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Correspondence Address', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', lineHeight: '1.4' }}>
+                                            {[
+                                                contact.correspondenceAddress?.hNo,
+                                                contact.correspondenceAddress?.street,
+                                                contact.correspondenceAddress?.area,
+                                                contact.correspondenceAddress?.location,
+                                                contact.correspondenceAddress?.city,
+                                                contact.correspondenceAddress?.state,
+                                                contact.correspondenceAddress?.pinCode
+                                            ].filter(Boolean).join(', ') || 'No Correspondence Address Provided'}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
-                        <div onClick={() => toggleSection('pref')} style={{ padding: '14px 20px', background: 'rgba(248, 250, 252, 0.5)', borderTop: '1px solid rgba(226, 232, 240, 0.8)', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                    </div>
+
+                    {/* 1.1 Career & Education Portfolio */}
+                    <div className="glass-card" style={{ borderRadius: '16px' }}>
+                        <div onClick={() => toggleSection('professional')} style={{ padding: '14px 20px', background: 'rgba(248, 250, 252, 0.5)', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#475569', textTransform: 'uppercase', letterSpacing: '1px' }}>Career & Education Portfolio</span>
+                            <i className={`fas fa-chevron-${expandedSections.includes('professional') ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#94a3b8' }}></i>
+                        </div>
+                        {expandedSections.includes('professional') && (
+                            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
+                                <div>
+                                    <h4 style={{ fontSize: '0.7rem', fontWeight: 900, color: '#475569', textTransform: 'uppercase', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-briefcase"></i> Professional Identity
+                                    </h4>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Company</label>
+                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Company', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{contact.company || '-'}</div>
+                                        </div>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Branch / Office</label>
+                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Branch', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#10b981' }}>{contact.workOffice || 'Main Office'}</div>
+                                        </div>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Designation</label>
+                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Designation', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{contact.designation || '-'}</div>
+                                        </div>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Category</label>
+                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Category', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{contact.professionCategory || '-'}</div>
+                                        </div>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Sub-Category</label>
+                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Sub-Category', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{contact.professionSubCategory || '-'}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+
+                                <div>
+                                    <h4 style={{ fontSize: '0.7rem', fontWeight: 900, color: '#3b82f6', textTransform: 'uppercase', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-user-graduate"></i> Academic Background
+                                    </h4>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '24px' }}>
+                                        {contact.educations?.map((edu, i) => (
+                                            <div key={i} style={{ position: 'relative', paddingLeft: '16px', borderLeft: '2px solid #e2e8f0' }}>
+                                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Degree', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>{edu.degree}</div>
+                                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('School', e.target.innerText)} style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>{edu.school}</div>
+                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '2px' }}>{edu.education}</div>
+                                            </div>
+                                        )) || <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>No education details provided</div>}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+
+                    {/* 1.3 Financial Strength */}
+                    <div className="glass-card" style={{ borderRadius: '16px' }}>
+                        <div onClick={() => toggleSection('financial')} style={{ padding: '14px 20px', background: 'rgba(248, 250, 252, 0.5)', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#475569', textTransform: 'uppercase', letterSpacing: '1px' }}>Financial Strength</span>
+                            <i className={`fas fa-chevron-${expandedSections.includes('financial') ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#94a3b8' }}></i>
+                        </div>
+                        {expandedSections.includes('financial') && (
+                            <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+                                <div>
+                                    <h4 style={{ fontSize: '0.7rem', fontWeight: 900, color: '#059669', textTransform: 'uppercase', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-money-bill-wave"></i> Income Profiles
+                                    </h4>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        {contact.incomes?.map((inc, i) => (
+                                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #dcfce7' }}>
+                                                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#166534' }}>{inc.incomeType}</span>
+                                                <span style={{ fontSize: '0.85rem', fontWeight: 900, color: '#059669' }}>₹{Number(inc.amount).toLocaleString()}</span>
+                                            </div>
+                                        )) || <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>No income details provided</div>}
+                                    </div>
+                                </div>
+                                <div>
+                                    <h4 style={{ fontSize: '0.7rem', fontWeight: 900, color: '#ef4444', textTransform: 'uppercase', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-hand-holding-usd"></i> Liability / Loans
+                                    </h4>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        {contact.loans?.map((loan, i) => (
+                                            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '10px', background: '#fef2f2', borderRadius: '8px', border: '1px solid #fee2e2' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#991b1b' }}>{loan.loanType}</span>
+                                                    <span style={{ fontSize: '0.85rem', fontWeight: 900, color: '#ef4444' }}>₹{Number(loan.loanAmount).toLocaleString()}</span>
+                                                </div>
+                                                <div style={{ fontSize: '0.65rem', color: '#b91c1c', fontWeight: 600 }}>{loan.bank}</div>
+                                            </div>
+                                        )) || <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>No loan details provided</div>}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+
+
+                    <div className="glass-card" style={{ borderRadius: '16px' }}>
+                        <div onClick={() => toggleSection('pref')} style={{ padding: '14px 20px', background: 'rgba(248, 250, 252, 0.5)', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
                             <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#475569', textTransform: 'uppercase', letterSpacing: '1px' }}>Property Preferences</span>
                             <i className={`fas fa-chevron-${expandedSections.includes('pref') ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#94a3b8' }}></i>
                         </div>
@@ -645,7 +865,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                     </div>
 
                     {/* 2. Unified Activity Composer */}
-                    <div className="glass-card" style={{ borderRadius: '16px' }}>
+                    <div className="glass-card" style={{ borderRadius: '16px', position: 'relative' }}>
                         <div style={{ borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', background: 'rgba(248, 250, 252, 0.3)' }}>
                             {[
                                 { id: 'email', icon: 'envelope', label: 'Email' },
@@ -678,26 +898,77 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                 </button>
                             ))}
                         </div>
-                        <div style={{ padding: '15px' }}>
-                            <textarea
-                                placeholder={`Enter ${composerTab} details here...`}
-                                style={{
-                                    width: '100%',
-                                    minHeight: '120px',
-                                    border: '1px solid rgba(226, 232, 240, 0.8)',
-                                    background: 'rgba(255, 255, 255, 0.5)',
-                                    borderRadius: '12px',
-                                    padding: '14px',
-                                    fontSize: '0.85rem',
-                                    fontWeight: 500,
-                                    outline: 'none',
-                                    resize: 'none',
-                                    fontFamily: 'inherit',
-                                    boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
-                                }}
-                            ></textarea>
+                        <div style={{ padding: '20px' }}>
+                            {composerTab === 'task' ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                    {pendingTasks.map((task, index) => (
+                                        <div key={task.id} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', background: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Task subject..."
+                                                        value={task.subject}
+                                                        onChange={(e) => updateTask(task.id, 'subject', e.target.value)}
+                                                        style={{ flex: 1, padding: '8px 0', border: 'none', background: 'transparent', outline: 'none', fontSize: '0.85rem', fontWeight: 600, borderBottom: '1px solid #e2e8f0' }}
+                                                    />
+                                                    <button onClick={addTask} style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#e0f2fe', color: '#0ea5e9', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                                                        <i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i>
+                                                    </button>
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                                    <input
+                                                        type="datetime-local"
+                                                        value={task.dueDate}
+                                                        onChange={(e) => updateTask(task.id, 'dueDate', e.target.value)}
+                                                        style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.75rem', color: 'var(--premium-blue)', fontWeight: 600, outline: 'none' }}
+                                                    />
+                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, color: task.reminder ? 'var(--premium-blue)' : '#64748b' }}>
+                                                        <input type="checkbox" checked={task.reminder} onChange={(e) => updateTask(task.id, 'reminder', e.target.checked)} />
+                                                        <i className={`fas fa-bell${task.reminder ? '' : '-slash'}`}></i> Alert
+                                                    </label>
+                                                </div>
+                                            </div>
+                                            {pendingTasks.length > 1 && (
+                                                <button onClick={() => removeTask(task.id)} style={{ padding: '4px', background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.8rem' }}>
+                                                    <i className="fas fa-times"></i>
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                    <button onClick={addTask} style={{ alignSelf: 'flex-start', background: 'transparent', border: '1px dashed #cbd5e1', padding: '8px 16px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', cursor: 'pointer', transition: 'all 0.2s' }}>
+                                        <i className="fas fa-plus" style={{ marginRight: '6px' }}></i> Add Another Task
+                                    </button>
+                                </div>
+                            ) : (
+                                <textarea
+                                    placeholder={`Enter ${composerTab} details here...`}
+                                    value={composerContent}
+                                    onChange={(e) => setComposerContent(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        minHeight: '120px',
+                                        border: '1px solid rgba(226, 232, 240, 0.8)',
+                                        background: 'rgba(255, 255, 255, 0.5)',
+                                        borderRadius: '12px',
+                                        padding: '14px',
+                                        fontSize: '0.85rem',
+                                        fontWeight: 500,
+                                        outline: 'none',
+                                        resize: 'none',
+                                        fontFamily: 'inherit',
+                                        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
+                                    }}
+                                ></textarea>
+                            )}
                             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
-                                <button className="btn-primary" style={{ padding: '10px 20px', fontSize: '0.75rem', borderRadius: '10px', background: 'var(--premium-blue)' }}>Save {composerTab.charAt(0).toUpperCase() + composerTab.slice(1)}</button>
+                                <button
+                                    onClick={handleSaveActivity}
+                                    className="btn-primary"
+                                    style={{ padding: '10px 20px', fontSize: '0.75rem', borderRadius: '10px', background: 'var(--premium-blue)' }}
+                                >
+                                    Save {composerTab === 'task' ? 'Tasks' : (composerTab.charAt(0).toUpperCase() + composerTab.slice(1))}
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1699,7 +1970,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                 ₹{deal.price || 'Price TBA'} Deal
                                             </div>
                                             <span style={{ background: '#166534', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '0.6rem', fontWeight: 700 }}>
-                                                ACTIVE
+                                                {(deal.stage || 'ACTIVE').toUpperCase()}
                                             </span>
                                         </div>
                                         <div style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 700, marginBottom: '2px' }}>
@@ -1803,13 +2074,15 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
             </div>
 
             {/* TOAST NOTIFICATION */}
-            {toast && (
-                <div style={{ position: 'fixed', bottom: '80px', left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', padding: '10px 20px', borderRadius: '8px', zIndex: 2000, display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 4px 12px rgba(0,0,0,0.2)', fontSize: '0.85rem', fontWeight: 600 }}>
-                    <i className="fas fa-check-circle" style={{ color: '#10b981' }}></i>
-                    {toast}
-                </div>
-            )}
-        </div>
+            {
+                toast && (
+                    <div style={{ position: 'fixed', bottom: '80px', left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', padding: '10px 20px', borderRadius: '8px', zIndex: 2000, display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 4px 12px rgba(0,0,0,0.2)', fontSize: '0.85rem', fontWeight: 600 }}>
+                        <i className="fas fa-check-circle" style={{ color: '#10b981' }}></i>
+                        {toast}
+                    </div>
+                )
+            }
+        </div >
     );
 };
 

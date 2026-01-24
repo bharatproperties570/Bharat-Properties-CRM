@@ -4,6 +4,7 @@ import { INDIAN_LOCATION_HIERARCHY } from '../data/detailedLocationData';
 import { PROJECT_DATA, CITIES } from '../data/projectData';
 import { LOCATION_DATA, INDIAN_ADDRESS_DATA } from '../data/locationData';
 import { PROPERTY_CATEGORIES, DIRECTION_OPTIONS, FACING_OPTIONS, ROAD_WIDTH_OPTIONS, PROPERTY_UNIT_TYPE_OPTIONS } from '../data/propertyData';
+import { companyData } from '../data/companyData';
 
 // Simple Custom Multi-Select Component
 const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled }) => {
@@ -402,7 +403,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
     const [showOnlyRequired, setShowOnlyRequired] = useState(false);
 
     // Company Logic
-    const [companyList, setCompanyList] = useState(['Company A', 'Company B', 'Bharat Properties']);
+    const [companyList, setCompanyList] = useState(companyData.map(c => c.name));
     const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
     const [companySearch, setCompanySearch] = useState('');
 
@@ -498,6 +499,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
         professionSubCategory: '',
         designation: '',
         company: '',
+        workOffice: '',
 
         // System Details
         source: '',
@@ -1118,118 +1120,173 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                                             <i className="fas fa-briefcase" style={{ color: '#0ea5e9' }}></i> Professional Details
                                         </h3>
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                            {/* 1. Profession Category */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Profession Category</label>
-                                                <select
-                                                    value={formData.professionCategory}
-                                                    onChange={(e) => handleInputChange('professionCategory', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Category</option>
-                                                    <option value="Salaried">Salaried</option>
-                                                    <option value="Self-Employed">Self-Employed</option>
-                                                    <option value="Business">Business</option>
-                                                </select>
-                                            </div>
+                                            {(() => {
+                                                const selectedCompanyObj = companyData.find(c => c.name === formData.company);
+                                                const branchOffices = selectedCompanyObj?.addresses?.['Branch Office'] || [];
+                                                const siteOffices = selectedCompanyObj?.addresses?.['Site Office'] || [];
+                                                const hasMultipleOffices = Array.isArray(branchOffices) && (branchOffices.length > 0 || siteOffices.length > 0);
 
-                                            {/* 2. Sub-Category */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Sub-Category</label>
-                                                <select
-                                                    value={formData.professionSubCategory}
-                                                    onChange={(e) => handleInputChange('professionSubCategory', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Sub-Category</option>
-                                                    {SUB_CATEGORIES.map(sc => <option key={sc} value={sc}>{sc}</option>)}
-                                                </select>
-                                            </div>
+                                                const officeOptions = [
+                                                    ...(Array.isArray(branchOffices) ? branchOffices.map(b => ({ label: b.branchName || 'Branch', value: b.branchName || 'Branch' })) : []),
+                                                    ...(Array.isArray(siteOffices) ? siteOffices.map(s => ({ label: s.branchName || 'Site', value: s.branchName || 'Site' })) : [])
+                                                ];
 
-                                            {/* 3. Designation */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Designation</label>
-                                                <select
-                                                    value={formData.designation}
-                                                    onChange={(e) => handleInputChange('designation', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Designation</option>
-                                                    {DESIGNATIONS.map(d => <option key={d} value={d}>{d}</option>)}
-                                                </select>
-                                            </div>
-
-                                            {/* 4. Company (Creatable Select) */}
-                                            <div style={{ position: 'relative' }}>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Company</label>
-                                                <div style={{ position: 'relative' }}>
-                                                    <input
-                                                        type="text"
-                                                        value={formData.company}
-                                                        onChange={(e) => {
-                                                            const val = e.target.value;
-                                                            handleInputChange('company', val);
-                                                            setCompanySearch(val);
-                                                            setShowCompanyDropdown(true);
-                                                        }}
-                                                        onFocus={() => {
-                                                            setCompanySearch(formData.company);
-                                                            setShowCompanyDropdown(true);
-                                                        }}
-                                                        onBlur={() => setTimeout(() => setShowCompanyDropdown(false), 200)}
-                                                        placeholder="Select or Type New Company"
-                                                        style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
-                                                        autoComplete="off"
-                                                    />
-                                                    {showCompanyDropdown && (
-                                                        <div style={{
-                                                            position: 'absolute', top: '100%', left: 0, right: 0,
-                                                            background: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px',
-                                                            marginTop: '4px', zIndex: 50, maxHeight: '200px', overflowY: 'auto',
-                                                            boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
-                                                        }}>
-                                                            {(() => {
-                                                                const filtered = companyList.filter(c => c.toLowerCase().includes(companySearch.toLowerCase()));
-                                                                const showAddNew = companySearch && !companyList.some(c => c.toLowerCase() === companySearch.toLowerCase());
-
-                                                                return (
-                                                                    <>
-                                                                        {filtered.map(comp => (
-                                                                            <div
-                                                                                key={comp}
-                                                                                onMouseDown={() => {
-                                                                                    handleInputChange('company', comp);
-                                                                                    setShowCompanyDropdown(false);
-                                                                                }}
-                                                                                style={{ padding: '10px 12px', cursor: 'pointer', fontSize: '0.9rem', color: '#334155' }}
-                                                                                className="hover:bg-slate-50"
-                                                                            >
-                                                                                {comp}
-                                                                            </div>
-                                                                        ))}
-                                                                        {showAddNew && (
-                                                                            <div
-                                                                                onMouseDown={() => {
-                                                                                    const newCompany = companySearch;
-                                                                                    setCompanyList(prev => [...prev, newCompany]);
-                                                                                    handleInputChange('company', newCompany);
-                                                                                    setShowCompanyDropdown(false);
-                                                                                }}
-                                                                                style={{ padding: '10px 12px', cursor: 'pointer', fontSize: '0.9rem', color: '#2563eb', borderTop: '1px dashed #e2e8f0', background: '#eff6ff' }}
-                                                                            >
-                                                                                + Add "{companySearch}"
-                                                                            </div>
-                                                                        )}
-                                                                        {!showAddNew && filtered.length === 0 && (
-                                                                            <div style={{ padding: '12px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>No matches</div>
-                                                                        )}
-                                                                    </>
-                                                                );
-                                                            })()}
+                                                return (
+                                                    <>
+                                                        {/* 1. Profession Category */}
+                                                        <div>
+                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Profession Category</label>
+                                                            <select
+                                                                value={formData.professionCategory}
+                                                                onChange={(e) => handleInputChange('professionCategory', e.target.value)}
+                                                                style={customSelectStyle}
+                                                            >
+                                                                <option value="">Select Category</option>
+                                                                <option value="Salaried">Salaried</option>
+                                                                <option value="Self-Employed">Self-Employed</option>
+                                                                <option value="Business">Business</option>
+                                                            </select>
                                                         </div>
-                                                    )}
-                                                </div>
-                                            </div>
+
+                                                        {/* 2. Sub-Category */}
+                                                        <div>
+                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Sub-Category</label>
+                                                            <select
+                                                                value={formData.professionSubCategory}
+                                                                onChange={(e) => handleInputChange('professionSubCategory', e.target.value)}
+                                                                style={customSelectStyle}
+                                                            >
+                                                                <option value="">Select Sub-Category</option>
+                                                                {SUB_CATEGORIES.map(sc => <option key={sc} value={sc}>{sc}</option>)}
+                                                            </select>
+                                                        </div>
+
+                                                        {/* 3. Designation */}
+                                                        <div>
+                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Designation</label>
+                                                            <select
+                                                                value={formData.designation}
+                                                                onChange={(e) => handleInputChange('designation', e.target.value)}
+                                                                style={customSelectStyle}
+                                                            >
+                                                                <option value="">Select Designation</option>
+                                                                {DESIGNATIONS.map(d => <option key={d} value={d}>{d}</option>)}
+                                                            </select>
+                                                        </div>
+
+                                                        {/* 4. Company (Creatable Select) */}
+                                                        <div style={{ position: 'relative' }}>
+                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Company</label>
+                                                            <div style={{ position: 'relative' }}>
+                                                                <input
+                                                                    type="text"
+                                                                    value={formData.company}
+                                                                    onChange={(e) => {
+                                                                        const val = e.target.value;
+                                                                        handleInputChange('company', val);
+                                                                        setCompanySearch(val);
+                                                                        setShowCompanyDropdown(true);
+                                                                    }}
+                                                                    onFocus={() => {
+                                                                        setCompanySearch(formData.company);
+                                                                        setShowCompanyDropdown(true);
+                                                                    }}
+                                                                    onBlur={() => setTimeout(() => setShowCompanyDropdown(false), 200)}
+                                                                    placeholder="Select or Type New Company"
+                                                                    style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
+                                                                    autoComplete="off"
+                                                                />
+                                                                {showCompanyDropdown && (
+                                                                    <div style={{
+                                                                        position: 'absolute', top: '100%', left: 0, right: 0,
+                                                                        background: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px',
+                                                                        marginTop: '4px', zIndex: 50, maxHeight: '200px', overflowY: 'auto',
+                                                                        boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
+                                                                    }}>
+                                                                        {(() => {
+                                                                            const filtered = companyList.filter(c => c.toLowerCase().includes(companySearch.toLowerCase()));
+                                                                            const showAddNew = companySearch && !companyList.some(c => c.toLowerCase() === companySearch.toLowerCase());
+
+                                                                            return (
+                                                                                <>
+                                                                                    {filtered.map(comp => (
+                                                                                        <div
+                                                                                            key={comp}
+                                                                                            onMouseDown={() => {
+                                                                                                handleInputChange('company', comp);
+                                                                                                handleInputChange('workOffice', ''); // Reset office on company change
+                                                                                                setShowCompanyDropdown(false);
+                                                                                            }}
+                                                                                            style={{ padding: '10px 12px', cursor: 'pointer', fontSize: '0.9rem', color: '#334155' }}
+                                                                                            className="hover:bg-slate-50"
+                                                                                        >
+                                                                                            {comp}
+                                                                                        </div>
+                                                                                    ))}
+                                                                                    {showAddNew && (
+                                                                                        <div
+                                                                                            onMouseDown={() => {
+                                                                                                const newCompany = companySearch;
+                                                                                                setCompanyList(prev => [...prev, newCompany]);
+                                                                                                handleInputChange('company', newCompany);
+                                                                                                handleInputChange('workOffice', '');
+                                                                                                setShowCompanyDropdown(false);
+                                                                                            }}
+                                                                                            style={{ padding: '10px 12px', cursor: 'pointer', fontSize: '0.9rem', color: '#2563eb', borderTop: '1px dashed #e2e8f0', background: '#eff6ff' }}
+                                                                                        >
+                                                                                            + Add "{companySearch}"
+                                                                                        </div>
+                                                                                    )}
+                                                                                    {!showAddNew && filtered.length === 0 && (
+                                                                                        <div style={{ padding: '12px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>No matches</div>
+                                                                                    )}
+                                                                                </>
+                                                                            );
+                                                                        })()}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* 5. Branch/Site Selection (Conditional) */}
+                                                        {hasMultipleOffices && (
+                                                            <div style={{ gridColumn: 'span 2' }}>
+                                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#10b981', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                    <i className="fas fa-map-marker-alt"></i> Associated Office / Branch
+                                                                </label>
+                                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                                                                    {officeOptions.map((opt, idx) => (
+                                                                        <button
+                                                                            key={idx}
+                                                                            onClick={() => handleInputChange('workOffice', opt.value)}
+                                                                            style={{
+                                                                                padding: '8px 16px',
+                                                                                borderRadius: '20px',
+                                                                                border: `1.5px solid ${formData.workOffice === opt.value ? '#10b981' : '#e2e8f0'}`,
+                                                                                background: formData.workOffice === opt.value ? '#ecfdf5' : '#fff',
+                                                                                color: formData.workOffice === opt.value ? '#047857' : '#64748b',
+                                                                                fontSize: '0.85rem',
+                                                                                fontWeight: formData.workOffice === opt.value ? 700 : 500,
+                                                                                cursor: 'pointer',
+                                                                                transition: 'all 0.2s',
+                                                                                display: 'flex',
+                                                                                alignItems: 'center',
+                                                                                gap: '6px'
+                                                                            }}
+                                                                        >
+                                                                            {formData.workOffice === opt.value && <i className="fas fa-check-circle"></i>}
+                                                                            {opt.label}
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                                <p style={{ margin: '8px 0 0 0', fontSize: '0.75rem', color: '#64748b', fontStyle: 'italic' }}>
+                                                                    Select the specific location where this contact is based.
+                                                                </p>
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
                                     </div>
                                 )}

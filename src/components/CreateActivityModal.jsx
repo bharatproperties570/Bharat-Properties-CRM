@@ -13,7 +13,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         priority: 'Normal',
         status: 'Not Started', // Not Started, In Progress, Completed, Deferred
         description: '',
-        work: '',
+        tasks: [{ id: Date.now(), subject: '', reminder: false, reminderTime: '' }],
 
         // Dynamic Fields
         callPurpose: 'Prospecting',
@@ -43,7 +43,11 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         // Site Visit Specifics
         visitedProperties: [{ project: '', block: '', property: '', result: '', feedback: '' }], // Multi-property support
         selectedPropertyNo: '',
-        cancellationReason: ''
+        cancellationReason: '',
+
+        // Email Completion Specifics
+        mailStatus: '',
+        mailFollowUp: false
     });
 
     const [errors, setErrors] = useState({});
@@ -60,7 +64,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                 dueTime: '10:00',
                 priority: 'Normal',
                 description: '', // Remark
-                work: '',
+                tasks: [{ id: Date.now(), subject: '', reminder: false, reminderTime: '' }],
                 status: 'Not Started',
 
                 callPurpose: 'Prospecting',
@@ -87,7 +91,9 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                 meetingOutcomeStatus: '',
                 visitedProperties: [{ project: '', block: '', property: '', result: '', feedback: '' }],
                 selectedPropertyNo: '',
-                cancellationReason: ''
+                cancellationReason: '',
+                mailStatus: '',
+                mailFollowUp: false
             });
             setErrors({});
         }
@@ -188,6 +194,9 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         if (formData.status === 'Completed' && formData.activityType === 'Meeting') {
             if (!formData.meetingOutcomeStatus) newErrors.meetingOutcomeStatus = 'Status is required';
             if (!formData.completionResult) newErrors.completionResult = 'Result is required';
+        }
+        if (formData.status === 'Completed' && formData.activityType === 'Email') {
+            if (!formData.mailStatus) newErrors.mailStatus = 'Status is required';
         }
 
         if (formData.activityType === 'Site Visit') {
@@ -603,41 +612,117 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         );
     };
 
+    const addTask = () => {
+        setFormData(prev => ({
+            ...prev,
+            tasks: [...prev.tasks, { id: Date.now(), subject: '', reminder: false, reminderTime: '' }]
+        }));
+    };
+
+    const removeTask = (index) => {
+        if (formData.tasks.length > 1) {
+            setFormData(prev => ({
+                ...prev,
+                tasks: prev.tasks.filter((_, i) => i !== index)
+            }));
+        }
+    };
+
+    const updateTask = (index, field, value) => {
+        setFormData(prev => ({
+            ...prev,
+            tasks: prev.tasks.map((t, i) => i === index ? { ...t, [field]: value } : t)
+        }));
+    };
+
     const renderTaskFields = () => (
         <div style={{ backgroundColor: '#f5f3ff', padding: '12px', borderRadius: '8px', marginBottom: formData.status === 'Completed' ? '12px' : '16px', border: '1px solid #ddd6fe' }}>
             <h4 style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: '#6d28d9', display: 'flex', alignItems: 'center', fontWeight: 700 }}>
                 <i className="fas fa-tasks" style={{ marginRight: '8px' }}></i> Task Details & Reminders
             </h4>
 
-            <div style={{ marginBottom: '16px' }}>
-                <label style={labelStyle}>Specific Work / Task Item</label>
-                <input
-                    type="text"
-                    name="work"
-                    value={formData.work}
-                    onChange={handleChange}
-                    placeholder="Describe the specific work to be done..."
-                    style={inputStyle(false)}
-                />
-            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {formData.tasks.map((task, index) => (
+                    <div key={task.id} style={{ borderBottom: index < formData.tasks.length - 1 ? '1px dashed #ddd6fe' : 'none', paddingBottom: index < formData.tasks.length - 1 ? '16px' : '0' }}>
+                        <div style={{ marginBottom: '8px' }}>
+                            <label style={labelStyle}>Specific Work / Task Item {index + 1}</label>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <input
+                                    type="text"
+                                    value={task.subject}
+                                    onChange={(e) => updateTask(index, 'subject', e.target.value)}
+                                    placeholder="Describe the specific work to be done..."
+                                    style={{ ...inputStyle(false), flex: 1 }}
+                                />
+                                <button
+                                    onClick={addTask}
+                                    title="Add another task"
+                                    style={{
+                                        width: '32px',
+                                        height: '32px',
+                                        borderRadius: '50%',
+                                        background: '#e0f2fe', // Light blue background
+                                        color: '#0284c7', // Primary blue icon
+                                        border: '1px solid #bae6fd',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        cursor: 'pointer',
+                                        flexShrink: 0,
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    <i className="fas fa-plus"></i>
+                                </button>
+                                {formData.tasks.length > 1 && (
+                                    <button
+                                        onClick={() => removeTask(index)}
+                                        title="Remove task"
+                                        style={{
+                                            width: '32px',
+                                            height: '32px',
+                                            borderRadius: '50%',
+                                            background: '#fee2e2',
+                                            color: '#ef4444',
+                                            border: '1px solid #fecaca',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            cursor: 'pointer',
+                                            flexShrink: 0
+                                        }}
+                                    >
+                                        <i className="fas fa-trash-alt" style={{ fontSize: '0.9rem' }}></i>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', borderTop: '1px dashed #ddd6fe', paddingTop: '12px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600, color: '#4c1d95' }}>
-                    <input type="checkbox" name="reminder" checked={formData.reminder} onChange={handleChange} style={{ accentColor: '#7c3aed' }} />
-                    Enable Reminder
-                </label>
-                {formData.reminder && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', animation: 'fadeIn 0.3s ease-out' }}>
-                        <span style={{ fontSize: '0.85rem', color: '#6d28d9', fontWeight: 500 }}>at</span>
-                        <input
-                            type="time"
-                            name="reminderTime"
-                            value={formData.reminderTime}
-                            onChange={handleChange}
-                            style={{ ...inputStyle(false), padding: '6px 12px', width: 'auto' }}
-                        />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600, color: '#4c1d95' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={task.reminder}
+                                    onChange={(e) => updateTask(index, 'reminder', e.target.checked)}
+                                    style={{ accentColor: '#7c3aed' }}
+                                />
+                                Enable Reminder
+                            </label>
+                            {task.reminder && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', animation: 'fadeIn 0.3s ease-out' }}>
+                                    <span style={{ fontSize: '0.85rem', color: '#6d28d9', fontWeight: 500 }}>at</span>
+                                    <input
+                                        type="time"
+                                        value={task.reminderTime}
+                                        onChange={(e) => updateTask(index, 'reminderTime', e.target.value)}
+                                        style={{ ...inputStyle(false), padding: '6px 12px', width: 'auto' }}
+                                    />
+                                </div>
+                            )}
+                        </div>
                     </div>
-                )}
+                ))}
             </div>
         </div>
     );
@@ -768,16 +853,16 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                         borderTop: '2px solid #e2e8f0',
                         margin: '20px 0',
                         padding: '24px',
-                        backgroundColor: '#f0fdf4', // Subtle green for completion
+                        backgroundColor: '#fdf4ff', // Purple to match Meeting Details
                         borderRadius: '12px',
-                        border: '1px solid #dcfce7'
+                        border: '1px solid #f5d0fe'
                     }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
                             <div style={{
                                 width: '28px',
                                 height: '28px',
                                 borderRadius: '50%',
-                                backgroundColor: '#22c55e',
+                                backgroundColor: '#c026d3', // Purple icon bg
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
@@ -786,7 +871,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                             }}>
                                 <i className="fas fa-check" style={{ margin: '0 auto' }}></i>
                             </div>
-                            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#166534', margin: 0, letterSpacing: '-0.3px' }}>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#a21caf', margin: 0, letterSpacing: '-0.3px' }}>
                                 Complete Meeting
                             </h3>
                         </div>
@@ -1018,11 +1103,217 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
             );
         }
 
-        return (
-            <div style={{ color: '#64748b', fontStyle: 'italic', textAlign: 'center', padding: '20px' }}>
-                Specific completion fields for {formData.activityType} usually go here.
-            </div>
-        );
+        if (formData.activityType === 'Email') {
+            return (
+                <div className="animate-fade-in" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{
+                        borderTop: '2px solid #e2e8f0',
+                        margin: '20px 0',
+                        padding: '24px',
+                        backgroundColor: '#fff7ed', // Subtle orange/peach for email
+                        borderRadius: '12px',
+                        border: '1px solid #fed7aa'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+                            <div style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '50%',
+                                backgroundColor: '#f97316',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: 'white',
+                                fontSize: '0.8rem'
+                            }}>
+                                <i className="fas fa-envelope-open-text" style={{ margin: '0 auto' }}></i>
+                            </div>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#9a3412', margin: 0, letterSpacing: '-0.3px' }}>
+                                Complete Mail Task
+                            </h3>
+                        </div>
+
+                        <div style={rowStyle}>
+                            <div style={colStyle}>
+                                <label style={labelStyle}>Direction <span style={{ color: '#ef4444' }}>*</span></label>
+                                <select
+                                    name="direction"
+                                    value={formData.direction}
+                                    onChange={handleChange}
+                                    style={customSelectStyle(false)}
+                                >
+                                    <option value="Outgoing">Outgoing</option>
+                                    <option value="Incoming">Incoming</option>
+                                </select>
+                            </div>
+                            <div style={colStyle}>
+                                <label style={labelStyle}>Status <span style={{ color: '#ef4444' }}>*</span></label>
+                                <select
+                                    name="mailStatus"
+                                    value={formData.mailStatus}
+                                    onChange={handleChange}
+                                    style={customSelectStyle(errors.mailStatus)}
+                                >
+                                    <option value="">---Select---</option>
+                                    {['Read', 'Delivered', 'Undelivered', 'Bounced', 'Sent & Replied', 'Sent', 'No Response', 'Read & Replied', 'Unread', 'Replied', 'Read Only', 'Ignored', 'Clicked', 'Downloaded', 'Opened'].map(s => (
+                                        <option key={s} value={s}>{s}</option>
+                                    ))}
+                                </select>
+                                {errors.mailStatus && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.mailStatus}</span>}
+                            </div>
+                        </div>
+
+                        <div style={rowStyle}>
+                            <div style={colStyle}>
+                                <label style={labelStyle}>Date <span style={{ color: '#ef4444' }}>*</span></label>
+                                <input
+                                    type="date"
+                                    name="completionDate"
+                                    value={formData.completionDate}
+                                    onChange={handleChange}
+                                    style={{ ...inputStyle(errors.completionDate), color: '#3b82f6', fontWeight: 600 }}
+                                />
+                            </div>
+                            <div style={colStyle}>
+                                <label style={labelStyle}>Time <span style={{ color: '#ef4444' }}>*</span></label>
+                                <input
+                                    type="time"
+                                    name="completionTime"
+                                    value={formData.completionTime}
+                                    onChange={handleChange}
+                                    style={{ ...inputStyle(errors.completionTime), color: '#3b82f6', fontWeight: 600 }}
+                                />
+                            </div>
+                        </div>
+
+                        <div style={{ marginTop: '16px' }}>
+                            <label style={labelStyle}>FeedBack</label>
+                            <textarea
+                                name="clientFeedback"
+                                value={formData.clientFeedback}
+                                onChange={handleChange}
+                                rows="4"
+                                placeholder="Enter email feedback here..."
+                                style={{ ...inputStyle(false), height: '100px', resize: 'vertical', backgroundColor: '#fff' }}
+                            />
+                        </div>
+
+                        <div style={{ marginTop: '16px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
+                                <input
+                                    type="checkbox"
+                                    name="mailFollowUp"
+                                    checked={formData.mailFollowUp}
+                                    onChange={handleChange}
+                                    style={{ accentColor: 'var(--primary-color)' }}
+                                />
+                                Scheduled Follow Up
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        if (formData.activityType === 'Task') {
+            return (
+                <div className="animate-fade-in" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{
+                        borderTop: '2px solid #e2e8f0',
+                        margin: '20px 0',
+                        padding: '24px',
+                        backgroundColor: '#f5f3ff', // Light violet for task
+                        borderRadius: '12px',
+                        border: '1px solid #ddd6fe'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+                            <div style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '50%',
+                                backgroundColor: '#7c3aed',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: 'white',
+                                fontSize: '0.8rem'
+                            }}>
+                                <i className="fas fa-check-double" style={{ margin: '0 auto' }}></i>
+                            </div>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#5b21b6', margin: 0, letterSpacing: '-0.3px' }}>
+                                Complete Tasks
+                            </h3>
+                        </div>
+
+                        <div style={rowStyle}>
+                            <div style={colStyle}>
+                                <label style={labelStyle}>Completion Date <span style={{ color: '#ef4444' }}>*</span></label>
+                                <input
+                                    type="date"
+                                    name="completionDate"
+                                    value={formData.completionDate}
+                                    onChange={handleChange}
+                                    style={{ ...inputStyle(errors.completionDate), color: '#3b82f6', fontWeight: 600 }}
+                                />
+                                {errors.completionDate && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.completionDate}</span>}
+                            </div>
+                            <div style={colStyle}>
+                                <label style={labelStyle}>Time <span style={{ color: '#ef4444' }}>*</span></label>
+                                <input
+                                    type="time"
+                                    name="completionTime"
+                                    value={formData.completionTime}
+                                    onChange={handleChange}
+                                    style={{ ...inputStyle(errors.completionTime), color: '#3b82f6', fontWeight: 600 }}
+                                />
+                            </div>
+                        </div>
+
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={labelStyle}>Result <span style={{ color: '#ef4444' }}>*</span></label>
+                            <select
+                                name="completionResult"
+                                value={formData.completionResult}
+                                onChange={handleChange}
+                                style={customSelectStyle(errors.completionResult)}
+                            >
+                                <option value="">Select Result</option>
+                                <option value="Completed">Completed</option>
+                                <option value="Deferred">Deferred</option>
+                                <option value="Cancelled">Cancelled</option>
+                                <option value="Partially Completed">Partially Completed</option>
+                            </select>
+                            {errors.completionResult && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.completionResult}</span>}
+                        </div>
+
+                        <div style={{ marginTop: '16px' }}>
+                            <label style={labelStyle}>Outcome / Notes</label>
+                            <textarea
+                                name="clientFeedback"
+                                value={formData.clientFeedback}
+                                onChange={handleChange}
+                                rows="3"
+                                placeholder="Details about the task completion..."
+                                style={{ ...inputStyle(false), resize: 'vertical', backgroundColor: '#fff', minHeight: '80px' }}
+                            />
+                        </div>
+
+                        <div style={{ marginTop: '16px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
+                                <input
+                                    type="checkbox"
+                                    name="mailFollowUp"
+                                    checked={formData.mailFollowUp}
+                                    onChange={handleChange}
+                                    style={{ accentColor: 'var(--primary-color)' }}
+                                />
+                                Schedule Follow Up
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
     };
 
     return (

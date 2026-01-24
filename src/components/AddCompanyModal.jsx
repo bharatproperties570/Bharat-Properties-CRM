@@ -90,6 +90,8 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
     const [currentAddressType, setCurrentAddressType] = useState('Registered Office');
     const [showOnlyRequired, setShowOnlyRequired] = useState(false);
     const [currentTime, setCurrentTime] = useState(new Date());
+    const [activeBranchIndex, setActiveBranchIndex] = useState(0);
+    const [activeSiteIndex, setActiveSiteIndex] = useState(0);
 
     // Employee Search States
     const [employeeSearch, setEmployeeSearch] = useState('');
@@ -98,7 +100,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
     const [linkData, setLinkData] = useState({ designation: '', subCategory: '' });
 
     const initialAddress = {
-        hNo: '', street: '', city: '', state: '', tehsil: '', postOffice: '', pinCode: '', country: 'India'
+        branchName: '', hNo: '', street: '', city: '', state: '', tehsil: '', postOffice: '', pinCode: '', area: '', location: '', country: 'India'
     };
 
     const [formData, setFormData] = useState({
@@ -115,10 +117,10 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
         visibleTo: 'My Team',
         addresses: {
             'Registered Office': { ...initialAddress },
-            'Branch Office': { ...initialAddress },
+            'Branch Office': [{ ...initialAddress }],
             'Corporate Office': { ...initialAddress },
             'Head Office': { ...initialAddress },
-            'Site Office': { ...initialAddress }
+            'Site Office': [{ ...initialAddress }]
         },
         employees: []
     });
@@ -138,12 +140,20 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 team: initialData.team || 'Sales',
                 owner: initialData.ownership || 'Suresh Kumar',
                 visibleTo: initialData.visibleTo || 'Everyone',
-                addresses: initialData.addresses || {
+                addresses: initialData.addresses ? {
+                    ...initialData.addresses,
+                    'Branch Office': Array.isArray(initialData.addresses['Branch Office'])
+                        ? initialData.addresses['Branch Office']
+                        : [initialData.addresses['Branch Office'] || { ...initialAddress }],
+                    'Site Office': Array.isArray(initialData.addresses['Site Office'])
+                        ? initialData.addresses['Site Office']
+                        : [initialData.addresses['Site Office'] || { ...initialAddress }]
+                } : {
                     'Registered Office': { ...initialAddress },
-                    'Branch Office': { ...initialAddress },
+                    'Branch Office': [{ ...initialAddress }],
                     'Corporate Office': { ...initialAddress },
                     'Head Office': { ...initialAddress },
-                    'Site Office': { ...initialAddress }
+                    'Site Office': [{ ...initialAddress }]
                 },
                 employees: initialData.employeesData || []
             });
@@ -163,10 +173,10 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 visibleTo: 'Everyone',
                 addresses: {
                     'Registered Office': { ...initialAddress },
-                    'Branch Office': { ...initialAddress },
+                    'Branch Office': [{ ...initialAddress }],
                     'Corporate Office': { ...initialAddress },
                     'Head Office': { ...initialAddress },
-                    'Site Office': { ...initialAddress }
+                    'Site Office': [{ ...initialAddress }]
                 },
                 employees: []
             });
@@ -248,20 +258,85 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
         }));
     };
 
-    const handleAddressChange = (type, field, value) => {
+    const addBranchAddress = () => {
         setFormData(prev => ({
             ...prev,
             addresses: {
                 ...prev.addresses,
-                [type]: {
-                    ...prev.addresses[type],
-                    [field]: value,
-                    // Clear downstream fields if upstream changes
-                    ...(field === 'state' ? { city: '', tehsil: '', postOffice: '', pinCode: '' } : {}),
-                    ...(field === 'city' ? { tehsil: '', postOffice: '', pinCode: '' } : {})
-                }
+                'Branch Office': [...prev.addresses['Branch Office'], { ...initialAddress }]
             }
         }));
+        setActiveBranchIndex(formData.addresses['Branch Office'].length);
+    };
+
+    const removeBranchAddress = (index) => {
+        if (formData.addresses['Branch Office'].length <= 1) return;
+        setFormData(prev => ({
+            ...prev,
+            addresses: {
+                ...prev.addresses,
+                'Branch Office': prev.addresses['Branch Office'].filter((_, i) => i !== index)
+            }
+        }));
+        if (activeBranchIndex >= index) {
+            setActiveBranchIndex(Math.max(0, activeBranchIndex - 1));
+        }
+    };
+
+    const addSiteOfficeAddress = () => {
+        setFormData(prev => ({
+            ...prev,
+            addresses: {
+                ...prev.addresses,
+                'Site Office': [...prev.addresses['Site Office'], { ...initialAddress }]
+            }
+        }));
+        setActiveSiteIndex(formData.addresses['Site Office'].length);
+    };
+
+    const removeSiteOfficeAddress = (index) => {
+        if (formData.addresses['Site Office'].length <= 1) return;
+        setFormData(prev => ({
+            ...prev,
+            addresses: {
+                ...prev.addresses,
+                'Site Office': prev.addresses['Site Office'].filter((_, i) => i !== index)
+            }
+        }));
+        if (activeSiteIndex >= index) {
+            setActiveSiteIndex(Math.max(0, activeSiteIndex - 1));
+        }
+    };
+
+    const handleAddressChange = (type, field, value) => {
+        setFormData(prev => {
+            if (type === 'Branch Office' || type === 'Site Office') {
+                const activeIndex = type === 'Branch Office' ? activeBranchIndex : activeSiteIndex;
+                const newArray = [...prev.addresses[type]];
+                newArray[activeIndex] = {
+                    ...newArray[activeIndex],
+                    [field]: value,
+                    ...(field === 'state' ? { city: '', tehsil: '', postOffice: '', pinCode: '' } : {}),
+                    ...(field === 'city' ? { tehsil: '', postOffice: '', pinCode: '' } : {})
+                };
+                return {
+                    ...prev,
+                    addresses: { ...prev.addresses, [type]: newArray }
+                };
+            }
+            return {
+                ...prev,
+                addresses: {
+                    ...prev.addresses,
+                    [type]: {
+                        ...prev.addresses[type],
+                        [field]: value,
+                        ...(field === 'state' ? { city: '', tehsil: '', postOffice: '', pinCode: '' } : {}),
+                        ...(field === 'city' ? { tehsil: '', postOffice: '', pinCode: '' } : {})
+                    }
+                }
+            };
+        });
     };
 
     const handleNext = () => {
@@ -473,7 +548,18 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
         </div>
     );
 
-    const addr = formData.addresses[currentAddressType];
+    const getActiveAddress = () => {
+        const base = formData.addresses[currentAddressType];
+        if (currentAddressType === 'Branch Office') {
+            return base[activeBranchIndex] || { ...initialAddress };
+        }
+        if (currentAddressType === 'Site Office') {
+            return base[activeSiteIndex] || { ...initialAddress };
+        }
+        return base;
+    };
+
+    const addr = getActiveAddress();
     const states = Object.keys(INDIAN_ADDRESS_DATA.India).sort();
     const cities = addr.state ? Object.keys(INDIAN_ADDRESS_DATA.India[addr.state] || {}).sort() : [];
     const tehsils = (addr.state && addr.city) ? (INDIAN_ADDRESS_DATA.India[addr.state][addr.city]?.tehsils || []) : [];
@@ -489,67 +575,159 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 />
             </div>
 
+            {(currentAddressType === 'Branch Office' || currentAddressType === 'Site Office') && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', padding: '12px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    {formData.addresses[currentAddressType].map((item, idx) => {
+                        const isActive = (currentAddressType === 'Branch Office' ? activeBranchIndex : activeSiteIndex) === idx;
+                        return (
+                            <div key={idx} style={{ display: 'flex', alignItems: 'center' }}>
+                                <button
+                                    onClick={() => currentAddressType === 'Branch Office' ? setActiveBranchIndex(idx) : setActiveSiteIndex(idx)}
+                                    style={{
+                                        padding: '8px 16px',
+                                        borderRadius: '8px 0 0 8px',
+                                        border: `1.5px solid ${isActive ? '#10b981' : '#e2e8f0'}`,
+                                        background: isActive ? '#ecfdf5' : '#fff',
+                                        color: isActive ? '#047857' : '#64748b',
+                                        fontWeight: isActive ? 700 : 500,
+                                        fontSize: '0.85rem',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    {item.branchName || `${currentAddressType === 'Branch Office' ? 'Branch' : 'Site'} ${idx + 1}`}
+                                </button>
+                                {formData.addresses[currentAddressType].length > 1 && (
+                                    <button
+                                        onClick={() => currentAddressType === 'Branch Office' ? removeBranchAddress(idx) : removeSiteOfficeAddress(idx)}
+                                        style={{
+                                            padding: '8px 10px',
+                                            borderRadius: '0 8px 8px 0',
+                                            border: `1.5px solid ${isActive ? '#10b981' : '#e2e8f0'}`,
+                                            borderLeft: 'none',
+                                            background: isActive ? '#ecfdf5' : '#fff',
+                                            color: '#ef4444',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s'
+                                        }}
+                                        title={`Remove ${currentAddressType === 'Branch Office' ? 'branch' : 'site'}`}
+                                    >
+                                        <i className="fas fa-times"></i>
+                                    </button>
+                                )}
+                            </div>
+                        );
+                    })}
+                    <button
+                        onClick={currentAddressType === 'Branch Office' ? addBranchAddress : addSiteOfficeAddress}
+                        style={{
+                            padding: '8px 14px',
+                            borderRadius: '8px',
+                            border: '1.5px dashed #10b981',
+                            background: 'transparent',
+                            color: '#10b981',
+                            fontWeight: 600,
+                            fontSize: '0.85rem',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                        }}
+                    >
+                        <i className="fas fa-plus"></i> Add {currentAddressType === 'Branch Office' ? 'Branch' : 'Site'}
+                    </button>
+                </div>
+            )}
+
             <div style={{ background: '#fff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
                 <h3 style={{ ...labelStyle, fontSize: '1.1rem', color: '#10b981', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <i className="fas fa-map-marked-alt"></i> {currentAddressType} Details
+                    <i className="fas fa-map-marked-alt"></i> {(currentAddressType === 'Branch Office' || currentAddressType === 'Site Office') ? (addr.branchName || `${currentAddressType === 'Branch Office' ? 'Branch' : 'Site'} ${(currentAddressType === 'Branch Office' ? activeBranchIndex : activeSiteIndex) + 1}`) : currentAddressType} Details
                 </h3>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                    <div style={{ gridColumn: 'span 1' }}>
-                        <label style={labelStyle}>House / Building No.</label>
-                        <input style={inputStyle} placeholder="e.g. 102, Landmark" value={addr.hNo} onChange={(e) => handleAddressChange(currentAddressType, 'hNo', e.target.value)} />
-                    </div>
-                    <div style={{ gridColumn: 'span 1' }}>
-                        <label style={labelStyle}>Street / Road / Sector</label>
-                        <input style={inputStyle} placeholder="e.g. MG Road, Sector 14" value={addr.street} onChange={(e) => handleAddressChange(currentAddressType, 'street', e.target.value)} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    {(currentAddressType === 'Branch Office' || currentAddressType === 'Site Office') && (
+                        <div>
+                            <label style={labelStyle}>{currentAddressType === 'Branch Office' ? 'Branch' : 'Site'} Name</label>
+                            <input style={inputStyle} placeholder={`e.g. ${currentAddressType === 'Branch Office' ? 'City Center Branch' : 'Main Project Site'}, Alpha Square Office`} value={addr.branchName} onChange={(e) => handleAddressChange(currentAddressType, 'branchName', e.target.value)} />
+                        </div>
+                    )}
+
+                    {/* Row 1: Country, State, City */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px' }}>
+                        <div>
+                            <label style={labelStyle}>Country</label>
+                            <input style={{ ...inputStyle, background: '#f8fafc', fontWeight: 600 }} value="India" readOnly />
+                        </div>
+                        <div>
+                            <label style={labelStyle}>State</label>
+                            <select style={customSelectStyle} value={addr.state} onChange={(e) => handleAddressChange(currentAddressType, 'state', e.target.value)}>
+                                <option value="">Select State</option>
+                                {states.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label style={labelStyle}>City</label>
+                            <select style={customSelectStyle} value={addr.city} onChange={(e) => handleAddressChange(currentAddressType, 'city', e.target.value)} disabled={!addr.state}>
+                                <option value="">Select City</option>
+                                {cities.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                        </div>
                     </div>
 
-                    <div>
-                        <label style={labelStyle}>Country</label>
-                        <input style={{ ...inputStyle, background: '#f8fafc', fontWeight: 600 }} value="India" readOnly />
-                    </div>
-                    <div>
-                        <label style={labelStyle}>State</label>
-                        <select style={customSelectStyle} value={addr.state} onChange={(e) => handleAddressChange(currentAddressType, 'state', e.target.value)}>
-                            <option value="">Select State</option>
-                            {states.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
+                    {/* Row 2: Tehsil, PO, Pin */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px' }}>
+                        <div>
+                            <label style={labelStyle}>Tehsil</label>
+                            <select style={customSelectStyle} value={addr.tehsil} onChange={(e) => handleAddressChange(currentAddressType, 'tehsil', e.target.value)} disabled={!addr.city}>
+                                <option value="">Select Tehsil</option>
+                                {tehsils.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label style={labelStyle}>Post Office</label>
+                            <select
+                                style={customSelectStyle}
+                                value={addr.postOffice}
+                                onChange={(e) => {
+                                    const po = postOffices.find(po => po.name === e.target.value);
+                                    handleAddressChange(currentAddressType, 'postOffice', e.target.value);
+                                    if (po) handleAddressChange(currentAddressType, 'pinCode', po.pinCode);
+                                }}
+                                disabled={!addr.city}
+                            >
+                                <option value="">Select Post Office</option>
+                                {postOffices.map(po => <option key={po.name} value={po.name}>{po.name}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label style={labelStyle}>Pin Code</label>
+                            <input style={inputStyle} placeholder="Enter 6 digit PIN" value={addr.pinCode} onChange={(e) => handleAddressChange(currentAddressType, 'pinCode', e.target.value)} />
+                        </div>
                     </div>
 
-                    <div>
-                        <label style={labelStyle}>City</label>
-                        <select style={customSelectStyle} value={addr.city} onChange={(e) => handleAddressChange(currentAddressType, 'city', e.target.value)} disabled={!addr.state}>
-                            <option value="">Select City</option>
-                            {cities.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                    </div>
-                    <div>
-                        <label style={labelStyle}>Tehsil</label>
-                        <select style={customSelectStyle} value={addr.tehsil} onChange={(e) => handleAddressChange(currentAddressType, 'tehsil', e.target.value)} disabled={!addr.city}>
-                            <option value="">Select Tehsil</option>
-                            {tehsils.map(t => <option key={t} value={t}>{t}</option>)}
-                        </select>
+                    {/* Row 3: House No & Street */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 120px) 1fr', gap: '24px' }}>
+                        <div>
+                            <label style={labelStyle}>House No.</label>
+                            <input style={inputStyle} placeholder="House No" value={addr.hNo} onChange={(e) => handleAddressChange(currentAddressType, 'hNo', e.target.value)} />
+                        </div>
+                        <div>
+                            <label style={labelStyle}>Street / Road / Landmark</label>
+                            <input style={inputStyle} placeholder="Enter Street, Road or Landmark" value={addr.street} onChange={(e) => handleAddressChange(currentAddressType, 'street', e.target.value)} />
+                        </div>
                     </div>
 
-                    <div>
-                        <label style={labelStyle}>Post Office</label>
-                        <select
-                            style={customSelectStyle}
-                            value={addr.postOffice}
-                            onChange={(e) => {
-                                const po = postOffices.find(po => po.name === e.target.value);
-                                handleAddressChange(currentAddressType, 'postOffice', e.target.value);
-                                if (po) handleAddressChange(currentAddressType, 'pinCode', po.pinCode);
-                            }}
-                            disabled={!addr.city}
-                        >
-                            <option value="">Select Post Office</option>
-                            {postOffices.map(po => <option key={po.name} value={po.name}>{po.name}</option>)}
-                        </select>
-                    </div>
-                    <div>
-                        <label style={labelStyle}>Pin Code</label>
-                        <input style={inputStyle} placeholder="Enter 6 digit PIN" value={addr.pinCode} onChange={(e) => handleAddressChange(currentAddressType, 'pinCode', e.target.value)} />
+                    {/* Row 4: Area & Location */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                        <div>
+                            <label style={labelStyle}>Area</label>
+                            <input style={inputStyle} placeholder="Enter Area" value={addr.area} onChange={(e) => handleAddressChange(currentAddressType, 'area', e.target.value)} />
+                        </div>
+                        <div>
+                            <label style={labelStyle}>Location / Sector</label>
+                            <input style={inputStyle} placeholder="Enter Location or Sector" value={addr.location} onChange={(e) => handleAddressChange(currentAddressType, 'location', e.target.value)} />
+                        </div>
                     </div>
                 </div>
             </div>
