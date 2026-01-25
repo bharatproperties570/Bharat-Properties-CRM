@@ -1,19 +1,11 @@
 import React, { useState } from 'react';
+import { PROJECTS_LIST } from '../../data/projectData';
 
 function ProjectsPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
 
-    const projectsData = [
-        { id: 1, name: 'Sector 3 Chandigarh', location: 'Sector 3, Chandigarh, 160001, India', blocks: ['North Block'], category: ['Residential', 'Plot', 'House'], user: 'Admin', date: '2023-10-24', thumb: 'thumb-blue' },
-        { id: 2, name: 'Sector 2 Chandigarh', location: 'Sector 2, Chandigarh, 160001, India', blocks: ['North Block'], category: ['Residential', 'Plot', 'House', 'Flat/Apartment'], user: 'Admin', date: '2023-10-24', thumb: 'thumb-orange' },
-        { id: 3, name: 'Sector 71 Mohali', location: 'Sector 71, Phase 1, Mohali, Punjab', blocks: [], category: ['Institutional', 'Independent House', 'Flat/Apartment', 'Shop'], user: 'Admin', date: '2023-10-24', thumb: 'thumb-green' },
-        { id: 4, name: 'Sector 69 Moahli', location: 'Sector 69, SAS Nagar, Punjab, India', blocks: ['East Block', 'West Block'], category: ['Commercial', 'Showroom', 'School', 'Hotel'], user: 'Admin', date: '2023-10-24', thumb: 'thumb-red' },
-        { id: 5, name: 'Sector 70 Mohali', location: 'Sector 70, SAS Nagar, Punjab', blocks: [], category: ['Residential', 'Plot', 'Independent House'], user: 'Admin', date: '2023-10-24', thumb: 'thumb-purple' },
-        { id: 6, name: 'Sector 77 Mohali', location: 'Sector 77, SAS Nagar, Punjab', blocks: ['East Block', 'West Block'], category: ['Residential/Commercial', 'Multiplex', 'Office Space'], user: 'Admin', date: '2023-10-24', thumb: 'thumb-blue' },
-        { id: 7, name: 'Sector 13 Kurukshetra', location: 'Sector 13, Kurukshetra, Haryana', blocks: [], category: ['Residential', 'Plot'], user: 'Admin', date: '2023-10-24', thumb: 'thumb-orange' },
-        { id: 8, name: 'Sector 85 (Wave Estate)', location: 'Wave Estate, Sector 85, Mohali', blocks: ['A Block', 'B Block', 'C Block'], category: ['Residential', 'Plot', 'Independent House'], user: 'Admin', date: '2023-10-24', thumb: 'thumb-green' },
-    ];
+    const projectsData = PROJECTS_LIST;
 
     const toggleSelect = (id) => {
         if (selectedIds.includes(id)) {

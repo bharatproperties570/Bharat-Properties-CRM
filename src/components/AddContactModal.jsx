@@ -1744,55 +1744,75 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                                     {/* Orientation Section (Common) */}
                                     <div style={sectionCardStyle}>
                                         <h4 style={labelStyle}>Orientation & Placement</h4>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-
-                                            {/* direction */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Direction</label>
-                                                <CustomMultiSelect
-                                                    options={directionOptions}
-                                                    value={formData.direction || []}
-                                                    onChange={(val) => handleInputChange('direction', val)}
-                                                    placeholder="Select Direction"
-                                                />
-                                            </div>
-
-                                            {/* facing */}
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', gap: '20px' }}>
                                             <div>
                                                 <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Facing</label>
                                                 <CustomMultiSelect
-                                                    options={facingOptions}
+                                                    options={masterFields.facings || []} // Use from Context
                                                     value={formData.facing}
                                                     onChange={(val) => handleInputChange('facing', val)}
-                                                    placeholder="Select Facing Attributes"
+                                                    placeholder="Select Facing"
                                                 />
                                             </div>
-
-                                            {/* roadWidth */}
                                             <div>
                                                 <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Road Width</label>
                                                 <CustomMultiSelect
-                                                    options={roadWidthOptions}
-                                                    value={formData.roadWidth || []}
+                                                    options={masterFields.roadWidths || []} // Use from Context
+                                                    value={formData.roadWidth}
                                                     onChange={(val) => handleInputChange('roadWidth', val)}
-                                                    placeholder="Select Road Widths"
+                                                    placeholder="Select Width"
                                                 />
                                             </div>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Floors Allowed</label>
+                                                <input
+                                                    type="text"
+                                                    value={formData.floorsAllowed || ''}
+                                                    onChange={(e) => handleInputChange('floorsAllowed', e.target.value)}
+                                                    placeholder="e.g. G+3"
+                                                    style={inputStyle}
+                                                />
+                                            </div>
+                                        </div>
 
-                                            {/* propertyUnitType and Floor Level */}
-                                            <div style={{ flex: 1, minWidth: '200px' }}>
-                                                <label style={labelStyle}>Property Unit Type</label>
+                                        {/* New Media Fields Row 1 */}
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '16px' }}>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Required Documents</label>
                                                 <CustomMultiSelect
-                                                    options={unitTypeOptions}
-                                                    value={formData.unitType || []}
-                                                    onChange={(val) => handleInputChange('unitType', val)}
-                                                    placeholder="Select Type"
+                                                    options={masterFields.documents || []}
+                                                    value={formData.documents || []}
+                                                    onChange={(val) => handleInputChange('documents', val)}
+                                                    placeholder="Select Documents"
                                                 />
                                             </div>
-                                            <div style={{ flex: 1, minWidth: '200px' }}>
-                                                <label style={labelStyle}>Floor Level</label>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Image Types</label>
                                                 <CustomMultiSelect
-                                                    options={floorLevelOptions}
+                                                    options={masterFields.images || []}
+                                                    value={formData.images || []}
+                                                    onChange={(val) => handleInputChange('images', val)}
+                                                    placeholder="Select Image Types"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* New Media Fields Row 2 */}
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '16px' }}>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Video Types</label>
+                                                <CustomMultiSelect
+                                                    options={masterFields.videos || []}
+                                                    value={formData.videos || []}
+                                                    onChange={(val) => handleInputChange('videos', val)}
+                                                    placeholder="Select Video Types"
+                                                />
+                                            </div>
+                                            {/* Floor Level Field */}
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Floor Level</label>
+                                                <CustomMultiSelect
+                                                    options={masterFields.floorLevels || []}
                                                     value={formData.floorLevel || []}
                                                     onChange={(val) => handleInputChange('floorLevel', val)}
                                                     placeholder="Select Floor"

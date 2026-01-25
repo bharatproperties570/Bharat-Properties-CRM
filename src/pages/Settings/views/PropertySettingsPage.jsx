@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PROJECT_DATA } from '../../../data/projectData';
+import { PROJECTS_LIST } from '../../../data/projectData';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import Toast from '../../../components/Toast';
 
@@ -56,7 +56,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) =
         lengthMetric: 'Feet',
         widthMetric: 'Feet',
         totalArea: '',
-        resultMetric: 'Sq Ft',
+        resultMetric: 'Sq Yd',
         description: ''
     };
 
@@ -83,13 +83,13 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) =
 
     const [availableBlocks, setAvailableBlocks] = useState([]);
 
-    // Get all flattened projects
-    const allProjects = Object.values(PROJECT_DATA).flat();
+    // Use PROJECTS_LIST directly
+    const allProjects = PROJECTS_LIST;
 
     useEffect(() => {
         if (sizeData.project) {
             const project = allProjects.find(p => p.name === sizeData.project);
-            setAvailableBlocks(project ? project.towers : []);
+            setAvailableBlocks(project ? project.blocks : []);
         } else {
             setAvailableBlocks([]);
         }
@@ -148,8 +148,9 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) =
 
     if (!isOpen) return null;
 
-    const isResidentialType = ['Flat', 'Builder Floor', 'Villa', 'Penthouse', 'Studio Apartment'].includes(sizeData.subCategory);
-    const isPlotType = ['Plot', 'Shop', 'Showroom', 'Industrial Land', 'Commercial Land'].includes(sizeData.subCategory);
+    // Improved logic to support dynamic categories
+    const isPlotType = ['plot', 'land', 'shop', 'showroom', 'commercial land', 'industrial land'].some(k => sizeData.subCategory?.toLowerCase().includes(k));
+    const isResidentialType = !isPlotType; // Default to showing Area fields (Residential/Built-up) for unknown categories
 
     const handleSubmit = () => {
         // Validation: Ensure required fields are present
@@ -158,8 +159,47 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) =
         onClose();
     };
 
-    const labelStyle = { display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '6px' };
-    const inputStyle = { width: '100%', padding: '10px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.9rem' };
+    // Styles matched with AddContactModal
+    const labelStyle = {
+        fontSize: '0.9rem',
+        fontWeight: 600,
+        color: '#334155',
+        marginBottom: '12px',
+        display: 'block'
+    };
+
+    const inputStyle = {
+        width: '100%',
+        padding: '10px 12px',
+        borderRadius: '6px',
+        border: '1px solid #cbd5e1',
+        fontSize: '0.9rem',
+        outline: 'none',
+        color: '#1e293b',
+        transition: 'border-color 0.2s',
+        height: '42px',
+        boxSizing: 'border-box',
+        backgroundColor: '#fff'
+    };
+
+    const customSelectStyle = {
+        width: '100%',
+        padding: '10px 12px',
+        paddingRight: '30px',
+        borderRadius: '8px',
+        border: '1px solid #e2e8f0',
+        fontSize: '0.9rem',
+        outline: 'none',
+        background: '#f8fafc',
+        color: '#475569',
+        appearance: 'none',
+        WebkitAppearance: 'none',
+        MozAppearance: 'none',
+        backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23475569%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`,
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'right 12px center',
+        backgroundSize: '12px'
+    };
 
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 11000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -182,13 +222,13 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) =
                     </div>
 
                     {/* Project & Block */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                         <div>
                             <label style={labelStyle}>Project</label>
                             <select
                                 value={sizeData.project}
                                 onChange={e => setSizeData({ ...sizeData, project: e.target.value })}
-                                style={inputStyle}
+                                style={customSelectStyle}
                             >
                                 <option value="">Select Project</option>
                                 {allProjects.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
@@ -199,7 +239,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) =
                             <select
                                 value={sizeData.block}
                                 onChange={e => setSizeData({ ...sizeData, block: e.target.value })}
-                                style={inputStyle}
+                                style={customSelectStyle}
                                 disabled={!sizeData.project}
                             >
                                 <option value="">Select Block</option>
@@ -209,7 +249,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) =
                     </div>
 
                     {/* Category, Sub Category & Size Type */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
                         <div>
                             <label style={labelStyle}>Category</label>
                             <select
@@ -224,7 +264,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) =
                                         sizeType: ''
                                     });
                                 }}
-                                style={inputStyle}
+                                style={customSelectStyle}
                             >
                                 {Object.keys(propertyConfig).map(cat => <option key={cat} value={cat}>{cat}</option>)}
                             </select>
@@ -234,7 +274,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) =
                             <select
                                 value={sizeData.subCategory}
                                 onChange={e => setSizeData({ ...sizeData, subCategory: e.target.value, sizeType: '' })}
-                                style={inputStyle}
+                                style={customSelectStyle}
                             >
                                 {propertyConfig[sizeData.category]?.subCategories.map(sub => (
                                     <option key={sub.name} value={sub.name}>{sub.name}</option>
@@ -246,7 +286,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) =
                             <select
                                 value={sizeData.sizeType}
                                 onChange={e => setSizeData({ ...sizeData, sizeType: e.target.value })}
-                                style={inputStyle}
+                                style={customSelectStyle}
                             >
                                 <option value="">Select Type</option>
                                 {(() => {
@@ -286,10 +326,10 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) =
                             <h4 style={{ margin: '0 0 16px 0', fontSize: '0.9rem', color: '#1e293b' }}>Dimensions & Multi-Unit Calculator</h4>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                                 <div>
-                                    <label style={labelStyle}>Length</label>
+                                    <label style={labelStyle}>Width</label>
                                     <div style={{ display: 'flex' }}>
-                                        <input type="number" value={sizeData.length} onChange={e => setSizeData({ ...sizeData, length: e.target.value })} style={{ ...inputStyle, borderRight: 'none', borderRadius: '6px 0 0 6px' }} />
-                                        <select value={sizeData.lengthMetric} onChange={e => handleMetricChange(e.target.value)} style={{ ...inputStyle, width: '100px', borderRadius: '0 6px 6px 0', background: '#fff' }}>
+                                        <input type="number" value={sizeData.width} onChange={e => setSizeData({ ...sizeData, width: e.target.value })} style={{ ...inputStyle, borderRight: 'none', borderRadius: '6px 0 0 6px' }} />
+                                        <select value={sizeData.widthMetric} onChange={e => handleMetricChange(e.target.value)} style={{ ...inputStyle, width: '100px', borderRadius: '0 6px 6px 0', background: '#fff' }}>
                                             <option>Meter</option>
                                             <option>Feet</option>
                                             <option>Yard</option>
@@ -297,10 +337,10 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) =
                                     </div>
                                 </div>
                                 <div>
-                                    <label style={labelStyle}>Width</label>
+                                    <label style={labelStyle}>Length</label>
                                     <div style={{ display: 'flex' }}>
-                                        <input type="number" value={sizeData.width} onChange={e => setSizeData({ ...sizeData, width: e.target.value })} style={{ ...inputStyle, borderRight: 'none', borderRadius: '6px 0 0 6px' }} />
-                                        <select value={sizeData.widthMetric} onChange={e => handleMetricChange(e.target.value)} style={{ ...inputStyle, width: '100px', borderRadius: '0 6px 6px 0', background: '#fff' }}>
+                                        <input type="number" value={sizeData.length} onChange={e => setSizeData({ ...sizeData, length: e.target.value })} style={{ ...inputStyle, borderRight: 'none', borderRadius: '6px 0 0 6px' }} />
+                                        <select value={sizeData.lengthMetric} onChange={e => handleMetricChange(e.target.value)} style={{ ...inputStyle, width: '100px', borderRadius: '0 6px 6px 0', background: '#fff' }}>
                                             <option>Meter</option>
                                             <option>Feet</option>
                                             <option>Yard</option>

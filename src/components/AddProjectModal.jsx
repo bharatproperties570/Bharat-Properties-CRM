@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { companyData } from '../data/companyData';
 import { INDIAN_ADDRESS_DATA } from '../data/locationData';
+import { usePropertyConfig } from '../context/PropertyConfigContext';
 
 // Mock Permission Hook
 const usePermission = (permission) => {
@@ -95,6 +96,7 @@ const MultiSelect = ({ options, selected, onChange, placeholder = "Select..." })
 
 
 function AddProjectModal({ isOpen, onClose, onSave }) {
+    const { masterFields } = usePropertyConfig();
     const [isLoading, setIsLoading] = useState(true);
     const [hasPermission, setHasPermission] = useState(false);
     const [activeTab, setActiveTab] = useState('Basic');
@@ -519,17 +521,18 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                         <label style={labelStyle}>Current Status</label>
                         <select style={customSelectStyle} value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })}>
                             <option value="">---Select Status---</option>
-                            <option value="New Launch">New Launch</option>
-                            <option value="Under Construction">Under Construction</option>
-                            <option value="Ready to Move">Ready to Move</option>
+                            {(masterFields.projectStatuses || []).map(status => (
+                                <option key={status} value={status}>{status}</option>
+                            ))}
                         </select>
                     </div>
                     <div>
                         <label style={labelStyle}>Parking Type</label>
                         <select style={customSelectStyle} value={formData.parkingType} onChange={e => setFormData({ ...formData, parkingType: e.target.value })}>
-                            <option>Open Parking</option>
-                            <option>Covered Parking</option>
-                            <option>Basement Parking</option>
+                            <option value="">---Select Parking---</option>
+                            {(masterFields.parkingTypes || []).map(type => (
+                                <option key={type} value={type}>{type}</option>
+                            ))}
                         </select>
                     </div>
                 </div>
@@ -946,9 +949,10 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                                         value={blockFormData.status}
                                         onChange={e => setBlockFormData({ ...blockFormData, status: e.target.value })}
                                     >
-                                        <option>Upcoming</option>
-                                        <option>In Progress</option>
-                                        <option>Completed</option>
+                                        <option value="">Status</option>
+                                        {(masterFields.projectStatuses || []).map(status => (
+                                            <option key={status} value={status}>{status}</option>
+                                        ))}
                                     </select>
                                 </div>
                             </div>
@@ -982,9 +986,10 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                                         value={blockFormData.parkingType}
                                         onChange={e => setBlockFormData({ ...blockFormData, parkingType: e.target.value })}
                                     >
-                                        <option>Open Parking</option>
-                                        <option>Covered Parking</option>
-                                        <option>Basement Parking</option>
+                                        <option value="">Parking</option>
+                                        {(masterFields.parkingTypes || []).map(type => (
+                                            <option key={type} value={type}>{type}</option>
+                                        ))}
                                     </select>
                                 </div>
                             </div>
@@ -1497,11 +1502,9 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                                 style={customSelectStyle}
                             >
                                 <option value="">Select Name</option>
-                                <option value="Approval">Approval</option>
-                                <option value="Agreement">Agreement</option>
-                                <option value="Certificate">Certificate</option>
-                                <option value="License">License</option>
-                                <option value="Other">Other</option>
+                                {(masterFields.approvals || []).map(app => (
+                                    <option key={app} value={app}>{app}</option>
+                                ))}
                             </select>
                         </div>
                         <div>
@@ -1516,11 +1519,9 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                                 style={customSelectStyle}
                             >
                                 <option value="">Select Authority</option>
-                                <option value="RERA">RERA</option>
-                                <option value="GMADA">GMADA</option>
-                                <option value="PUDA">PUDA</option>
-                                <option value="MC">Municipal Corporation</option>
-                                <option value="Other">Other</option>
+                                {(masterFields.approvalAuthorities || []).map(auth => (
+                                    <option key={auth} value={auth}>{auth}</option>
+                                ))}
                             </select>
                         </div>
                         <div>

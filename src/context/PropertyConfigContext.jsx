@@ -35,7 +35,47 @@ export const PropertyConfigProvider = ({ children }) => {
         ],
         floorLevels: [
             'Basement', 'Ground Floor', 'First Floor', 'Second Floor', 'Third Floor', 'Top Floor'
-        ]
+        ],
+        documents: [
+            'Registry', 'Mutation', 'GPA', 'Aadhaar Card', 'PAN Card'
+        ],
+        images: [
+            'Front View', 'Bedroom', 'Kitchen', 'Washroom', 'Map'
+        ],
+        videos: [
+            'Walkthrough', 'Drone View', 'Interior Tour'
+        ],
+        approvals: [
+            'RERA', 'DTCP', 'TCP', 'CLU', 'OC', 'CC'
+        ],
+        approvalAuthorities: [
+            'DTCP', 'RERA', 'GMADA', 'HUDA', 'MC'
+        ],
+        projectStatuses: [
+            'Under Construction', 'Ready to Move', 'New Launch', 'Pre-Launch'
+        ],
+        parkingTypes: [
+            'Covered', 'Open', 'Stilt', 'Basement', 'Podium'
+        ],
+        // Mock Data for Project > Block > Size Mapping
+        projectSizes: {
+            "Sector 3 Chandigarh": {
+                "North Block": ["1 Kanal (4500 Sq Ft)", "10 Marla (2250 Sq Ft)"]
+            },
+            "Sector 85 (Wave Estate)": {
+                "A Block": ["1 Kanal (500 Sq Yd)", "10 Marla (250 Sq Yd)"],
+                "B Block": ["14 Marla (350 Sq Yd)", "1 Kanal"],
+                "C Block": ["200 Sq Yd", "300 Sq Yd"]
+            },
+            "Sector 69 Mohali": {
+                "East Block": ["Showroom (120 Sq Yd)", "Booth (40 Sq Yd)"],
+                "West Block": ["SCO (150 Sq Yd)", "Bay Shop (60 Sq Yd)"]
+            },
+            "Sector 77 Mohali": {
+                "East Block": ["2 BHK (1350 Sq Ft)", "3 BHK (1650 Sq Ft)"],
+                "West Block": ["3 BHK + Servant (2100 Sq Ft)", "4 BHK (2800 Sq Ft)"]
+            }
+        }
     });
 
     // Ensure new fields are added to state even if persisted (HMR/Storage fix)
@@ -60,7 +100,36 @@ export const PropertyConfigProvider = ({ children }) => {
                 ],
                 floorLevels: [
                     'Basement', 'Ground Floor', 'First Floor', 'Second Floor', 'Third Floor', 'Top Floor'
-                ]
+                ],
+                documents: [
+                    'Registry', 'Mutation', 'GPA', 'Aadhaar Card', 'PAN Card'
+                ],
+                images: [
+                    'Front View', 'Bedroom', 'Kitchen', 'Washroom', 'Map'
+                ],
+                videos: [
+                    'Walkthrough', 'Drone View', 'Interior Tour'
+                ],
+                approvals: [
+                    'RERA', 'DTCP', 'TCP', 'CLU', 'OC', 'CC'
+                ],
+                approvalAuthorities: [
+                    'DTCP', 'RERA', 'GMADA', 'HUDA', 'MC'
+                ],
+                projectStatuses: [
+                    'Under Construction', 'Ready to Move', 'New Launch', 'Pre-Launch'
+                ],
+                parkingTypes: [
+                    'Covered', 'Open', 'Stilt', 'Basement', 'Podium'
+                ],
+                projectSizes: {
+                    "Sector 3 Chandigarh": {
+                        "North Block": ["1 Kanal (4500 Sq Ft)", "10 Marla (2250 Sq Ft)"]
+                    },
+                    "Sector 85 (Wave Estate)": {
+                        "A Block": ["1 Kanal (500 Sq Yd)", "10 Marla (250 Sq Yd)"]
+                    }
+                }
             };
 
             let hasChange = false;
