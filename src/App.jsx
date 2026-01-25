@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
 import AppRouter from './router/AppRouter';
 import MainLayout from './layouts/MainLayout';
+import { PropertyConfigProvider } from './context/PropertyConfigContext';
 
 function App() {
     // Global Navigation State (Routing Logic Only)
@@ -65,7 +66,7 @@ function App() {
     }, []);
 
     return (
-        <>
+        <PropertyConfigProvider>
             <Toaster position="top-right" />
             <MainLayout currentView={currentView} onNavigate={handleNavigate}>
                 {(modalHandlers) => (
@@ -77,7 +78,7 @@ function App() {
                     />
                 )}
             </MainLayout>
-        </>
+        </PropertyConfigProvider>
     );
 }
 

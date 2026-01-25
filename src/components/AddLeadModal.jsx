@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { usePropertyConfig } from '../context/PropertyConfigContext';
 
 import { INDIAN_LOCATION_HIERARCHY } from '../data/detailedLocationData';
 import { PROJECT_DATA, CITIES } from '../data/projectData';
 import { LOCATION_DATA, INDIAN_ADDRESS_DATA } from '../data/locationData';
-import { PROPERTY_CATEGORIES, DIRECTION_OPTIONS, FACING_OPTIONS, ROAD_WIDTH_OPTIONS, PROPERTY_UNIT_TYPE_OPTIONS } from '../data/propertyData';
+import { PROPERTY_CATEGORIES, DIRECTION_OPTIONS } from '../data/propertyData';
 
 // Simple Custom Multi-Select Component
 const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled }) => {
@@ -398,11 +399,17 @@ const BUDGET_VALUES = [
 ];
 
 const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entityType = 'lead', contactData, title = "Add New Lead", saveLabel = "Save" }) => {
+    const { propertyConfig, masterFields } = usePropertyConfig(); // Updated context
     const [currentTab, setCurrentTab] = useState('requirement'); // default to requirement for lead
     const [currentAddressType, setCurrentAddressType] = useState('permanent'); // permanent or correspondence
     const [showOnlyRequired, setShowOnlyRequired] = useState(false);
 
-    // Company Logic
+    // Master Fields Options
+    const facingOptions = masterFields?.facings || [];
+    const roadWidthOptions = masterFields?.roadWidths || [];
+    const unitTypeOptions = masterFields?.unitTypes || [];
+    const directionOptions = masterFields?.directions || DIRECTION_OPTIONS;
+    const floorLevelOptions = masterFields?.floorLevels || [];
     const [companyList, setCompanyList] = useState(['Company A', 'Company B', 'Bharat Properties']);
     const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
     const [companySearch, setCompanySearch] = useState('');
@@ -481,6 +488,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         }, 1000);
         return () => clearInterval(timer);
     }, []);
+
+
 
     const [formData, setFormData] = useState({
         // Basic Details
@@ -1679,6 +1688,44 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         />
                                     </div>
 
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                        <div style={{ flex: 1, minWidth: '200px' }}>
+                                            <label style={labelStyle}>Property Unit Type</label>
+                                            <CustomMultiSelect
+                                                options={(() => {
+                                                    // Dynamic Size Types based on selected Sub-Categories
+                                                    if (formData.subType.length === 0) return [];
+
+                                                    const allRawTypes = formData.subType.flatMap(subName => {
+                                                        // Find the subcategory object across all categories
+                                                        for (const cat of Object.values(propertyConfig)) {
+                                                            const foundSub = cat.subCategories.find(s => s.name === subName);
+                                                            if (foundSub) {
+                                                                // Extract names from object-based types
+                                                                return foundSub.types.map(t => typeof t === 'string' ? t : t.name) || [];
+                                                            }
+                                                        }
+                                                        return [];
+                                                    });
+
+                                                    return Array.from(new Set(allRawTypes)).sort();
+                                                })()}
+                                                value={formData.unitType || []}
+                                                onChange={(val) => handleInputChange('unitType', val)}
+                                                placeholder={formData.subType.length > 0 ? "Select Size Types" : "Select Sub-Category First"}
+                                                disabled={formData.subType.length === 0}
+                                            />
+                                        </div>
+                                        <div style={{ flex: 1, minWidth: '200px' }}>
+                                            <label style={labelStyle}>Floor Level</label>
+                                            <CustomMultiSelect
+                                                options={floorLevelOptions}
+                                                value={formData.floorLevel || []}
+                                                onChange={(val) => handleInputChange('floorLevel', val)}
+                                                placeholder="Select Floor"
+                                            />
+                                        </div>
+                                    </div>
                                     {/* Property Category */}
                                     <div style={sectionCardStyle}>
                                         <h4 style={labelStyle}>Property Category</h4>
@@ -1726,7 +1773,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         <div style={sectionCardStyle}>
                                             <h4 style={labelStyle}>Property Sub-Category</h4>
                                             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                                {Array.from(new Set(formData.propertyType.flatMap(cat => PROPERTY_CATEGORIES[cat]?.subCategories || []))).map(sub => (
+                                                {Array.from(new Set(formData.propertyType.flatMap(cat => propertyConfig[cat]?.subCategories.map(sub => sub.name) || []))).map(sub => (
                                                     <button
                                                         key={sub}
                                                         type="button"
@@ -1793,10 +1840,28 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         <div style={sectionCardStyle}>
                                             <h4 style={labelStyle}>Size Type</h4>
                                             <CustomMultiSelect
-                                                options={['1 RK', '1 BHK', '2 BHK', '3 BHK', '4 BHK', '5 BHK', 'Duplex', 'Penthouse', 'Villa']}
+                                                options={(() => {
+                                                    // Dynamic Size Types based on selected Sub-Categories
+                                                    if (formData.subType.length === 0) return [];
+
+                                                    const allRawTypes = formData.subType.flatMap(subName => {
+                                                        // Find the subcategory object across all categories
+                                                        for (const cat of Object.values(propertyConfig)) {
+                                                            const foundSub = cat.subCategories.find(s => s.name === subName);
+                                                            if (foundSub) {
+                                                                // Extract names from object-based types
+                                                                return foundSub.types.map(t => typeof t === 'string' ? t : t.name) || [];
+                                                            }
+                                                        }
+                                                        return [];
+                                                    });
+
+                                                    return Array.from(new Set(allRawTypes)).sort();
+                                                })()}
                                                 value={formData.unitType}
                                                 onChange={(val) => handleInputChange('unitType', val)}
-                                                placeholder="Select Size Types"
+                                                placeholder={formData.subType.length > 0 ? "Select Size Types" : "Select Sub-Category First"}
+                                                disabled={formData.subType.length === 0}
                                             />
                                         </div>
                                     </div>
@@ -2192,7 +2257,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             <div>
                                                 <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Direction</label>
                                                 <CustomMultiSelect
-                                                    options={DIRECTION_OPTIONS}
+                                                    options={directionOptions}
                                                     value={formData.direction || []}
                                                     onChange={(val) => handleInputChange('direction', val)}
                                                     placeholder="Select Direction"
@@ -2203,7 +2268,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             <div>
                                                 <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Facing</label>
                                                 <CustomMultiSelect
-                                                    options={FACING_OPTIONS}
+                                                    options={facingOptions}
                                                     value={formData.facing}
                                                     onChange={(val) => handleInputChange('facing', val)}
                                                     placeholder="Select Facing Attributes"
@@ -2214,7 +2279,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             <div>
                                                 <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Road Width</label>
                                                 <CustomMultiSelect
-                                                    options={ROAD_WIDTH_OPTIONS}
+                                                    options={roadWidthOptions}
                                                     value={formData.roadWidth || []}
                                                     onChange={(val) => handleInputChange('roadWidth', val)}
                                                     placeholder="Select Road Widths"
@@ -2225,7 +2290,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             <div>
                                                 <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Property Unit Type</label>
                                                 <CustomMultiSelect
-                                                    options={PROPERTY_UNIT_TYPE_OPTIONS}
+                                                    options={unitTypeOptions}
                                                     value={formData.propertyUnitType || []}
                                                     onChange={(val) => handleInputChange('propertyUnitType', val)}
                                                     placeholder="Select Unit Type"

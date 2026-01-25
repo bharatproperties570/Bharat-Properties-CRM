@@ -1,0 +1,45 @@
+// Plan to update AddProjectModal.jsx
+
+import React, { useState, useEffect, useRef } from 'react';
+import { companyData } from '../data/companyData';
+import { INDIAN_ADDRESS_DATA } from '../data/locationData'; // IMPORT THIS
+
+// ... MultiSelect Component ...
+
+function AddProjectModal({ isOpen, onClose, onSave }) {
+    // ... State ...
+    const [formData, setFormData] = useState({
+        // ...
+        address: {
+            addressLine: '', // Maps to House No
+            street: '',
+            locality: '',
+            // New Fields for Hierarchy
+            country: 'India',
+            state: '',
+            city: '',
+            tehsil: '',
+            postOffice: '',
+            zip: '' // Maps to Pin Code
+        },
+        // ...
+    });
+
+    // ...
+
+    // Helper to get derived data for dropdowns
+    // Logic from AddContactModal:
+    const countryData = INDIAN_ADDRESS_DATA['India'];
+    const states = formData.address.country === 'India' && countryData ? Object.keys(countryData) : [];
+    const cityData = formData.address.state && countryData && countryData[formData.address.state] ? countryData[formData.address.state] : null;
+    const cities = cityData ? Object.keys(cityData) : [];
+    const selectedCityObj = cityData && formData.address.city ? cityData[formData.address.city] : null;
+    const tehsils = selectedCityObj ? selectedCityObj.tehsils : [];
+    const postOffices = selectedCityObj ? selectedCityObj.postOffices.filter(po => !formData.address.tehsil || po.tehsil === formData.address.tehsil) : [];
+
+    // renderLocationTab updates:
+    // Replace the manual inputs with the cascading dropdowns.
+    // Row 1: Country (Fixed India for now), State, City
+    // Row 2: Tehsil, Post Office, Zip Code (Auto-filled)
+    // Row 3: House No, Street
+}

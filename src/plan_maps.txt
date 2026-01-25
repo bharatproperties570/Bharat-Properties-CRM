@@ -1,0 +1,68 @@
+// Map Google API to Search Field
+// 1. Ref setup
+const searchInputRef = useRef(null);
+
+// 2. useEffect for Autocomplete
+useEffect(() => {
+    if (!isOpen || activeTab !== 'Location') return;
+
+    if (window.google && window.google.maps && searchInputRef.current) {
+        const autocomplete = new window.google.maps.places.Autocomplete(searchInputRef.current, {
+            types: ['geocode'],
+            componentRestrictions: { country: 'in' },
+            fields: ['address_components', 'geometry', 'formatted_address']
+        });
+
+        autocomplete.addListener('place_changed', () => {
+            const place = autocomplete.getPlace();
+            if (!place.address_components) return;
+
+            // Mapping logic
+            let newState = '';
+            let newCity = '';
+            let newZip = '';
+            let newStreet = '';
+            let newLocation = '';
+
+            place.address_components.forEach(component => {
+                const types = component.types;
+                if (types.includes('administrative_area_level_1')) {
+                    newState = component.long_name;
+                }
+                if (types.includes('administrative_area_level_3') || types.includes('locality')) {
+                    newCity = component.long_name;
+                }
+                if (types.includes('postal_code')) {
+                    newZip = component.long_name;
+                }
+                if (types.includes('sublocality') || types.includes('neighborhood')) {
+                    newLocation = component.long_name;
+                }
+                if (types.includes('route') || types.includes('street_number')) {
+                    newStreet += component.long_name + ' ';
+                }
+            });
+
+            setFormData(prev => ({
+                ...prev,
+                locationSearch: place.formatted_address,
+                address: {
+                    ...prev.address,
+                    state: newState, // This might need fuzzy matching if exact string differs from INDIAN_ADDRESS_DATA
+                    city: newCity,   // Same here
+                    zip: newZip,
+                    street: newStreet.trim(),
+                    location: newLocation
+                }
+            }));
+        });
+    }
+}, [isOpen, activeTab]);
+
+// 3. Update Input Render
+<input 
+    ref={searchInputRef} 
+    // ... props
+/>
+
+// 4. Remove "Get Co-ords" button since specific fields are gone.

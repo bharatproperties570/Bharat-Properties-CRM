@@ -200,7 +200,13 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
         name: '',
         floors: '',
         units: '',
-        status: 'Upcoming'
+        status: 'Upcoming',
+        landArea: '',
+        landAreaUnit: 'Acres',
+        parkingType: 'Open Parking',
+        launchDate: '',
+        expectedCompletionDate: '',
+        possessionDate: ''
     });
 
     const [amenitySearch, setAmenitySearch] = useState('');
@@ -849,7 +855,18 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
             } else {
                 setFormData({ ...formData, blocks: [...formData.blocks, blockFormData] });
             }
-            setBlockFormData({ name: '', floors: '', units: '', status: 'Upcoming' });
+            setBlockFormData({
+                name: '',
+                floors: '',
+                units: '',
+                status: 'Upcoming',
+                landArea: '',
+                landAreaUnit: 'Acres',
+                parkingType: 'Open Parking',
+                launchDate: '',
+                expectedCompletionDate: '',
+                possessionDate: ''
+            });
             setShowBlockForm(false);
         };
 
@@ -890,47 +907,117 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                         <h5 style={{ margin: '0 0 20px 0', fontSize: '0.95rem', fontWeight: 700, color: '#334155' }}>
                             {editingBlockIndex !== null ? 'Edit Block' : 'Add New Block Configuration'}
                         </h5>
-                        <div className="grid-4-col gap-16">
-                            <div>
-                                <label style={labelStyle}>Block Name</label>
-                                <input
-                                    style={inputStyle}
-                                    placeholder="e.g. Block A"
-                                    value={blockFormData.name}
-                                    onChange={e => setBlockFormData({ ...blockFormData, name: e.target.value })}
-                                />
+                        <div style={{ display: 'grid', gap: '20px' }}>
+                            {/* Basic Config */}
+                            <div className="grid-4-col gap-16">
+                                <div>
+                                    <label style={labelStyle}>Block Name</label>
+                                    <input
+                                        style={inputStyle}
+                                        placeholder="e.g. Block A"
+                                        value={blockFormData.name}
+                                        onChange={e => setBlockFormData({ ...blockFormData, name: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Total Floors</label>
+                                    <input
+                                        type="number"
+                                        style={inputStyle}
+                                        placeholder="0"
+                                        value={blockFormData.floors}
+                                        onChange={e => setBlockFormData({ ...blockFormData, floors: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Total Units</label>
+                                    <input
+                                        type="number"
+                                        style={inputStyle}
+                                        placeholder="0"
+                                        value={blockFormData.units}
+                                        onChange={e => setBlockFormData({ ...blockFormData, units: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Status</label>
+                                    <select
+                                        style={customSelectStyle}
+                                        value={blockFormData.status}
+                                        onChange={e => setBlockFormData({ ...blockFormData, status: e.target.value })}
+                                    >
+                                        <option>Upcoming</option>
+                                        <option>In Progress</option>
+                                        <option>Completed</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div>
-                                <label style={labelStyle}>Total Floors</label>
-                                <input
-                                    type="number"
-                                    style={inputStyle}
-                                    placeholder="0"
-                                    value={blockFormData.floors}
-                                    onChange={e => setBlockFormData({ ...blockFormData, floors: e.target.value })}
-                                />
+
+                            {/* Land & Parking */}
+                            <div className="grid-2-col gap-24">
+                                <div>
+                                    <label style={labelStyle}>Land Area (Allocated)</label>
+                                    <div style={{ display: 'flex' }}>
+                                        <input
+                                            style={{ ...inputStyle, borderRight: 'none', borderRadius: '8px 0 0 8px' }}
+                                            placeholder="0"
+                                            value={blockFormData.landArea}
+                                            onChange={e => setBlockFormData({ ...blockFormData, landArea: e.target.value })}
+                                        />
+                                        <select
+                                            style={{ ...customSelectStyle, width: '100px', borderRadius: '0 8px 8px 0', borderLeft: '1px solid #e2e8f0', background: '#f8fafc' }}
+                                            value={blockFormData.landAreaUnit}
+                                            onChange={e => setBlockFormData({ ...blockFormData, landAreaUnit: e.target.value })}
+                                        >
+                                            <option>Acres</option>
+                                            <option>Hectares</option>
+                                            <option>Sq Yards</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Parking Type</label>
+                                    <select
+                                        style={customSelectStyle}
+                                        value={blockFormData.parkingType}
+                                        onChange={e => setBlockFormData({ ...blockFormData, parkingType: e.target.value })}
+                                    >
+                                        <option>Open Parking</option>
+                                        <option>Covered Parking</option>
+                                        <option>Basement Parking</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div>
-                                <label style={labelStyle}>Total Units</label>
-                                <input
-                                    type="number"
-                                    style={inputStyle}
-                                    placeholder="0"
-                                    value={blockFormData.units}
-                                    onChange={e => setBlockFormData({ ...blockFormData, units: e.target.value })}
-                                />
-                            </div>
-                            <div>
-                                <label style={labelStyle}>Status</label>
-                                <select
-                                    style={customSelectStyle}
-                                    value={blockFormData.status}
-                                    onChange={e => setBlockFormData({ ...blockFormData, status: e.target.value })}
-                                >
-                                    <option>Upcoming</option>
-                                    <option>In Progress</option>
-                                    <option>Completed</option>
-                                </select>
+
+                            {/* Timeline Details */}
+                            <div className="grid-3-col gap-24">
+                                <div>
+                                    <label style={labelStyle}>Block Launch Date</label>
+                                    <input
+                                        type="date"
+                                        style={inputStyle}
+                                        value={blockFormData.launchDate}
+                                        onChange={e => setBlockFormData({ ...blockFormData, launchDate: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Expected Completion</label>
+                                    <input
+                                        type="date"
+                                        style={inputStyle}
+                                        value={blockFormData.expectedCompletionDate}
+                                        onChange={e => setBlockFormData({ ...blockFormData, expectedCompletionDate: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Possession Date</label>
+                                    <input
+                                        type="date"
+                                        style={inputStyle}
+                                        value={blockFormData.possessionDate}
+                                        onChange={e => setBlockFormData({ ...blockFormData, possessionDate: e.target.value })}
+                                    />
+                                </div>
                             </div>
                         </div>
                         <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
@@ -982,7 +1069,21 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                                         </div>
                                     </div>
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                    <span style={{
+                                        padding: '4px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 600,
+                                        background: '#f1f5f9', color: '#475569'
+                                    }}>
+                                        <i className="fas fa-parking" style={{ marginRight: '6px' }}></i> {block.parkingType}
+                                    </span>
+                                    {block.expectedCompletionDate && (
+                                        <span style={{
+                                            padding: '4px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 600,
+                                            background: '#eff6ff', color: '#1e40af'
+                                        }}>
+                                            <i className="fas fa-calendar-check" style={{ marginRight: '6px' }}></i> {block.expectedCompletionDate}
+                                        </span>
+                                    )}
                                     <span style={{
                                         padding: '4px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 600,
                                         background: block.status === 'Completed' ? '#dcfce7' : block.status === 'In Progress' ? '#fef9c3' : '#f1f5f9',

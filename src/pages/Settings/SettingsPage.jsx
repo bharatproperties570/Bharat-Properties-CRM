@@ -8,6 +8,7 @@ import VoiceSettingsPage from './views/VoiceSettingsPage';
 import MessagingSettingsPage from './views/MessagingSettingsPage';
 import IntegrationsSettingsPage from './views/IntegrationsSettingsPage';
 import ScoringSettingsPage from './views/ScoringSettingsPage';
+import PropertySettingsPage from './views/PropertySettingsPage';
 
 // --- Sub-Components (Defined Outside to prevent re-creation crashes) ---
 
@@ -395,6 +396,8 @@ const SettingsHubPage = () => {
                         <IntegrationsSettingsPage />
                     ) : activeTab === 'scoring' ? (
                         <ScoringSettingsPage />
+                    ) : activeTab === 'properties-c' ? (
+                        <PropertySettingsPage />
                     ) : (
                         <EmptyState title={currentLabel} />
                     )}
