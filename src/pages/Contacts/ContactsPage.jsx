@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { contactData as initialContactData } from '../../data/mockData';
+import React, { useState, useEffect, useCallback } from 'react';
+import toast from 'react-hot-toast';
+import api from '../../api'; // Import API
 import { getInitials, getSourceBadgeClass } from '../../utils/helpers';
 import { useContactSync } from '../../hooks/useContactSync';
 import SendMailModal from './components/SendMailModal';
@@ -9,8 +10,23 @@ import AssignContactModal from '../../components/AssignContactModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
 import CallModal from '../../components/CallModal';
 
+// Debounce Utility
+const useDebounce = (value, delay) => {
+    const [debouncedValue, setDebouncedValue] = useState(value);
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedValue(value);
+        }, delay);
+        return () => clearTimeout(handler);
+    }, [value, delay]);
+    return debouncedValue;
+};
+
 function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
-    const [contacts, setContacts] = useState(initialContactData);
+    const [contacts, setContacts] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [totalRecords, setTotalRecords] = useState(0);
+
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -20,6 +36,41 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
     const [isSendMailOpen, setIsSendMailOpen] = useState(false);
     const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
     const [contactForLead, setContactForLead] = useState(null);
+
+    // Debounce search term
+    const debouncedSearchTerm = useDebounce(searchTerm, 500);
+
+    // Fetch Contacts from API
+    const fetchContacts = useCallback(async () => {
+        setLoading(true);
+        try {
+            const queryParams = new URLSearchParams({
+                page: currentPage,
+                limit: recordsPerPage,
+                search: debouncedSearchTerm
+            });
+
+            const response = await api.get(`get-all-contact?${queryParams.toString()}`);
+            console.log(response);
+
+            if (response.data && response.data.success) {
+                setContacts(response.data.data);
+                setTotalRecords(response.data.pagination.total);
+            } else {
+                toast.error('Failed to fetch contacts');
+            }
+        } catch (error) {
+            console.error('Error fetching contacts:', error);
+            toast.error('Error loading contacts');
+        } finally {
+            setLoading(false);
+        }
+    }, [currentPage, recordsPerPage, debouncedSearchTerm]);
+
+    useEffect(() => {
+        fetchContacts();
+    }, [fetchContacts]);
+
 
     // Send Message Modal State
     const [isSendMessageOpen, setIsSendMessageOpen] = useState(false);
@@ -54,13 +105,6 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
     // Contact Sync Hook
     const { getSyncStatus, syncMultipleContacts } = useContactSync();
 
-    // Filtering logic
-    const filteredContacts = contacts.filter(contact =>
-        (contact.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (contact.mobile || '').includes(searchTerm) ||
-        (contact.email && (contact.email || '').toLowerCase().includes(searchTerm.toLowerCase()))
-    );
-
     // Selection Handling
     const toggleSelect = (mobile) => {
         setSelectedIds(prev =>
@@ -70,28 +114,28 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
 
     // Select All Handler
     const toggleSelectAll = () => {
-        if (selectedIds.length === paginatedContacts.length && paginatedContacts.length > 0) {
+        if (selectedIds.length === contacts.length && contacts.length > 0) {
             setSelectedIds([]);
         } else {
-            setSelectedIds(paginatedContacts.map(c => c.mobile));
+            setSelectedIds(contacts.map(c => c.mobile));
         }
     };
 
     const isSelected = (mobile) => selectedIds.includes(mobile);
-    const totalCount = contacts.length;
+    const totalCount = totalRecords;
     const selectedCount = selectedIds.length;
 
-    // Pagination
-    const indexOfLastRecord = currentPage * recordsPerPage;
-    const indexOfFirstRecord = indexOfLastRecord - recordsPerPage;
-    const paginatedContacts = filteredContacts.slice(indexOfFirstRecord, indexOfLastRecord);
-    const totalPages = Math.ceil(filteredContacts.length / recordsPerPage);
+    // Server-side pagination means 'contacts' is ALREADY the current page data
+    // So we don't slice it.
+    const paginatedContacts = contacts;
+    const totalPages = Math.ceil(totalRecords / recordsPerPage);
 
     // Regrouping paginated results
     const groups = {};
     paginatedContacts.forEach(c => {
-        if (!groups[c.group]) groups[c.group] = [];
-        groups[c.group].push(c);
+        const group = c.group || 'Others'; // Fallback if group is missing
+        if (!groups[group]) groups[group] = [];
+        groups[group].push(c);
     });
 
     const goToNextPage = () => {
@@ -328,7 +372,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <button
                                             onClick={goToPreviousPage}
-                                            disabled={currentPage === 1}
+                                            disabled={currentPage === 1 || loading}
                                             style={{
                                                 padding: '6px 12px',
                                                 border: '1px solid #e2e8f0',
@@ -347,7 +391,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                         </span>
                                         <button
                                             onClick={goToNextPage}
-                                            disabled={currentPage >= totalPages}
+                                            disabled={currentPage >= totalPages || loading}
                                             style={{
                                                 padding: '6px 12px',
                                                 border: '1px solid #e2e8f0',
@@ -366,6 +410,27 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             </div>
                         )}
                     </div>
+                    {/* Loading State */}
+                    {loading && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '65px',
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            background: 'rgba(255,255,255,0.7)',
+                            zIndex: 200,
+                            display: 'flex',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            flexDirection: 'column',
+                            gap: '10px'
+                        }}>
+                            <div className="spinner" style={{ width: '30px', height: '30px', border: '3px solid #f3f3f3', borderTop: '3px solid #3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                            <span style={{ color: '#64748b', fontWeight: 600 }}>Loading contacts...</span>
+                            <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+                        </div>
+                    )}
 
                     {/* List View */}
                     {viewMode === 'list' ? (
@@ -400,44 +465,46 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                         <div className="group-header" style={{ padding: '12px 2rem', letterSpacing: '0.5px' }}>{groupName.toUpperCase()}</div>
                                         {groups[groupName].map((item, idx) => (
                                             <div
-                                                key={item.mobile}
+                                                key={item._id || item.mobile || idx}
                                                 className="list-item contact-list-grid"
                                                 style={{
                                                     padding: '15px 2rem',
-                                                    background: isSelected(item.mobile) ? '#f0f9ff' : '#fff',
+                                                    background: isSelected(item?.phones?.[0]?.number || item.mobile) ? '#f0f9ff' : '#fff',
                                                     transition: 'all 0.2s'
                                                 }}
                                                 onMouseOver={(e) => {
-                                                    if (!isSelected(item.mobile)) e.currentTarget.style.background = '#fafbfc';
+                                                    if (!isSelected(item?.phones?.[0]?.number || item.mobile)) e.currentTarget.style.background = '#fafbfc';
                                                 }}
                                                 onMouseOut={(e) => {
-                                                    if (!isSelected(item.mobile)) e.currentTarget.style.background = '#fff';
+                                                    if (!isSelected(item?.phones?.[0]?.number || item.mobile)) e.currentTarget.style.background = '#fff';
                                                     else e.currentTarget.style.background = '#f0f9ff';
                                                 }}
                                             >
                                                 <input
                                                     type="checkbox"
                                                     className="item-check"
-                                                    checked={isSelected(item.mobile)}
-                                                    onChange={() => toggleSelect(item.mobile)}
+                                                    checked={isSelected(item?.phones?.[0]?.number || item.mobile)}
+                                                    onChange={() => toggleSelect(item?.phones?.[0]?.number || item.mobile)}
                                                 />
                                                 <div className="col-identity">
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                                         <div className={`avatar-circle avatar-${(idx % 5) + 1}`} style={{ width: '38px', height: '38px', fontSize: '0.85rem' }}>
-                                                            {getInitials(item.name)}
+                                                            {getInitials(item?.name || 'Unknown')}
                                                         </div>
                                                         <div>
                                                             <div
                                                                 style={{ fontWeight: 800, color: 'var(--primary-color)', fontSize: '0.95rem', cursor: 'pointer' }}
-                                                                onClick={() => onNavigate('contact-detail', item.mobile)}
+                                                                onClick={() => onNavigate('contact-detail', item?.phones?.[0]?.number || item.mobile)}
                                                             >
-                                                                {item.name}
+                                                                {item?.name || 'Unknown Name'}
                                                             </div>
-                                                            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginTop: '3px' }}>{item.mobile}</div>
-                                                            {item.email && (
+                                                            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginTop: '3px' }}>
+                                                                {item?.phones?.[0]?.number || item?.mobile || 'No Mobile'}
+                                                            </div>
+                                                            {item?.emails?.[0]?.address && (
                                                                 <div style={{ fontSize: '0.7rem', color: '#8e44ad', fontWeight: 600, marginTop: '2px' }}>
                                                                     <i className="fas fa-envelope" style={{ marginRight: '4px', fontSize: '0.65rem' }}></i>
-                                                                    {item.email}
+                                                                    {item.emails[0].address}
                                                                 </div>
                                                             )}
                                                         </div>
@@ -447,17 +514,23 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                                 <div className="col-address">
                                                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
                                                         <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '4px' }}></i>
-                                                        <div className="address-clamp" style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 500, lineHeight: 1.4 }}>{item.address || 'Address not listed'}</div>
+                                                        <div className="address-clamp" style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 500, lineHeight: 1.4 }}>
+                                                            {item?.personalAddress?.city ? `${item.personalAddress.city}, ${item.personalAddress.state}` : (item?.address || 'Address not listed')}
+                                                        </div>
                                                     </div>
                                                 </div>
 
                                                 <div className="col-classification">
                                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                                                        <span className="prof-badge" style={{ fontSize: '0.6rem', padding: '3px 10px', fontWeight: 800 }}>{item.professional.toUpperCase()}</span>
-                                                        <div style={{ fontSize: '0.8rem', color: '#0f172a', fontWeight: 700 }}>{item.designation}</div>
+                                                        <span className="prof-badge" style={{ fontSize: '0.6rem', padding: '3px 10px', fontWeight: 800 }}>
+                                                            {(item?.professionCategory || item?.professional || 'N/A').toUpperCase()}
+                                                        </span>
+                                                        <div style={{ fontSize: '0.8rem', color: '#0f172a', fontWeight: 700 }}>
+                                                            {item?.designation || '-'}
+                                                        </div>
                                                         <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>
                                                             <i className="fas fa-building" style={{ marginRight: '4px', fontSize: '0.65rem' }}></i>
-                                                            {item.company}
+                                                            {item?.company || '-'}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -476,11 +549,11 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                                             width: 'fit-content'
                                                         }}>
                                                             <i className="fas fa-tag" style={{ marginRight: '3px', fontSize: '0.6rem' }}></i>
-                                                            {item.source}
+                                                            {item?.source || 'N/A'}
                                                         </span>
-                                                        {item.tags && item.tags !== '-' && (
+                                                        {item?.tags && item?.tags?.length > 0 && (
                                                             <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>
-                                                                {item.tags}
+                                                                {Array.isArray(item.tags) ? item.tags.join(', ') : item.tags}
                                                             </div>
                                                         )}
                                                     </div>
@@ -488,44 +561,21 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
 
                                                 {/* CRM Linkage Column */}
                                                 <div className="col-crm-linkage">
-                                                    {item.crmLinks && Object.keys(item.crmLinks).length > 0 ? (
+                                                    {item?.crmLinks && Object.keys(item.crmLinks).length > 0 ? (
                                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                                                            {item.crmLinks.leads && (
+                                                            {item?.crmLinks?.leads && (
                                                                 <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#dbeafe', color: '#1e40af', borderRadius: '4px', fontWeight: 700 }}>
                                                                     <i className="fas fa-user-plus" style={{ marginRight: '2px', fontSize: '0.6rem' }}></i>
                                                                     Leads ({item.crmLinks.leads})
                                                                 </span>
                                                             )}
-                                                            {item.crmLinks.deals && (
+                                                            {item?.crmLinks?.deals && (
                                                                 <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#dcfce7', color: '#166534', borderRadius: '4px', fontWeight: 700 }}>
                                                                     <i className="fas fa-handshake" style={{ marginRight: '2px', fontSize: '0.6rem' }}></i>
                                                                     Deals ({item.crmLinks.deals})
                                                                 </span>
                                                             )}
-                                                            {item.crmLinks.property && (
-                                                                <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#fef3c7', color: '#92400e', borderRadius: '4px', fontWeight: 700 }}>
-                                                                    <i className="fas fa-building" style={{ marginRight: '2px', fontSize: '0.6rem' }}></i>
-                                                                    Property ({item.crmLinks.property})
-                                                                </span>
-                                                            )}
-                                                            {item.crmLinks.booking && (
-                                                                <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#fce7f3', color: '#9f1239', borderRadius: '4px', fontWeight: 700 }}>
-                                                                    <i className="fas fa-calendar-check" style={{ marginRight: '2px', fontSize: '0.6rem' }}></i>
-                                                                    Booking ({item.crmLinks.booking})
-                                                                </span>
-                                                            )}
-                                                            {item.crmLinks.project && (
-                                                                <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#e0e7ff', color: '#3730a3', borderRadius: '4px', fontWeight: 700 }}>
-                                                                    <i className="fas fa-project-diagram" style={{ marginRight: '2px', fontSize: '0.6rem' }}></i>
-                                                                    Project ({item.crmLinks.project})
-                                                                </span>
-                                                            )}
-                                                            {item.crmLinks.activities && (
-                                                                <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#fed7aa', color: '#7c2d12', borderRadius: '4px', fontWeight: 700 }}>
-                                                                    <i className="fas fa-tasks" style={{ marginRight: '2px', fontSize: '0.6rem' }}></i>
-                                                                    Activities ({item.crmLinks.activities})
-                                                                </span>
-                                                            )}
+                                                            {/* ... Add other checks similarly if needed, or rely on Object.keys check above */}
                                                         </div>
                                                     ) : (
                                                         <div style={{ fontSize: '0.7rem', color: '#cbd5e1', fontStyle: 'italic' }}>-</div>
@@ -534,8 +584,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
 
                                                 <div className="col-interaction">
                                                     <div style={{ lineHeight: '1.4' }}>
-                                                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{item.lastComm}</div>
-                                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>Active: {item.actionable}</div>
+                                                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{item?.lastComm || 'Never'}</div>
+                                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>Active: {item?.actionable || 'No'}</div>
                                                         <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
                                                             <i className="fas fa-phone-alt" style={{ color: '#388E3C', fontSize: '0.75rem', transform: 'scaleX(-1) rotate(5deg)' }}></i>
                                                             <i className="fab fa-whatsapp" style={{ color: '#25D366', fontSize: '0.75rem' }}></i>
@@ -545,10 +595,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
 
                                                 <div className="col-assignment">
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                        <div className="profile-circle" style={{ width: '28px', height: '28px', fontSize: '0.65rem', background: '#f1f5f9', color: '#64748b' }}>{item.ownership.charAt(0)}</div>
+                                                        <div className="profile-circle" style={{ width: '28px', height: '28px', fontSize: '0.65rem', background: '#f1f5f9', color: '#64748b' }}>{(item?.ownership || 'Admin').charAt(0)}</div>
                                                         <div>
-                                                            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{item.ownership}</div>
-                                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700 }}>Added {item.addOnDate}</div>
+                                                            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{item?.ownership || 'Admin'}</div>
+                                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700 }}>Added {item?.addOnDate ? new Date(item.addOnDate).toLocaleDateString() : '-'}</div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -564,23 +614,23 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
                                 {paginatedContacts.map((item, idx) => (
                                     <div
-                                        key={item.mobile}
+                                        key={item._id || item.mobile || idx}
                                         style={{
-                                            background: isSelected(item.mobile) ? '#f0f9ff' : '#fff',
-                                            border: `2px solid ${isSelected(item.mobile) ? '#3b82f6' : '#e5e7eb'}`,
+                                            background: isSelected(item?.phones?.[0]?.number || item.mobile) ? '#f0f9ff' : '#fff',
+                                            border: `2px solid ${isSelected(item?.phones?.[0]?.number || item.mobile) ? '#3b82f6' : '#e5e7eb'}`,
                                             borderRadius: '10px',
                                             overflow: 'hidden',
                                             transition: 'all 0.2s',
-                                            boxShadow: isSelected(item.mobile) ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 3px rgba(0,0,0,0.1)'
+                                            boxShadow: isSelected(item?.phones?.[0]?.number || item.mobile) ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 3px rgba(0,0,0,0.1)'
                                         }}
                                         onMouseEnter={(e) => {
-                                            if (!isSelected(item.mobile)) {
+                                            if (!isSelected(item?.phones?.[0]?.number || item.mobile)) {
                                                 e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
                                                 e.currentTarget.style.transform = 'translateY(-2px)';
                                             }
                                         }}
                                         onMouseLeave={(e) => {
-                                            if (!isSelected(item.mobile)) {
+                                            if (!isSelected(item?.phones?.[0]?.number || item.mobile)) {
                                                 e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
                                                 e.currentTarget.style.transform = 'translateY(0)';
                                             }
@@ -589,7 +639,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                         {/* Card Header with Avatar & Checkbox */}
                                         <div style={{
                                             padding: '12px',
-                                            background: isSelected(item.mobile) ? '#dbeafe' : '#f9fafb',
+                                            background: isSelected(item?.phones?.[0]?.number || item.mobile) ? '#dbeafe' : '#f9fafb',
                                             borderBottom: '1px solid #e5e7eb',
                                             display: 'flex',
                                             alignItems: 'center',
@@ -597,27 +647,27 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                         }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
                                                 <div className={`avatar-circle avatar-${(idx % 5) + 1}`} style={{ width: '40px', height: '40px', fontSize: '0.9rem', flexShrink: 0 }}>
-                                                    {getInitials(item.name)}
+                                                    {getInitials(item?.name || 'Unknown')}
                                                 </div>
                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                     <div
                                                         style={{ fontWeight: 800, color: 'var(--primary-color)', fontSize: '0.9rem', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
-                                                        onClick={() => onNavigate('contact-detail', item.mobile)}
+                                                        onClick={() => onNavigate('contact-detail', item?.phones?.[0]?.number || item.mobile)}
                                                     >
-                                                        {item.name}
+                                                        {item?.name || 'Unknown Name'}
                                                     </div>
                                                     <div style={{ fontSize: '0.7rem', color: '#6b7280', fontWeight: 600 }}>
                                                         <i className="fas fa-phone-alt" style={{ marginRight: '4px', fontSize: '0.65rem' }}></i>
-                                                        {item.mobile}
+                                                        {item?.phones?.[0]?.number || item?.mobile || 'No Mobile'}
                                                     </div>
                                                 </div>
                                             </div>
                                             <input
                                                 type="checkbox"
-                                                checked={isSelected(item.mobile)}
+                                                checked={isSelected(item?.phones?.[0]?.number || item.mobile)}
                                                 onChange={(e) => {
                                                     e.stopPropagation();
-                                                    toggleSelect(item.mobile);
+                                                    toggleSelect(item?.phones?.[0]?.number || item.mobile);
                                                 }}
                                                 style={{ width: '16px', height: '16px', cursor: 'pointer', flexShrink: 0 }}
                                             />
@@ -626,7 +676,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                         {/* Card Body - Contact Details */}
                                         <div style={{ padding: '12px' }}>
                                             {/* Email */}
-                                            {item.email && (
+                                            {item?.emails?.[0]?.address && (
                                                 <div style={{
                                                     marginBottom: '10px',
                                                     paddingBottom: '10px',
@@ -637,7 +687,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                                 }}>
                                                     <i className="fas fa-envelope" style={{ color: '#8b5cf6', fontSize: '0.75rem', width: '14px', flexShrink: 0 }}></i>
                                                     <span style={{ fontSize: '0.7rem', color: '#6b7280', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                        {item.email}
+                                                        {item.emails[0].address}
                                                     </span>
                                                 </div>
                                             )}
@@ -648,14 +698,14 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                                     Professional
                                                 </div>
                                                 <span className="prof-badge" style={{ fontSize: '0.6rem', padding: '2px 6px', fontWeight: 800, marginBottom: '4px', display: 'inline-block' }}>
-                                                    {item.professional.toUpperCase()}
+                                                    {(item?.professionCategory || item?.professional || 'N/A').toUpperCase()}
                                                 </span>
                                                 <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#111827', marginBottom: '3px' }}>
-                                                    {item.designation}
+                                                    {item?.designation || '-'}
                                                 </div>
                                                 <div style={{ fontSize: '0.7rem', color: '#6b7280', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                     <i className="fas fa-building" style={{ fontSize: '0.65rem' }}></i>
-                                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.company}</span>
+                                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item?.company || '-'}</span>
                                                 </div>
                                             </div>
 
@@ -667,7 +717,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                                 <div style={{ display: 'flex', alignItems: 'start', gap: '6px' }}>
                                                     <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '2px' }}></i>
                                                     <div style={{ fontSize: '0.7rem', color: '#6b7280', fontWeight: 600, lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                                                        {item.address || 'Address not listed'}
+                                                        {item?.personalAddress?.city ? `${item.personalAddress.city}, ${item.personalAddress.state}` : (item?.address || 'Address not listed')}
                                                     </div>
                                                 </div>
                                             </div>
@@ -689,42 +739,42 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                                     color: '#6b21a8'
                                                 }}>
                                                     <i className="fas fa-tag" style={{ fontSize: '0.6rem' }}></i>
-                                                    {item.source}
+                                                    {item?.source || 'N/A'}
                                                 </span>
                                             </div>
 
                                             {/* CRM Linkage Section */}
-                                            {item.crmLinks && Object.keys(item.crmLinks).length > 0 && (
+                                            {item?.crmLinks && Object.keys(item.crmLinks).length > 0 && (
                                                 <div style={{ marginBottom: '10px', paddingBottom: '10px', borderBottom: '1px solid #f3f4f6' }}>
                                                     <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#9ca3af', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                                         CRM Activity
                                                     </div>
                                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
-                                                        {item.crmLinks.leads && (
+                                                        {item?.crmLinks?.leads && (
                                                             <span style={{ fontSize: '0.6rem', padding: '2px 5px', background: '#dbeafe', color: '#1e40af', borderRadius: '3px', fontWeight: 700 }}>
                                                                 <i className="fas fa-user-plus" style={{ marginRight: '2px', fontSize: '0.55rem' }}></i>
                                                                 {item.crmLinks.leads}
                                                             </span>
                                                         )}
-                                                        {item.crmLinks.deals && (
+                                                        {item?.crmLinks?.deals && (
                                                             <span style={{ fontSize: '0.6rem', padding: '2px 5px', background: '#dcfce7', color: '#166534', borderRadius: '3px', fontWeight: 700 }}>
                                                                 <i className="fas fa-handshake" style={{ marginRight: '2px', fontSize: '0.55rem' }}></i>
                                                                 {item.crmLinks.deals}
                                                             </span>
                                                         )}
-                                                        {item.crmLinks.property && (
+                                                        {item?.crmLinks?.property && (
                                                             <span style={{ fontSize: '0.6rem', padding: '2px 5px', background: '#fef3c7', color: '#92400e', borderRadius: '3px', fontWeight: 700 }}>
                                                                 <i className="fas fa-building" style={{ marginRight: '2px', fontSize: '0.55rem' }}></i>
                                                                 {item.crmLinks.property}
                                                             </span>
                                                         )}
-                                                        {item.crmLinks.booking && (
+                                                        {item?.crmLinks?.booking && (
                                                             <span style={{ fontSize: '0.6rem', padding: '2px 5px', background: '#fce7f3', color: '#9f1239', borderRadius: '3px', fontWeight: 700 }}>
                                                                 <i className="fas fa-calendar-check" style={{ marginRight: '2px', fontSize: '0.55rem' }}></i>
                                                                 {item.crmLinks.booking}
                                                             </span>
                                                         )}
-                                                        {item.crmLinks.activities && (
+                                                        {item?.crmLinks?.activities && (
                                                             <span style={{ fontSize: '0.6rem', padding: '2px 5px', background: '#fed7aa', color: '#7c2d12', borderRadius: '3px', fontWeight: 700 }}>
                                                                 <i className="fas fa-tasks" style={{ marginRight: '2px', fontSize: '0.55rem' }}></i>
                                                                 {item.crmLinks.activities}
@@ -740,10 +790,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                                     Last Interaction
                                                 </div>
                                                 <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#111827', marginBottom: '3px' }}>
-                                                    {item.lastComm}
+                                                    {item?.lastComm || 'Never'}
                                                 </div>
                                                 <div style={{ fontSize: '0.65rem', color: '#6b7280', fontWeight: 600, marginBottom: '4px' }}>
-                                                    Active: {item.actionable}
+                                                    Active: {item?.actionable || 'No'}
                                                 </div>
                                                 <div style={{ display: 'flex', gap: '10px' }}>
                                                     <i className="fas fa-phone-alt" style={{ color: '#16a34a', fontSize: '0.8rem' }}></i>
@@ -770,14 +820,14 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                                         fontWeight: 700,
                                                         flexShrink: 0
                                                     }}>
-                                                        {item.ownership.charAt(0)}
+                                                        {(item?.ownership || 'Admin').charAt(0)}
                                                     </div>
                                                     <div style={{ minWidth: 0 }}>
                                                         <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                            {item.ownership}
+                                                            {item?.ownership || 'Admin'}
                                                         </div>
                                                         <div style={{ fontSize: '0.6rem', color: '#9ca3af', fontWeight: 600 }}>
-                                                            Added {item.addOnDate}
+                                                            Added {item?.addOnDate ? new Date(item.addOnDate).toLocaleDateString() : '-'}
                                                         </div>
                                                     </div>
                                                 </div>

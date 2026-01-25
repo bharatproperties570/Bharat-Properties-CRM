@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
+import toast from 'react-hot-toast';
 
-import { INDIAN_LOCATION_HIERARCHY } from '../data/detailedLocationData';
-import { PROJECT_DATA, CITIES } from '../data/projectData';
-import { LOCATION_DATA, INDIAN_ADDRESS_DATA } from '../data/locationData';
-import { PROPERTY_CATEGORIES, DIRECTION_OPTIONS, FACING_OPTIONS, ROAD_WIDTH_OPTIONS, PROPERTY_UNIT_TYPE_OPTIONS } from '../data/propertyData';
+import { INDIAN_ADDRESS_DATA } from '../data/locationData';
 import { companyData } from '../data/companyData';
+import api from "../../api";
 
 // Simple Custom Multi-Select Component
 const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled }) => {
@@ -397,8 +396,8 @@ const BUDGET_VALUES = [
     { value: 1000000000, label: "100 Crore" }
 ];
 
-const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entityType = 'contact' }) => {
-    const [currentTab, setCurrentTab] = useState(entityType === 'lead' ? 'requirement' : 'basic');
+const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) => {
+    const [currentTab, setCurrentTab] = useState('basic');
     const [currentAddressType, setCurrentAddressType] = useState('permanent'); // permanent or correspondence
     const [showOnlyRequired, setShowOnlyRequired] = useState(false);
 
@@ -412,8 +411,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
     const [activeDocumentSearchIndex, setActiveDocumentSearchIndex] = useState(null);
     const [documentSearchTerm, setDocumentSearchTerm] = useState('');
 
-    const [locationTab, setLocationTab] = useState('select'); // 'select' or 'search'
-    const [showSpecificUnit, setShowSpecificUnit] = useState(false);
+
     const [currentTime, setCurrentTime] = useState(new Date());
     const [similarContacts, setSimilarContacts] = useState([]);
 
@@ -503,48 +501,9 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
 
         // System Details
         source: '',
-        subSource: '', // Added for Leads
-        campaign: '', // Added for Leads
         team: '',
         owner: '',
         visibleTo: '',
-
-        // Requirement Details (Lead Specific)
-        requirement: 'Buy',
-        propertyType: ['Residential'],
-        purpose: 'End use',
-        nri: false,
-        subType: [],
-        unitType: [],
-        budgetMin: '',
-        budgetMax: '',
-        areaMin: '',
-        areaMax: '',
-        areaMetric: 'Sq Yard',
-        searchLocation: '',
-        areaSearch: '', // New Field
-        streetAddress: '',
-        range: 'Within 3 km',
-        locCity: '', locArea: '', locBlock: [], locPinCode: '',
-        locCountry: '', locState: '', locLat: '', locLng: '',
-        facing: [],
-        roadWidth: [],
-        direction: [],
-        funding: '',
-        timeline: '',
-        furnishing: '',
-        propertyUnitType: [],
-        transactionType: '',
-        transactionFlexiblePercent: 50,
-        sendMatchedDeal: [],
-
-        // Select Location Fields
-        projectName: [],
-        projectCity: '', // New Field
-        projectTowers: [], // New Field
-        specificUnitType: 'single', // 'single' or 'row'
-        propertyNo: '',
-        propertyNoEnd: '',
 
         // Personal Address
         personalAddress: {
@@ -603,63 +562,44 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
         }));
     };
 
-    const handleProjectCityChange = (city) => {
-        setFormData(prev => ({
-            ...prev,
-            projectCity: city,
-            projectName: [], // Reset projects
-            projectTowers: [] // Reset towers
-        }));
-    };
 
-    const handleProjectSelectionChange = (projects) => {
-        // projects is an array of selected project Names
-        // If a project is deselected, we should potentialy filter out towers?
-        // For now, let's just update the projects. User can manually adjust towers if needed,
-        // or we can implement strict filtering.
-        setFormData(prev => ({
-            ...prev,
-            projectName: projects
-        }));
-    };
 
-    // Derived Data for Dropdowns
-    const availableProjects = formData.projectCity && PROJECT_DATA[formData.projectCity]
-        ? PROJECT_DATA[formData.projectCity].map(p => p.name)
-        : [];
+    // Derived Data for Professional Details
+    const selectedCompanyData = companyData.find(c => c.name === formData.company);
+    const hasMultipleOffices = selectedCompanyData?.offices?.length > 1;
+    const officeOptions = selectedCompanyData?.offices?.map(o => ({ label: o.name, value: o.name })) || [];
 
-    const availableTowers = formData.projectName.length > 0 && formData.projectCity
-        ? PROJECT_DATA[formData.projectCity]
-            .filter(p => formData.projectName.includes(p.name))
-            .flatMap(p => p.towers)
-        : [];
+    const handleSave = async () => {
+        const toastId = toast.loading('Adding contact...');
+        try {
+            const response = await api.post("add-contact", formData);
 
-    const handleSave = () => {
-        onAdd(formData);
-        onClose();
+            if (response.data && response.data.success) {
+                toast.success('Contact added successfully!', { id: toastId });
+                if (onAdd) onAdd(response.data.data); // Pass the created contact back
+                onClose();
+            } else {
+                // Handle case where success is false but no error thrown
+                throw new Error(response.data?.message || 'Failed to add contact');
+            }
+        } catch (error) {
+            console.error('Error adding contact:', error);
+            const errorMessage = error.response?.data?.message || error.message || 'Failed to add contact. Please try again.';
+            toast.error(errorMessage, { id: toastId });
+        }
     };
 
     // Navigation Logic
     const handleNext = () => {
-        if (entityType === 'lead') {
-            if (currentTab === 'requirement') setCurrentTab('location');
-            else if (currentTab === 'location') setCurrentTab('basic');
-        } else {
-            // Contact Flow
-            if (currentTab === 'basic') setCurrentTab('personal');
-            else if (currentTab === 'personal') setCurrentTab('other');
-        }
+        // Contact Flow
+        if (currentTab === 'basic') setCurrentTab('personal');
+        else if (currentTab === 'personal') setCurrentTab('other');
     };
 
     const handlePrev = () => {
-        if (entityType === 'lead') {
-            if (currentTab === 'location') setCurrentTab('requirement');
-            else if (currentTab === 'basic') setCurrentTab('location');
-        } else {
-            // Contact Flow
-            if (currentTab === 'personal') setCurrentTab('basic');
-            else if (currentTab === 'other') setCurrentTab('personal');
-        }
+        // Contact Flow
+        if (currentTab === 'personal') setCurrentTab('basic');
+        else if (currentTab === 'other') setCurrentTab('personal');
     };
 
     // Placeholder for Populate
@@ -720,70 +660,6 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
         setSimilarContacts(matches);
     }, [formData.name, formData.phones, formData.emails]);
 
-    const searchInputRef = useRef(null);
-    const areaInputRef = useRef(null); // New Ref for Area Search
-
-    useEffect(() => {
-        // Location Search Autocomplete
-        if ((locationTab === 'search' || currentTab === 'requirement') && searchInputRef.current && window.google) {
-            const autocomplete = new window.google.maps.places.Autocomplete(searchInputRef.current, {
-                types: ['geocode'],
-                fields: ['address_components', 'geometry', 'formatted_address']
-            });
-
-            autocomplete.addListener('place_changed', () => {
-                const place = autocomplete.getPlace();
-                if (!place.geometry) {
-                    console.log("Returned place contains no geometry");
-                    return;
-                }
-
-                const addressComponents = place.address_components;
-                let city = '', state = '', country = '', zipcode = '', area = '';
-                // Simple extraction
-                addressComponents.forEach(component => {
-                    const types = component.types;
-                    if (types.includes('locality')) city = component.long_name;
-                    if (types.includes('sublocality_level_1')) area = component.long_name;
-                    if (types.includes('administrative_area_level_1')) state = component.long_name;
-                    if (types.includes('country')) country = component.long_name;
-                    if (types.includes('postal_code')) zipcode = component.long_name;
-                });
-
-                setFormData(prev => ({
-                    ...prev,
-                    searchLocation: place.formatted_address,
-                    locCity: city,
-                    locArea: area || city, // Fallback
-                    locState: state,
-                    locCountry: country,
-                    locPinCode: zipcode,
-                    locLat: place.geometry.location.lat(),
-                    locLng: place.geometry.location.lng()
-                }));
-            });
-        }
-
-        // Area Search Autocomplete
-        if ((locationTab === 'search' || currentTab === 'requirement') && areaInputRef.current && window.google) {
-            const areaAutocomplete = new window.google.maps.places.Autocomplete(areaInputRef.current, {
-                types: ['geocode'],
-                fields: ['address_components', 'geometry', 'formatted_address']
-            });
-
-            areaAutocomplete.addListener('place_changed', () => {
-                const place = areaAutocomplete.getPlace();
-                if (!place.geometry) return;
-
-                // We just update the areaSearch field with the formatted address
-                setFormData(prev => ({
-                    ...prev,
-                    areaSearch: place.formatted_address
-                }));
-            });
-        }
-    }, [currentTab, locationTab]);
-
     if (!isOpen) return null;
 
     return (
@@ -796,8 +672,8 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                             <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>
                                 {mode === 'edit'
-                                    ? `Update ${entityType === 'lead' ? 'Lead' : 'Contact'}`
-                                    : `Add ${entityType === 'lead' ? 'Lead' : 'Contact'}`}
+                                    ? `Update Contact`
+                                    : `Add Contact`}
                             </h2>
                             <span style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px', fontWeight: 500 }}>
                                 {currentTime.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} | {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
@@ -810,7 +686,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                                 onChange={(e) => {
                                     setShowOnlyRequired(e.target.checked);
                                     if (e.target.checked) {
-                                        setCurrentTab(entityType === 'lead' ? 'requirement' : 'basic');
+                                        setCurrentTab('basic');
                                     }
                                 }}
                             />
@@ -822,11 +698,9 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                     {!showOnlyRequired && (
                         <div style={{ padding: '16px 32px 0 32px', background: '#fff' }}>
                             <div style={{ display: 'flex', gap: '8px', padding: '4px', background: '#f1f5f9', borderRadius: '9999px', width: 'fit-content' }}>
-                                {entityType === 'lead' && <button onClick={() => setCurrentTab('requirement')} style={tabStyle(currentTab === 'requirement')}>Requirement</button>}
-                                {entityType === 'lead' && <button onClick={() => setCurrentTab('location')} style={tabStyle(currentTab === 'location')}>Location</button>}
-                                <button onClick={() => setCurrentTab('basic')} style={tabStyle(currentTab === 'basic')}>{entityType === 'lead' ? 'Contact Details' : 'Basic Details'}</button>
-                                {entityType !== 'lead' && <button onClick={() => setCurrentTab('personal')} style={tabStyle(currentTab === 'personal')}>Personal</button>}
-                                {entityType !== 'lead' && <button onClick={() => setCurrentTab('other')} style={tabStyle(currentTab === 'other')}>Other</button>}
+                                <button onClick={() => setCurrentTab('basic')} style={tabStyle(currentTab === 'basic')}>Basic Details</button>
+                                <button onClick={() => setCurrentTab('personal')} style={tabStyle(currentTab === 'personal')}>Personal</button>
+                                <button onClick={() => setCurrentTab('other')} style={tabStyle(currentTab === 'other')}>Other</button>
                             </div>
                         </div>
                     )}
@@ -876,7 +750,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                                                 style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
                                             />
                                         </div>
-                                        {(!showOnlyRequired && entityType !== 'lead') && (
+                                        {(!showOnlyRequired) && (
                                             <div style={{ gridColumn: '1 / -1' }}>
                                                 <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Father/Husband Name</label>
                                                 <input
@@ -988,50 +862,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                                     </div>
                                 </div>
 
-                                {entityType === 'lead' && (
-                                    <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                        <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                            <i className="fas fa-bullhorn" style={{ color: '#f59e0b' }}></i> Campaign Details
-                                        </h3>
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Campaign Name</label>
-                                                <select
-                                                    value={formData.campaign}
-                                                    onChange={(e) => handleInputChange('campaign', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Campaign</option>
-                                                    {CAMPAIGN_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
-                                                <select
-                                                    value={formData.source}
-                                                    onChange={(e) => handleInputChange('source', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Source</option>
-                                                    {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Sub Source</label>
-                                                <select
-                                                    value={formData.subSource}
-                                                    onChange={(e) => handleInputChange('subSource', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Sub Source</option>
-                                                    {SUB_SOURCE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                                                </select>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {(!showOnlyRequired && entityType !== 'lead') && (
+                                {(!showOnlyRequired) && (
                                     <>
                                         {/* Tags & Source Card */}
                                         <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
@@ -1114,7 +945,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                                 )}
 
                                 {/* Professional Details Card */}
-                                {(!showOnlyRequired && entityType !== 'lead') && (
+                                {(!showOnlyRequired) && (
                                     <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                                         <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
                                             <i className="fas fa-briefcase" style={{ color: '#0ea5e9' }}></i> Professional Details
@@ -1251,7 +1082,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                                                         {/* 5. Branch/Site Selection (Conditional) */}
                                                         {hasMultipleOffices && (
                                                             <div style={{ gridColumn: 'span 2' }}>
-                                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#10b981', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#10b981', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                                     <i className="fas fa-map-marker-alt"></i> Associated Office / Branch
                                                                 </label>
                                                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
@@ -1337,600 +1168,6 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                                     </div>
                                 </div>
                             </div>
-                        ) : currentTab === 'requirement' ? (
-                            <div className="no-scrollbar" style={{ padding: '4px' }}>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-
-                                    {/* Requirement Type */}
-                                    <div style={sectionCardStyle}>
-                                        <h4 style={labelStyle}>Requirement Type</h4>
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-                                            {[
-                                                { label: 'Buy', icon: 'fa-shopping-cart' },
-                                                { label: 'Rent', icon: 'fa-key' },
-                                                { label: 'Lease', icon: 'fa-file-contract' }
-                                            ].map(opt => (
-                                                <button
-                                                    key={opt.label}
-                                                    type="button"
-                                                    onClick={() => handleInputChange('requirement', opt.label)}
-                                                    style={{
-                                                        padding: '6px', // Further reduced padding
-                                                        borderRadius: '8px',
-                                                        border: formData.requirement === opt.label ? '1px solid #3b82f6' : '1px solid #e2e8f0',
-                                                        background: formData.requirement === opt.label ? '#eff6ff' : '#fff',
-                                                        color: formData.requirement === opt.label ? '#2563eb' : '#64748b',
-                                                        display: 'flex',
-                                                        flexDirection: 'column',
-                                                        alignItems: 'center',
-                                                        gap: '4px',
-                                                        cursor: 'pointer',
-                                                        transition: 'all 0.2s'
-                                                    }}
-                                                >
-                                                    <i className={`fas ${opt.icon}`} style={{ fontSize: '0.9rem' }}></i> {/* Further reduced icon size */}
-                                                    <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{opt.label}</span> {/* Reduced font size */}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {/* Property Category */}
-                                    <div style={sectionCardStyle}>
-                                        <h4 style={labelStyle}>Property Category</h4>
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))', gap: '8px' }}> {/* Reduced grid gap and min-width */}
-                                            {[
-                                                { label: 'Residential', icon: 'fa-home' },
-                                                { label: 'Commercial', icon: 'fa-building' },
-                                                { label: 'Industrial', icon: 'fa-industry' },
-                                                { label: 'Agricultural', icon: 'fa-seedling' },
-                                                { label: 'Institutional', icon: 'fa-university' }
-                                            ].map(cat => (
-                                                <button
-                                                    key={cat.label}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        const newCats = formData.propertyType.includes(cat.label)
-                                                            ? formData.propertyType.filter(c => c !== cat.label)
-                                                            : [...formData.propertyType, cat.label];
-                                                        handleInputChange('propertyType', newCats);
-                                                    }}
-                                                    style={{
-                                                        padding: '6px', // Further reduced padding
-                                                        borderRadius: '8px',
-                                                        border: formData.propertyType.includes(cat.label) ? '1px solid #3b82f6' : '1px solid #e2e8f0',
-                                                        background: formData.propertyType.includes(cat.label) ? '#eff6ff' : '#fff',
-                                                        color: formData.propertyType.includes(cat.label) ? '#2563eb' : '#64748b',
-                                                        display: 'flex',
-                                                        flexDirection: 'column',
-                                                        alignItems: 'center',
-                                                        gap: '4px',
-                                                        cursor: 'pointer',
-                                                        transition: 'all 0.2s',
-                                                        height: '100%'
-                                                    }}
-                                                >
-                                                    <i className={`fas ${cat.icon}`} style={{ fontSize: '0.9rem' }}></i> {/* Further reduced icon size */}
-                                                    <span style={{ fontSize: '0.75rem', fontWeight: 600, textAlign: 'center' }}>{cat.label}</span> {/* Reduced font size */}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {/* Sub Categories */}
-                                    {formData.propertyType.length > 0 && (
-                                        <div style={sectionCardStyle}>
-                                            <h4 style={labelStyle}>Property Sub-Category</h4>
-                                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                                {Array.from(new Set(formData.propertyType.flatMap(cat => PROPERTY_CATEGORIES[cat]?.subCategories || []))).map(sub => (
-                                                    <button
-                                                        key={sub}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const newSubs = formData.subType.includes(sub)
-                                                                ? formData.subType.filter(s => s !== sub)
-                                                                : [...formData.subType, sub];
-                                                            handleInputChange('subType', newSubs);
-                                                        }}
-                                                        style={{
-                                                            padding: '6px 14px',
-                                                            borderRadius: '20px',
-                                                            border: formData.subType.includes(sub) ? '1px solid #6366f1' : '1px solid #e2e8f0',
-                                                            background: formData.subType.includes(sub) ? '#eef2ff' : '#fff',
-                                                            color: formData.subType.includes(sub) ? '#4f46e5' : '#64748b',
-                                                            fontSize: '0.85rem',
-                                                            cursor: 'pointer',
-                                                            fontWeight: formData.subType.includes(sub) ? 500 : 400,
-                                                            transition: 'all 0.2s'
-                                                        }}
-                                                    >
-                                                        {sub}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Area Range and Size Type */}
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                        <div style={sectionCardStyle}>
-                                            <h4 style={labelStyle}>Area Range</h4>
-                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                <input
-                                                    type="text"
-                                                    value={formData.areaMin}
-                                                    onChange={(e) => handleInputChange('areaMin', e.target.value)}
-                                                    placeholder="Min"
-                                                    style={{ ...inputStyle, minWidth: '0', flex: 1 }} // Allow shrink
-                                                />
-                                                <span style={{ color: '#94a3b8' }}>-</span>
-                                                <input
-                                                    type="text"
-                                                    value={formData.areaMax}
-                                                    onChange={(e) => handleInputChange('areaMax', e.target.value)}
-                                                    placeholder="Max"
-                                                    style={{ ...inputStyle, minWidth: '0', flex: 1 }} // Allow shrink
-                                                />
-                                                <div style={{ width: '130px', flexShrink: 0 }}> {/* Adjusted width */}
-                                                    <select
-                                                        value={formData.areaMetric}
-                                                        onChange={(e) => handleInputChange('areaMetric', e.target.value)}
-                                                        style={{ ...inputStyle, paddingRight: '4px' }}
-                                                    >
-                                                        <option value="Sq Yard">Sq Yard</option>
-                                                        <option value="Sq Feet">Sq Feet</option>
-                                                        <option value="Sq Meter">Sq Meter</option>
-                                                        <option value="Acre">Acre</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div style={sectionCardStyle}>
-                                            <h4 style={labelStyle}>Size Type</h4>
-                                            <CustomMultiSelect
-                                                options={['1 RK', '1 BHK', '2 BHK', '3 BHK', '4 BHK', '5 BHK', 'Duplex', 'Penthouse', 'Villa']}
-                                                value={formData.unitType}
-                                                onChange={(val) => handleInputChange('unitType', val)}
-                                                placeholder="Select Size Types"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    {/* Transaction Details */}
-                                    <div style={{ background: '#f0f9ff', padding: '16px', borderRadius: '8px', border: '1px solid #bae6fd' }}>
-                                        <h4 style={{ ...labelStyle, color: '#0369a1', marginBottom: '16px' }}>Transaction Preferences</h4>
-
-                                        {/* Row 1: Budget Range (Moved to Top) */}
-                                        <div style={{ marginBottom: '20px' }}>
-
-
-                                            <label style={{ fontSize: '0.85rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>
-                                                Budget Range <span style={{ color: '#ef4444' }}>*</span>
-                                            </label>
-                                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                                {/* Min Budget */}
-                                                <select
-                                                    value={formData.budgetMin}
-                                                    onChange={(e) => {
-                                                        const newVal = e.target.value;
-                                                        handleInputChange('budgetMin', newVal);
-                                                        // Reset Max if it becomes invalid (less than or equal to new Min)
-                                                        if (formData.budgetMax && Number(formData.budgetMax) <= Number(newVal)) {
-                                                            handleInputChange('budgetMax', '');
-                                                        }
-                                                    }}
-                                                    style={{ ...customSelectStyle, flex: 1 }}
-                                                >
-                                                    <option value="">Min</option>
-                                                    {BUDGET_VALUES.map((opt) => (
-                                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                                    ))}
-                                                </select>
-
-                                                <span style={{ color: '#94a3b8', fontWeight: 600 }}>-</span>
-
-                                                {/* Max Budget */}
-                                                <select
-                                                    value={formData.budgetMax}
-                                                    onChange={(e) => handleInputChange('budgetMax', e.target.value)}
-                                                    style={{ ...customSelectStyle, flex: 1 }}
-                                                    disabled={!formData.budgetMin} // Disable if Min not selected
-                                                >
-                                                    <option value="">Max</option>
-                                                    {BUDGET_VALUES
-                                                        .filter(opt => !formData.budgetMin || opt.value > Number(formData.budgetMin))
-                                                        .map((opt) => (
-                                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                                        ))
-                                                    }
-                                                </select>
-                                            </div>
-                                        </div>
-
-                                        {/* Row 2: Transaction Type & Funding */}
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', alignItems: 'start' }}>
-                                            <div>
-                                                <label style={{ fontSize: '0.8rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>Transaction Type</label>
-                                                <select
-                                                    value={formData.transactionType}
-                                                    onChange={(e) => handleInputChange('transactionType', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Type</option>
-                                                    <option value="Collector Rate">Collector Rate</option>
-                                                    <option value="Full White">Full White</option>
-                                                    <option value="Flexible">Flexible</option>
-                                                </select>
-
-                                                {/* Percentage Input for Flexible */}
-                                                {formData.transactionType === 'Flexible' && (
-                                                    <div style={{ marginTop: '12px' }}>
-                                                        <label style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px', display: 'block' }}>White Portion (%)</label>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                            <input
-                                                                type="range"
-                                                                min="0"
-                                                                max="100"
-                                                                step="5"
-                                                                value={formData.whitePortion || 50}
-                                                                onChange={(e) => handleInputChange('whitePortion', e.target.value)}
-                                                                style={{ flex: 1, accentColor: '#3b82f6' }}
-                                                            />
-                                                            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#3b82f6', width: '40px', textAlign: 'right' }}>
-                                                                {formData.whitePortion || 50}%
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Funding - Standalone Dropdown */}
-                                            <div>
-                                                <label style={{ fontSize: '0.8rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>Funding</label>
-                                                <select
-                                                    value={formData.funding}
-                                                    onChange={(e) => handleInputChange('funding', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Funding</option>
-                                                    <option value="Home Loan">Home Loan</option>
-                                                    <option value="Self Funding">Self Funding</option>
-                                                    <option value="Loan Against Property">Loan Against Property</option>
-                                                    <option value="Personal Loan">Personal Loan</option>
-                                                    <option value="Business Loan">Business Loan</option>
-                                                </select>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Other Specifics Grid - Moved Below Transaction */}
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '16px' }}>
-                                        <div>
-                                            <h4 style={labelStyle}>Furnishing</h4>
-                                            <select
-                                                value={formData.furnishing}
-                                                onChange={(e) => handleInputChange('furnishing', e.target.value)}
-                                                style={customSelectStyle}
-                                            >
-                                                <option value="">Any</option>
-                                                <option value="Unfurnished">Unfurnished</option>
-                                                <option value="Semi-Furnished">Semi-Furnished</option>
-                                                <option value="Fully-Furnished">Fully-Furnished</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <h4 style={labelStyle}>Timeline</h4>
-                                            <select
-                                                value={formData.timeline}
-                                                onChange={(e) => handleInputChange('timeline', e.target.value)}
-                                                style={customSelectStyle}
-                                            >
-                                                <option value="">Any</option>
-                                                <option value="Immediate">Immediate</option>
-                                                <option value="Within 3 Months">Within 3 Months</option>
-                                                <option value="Within 6 Months">Within 6 Months</option>
-                                                <option value="More than 6 Months">More than 6 Months</option>
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    <div style={{ marginTop: '16px' }}>
-                                        <label style={{ fontSize: '0.8rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>Send Matched Deals via</label>
-                                        <CustomMultiSelect
-                                            options={['WhatsApp', 'Message', 'RCS Message', 'Mail']}
-                                            value={formData.sendMatchedDeal}
-                                            onChange={(val) => handleInputChange('sendMatchedDeal', val)}
-                                            placeholder="Select Channels"
-                                        />
-                                    </div>
-                                </div>
-
-                            </div>
-
-                        ) : currentTab === 'location' ? (
-
-                            <div className="no-scrollbar">
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-
-                                    {/* Toggle Mode */}
-                                    <div style={{ display: 'flex', justifyContent: 'center' }}>
-                                        <div style={{ background: '#f8fafc', padding: '4px', borderRadius: '12px', display: 'flex', gap: '8px', border: '1px solid #e2e8f0' }}>
-                                            <button
-                                                type="button"
-                                                onClick={() => setLocationTab('search')}
-                                                style={{
-                                                    padding: '10px 24px',
-                                                    borderRadius: '8px',
-                                                    border: locationTab === 'search' ? '1px solid #3b82f6' : '1px solid transparent',
-                                                    background: locationTab === 'search' ? '#eff6ff' : 'transparent',
-                                                    color: locationTab === 'search' ? '#2563eb' : '#64748b',
-                                                    fontWeight: 600,
-                                                    boxShadow: locationTab === 'search' ? '0 1px 2px rgba(59, 130, 246, 0.1)' : 'none',
-                                                    cursor: 'pointer',
-                                                    transition: 'all 0.2s',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '8px',
-                                                    fontSize: '0.9rem'
-                                                }}
-                                            >
-                                                <i className="fas fa-map-marker-alt"></i>
-                                                Search Location
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setLocationTab('select')}
-                                                style={{
-                                                    padding: '10px 24px',
-                                                    borderRadius: '8px',
-                                                    border: locationTab === 'select' ? '1px solid #3b82f6' : '1px solid transparent',
-                                                    background: locationTab === 'select' ? '#eff6ff' : 'transparent',
-                                                    color: locationTab === 'select' ? '#2563eb' : '#64748b',
-                                                    fontWeight: 600,
-                                                    boxShadow: locationTab === 'select' ? '0 1px 2px rgba(59, 130, 246, 0.1)' : 'none',
-                                                    cursor: 'pointer',
-                                                    transition: 'all 0.2s',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '8px',
-                                                    fontSize: '0.9rem'
-                                                }}
-                                            >
-                                                <i className="fas fa-building"></i>
-                                                Select Project
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {locationTab === 'search' ? (
-                                        <div style={sectionCardStyle}>
-                                            <h4 style={labelStyle}>Search Location</h4>
-
-                                            {/* Row 1: Search Location (Flex Grow) + Range (Fixed) */}
-                                            <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', alignItems: 'flex-start' }}>
-                                                <div style={{ flex: 1 }}>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Search Location</label>
-                                                    <input
-                                                        ref={searchInputRef}
-                                                        type="text"
-                                                        value={formData.searchLocation}
-                                                        onChange={(e) => handleInputChange('searchLocation', e.target.value)}
-                                                        placeholder="Search area, city or landmark..."
-                                                        style={{ ...inputStyle, paddingLeft: '32px', backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%2394a3b8\' stroke-width=\'2\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' d=\'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z\' /%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: '10px center', backgroundSize: '16px' }}
-                                                    />
-                                                </div>
-                                                <div style={{ width: '140px' }}>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Range</label>
-                                                    <select
-                                                        value={formData.range}
-                                                        onChange={(e) => handleInputChange('range', e.target.value)}
-                                                        style={customSelectStyle}
-                                                    >
-                                                        <option value="0 km">Exact</option>
-                                                        <option value="Within 1 km">0-1 km</option>
-                                                        <option value="Within 2 km">0-2 km</option>
-                                                        <option value="Within 5 km">0-5 km</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-
-                                            {/* Row 2: Street/Road/Landmark Address (New Field) */}
-                                            <div style={{ marginBottom: '20px' }}>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Street/Road/Landmark Address</label>
-                                                <input
-                                                    type="text"
-                                                    value={formData.streetAddress}
-                                                    onChange={(e) => handleInputChange('streetAddress', e.target.value)}
-                                                    placeholder="Enter street name, road no, or landmark"
-                                                    style={inputStyle}
-                                                />
-                                            </div>
-
-                                            {/* Row 3: Location/Sector & Area (Equal Size) */}
-                                            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '20px', marginBottom: '20px' }}>
-                                                <div>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Location/Sector</label>
-                                                    <input type="text" value={formData.locArea} onChange={(e) => handleInputChange('locArea', e.target.value)} style={inputStyle} />
-                                                </div>
-                                                <div>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Area</label>
-                                                    <input
-                                                        ref={areaInputRef}
-                                                        type="text"
-                                                        value={formData.areaSearch}
-                                                        onChange={(e) => handleInputChange('areaSearch', e.target.value)}
-                                                        placeholder="Search area..."
-                                                        style={inputStyle}
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            {/* Row 4: City, State, Pin Code (Equal Size) */}
-                                            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', gap: '20px' }}>
-                                                <div>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>City</label>
-                                                    <input type="text" value={formData.locCity} onChange={(e) => handleInputChange('locCity', e.target.value)} style={inputStyle} />
-                                                </div>
-                                                <div>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>State</label>
-                                                    <input type="text" value={formData.locState} onChange={(e) => handleInputChange('locState', e.target.value)} style={inputStyle} />
-                                                </div>
-                                                <div>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Pin Code</label>
-                                                    <input type="text" value={formData.locPinCode} onChange={(e) => handleInputChange('locPinCode', e.target.value)} style={inputStyle} />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div style={sectionCardStyle}>
-                                            <h4 style={labelStyle}>Select Project</h4>
-
-                                            {/* City Selection (Single) */}
-                                            <div style={{ marginBottom: '20px' }}>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>City</label>
-                                                <select
-                                                    value={formData.projectCity}
-                                                    onChange={(e) => handleProjectCityChange(e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select City</option>
-                                                    {CITIES.map(city => (
-                                                        <option key={city} value={city}>{city}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-
-                                            {/* Project Selection (Multi, Dependent on City) */}
-                                            <div style={{ marginBottom: '20px' }}>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Project Name</label>
-                                                <CustomMultiSelect
-                                                    options={availableProjects}
-                                                    value={formData.projectName}
-                                                    onChange={handleProjectSelectionChange}
-                                                    placeholder={formData.projectCity ? "Select Projects" : "Select City First"}
-                                                    disabled={!formData.projectCity}
-                                                />
-                                            </div>
-
-                                            {/* Block/Tower Selection (Multi, Dependent on Project) */}
-                                            <div style={{ marginBottom: '20px' }}>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Block/Tower</label>
-                                                <CustomMultiSelect
-                                                    options={availableTowers}
-                                                    value={formData.projectTowers}
-                                                    onChange={(val) => handleInputChange('projectTowers', val)} // Simple update
-                                                    placeholder={formData.projectName.length > 0 ? "Select Towers" : "Select Project First"}
-                                                    disabled={formData.projectName.length === 0}
-                                                />
-                                            </div>
-
-                                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'spaceBetween', alignItems: 'center', marginBottom: '16px' }}>
-                                                    <h5 style={{ margin: 0, fontSize: '0.9rem', color: '#334155' }}>Specific Units</h5>
-                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#64748b', cursor: 'pointer' }}>
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={showSpecificUnit}
-                                                            onChange={(e) => setShowSpecificUnit(e.target.checked)}
-                                                        />
-                                                        I have specific unit numbers
-                                                    </label>
-                                                </div>
-
-                                                {showSpecificUnit && (
-                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Unit Type</label>
-                                                            <select
-                                                                value={formData.specificUnitType}
-                                                                onChange={(e) => handleInputChange('specificUnitType', e.target.value)}
-                                                                style={customSelectStyle}
-                                                            >
-                                                                <option value="single">Single Unit</option>
-                                                                <option value="row">Row/Multiple</option>
-                                                            </select>
-                                                        </div>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Unit No. (Start)</label>
-                                                            <input
-                                                                type="text"
-                                                                value={formData.propertyNo}
-                                                                onChange={(e) => handleInputChange('propertyNo', e.target.value)}
-                                                                placeholder="e.g. 101"
-                                                                style={inputStyle}
-                                                            />
-                                                        </div>
-                                                        {formData.specificUnitType === 'row' && (
-                                                            <div>
-                                                                <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Unit No. (End)</label>
-                                                                <input
-                                                                    type="text"
-                                                                    value={formData.propertyNoEnd}
-                                                                    onChange={(e) => handleInputChange('propertyNoEnd', e.target.value)}
-                                                                    placeholder="e.g. 110"
-                                                                    style={inputStyle}
-                                                                />
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Orientation Section (Common) */}
-                                    <div style={sectionCardStyle}>
-                                        <h4 style={labelStyle}>Orientation & Placement</h4>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-
-                                            {/* direction */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Direction</label>
-                                                <CustomMultiSelect
-                                                    options={DIRECTION_OPTIONS}
-                                                    value={formData.direction || []}
-                                                    onChange={(val) => handleInputChange('direction', val)}
-                                                    placeholder="Select Direction"
-                                                />
-                                            </div>
-
-                                            {/* facing */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Facing</label>
-                                                <CustomMultiSelect
-                                                    options={FACING_OPTIONS}
-                                                    value={formData.facing}
-                                                    onChange={(val) => handleInputChange('facing', val)}
-                                                    placeholder="Select Facing Attributes"
-                                                />
-                                            </div>
-
-                                            {/* roadWidth */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Road Width</label>
-                                                <CustomMultiSelect
-                                                    options={ROAD_WIDTH_OPTIONS}
-                                                    value={formData.roadWidth || []}
-                                                    onChange={(val) => handleInputChange('roadWidth', val)}
-                                                    placeholder="Select Road Widths"
-                                                />
-                                            </div>
-
-                                            {/* propertyUnitType */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Property Unit Type</label>
-                                                <CustomMultiSelect
-                                                    options={PROPERTY_UNIT_TYPE_OPTIONS}
-                                                    value={formData.propertyUnitType || []}
-                                                    onChange={(val) => handleInputChange('propertyUnitType', val)}
-                                                    placeholder="Select Unit Type"
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
                         ) : currentTab === 'personal' ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                                 {/* Personal Basic Info */}
@@ -1990,7 +1227,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                                 </div>
 
                                 {/* Address Details Card (Unified) */}
-                                {(!showOnlyRequired && entityType !== 'lead') && (
+                                {(!showOnlyRequired) && (
                                     <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
                                             <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -2451,12 +1688,12 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                         <button onClick={onClose} style={buttonStyle.cancel}>Cancel</button>
                         <div style={{ display: 'flex', gap: '12px' }}>
                             {/* Previous Button - Hide on first tab */}
-                            {((entityType === 'lead' && currentTab !== 'requirement') || (entityType !== 'lead' && currentTab !== 'basic')) && (
+                            {(currentTab !== 'basic') && (
                                 <button onClick={handlePrev} style={buttonStyle.secondary}>Previous</button>
                             )}
 
                             {/* Next/Save Button */}
-                            {((entityType === 'lead' && currentTab !== 'basic') || (entityType !== 'lead' && currentTab !== 'other')) && !showOnlyRequired ? (
+                            {(currentTab !== 'other' && !showOnlyRequired) ? (
                                 <button onClick={handleNext} style={buttonStyle.primary}>Next</button>
                             ) : (
                                 <button onClick={handleSave} style={buttonStyle.success}>Save</button>

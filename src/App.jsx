@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Toaster } from 'react-hot-toast';
 import AppRouter from './router/AppRouter';
 import MainLayout from './layouts/MainLayout';
 
@@ -64,16 +65,19 @@ function App() {
     }, []);
 
     return (
-        <MainLayout currentView={currentView} onNavigate={handleNavigate}>
-            {(modalHandlers) => (
-                <AppRouter
-                    currentView={currentView}
-                    currentContactId={currentContactId}
-                    onNavigate={handleNavigate}
-                    {...modalHandlers}
-                />
-            )}
-        </MainLayout>
+        <>
+            <Toaster position="top-right" />
+            <MainLayout currentView={currentView} onNavigate={handleNavigate}>
+                {(modalHandlers) => (
+                    <AppRouter
+                        currentView={currentView}
+                        currentContactId={currentContactId}
+                        onNavigate={handleNavigate}
+                        {...modalHandlers}
+                    />
+                )}
+            </MainLayout>
+        </>
     );
 }
 

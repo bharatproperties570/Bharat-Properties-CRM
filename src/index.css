@@ -59,13 +59,39 @@ body {
 /* Sidebar - Same Dark style from sample */
 .sidebar {
     width: 60px;
-    /* Slim sidebar */
+    height: 100vh;
+    /* Full view height */
     background: var(--sidebar-bg);
     display: flex;
     flex-direction: column;
     align-items: center;
     padding: 1rem 0;
     z-index: 1000;
+    position: sticky;
+    top: 0;
+    overflow-y: auto; /* Allow scrolling if menu is tall */
+    flex-shrink: 0; /* Prevent shrinking */
+}
+
+/* Hide scrollbar for sidebar */
+.sidebar::-webkit-scrollbar {
+    display: none;
+}
+
+.sidebar-menu {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    flex: 1; /* Take available space */
+}
+
+.sidebar-footer {
+    margin-top: auto; /* Push to bottom */
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    padding-top: 1rem;
 }
 
 .sidebar-icon {
