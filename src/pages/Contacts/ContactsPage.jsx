@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import api from '../../api'; // Import API
+import api from '../../../api'; // Import API
 import { getInitials, getSourceBadgeClass } from '../../utils/helpers';
 import { useContactSync } from '../../hooks/useContactSync';
 import SendMailModal from './components/SendMailModal';
@@ -106,9 +106,9 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
     const { getSyncStatus, syncMultipleContacts } = useContactSync();
 
     // Selection Handling
-    const toggleSelect = (mobile) => {
+    const toggleSelect = (id) => {
         setSelectedIds(prev =>
-            prev.includes(mobile) ? prev.filter(id => id !== mobile) : [...prev, mobile]
+            prev.includes(id) ? prev.filter(id => id !== id) : [...prev, id ]
         );
     };
 
@@ -117,11 +117,11 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
         if (selectedIds.length === contacts.length && contacts.length > 0) {
             setSelectedIds([]);
         } else {
-            setSelectedIds(contacts.map(c => c.mobile));
+            setSelectedIds(contacts.map(c => c._id));
         }
     };
 
-    const isSelected = (mobile) => selectedIds.includes(mobile);
+    const isSelected = (_id) => selectedIds.includes(_id);
     const totalCount = totalRecords;
     const selectedCount = selectedIds.length;
 
@@ -483,8 +483,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                                 <input
                                                     type="checkbox"
                                                     className="item-check"
-                                                    checked={isSelected(item?.phones?.[0]?.number || item.mobile)}
-                                                    onChange={() => toggleSelect(item?.phones?.[0]?.number || item.mobile)}
+                                                    checked={isSelected(item?._id)}
+                                                    onChange={() => toggleSelect(item?._id)}
                                                 />
                                                 <div className="col-identity">
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
@@ -664,10 +664,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                             </div>
                                             <input
                                                 type="checkbox"
-                                                checked={isSelected(item?.phones?.[0]?.number || item.mobile)}
+                                                checked={isSelected(item?._id)}
                                                 onChange={(e) => {
                                                     e.stopPropagation();
-                                                    toggleSelect(item?.phones?.[0]?.number || item.mobile);
+                                                    toggleSelect(item?._id);
                                                 }}
                                                 style={{ width: '16px', height: '16px', cursor: 'pointer', flexShrink: 0 }}
                                             />

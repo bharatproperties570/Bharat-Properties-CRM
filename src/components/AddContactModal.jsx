@@ -572,7 +572,10 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
     const handleSave = async () => {
         const toastId = toast.loading('Adding contact...');
         try {
+             console.log("API BASE URL:", api.defaults.baseURL);
             const response = await api.post("add-contact", formData);
+           
+
 
             if (response.data && response.data.success) {
                 toast.success('Contact added successfully!', { id: toastId });

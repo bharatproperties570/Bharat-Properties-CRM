@@ -1333,11 +1333,12 @@ body {
 /* Hardened Action Bar */
 .contact-list-grid {
     display: grid;
-    grid-template-columns: 40px 250px 280px 170px 140px 170px 180px 160px;
+    grid-template-columns: 40px minmax(220px, 1.5fr) minmax(200px, 1.2fr) minmax(150px, 1fr) minmax(140px, 0.8fr) minmax(130px, 0.8fr) minmax(160px, 1fr) 100px;
     gap: 16px;
     align-items: center;
     padding: 12px 20px;
-    min-width: 1390px;
+    min-width: 100%;
+    /* Ensure it fills available space but allows compression */
 }
 
 .lead-list-grid {
