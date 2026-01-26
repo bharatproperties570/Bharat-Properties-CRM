@@ -9,6 +9,14 @@ import MessagingSettingsPage from './views/MessagingSettingsPage';
 import IntegrationsSettingsPage from './views/IntegrationsSettingsPage';
 import ScoringSettingsPage from './views/ScoringSettingsPage';
 import PropertySettingsPage from './views/PropertySettingsPage';
+import ContactSettingsPage from './views/ContactSettingsPage';
+import CustomizeProjectPage from './views/CustomizeProjectPage';
+import CustomizeLeadPage from './views/CustomizeLeadPage';
+
+import CustomizeCompanyPage from './views/CustomizeCompanyPage';
+import ActivitySettingsPage from './views/ActivitySettingsPage';
+
+
 
 // --- Sub-Components (Defined Outside to prevent re-creation crashes) ---
 
@@ -331,7 +339,7 @@ const SettingsHubPage = () => {
         { title: 'Manage', items: [{ id: 'users', label: 'Users' }, { id: 'notifications', label: 'Notifications' }, { id: 'sales-goals', label: 'Sales goals' }] },
         { title: 'Data', items: [{ id: 'import', label: 'Import' }, { id: 'bulk-update', label: 'Bulk update' }, { id: 'export', label: 'Export' }, { id: 'lead-capture', label: 'Lead capture' }, { id: 'duplicate-mgt', label: 'Duplicate management' }, { id: 'enrichment', label: 'Prospecting and enrichment' }] },
         { title: 'Communication channels', items: [{ id: 'email', label: 'Email' }, { id: 'calls', label: 'Calls' }, { id: 'messaging', label: 'Messaging' }] },
-        { title: 'Customize', items: [{ id: 'leads-c', label: 'Leads' }, { id: 'contacts-c', label: 'Contacts' }, { id: 'properties-c', label: 'Properties' }, { id: 'templates', label: 'templates' }, { id: 'task-c', label: 'Task' }] },
+        { title: 'Customize', items: [{ id: 'company-c', label: 'Company' }, { id: 'project-c', label: 'Project' }, { id: 'leads-c', label: 'Leads' }, { id: 'contacts-c', label: 'Contacts' }, { id: 'properties-c', label: 'Properties' }, { id: 'deals-c', label: 'Deals' }, { id: 'task-c', label: 'Activities' }] },
         { title: 'Notes', items: [{ id: 'post-sales', label: 'Post Sales' }, { id: 'layouts', label: 'Layouts' }] },
         { title: 'Integrations', items: [{ id: 'integrations', label: 'Integrations' }, { id: 'api', label: 'API' }] },
         { title: 'Business rules', items: [{ id: 'field-rules', label: 'Field rules' }, { id: 'distributions', label: 'Distributions' }, { id: 'sequences', label: 'Sequences' }, { id: 'automated-actions', label: 'Automated actions' }, { id: 'triggers', label: 'Triggers' }, { id: 'scoring', label: 'Scoring' }] }
@@ -396,8 +404,18 @@ const SettingsHubPage = () => {
                         <IntegrationsSettingsPage />
                     ) : activeTab === 'scoring' ? (
                         <ScoringSettingsPage />
+                    ) : activeTab === 'company-c' ? (
+                        <CustomizeCompanyPage />
+                    ) : activeTab === 'project-c' ? (
+                        <CustomizeProjectPage />
+                    ) : activeTab === 'leads-c' ? (
+                        <CustomizeLeadPage />
                     ) : activeTab === 'properties-c' ? (
                         <PropertySettingsPage />
+                    ) : activeTab === 'contacts-c' ? (
+                        <ContactSettingsPage />
+                    ) : activeTab === 'task-c' ? (
+                        <ActivitySettingsPage />
                     ) : (
                         <EmptyState title={currentLabel} />
                     )}

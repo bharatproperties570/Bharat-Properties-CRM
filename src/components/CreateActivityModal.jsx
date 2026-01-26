@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { contactData } from '../data/mockData';
 import { PROJECT_DATA } from '../data/projectData';
+import { usePropertyConfig } from '../context/PropertyConfigContext';
 
 const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
+    const { activityMasterFields } = usePropertyConfig();
     const [formData, setFormData] = useState({
         activityType: 'Call',
         subject: '',
@@ -346,11 +348,11 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                 <div style={colStyle}>
                     <label style={labelStyle}>Call Purpose</label>
                     <select name="callPurpose" value={formData.callPurpose} onChange={handleChange} style={customSelectStyle(false)}>
-                        <option value="Prospecting">Prospecting</option>
-                        <option value="Follow-up">Follow-up</option>
-                        <option value="Negotiation">Negotiation</option>
-                        <option value="Support">Support</option>
-                        <option value="Other">Other</option>
+                        <option value="">Select Purpose</option>
+                        {(() => {
+                            const callAct = activityMasterFields?.activities?.find(a => a.name === 'Call');
+                            return (callAct?.purposes || []).map(p => <option key={p.name} value={p.name}>{p.name}</option>);
+                        })()}
                     </select>
                 </div>
                 <div style={colStyle}>
@@ -435,16 +437,10 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                 <label style={labelStyle}>Agenda</label>
                 <select name="agenda" value={formData.agenda} onChange={handleChange} style={customSelectStyle(false)}>
                     <option value="">Select Agenda</option>
-                    <option value="First Meeting / Introduction">First Meeting / Introduction</option>
-                    <option value="Project Presentation">Project Presentation</option>
-                    <option value="Site Visit / Property Tour">Site Visit / Property Tour</option>
-                    <option value="Price Negotiation">Price Negotiation</option>
-                    <option value="Document Signing / Collection">Document Signing / Collection</option>
-                    <option value="Payment Collection / Follow-up">Payment Collection / Follow-up</option>
-                    <option value="Handover / Possession">Handover / Possession</option>
-                    <option value="Legal / Loan Consultation">Legal / Loan Consultation</option>
-                    <option value="Complaint Resolution">Complaint Resolution</option>
-                    <option value="Other">Other</option>
+                    {(() => {
+                        const meetAct = activityMasterFields?.activities?.find(a => a.name === 'Meeting');
+                        return (meetAct?.purposes || []).map(p => <option key={p.name} value={p.name}>{p.name}</option>);
+                    })()}
                 </select>
             </div>
         </div>
@@ -589,10 +585,11 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                             onChange={handleChange}
                             style={customSelectStyle(errors.visitType)}
                         >
-                            <option value="Site Visit">Site Visit</option>
-                            <option value="Re Visit">Re Visit</option>
-                            <option value="Sample Visit">Sample Visit</option>
-                            <option value="Virtual Tour">Virtual Tour</option>
+                            <option value="">Select Type</option>
+                            {(() => {
+                                const visitAct = activityMasterFields?.activities?.find(a => a.name === 'Site Visit');
+                                return (visitAct?.purposes || []).map(p => <option key={p.name} value={p.name}>{p.name}</option>);
+                            })()}
                         </select>
                     </div>
                     <div style={{ flex: 1 }}>
@@ -736,12 +733,11 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                 <div style={colStyle}>
                     <label style={labelStyle}>Email Purpose</label>
                     <select name="emailPurpose" value={formData.emailPurpose} onChange={handleChange} style={customSelectStyle(false)}>
-                        <option value="Prospecting">Prospecting</option>
-                        <option value="Follow-up">Follow-up</option>
-                        <option value="Negotiation">Negotiation</option>
-                        <option value="Support">Support</option>
-                        <option value="Updates">Project Updates</option>
-                        <option value="Other">Other</option>
+                        <option value="">Select Purpose</option>
+                        {(() => {
+                            const emailAct = activityMasterFields?.activities?.find(a => a.name === 'Email');
+                            return (emailAct?.purposes || []).map(p => <option key={p.name} value={p.name}>{p.name}</option>);
+                        })()}
                     </select>
                 </div>
                 <div style={colStyle}>
@@ -800,11 +796,11 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                         </div>
                     </div>
 
-                    {/* Call Outcome - Stacked */}
+                    {/* Call Status - Fixed Options */}
                     <div style={{ marginBottom: '16px' }}>
-                        <label style={labelStyle}>Call Outcome <span style={{ color: '#ef4444' }}>*</span></label>
+                        <label style={labelStyle}>Call Status <span style={{ color: '#ef4444' }}>*</span></label>
                         <select name="callOutcome" value={formData.callOutcome} onChange={handleChange} style={customSelectStyle(errors.callOutcome)}>
-                            <option value="">Select Outcome</option>
+                            <option value="">Select Status</option>
                             <option value="Connected">Answered / Connected</option>
                             <option value="No Answer">No Answer</option>
                             <option value="Busy">Busy</option>
@@ -814,17 +810,17 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                         {errors.callOutcome && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.callOutcome}</span>}
                     </div>
 
-                    {/* Result - Stacked (Conditional) */}
+                    {/* Result - Dynamic & Conditional (Only if Connected) */}
                     {formData.callOutcome === 'Connected' && (
                         <div className="animate-fade-in" style={{ marginBottom: '16px' }}>
-                            <label style={labelStyle}>Result <span style={{ color: '#ef4444' }}>*</span></label>
+                            <label style={labelStyle}>Call Result <span style={{ color: '#ef4444' }}>*</span></label>
                             <select name="completionResult" value={formData.completionResult} onChange={handleChange} style={customSelectStyle(errors.completionResult)}>
                                 <option value="">Select Result</option>
-                                <option value="Interested">Interested</option>
-                                <option value="Not Interested">Not Interested</option>
-                                <option value="Follow Up Required">Follow Up Required</option>
-                                <option value="Meeting Scheduled">Meeting Scheduled</option>
-                                <option value="Sale Closed">Sale Closed</option>
+                                {(() => {
+                                    const callAct = activityMasterFields?.activities?.find(a => a.name === 'Call');
+                                    const purpose = callAct?.purposes?.find(p => p.name === formData.callPurpose);
+                                    return (purpose?.outcomes || []).map(o => <option key={o} value={o}>{o}</option>);
+                                })()}
                             </select>
                             {errors.completionResult && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.completionResult}</span>}
                         </div>
@@ -878,29 +874,18 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
 
                         <div style={rowStyle}>
                             <div style={colStyle}>
-                                <label style={labelStyle}>Status <span style={{ color: '#ef4444' }}>*</span></label>
+                                <label style={labelStyle}>Status / Result <span style={{ color: '#ef4444' }}>*</span></label>
                                 <select name="meetingOutcomeStatus" value={formData.meetingOutcomeStatus} onChange={handleChange} style={customSelectStyle(errors.meetingOutcomeStatus)}>
-                                    <option value="">Select Status</option>
-                                    <option value="Conducted">Conducted</option>
-                                    <option value="Rescheduled">Rescheduled</option>
-                                    <option value="Cancelled">Cancelled</option>
-                                    <option value="No Show">No Show</option>
+                                    <option value="">Select Result</option>
+                                    {(() => {
+                                        const meetAct = activityMasterFields?.activities?.find(a => a.name === 'Meeting');
+                                        const purpose = meetAct?.purposes?.find(p => p.name === formData.agenda);
+                                        return (purpose?.outcomes || []).map(o => <option key={o} value={o}>{o}</option>);
+                                    })()}
                                 </select>
                                 {errors.meetingOutcomeStatus && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.meetingOutcomeStatus}</span>}
                             </div>
-                            <div style={colStyle}>
-                                <label style={labelStyle}>Result <span style={{ color: '#ef4444' }}>*</span></label>
-                                <select name="completionResult" value={formData.completionResult} onChange={handleChange} style={customSelectStyle(errors.completionResult)}>
-                                    <option value="">Select Result</option>
-                                    <option value="Interested">Interested</option>
-                                    <option value="Not Interested">Not Interested</option>
-                                    <option value="Token Received">Token Received</option>
-                                    <option value="Follow-up Required">Follow-up Required</option>
-                                    <option value="Negotiation in Progress">Negotiation in Progress</option>
-                                    <option value="Dropped">Dropped</option>
-                                </select>
-                                {errors.completionResult && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.completionResult}</span>}
-                            </div>
+                            {/* Completion Result merged into Status/Result */}
                         </div>
 
                         <div style={rowStyle}>
@@ -976,6 +961,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                             <div style={colStyle}>
                                 <label style={labelStyle}>Status <span style={{ color: '#ef4444' }}>*</span></label>
                                 <select name="meetingOutcomeStatus" value={formData.meetingOutcomeStatus} onChange={handleChange} style={customSelectStyle(errors.meetingOutcomeStatus)}>
+                                    {/* Default options for process status, can also be dynamic if needed, but user asked for Result */}
                                     <option value="">Select Status</option>
                                     <option value="Conducted">Conducted</option>
                                     <option value="Rescheduled">Rescheduled</option>
@@ -1026,15 +1012,11 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                                                     }}
                                                 >
                                                     <option value="">Select Result</option>
-                                                    <option value="Interested in Project">Interested in Project</option>
-                                                    <option value="Interested in Specific Unit">Interested in Specific Unit</option>
-                                                    <option value="Visited Sample Flat">Visited Sample Flat</option>
-                                                    <option value="Token / Advance Received">Token / Advance Received</option>
-                                                    <option value="Negotiation in Progress">Negotiation in Progress</option>
-                                                    <option value="Comparison Mode">Comparison Mode</option>
-                                                    <option value="Not Interested / Budget Issue">Not Interested / Budget Issue</option>
-                                                    <option value="Not Interested / Location Issue">Not Interested / Location Issue</option>
-                                                    <option value="Follow-up Required">Follow-up Required</option>
+                                                    {(() => {
+                                                        const visitAct = activityMasterFields?.activities?.find(a => a.name === 'Site Visit');
+                                                        const purpose = visitAct?.purposes?.find(p => p.name === formData.visitType);
+                                                        return (purpose?.outcomes || []).map(o => <option key={o} value={o}>{o}</option>);
+                                                    })()}
                                                 </select>
                                                 {errors[`prop_${idx}_result`] && <span style={{ fontSize: '0.7rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors[`prop_${idx}_result`]}</span>}
                                             </div>
@@ -1154,10 +1136,12 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                                     onChange={handleChange}
                                     style={customSelectStyle(errors.mailStatus)}
                                 >
-                                    <option value="">---Select---</option>
-                                    {['Read', 'Delivered', 'Undelivered', 'Bounced', 'Sent & Replied', 'Sent', 'No Response', 'Read & Replied', 'Unread', 'Replied', 'Read Only', 'Ignored', 'Clicked', 'Downloaded', 'Opened'].map(s => (
-                                        <option key={s} value={s}>{s}</option>
-                                    ))}
+                                    <option value="">Select Result</option>
+                                    {(() => {
+                                        const emailAct = activityMasterFields?.activities?.find(a => a.name === 'Email');
+                                        const purpose = emailAct?.purposes?.find(p => p.name === formData.emailPurpose);
+                                        return (purpose?.outcomes || []).map(o => <option key={o} value={o}>{o}</option>);
+                                    })()}
                                 </select>
                                 {errors.mailStatus && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.mailStatus}</span>}
                             </div>

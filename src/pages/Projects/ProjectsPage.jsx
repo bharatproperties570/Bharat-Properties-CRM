@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { PROJECTS_LIST } from '../../data/projectData';
+import AddProjectModal from '../../components/AddProjectModal';
 
 function ProjectsPage() {
     const [searchTerm, setSearchTerm] = useState('');
@@ -7,12 +8,12 @@ function ProjectsPage() {
 
     const projectsData = PROJECTS_LIST;
 
-    const toggleSelect = (id) => {
-        if (selectedIds.includes(id)) {
-            setSelectedIds(selectedIds.filter(v => v !== id));
-        } else {
-            setSelectedIds([...selectedIds, id]);
-        }
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+
+    const handleSaveProject = (projectData) => {
+        console.log("Saving project:", projectData);
+        setIsAddModalOpen(false);
+        // Here you would typically dispatch an action or call an API to save the project
     };
 
     return (
@@ -30,6 +31,13 @@ function ProjectsPage() {
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                        <button
+                            className="btn-primary"
+                            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                            onClick={() => setIsAddModalOpen(true)}
+                        >
+                            <i className="fas fa-plus"></i> Add Project
+                        </button>
                         <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <i className="fas fa-file-export"></i> Export Report
                         </button>
@@ -203,6 +211,7 @@ function ProjectsPage() {
                         ))}
                     </div>
                 </div>
+
             </div>
 
             <footer className="summary-footer" style={{ height: '60px', padding: '0 2rem' }}>
@@ -230,6 +239,12 @@ function ProjectsPage() {
                     </div>
                 </div>
             </footer>
+
+            <AddProjectModal
+                isOpen={isAddModalOpen}
+                onClose={() => setIsAddModalOpen(false)}
+                onSave={handleSaveProject}
+            />
         </section>
     );
 }

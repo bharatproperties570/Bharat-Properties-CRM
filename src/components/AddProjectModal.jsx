@@ -96,11 +96,32 @@ const MultiSelect = ({ options, selected, onChange, placeholder = "Select..." })
 
 
 function AddProjectModal({ isOpen, onClose, onSave }) {
-    const { masterFields } = usePropertyConfig();
+    const context = usePropertyConfig();
+    const { masterFields, projectMasterFields, projectAmenities } = context;
+    const projectMasterFieldsSafe = projectMasterFields || {};
     const [isLoading, setIsLoading] = useState(true);
     const [hasPermission, setHasPermission] = useState(false);
     const [activeTab, setActiveTab] = useState('Basic');
     const [amenityTab, setAmenityTab] = useState('Basic');
+    const [amenitySearch, setAmenitySearch] = useState('');
+
+    // Safe access to projectAmenities
+    const amenitiesSafe = projectAmenities || {};
+
+    // Derived Amenity Lists from Context
+    const basicAmenities = (amenitiesSafe['Basic'] || []).map(a => a.name);
+    const featuredAmenities = (amenitiesSafe['Featured'] || []).map(a => a.name);
+    const nearbyAmenities = (amenitiesSafe['Nearby'] || []).map(a => a.name);
+
+    // Create a lookup for icons for rendering
+    const AMENITY_ICON_LOOKUP = {};
+    if (projectAmenities) {
+        Object.values(projectAmenities).flat().forEach(a => {
+            if (a && a.name) {
+                AMENITY_ICON_LOOKUP[a.name] = a.icon;
+            }
+        });
+    }
 
     // Comprehensive State
     const [formData, setFormData] = useState({
@@ -211,51 +232,13 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
         possessionDate: ''
     });
 
-    const [amenitySearch, setAmenitySearch] = useState('');
+
 
     const modalRef = useRef(null);
     const searchInputRef = useRef(null);
     const canCreateProject = usePermission('create_project');
 
-    // --- Amenities Icon Mapping ---
-    const AMENITY_ICONS = {
-        'Car Parking': 'fa-car', 'Intercom': 'fa-phone-alt', 'Multi-Purpose Hall': 'fa-users',
-        '24x7 Water Supply': 'fa-tint', 'Municipal Water Supply': 'fa-faucet', 'Garbage Management System': 'fa-trash-alt',
-        'Fire Fighting System': 'fa-fire-extinguisher', 'Visitor Car Parking': 'fa-car-side', 'Earthquake Resistance': 'fa-house-damage',
-        'Lift': 'fa-elevator', 'Maintenance Staff': 'fa-concierge-bell', 'Power Supply': 'fa-bolt', 'Air Condition': 'fa-snowflake',
-        'Security': 'fa-shield-alt', 'Bike Parking': 'fa-motorcycle', 'Others': 'fa-ellipsis-h', 'Senior Citizen Corner': 'fa-blind',
-        'Worship Place': 'fa-place-of-worship', 'HAVC System': 'fa-fan', 'Cricket Pitch': 'fa-baseball-ball', 'Two Tier Security': 'fa-user-shield',
-        'Cafeteria': 'fa-utensils', 'Car Washing Area': 'fa-car-wash', 'No Common Wall': 'fa-border-none', 'Driver Dormitory': 'fa-bed',
-        'EPABX System': 'fa-phone-volume', 'CCTV': 'fa-video', 'Gymnasium': 'fa-dumbbell', 'Garden': 'fa-leaf', 'Power Back Up': 'fa-battery-full',
-        'Party Lawn': 'fa-glass-cheers', 'Gazebo': 'fa-archway', 'Cold Storage': 'fa-box-open', 'Solar Water Heater': 'fa-sun',
-        'Jogging Track': 'fa-running', 'DTH Connection': 'fa-satellite-dish', 'Three Tier Security': 'fa-user-lock', 'Smoking Area': 'fa-smoking',
-        'Spa & Saloon': 'fa-spa', 'Solar Power': 'fa-solar-panel', 'Video Door Phone': 'fa-video-slash', 'Utility Shop': 'fa-shopping-cart',
-        'Steam Room': 'fa-hot-tub', 'Amphi Theatre': 'fa-landmark', 'Private Car Parking': 'fa-car-rear', 'Guest Room': 'fa-hotel',
-        'Internet': 'fa-wifi', 'Kids Play Area': 'fa-child', 'Barbeque Facility': 'fa-hamburger', 'Basket Ball Court': 'fa-basketball-ball',
-        'Skating Rink': 'fa-skating', 'Society Office': 'fa-building', 'Squash Court': 'fa-table-tennis', 'Waiting Lounge': 'fa-couch',
-        'Yoga And Meditation Center': 'fa-om', 'Water Softener': 'fa-water', 'Swipe Card Entry': 'fa-id-card', 'Health Facilities': 'fa-heartbeat',
-        'Library': 'fa-book', 'Day Care Center': 'fa-baby', 'Reception': 'fa-user-tie', 'School': 'fa-school', 'Hospital': 'fa-hospital',
-        'Metro Station': 'fa-subway', 'Shopping Mall': 'fa-shopping-bag', 'Market': 'fa-store'
-    };
-    const basicAmenities = [
-        'Car Parking', 'Intercom', 'Multi-Purpose Hall', '24x7 Water Supply',
-        'Municipal Water Supply', 'Garbage Management System', 'Fire Fighting System',
-        'Visitor Car Parking', 'Earthquake Resistance', 'Lift', 'Maintenance Staff',
-        'Power Supply', 'Air Condition', 'Security', 'Bike Parking', 'Others'
-    ];
-    const featuredAmenities = [
-        'Senior Citizen Corner', 'Worship Place', 'HAVC System', 'Cricket Pitch',
-        'Two Tier Security', 'Cafeteria', 'Car Washing Area', 'No Common Wall',
-        'Driver Dormitory', 'EPABX System', 'CCTV', 'Gymnasium', 'Garden',
-        'Power Back Up', 'Party Lawn', 'Gazebo', 'Cold Storage', 'Solar Water Heater',
-        'Jogging Track', 'DTH Connection', 'Three Tier Security', 'Smoking Area',
-        'Spa & Saloon', 'Solar Power', 'Video Door Phone', 'Utility Shop', 'Steam Room',
-        'Amphi Theatre', 'Private Car Parking', 'Guest Room', 'Internet', 'Kids Play Area',
-        'Barbeque Facility', 'Basket Ball Court', 'Skating Rink', 'Society Office',
-        'Squash Court', 'Waiting Lounge', 'Yoga And Meditation Center', 'Water Softener',
-        'Swipe Card Entry', 'Health Facilities', 'Library', 'Day Care Center', 'Reception'
-    ];
-    const nearbyAmenities = ['School', 'Hospital', 'Metro Station', 'Shopping Mall', 'Market'];
+
     const categories = ['Residential', 'Commercial', 'Agricultural', 'Industrial', 'Institutional'];
     const subCategories = ['Plot', 'House', 'Flat/Apartment', 'Builder Floor', 'Villa', 'Penthouse', 'SCO', 'Office Space', 'Shop'];
     const teams = ['Sales', 'Marketing', 'Post Sales', 'Pre Sales', 'Finance', 'HR'];
@@ -521,7 +504,7 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                         <label style={labelStyle}>Current Status</label>
                         <select style={customSelectStyle} value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })}>
                             <option value="">---Select Status---</option>
-                            {(masterFields.projectStatuses || []).map(status => (
+                            {(projectMasterFieldsSafe.projectStatuses || []).map(status => (
                                 <option key={status} value={status}>{status}</option>
                             ))}
                         </select>
@@ -530,7 +513,7 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                         <label style={labelStyle}>Parking Type</label>
                         <select style={customSelectStyle} value={formData.parkingType} onChange={e => setFormData({ ...formData, parkingType: e.target.value })}>
                             <option value="">---Select Parking---</option>
-                            {(masterFields.parkingTypes || []).map(type => (
+                            {(projectMasterFieldsSafe.parkingTypes || []).map(type => (
                                 <option key={type} value={type}>{type}</option>
                             ))}
                         </select>
@@ -824,7 +807,7 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                                     fontSize: '1.2rem', transition: 'all 0.2s'
                                 }}>
-                                    <i className={`fas ${AMENITY_ICONS[amenity] || 'fa-star'}`}></i>
+                                    <i className={`fas ${AMENITY_ICON_LOOKUP[amenity] || 'fa-star'}`}></i>
                                 </div>
                                 <span style={{
                                     fontSize: '0.85rem', fontWeight: 600,
@@ -950,7 +933,7 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                                         onChange={e => setBlockFormData({ ...blockFormData, status: e.target.value })}
                                     >
                                         <option value="">Status</option>
-                                        {(masterFields.projectStatuses || []).map(status => (
+                                        {(projectMasterFieldsSafe.projectStatuses || []).map(status => (
                                             <option key={status} value={status}>{status}</option>
                                         ))}
                                     </select>
@@ -987,7 +970,7 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                                         onChange={e => setBlockFormData({ ...blockFormData, parkingType: e.target.value })}
                                     >
                                         <option value="">Parking</option>
-                                        {(masterFields.parkingTypes || []).map(type => (
+                                        {(projectMasterFieldsSafe.parkingTypes || []).map(type => (
                                             <option key={type} value={type}>{type}</option>
                                         ))}
                                     </select>
@@ -1502,7 +1485,7 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                                 style={customSelectStyle}
                             >
                                 <option value="">Select Name</option>
-                                {(masterFields.approvals || []).map(app => (
+                                {(projectMasterFieldsSafe.approvals || []).map(app => (
                                     <option key={app} value={app}>{app}</option>
                                 ))}
                             </select>
@@ -1519,7 +1502,7 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                                 style={customSelectStyle}
                             >
                                 <option value="">Select Authority</option>
-                                {(masterFields.approvalAuthorities || []).map(auth => (
+                                {(projectMasterFieldsSafe.approvalAuthorities || []).map(auth => (
                                     <option key={auth} value={auth}>{auth}</option>
                                 ))}
                             </select>
