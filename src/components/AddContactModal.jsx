@@ -1212,7 +1212,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                                             </select>
                                         </div>
                                         <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Assign Owner</label>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Assign</label>
                                             <select
                                                 value={formData.owner}
                                                 onChange={(e) => handleInputChange('owner', e.target.value)}

@@ -11,7 +11,10 @@ import AddLeadModal from '../../components/AddLeadModal';
 import LeadConversionService from '../../services/LeadConversionService';
 import { calculateLeadScore } from '../../utils/leadScoring';
 
+import { usePropertyConfig } from '../../context/PropertyConfigContext';
+
 function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
+    const { scoringAttributes, activityMasterFields, updateActivityMasterFields } = usePropertyConfig();
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -249,7 +252,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             onClick={() => {
                                                 const leads = getSelectedLeads();
                                                 leads.forEach(lead => {
-                                                    const res = LeadConversionService.convertLead(lead);
+                                                    const res = LeadConversionService.convertLead(lead, 'Manual - Bulk Action', { scoringAttributes, activityMasterFields });
                                                     showToast(res.message);
                                                 });
                                                 setSelectedIds([]);

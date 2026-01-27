@@ -4,7 +4,10 @@ import { getInitials } from '../../utils/helpers';
 import LeadConversionService from '../../services/LeadConversionService';
 import { calculateLeadScore, getLeadTemperature } from '../../utils/leadScoring';
 
+import { usePropertyConfig } from '../../context/PropertyConfigContext';
+
 const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
+    const { scoringAttributes, activityMasterFields } = usePropertyConfig(); // Inject Context
     const [contact, setContact] = useState(null);
     const [composerTab, setComposerTab] = useState('note');
     const [expandedSections, setExpandedSections] = useState(['core', 'professional', 'location', 'financial', 'education', 'personal', 'pref', 'journey', 'negotiation', 'ai', 'ownership', 'documents']);
@@ -104,7 +107,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
             return acc;
         }, { due: [], upcoming: [], completed: [] });
 
-        const scoring = calculateLeadScore(contact || {}, activities);
+        const scoring = calculateLeadScore(contact || {}, activities, { scoringAttributes, activityMasterFields });
 
         // Smart Property Ownership Matching
         const normalize = (phone) => phone?.toString()?.replace(/\D/g, '')?.slice(-10);

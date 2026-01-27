@@ -682,8 +682,8 @@ const PropertySettingsPage = () => {
     );
 
     return (
-        <div style={{ flex: 1, background: '#f8fafc', padding: '40px', overflowY: 'auto' }}>
-            <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
+        <div style={{ flex: 1, background: '#f8fafc', padding: '24px', overflowY: 'auto' }}>
+            <div style={{ width: '100%' }}>
                 {notification.show && (
                     <Toast
                         message={notification.message}
@@ -691,8 +691,17 @@ const PropertySettingsPage = () => {
                         onClose={() => setNotification({ ...notification, show: false })}
                     />
                 )}
-                {/* Tab Navigation - Select Orientation to manage fields */}
+                {/* Standardized Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+                    <div>
+                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px 0' }}>Property Configuration</h1>
+                        <p style={{ margin: 0, color: '#64748b' }}>Manage property sizes, dimensions, and types.</p>
+                    </div>
+                </div>
+
+                {/* Tab Navigation */}
                 <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid #e2e8f0', marginBottom: '32px' }}>
+                    {/* Added 'Orientation' tab explicitly as it was in the original file */}
                     {['Sizes', 'Configuration', 'Orientation'].map(tab => (
                         <div
                             key={tab}
@@ -728,7 +737,7 @@ const PropertySettingsPage = () => {
                             <button
                                 className="btn-primary"
                                 onClick={() => setIsModalOpen(true)}
-                                style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}
+                                style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer' }}
                             >
                                 <i className="fas fa-plus"></i> Add Size
                             </button>
@@ -768,7 +777,6 @@ const PropertySettingsPage = () => {
                     </div>
                 ) : activeTab === 'Configuration' ? (
                     <div style={{ height: 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.05)' }}>
-                        {/* ... Configuration Content ... */}
                         <div style={{ background: '#fff', padding: '16px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
                                 <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>Global Configuration</h2>
@@ -777,7 +785,7 @@ const PropertySettingsPage = () => {
                         </div>
 
                         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-                            {/* ... (Existing hierarchy columns) ... */}
+                            {/* Level 1: Categories */}
                             <div style={{ width: '280px', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     Category

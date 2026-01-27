@@ -50,9 +50,11 @@ const ActivitySettingsPage = () => {
             const actIndex = activities.findIndex(a => a.name === selectedActivity.name);
             const purpIndex = activities[actIndex].purposes.findIndex(p => p.name === selectedPurpose.name);
 
-            if (activities[actIndex].purposes[purpIndex].outcomes.includes(newItemValue)) return alert('Outcome already exists');
+            // Check duplicate by label
+            if (activities[actIndex].purposes[purpIndex].outcomes.some(o => o.label === newItemValue)) return alert('Outcome already exists');
 
-            activities[actIndex].purposes[purpIndex].outcomes.push(newItemValue);
+            // Add new outcome with default score 0
+            activities[actIndex].purposes[purpIndex].outcomes.push({ label: newItemValue, score: 0 });
             updateActivityMasterFields(activities);
 
             // Update selected reference
@@ -87,7 +89,8 @@ const ActivitySettingsPage = () => {
         else if (type === 'outcome') {
             const actIdx = activities.findIndex(a => a.name === selectedActivity.name);
             const purpIdx = activities[actIdx].purposes.findIndex(p => p.name === selectedPurpose.name);
-            activities[actIdx].purposes[purpIdx].outcomes = activities[actIdx].purposes[purpIdx].outcomes.filter(o => o !== item);
+            // Filter by obj.label
+            activities[actIdx].purposes[purpIdx].outcomes = activities[actIdx].purposes[purpIdx].outcomes.filter(o => o.label !== item);
             updateActivityMasterFields(activities);
             setSelectedPurpose(activities[actIdx].purposes[purpIdx]);
         }
@@ -139,7 +142,8 @@ const ActivitySettingsPage = () => {
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         {items.map((item, idx) => {
-                            const itemName = typeof item === 'string' ? item : item.name;
+                            // Unified name resolver: item.name (Activity/Purpose) or item.label (Outcome) or item (if string fallback)
+                            const itemName = item.label || item.name || item;
                             const active = isSelected && isSelected(item);
 
                             return (

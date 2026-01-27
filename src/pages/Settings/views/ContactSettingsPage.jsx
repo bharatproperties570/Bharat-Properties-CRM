@@ -2,8 +2,14 @@ import React, { useState } from 'react';
 import { useContactConfig } from '../../../context/ContactConfigContext';
 import Toast from '../../../components/Toast';
 
+const HIERARCHY_LEVELS = {
+    'Professional': ['Category', 'Sub Category', 'Designation'],
+    'Address': ['Country', 'State', 'City', 'Location', 'Tehsil', 'Post Office', 'Pincode'],
+    'Profile': ['Section', 'Category', 'Item']
+};
+
 const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onDelete }) => (
-    <div style={{ width: '33%', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
+    <div style={{ minWidth: '250px', width: '33%', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#f8fafc', flexShrink: 0 }}>
         <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             {title}
             <button onClick={onAdd} style={{ border: 'none', background: '#e2e8f0', color: '#475569', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={`Add ${title}`}>
@@ -11,49 +17,46 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
             </button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1 }}>
-            {items.map(item => (
-                <div
-                    key={item.id || item.name || item}
-                    onClick={() => onSelect && onSelect(item.name || item)}
-                    style={{
-                        padding: '16px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: selectedItem === (item.name || item) ? 700 : 500,
-                        color: selectedItem === (item.name || item) ? '#2563eb' : '#334155',
-                        background: selectedItem === (item.name || item) ? '#fff' : 'transparent',
-                        borderLeft: selectedItem === (item.name || item) ? '4px solid #2563eb' : '4px solid transparent',
-                        borderTop: '1px solid transparent', borderBottom: '1px solid transparent',
-                        transition: 'all 0.2s',
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-                    }}
-                    onMouseOver={(e) => { if (selectedItem !== (item.name || item)) e.currentTarget.style.background = '#e2e8f0'; }}
-                    onMouseOut={(e) => { if (selectedItem !== (item.name || item)) e.currentTarget.style.background = 'transparent'; }}
-                >
-                    {item.name || item}
-                    <div className="item-actions" style={{ display: 'flex', gap: '8px', opacity: selectedItem === (item.name || item) ? 1 : 0.5 }}>
-                        <i className="fas fa-edit" style={{ fontSize: '0.8rem', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onEdit(item.name || item); }}></i>
-                        <i className="fas fa-trash" style={{ fontSize: '0.8rem', cursor: 'pointer', color: '#ef4444' }} onClick={(e) => { e.stopPropagation(); onDelete(item.name || item); }}></i>
+            {items.map(item => {
+                const itemName = typeof item === 'object' ? item.name : item;
+                const isSelected = selectedItem === itemName;
+                return (
+                    <div
+                        key={item.id || itemName}
+                        onClick={() => onSelect && onSelect(item)}
+                        style={{
+                            padding: '16px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: isSelected ? 700 : 500,
+                            color: isSelected ? '#2563eb' : '#334155',
+                            background: isSelected ? '#fff' : 'transparent',
+                            borderLeft: isSelected ? '4px solid #2563eb' : '4px solid transparent',
+                            borderTop: '1px solid transparent', borderBottom: '1px solid transparent',
+                            transition: 'all 0.2s',
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                        }}
+                        onMouseOver={(e) => { if (!isSelected) e.currentTarget.style.background = '#e2e8f0'; }}
+                        onMouseOut={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+                    >
+                        {itemName}
+                        <div className="item-actions" style={{ display: 'flex', gap: '8px', opacity: isSelected ? 1 : 0.5 }}>
+                            <i className="fas fa-edit" style={{ fontSize: '0.8rem', cursor: 'pointer', color: '#64748b' }} onClick={(e) => { e.stopPropagation(); onEdit(itemName); }}></i>
+                            <i className="fas fa-trash" style={{ fontSize: '0.8rem', cursor: 'pointer', color: '#ef4444' }} onClick={(e) => { e.stopPropagation(); onDelete(itemName); }}></i>
+                        </div>
                     </div>
-                </div>
-            ))}
+                );
+            })}
             {items.length === 0 && (
                 <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>No items added</div>
             )}
         </div>
-    </div >
+    </div>
 );
-
-const HIERARCHY_LEVELS = {
-    'Professional': ['Category', 'Sub Category', 'Designation'],
-    'Address': ['Country', 'State', 'City', 'Location', 'Tehsil', 'Post Office', 'Pincode'],
-    'Profile': ['Section', 'Category', 'Item']
-};
 
 const ContactSettingsPage = () => {
     const { professionalConfig, updateProfessionalConfig, addressConfig, updateAddressConfig, profileConfig, updateProfileConfig } = useContactConfig();
     const [activeTab, setActiveTab] = useState('Professional');
     const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
 
-    // Selection Path (Array of selected item names/IDs)
-    // Level 0 is Key. Subsequent levels are identifying properties of objects in subCategories.
+    // Selection Path (Array of selected item names - strings)
     const [selectedPath, setSelectedPath] = useState([]);
 
     const showToast = (message, type = 'success') => {
@@ -105,13 +108,12 @@ const ContactSettingsPage = () => {
                 parent = parent.subCategories.find(item => item.name === selectedPath[i]);
             }
 
-            // Check if we are adding to 'subCategories' or 'types'
-            // If the next level is the LAST level defined in HIERARCHY_LEVELS (leaf strings), use types
-            // OR if the current node already has types.
-            // Address: 6 levels. Professional: 3 levels.
+            // Determine if we are adding to 'types' (leaf) or 'subCategories'
+            // Logic: If current parent ALREADY has types, or if we are at the last defined level.
+            // Professional: Category -> Sub -> Designation (3 levels). Last index = 2.
             const isLeafLevel = levelIndex === levelTitles.length - 1;
 
-            if (isLeafLevel) {
+            if (isLeafLevel || (parent.types && Array.isArray(parent.types))) {
                 if (!parent.types) parent.types = [];
                 if (parent.types.includes(name)) { alert('Already exists'); return; }
                 parent.types.push(name);
@@ -119,17 +121,23 @@ const ContactSettingsPage = () => {
                 if (!parent.subCategories) parent.subCategories = [];
                 if (parent.subCategories.some(s => s.name === name)) { alert('Already exists'); return; }
 
-                // Construct new item
+                // If we are adding a subCategory, we need to know if IT should have subCategories or types.
+                // Look ahead: is the NEXT level the last level?
+                // LevelIndex is what we just added. Children are at LevelIndex + 1.
+                // If LevelIndex + 1 === MaxIndex, then children are leaves (types).
+                // So if LevelIndex < MaxIndex - 1, we init subCategories. 
+                // Else we might init types? Actually, we usually init subCategories=[] and decide later based on usage,
+                // BUT for now let's stick to subCategories default unless leaf.
                 const newItem = { name };
-                // Only initialize subCategories if the NEXT level is NOT a leaf level.
-                // Current levelIndex is what we are adding.
-                // Children will be at levelIndex + 1.
-                // If levelIndex + 1 == leafLevel (length-1), then children are leaves (types).
-                // So if levelIndex < length - 2, we need subCategories for structure.
+
+                // If the next level is NOT a leaf, it definitely needs subCategories.
+                // If it IS a leaf, it will get 'types' when we add them.
                 if (levelIndex < levelTitles.length - 2) {
                     newItem.subCategories = [];
+                } else {
+                    // Next level is leaf, so we can prep types or leave undefined
+                    newItem.types = [];
                 }
-
                 parent.subCategories.push(newItem);
             }
         }
@@ -165,37 +173,20 @@ const ContactSettingsPage = () => {
         showToast('Deleted');
     };
 
-    // We intentionally don't implement extensive Edit for brevity in this complex refactor, 
-    // but Delete+Add serves as workaround.
-
-    // Compute Columns to Render
-    // We always render Level 0.
-    // We render Level N+1 if Level N has a selection AND Level N+1 isn't out of bounds.
-
+    // Calculate columns to render
     const columnsToRender = [];
-    // Always Level 0
-    columnsToRender.push({ index: 0, items: getLevelData(0, []) }); // Root keys
+    columnsToRender.push({ index: 0, items: getLevelData(0, []) }); // Root
 
-    // Dependent Levels
     for (let i = 0; i < selectedPath.length; i++) {
-        // If we have selected path[i], we show the children of it (level i+1)
-        // CHECK: Do children exist?
-        // Note: hierarchy for Address is 6 levels. professional is 3. Max index is length-1.
         if (i < levelTitles.length - 1) {
             const items = getLevelData(i + 1, selectedPath);
-            // Only show column if it's not empty list OR if we want to allow adding
-            // Actually always show if 'parent' exists.
-
-            // Check if parent node allows children
-            // const parentNode = ...
-            // We'll just trust getLevelData returns array (possibly empty)
             columnsToRender.push({ index: i + 1, items });
         }
     }
 
     return (
-        <div style={{ flex: 1, background: '#f8fafc', padding: '40px', overflowY: 'auto' }}>
-            <div style={{ maxWidth: '100%', margin: '0 20px', overflowX: 'auto' }}>
+        <div style={{ flex: 1, background: '#f8fafc', padding: '24px', overflowY: 'auto' }}>
+            <div style={{ width: '100%' }}>
                 {notification.show && (
                     <Toast
                         message={notification.message}
@@ -203,6 +194,14 @@ const ContactSettingsPage = () => {
                         onClose={() => setNotification({ ...notification, show: false })}
                     />
                 )}
+
+                {/* Standardized Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+                    <div>
+                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px 0' }}>Contact Configuration</h1>
+                        <p style={{ margin: 0, color: '#64748b' }}>Manage contact hierarchy, address fields, and profile details.</p>
+                    </div>
+                </div>
 
                 {/* Tab Navigation */}
                 <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid #e2e8f0', marginBottom: '32px' }}>
@@ -220,34 +219,32 @@ const ContactSettingsPage = () => {
                                 transition: 'all 0.2s'
                             }}
                         >
-                            {tab} Configuration
+                            {tab}
                         </div>
                     ))}
                 </div>
 
-                {/* Content Container - scrollable horizontally for deep levels */}
+                {/* Content Container */}
                 <div style={{ height: 'calc(100vh - 250px)', display: 'flex', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflowX: 'auto', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.05)' }}>
                     {columnsToRender.map((col, idx) => (
                         <ConfigColumn
-                            key={idx}
+                            key={col.index}
                             title={levelTitles[col.index] || `Level ${col.index + 1}`}
                             items={col.items}
-                            selectedItem={activeTab === 'Address' && col.index === (levelTitles.length - 1) ? null : selectedPath[col.index]} // Don't select leaf if it's strictly string
+                            selectedItem={selectedPath[col.index]}
                             onSelect={(item) => {
-                                // Update path: slice to current level, push new item
-                                // Handle object vs string items
                                 const val = typeof item === 'object' ? item.name : item;
-
-                                // Validation: if clicking same item, do nothing? or toggle?
-                                // For settings, usually just select.
                                 const newPath = [...selectedPath.slice(0, col.index), val];
                                 setSelectedPath(newPath);
                             }}
                             onAdd={() => handleAdd(col.index)}
-                            onEdit={() => { }}
-                            onDelete={(item) => handleDelete(col.index, item.name || item)}
+                            onEdit={() => { }} // Placeholder
+                            onDelete={(item) => handleDelete(col.index, item)}
                         />
                     ))}
+                    {columnsToRender.length === 0 && (
+                        <div style={{ padding: '40px', color: '#94a3b8' }}>Select items to browse hierarchy</div>
+                    )}
                 </div>
             </div>
         </div>
@@ -255,5 +252,3 @@ const ContactSettingsPage = () => {
 };
 
 export default ContactSettingsPage;
-
-

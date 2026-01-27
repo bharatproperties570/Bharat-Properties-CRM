@@ -108,8 +108,8 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
 
     const [formData, setFormData] = useState({
         name: '',
-        phones: [{ phoneCode: '+91', phoneNumber: '', type: 'Work' }],
-        emails: [{ address: '', type: 'Work' }],
+        phones: [{ id: 'init_phone', phoneCode: '+91', phoneNumber: '', type: 'Work' }],
+        emails: [{ id: 'init_email', address: '', type: 'Work' }],
         companyType: '',
         industry: '',
         description: '',
@@ -135,8 +135,8 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
         if (isEdit && isOpen) {
             setFormData({
                 name: initialData.name || '',
-                phones: initialData.phone ? [{ phoneCode: '+91', phoneNumber: initialData.phone, type: 'Work' }] : [{ phoneCode: '+91', phoneNumber: '', type: 'Work' }],
-                emails: initialData.email ? [{ address: initialData.email, type: 'Work' }] : [{ address: '', type: 'Work' }],
+                phones: initialData.phone ? [{ id: 'edit_phone', phoneCode: '+91', phoneNumber: initialData.phone, type: 'Work' }] : [{ id: 'edit_phone', phoneCode: '+91', phoneNumber: '', type: 'Work' }],
+                emails: initialData.email ? [{ id: 'edit_email', address: initialData.email, type: 'Work' }] : [{ id: 'edit_email', address: '', type: 'Work' }],
                 companyType: initialData.type || '',
                 industry: initialData.category || '', // Mapping industry
                 description: initialData.description || '',
@@ -168,8 +168,8 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
             // Reset to default for new company
             setFormData({
                 name: '',
-                phones: [{ phoneCode: '+91', phoneNumber: '', type: 'Work' }],
-                emails: [{ address: '', type: 'Work' }],
+                phones: [{ id: Date.now(), phoneCode: '+91', phoneNumber: '', type: 'Work' }],
+                emails: [{ id: Date.now() + 1, address: '', type: 'Work' }],
                 companyType: '',
                 industry: '',
                 description: '',
@@ -212,12 +212,12 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
     const addPhone = () => {
         setFormData({
             ...formData,
-            phones: [...formData.phones, { phoneCode: '+91', phoneNumber: '', type: 'Work' }]
+            phones: [...formData.phones, { id: Date.now(), phoneCode: '+91', phoneNumber: '', type: 'Work' }]
         });
     };
 
-    const removePhone = (index) => {
-        const newPhones = formData.phones.filter((_, i) => i !== index);
+    const removePhone = (id) => {
+        const newPhones = formData.phones.filter(phone => phone.id !== id);
         setFormData({ ...formData, phones: newPhones });
     };
 
@@ -230,12 +230,12 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
     const addEmail = () => {
         setFormData({
             ...formData,
-            emails: [...formData.emails, { address: '', type: 'Work' }]
+            emails: [...formData.emails, { id: Date.now(), address: '', type: 'Work' }]
         });
     };
 
-    const removeEmail = (index) => {
-        const newEmails = formData.emails.filter((_, i) => i !== index);
+    const removeEmail = (id) => {
+        const newEmails = formData.emails.filter(email => email.id !== id);
         setFormData({ ...formData, emails: newEmails });
     };
 
@@ -424,7 +424,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 {!showOnlyRequired && (
                     <>
                         {formData.phones.map((phone, idx) => (
-                            <div key={idx} style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 1fr) 2fr 1fr 42px', gap: '12px', marginBottom: '16px', alignItems: 'end' }}>
+                            <div key={phone.id || idx} style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 1fr) 2fr 1fr 42px', gap: '12px', marginBottom: '16px', alignItems: 'end' }}>
                                 <div>
                                     {idx === 0 && <label style={labelStyle}>Country</label>}
                                     <select style={customSelectStyle} value={phone.phoneCode} onChange={(e) => handlePhoneChange(idx, 'phoneCode', e.target.value)}>
@@ -450,7 +450,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                                         color: idx === 0 ? '#64748b' : '#ef4444',
                                         borderColor: idx === 0 ? '#e2e8f0' : '#fecaca'
                                     }}
-                                    onClick={idx === 0 ? addPhone : () => removePhone(idx)}
+                                    onClick={idx === 0 ? addPhone : () => removePhone(phone.id)}
                                     title={idx === 0 ? 'Add more' : 'Remove'}
                                 >
                                     <i className={idx === 0 ? "fas fa-plus" : "fas fa-trash-alt"} style={{ fontSize: '0.8rem' }}></i>
@@ -459,7 +459,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                         ))}
 
                         {formData.emails.map((email, idx) => (
-                            <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 42px', gap: '12px', marginBottom: '16px', alignItems: 'end' }}>
+                            <div key={email.id || idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 42px', gap: '12px', marginBottom: '16px', alignItems: 'end' }}>
                                 <div>
                                     {idx === 0 && <label style={labelStyle}>Email Address</label>}
                                     <input style={inputStyle} placeholder="Enter email address" value={email.address} onChange={(e) => handleEmailChange(idx, 'address', e.target.value)} />
@@ -478,7 +478,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                                         color: idx === 0 ? '#64748b' : '#ef4444',
                                         borderColor: idx === 0 ? '#e2e8f0' : '#fecaca'
                                     }}
-                                    onClick={idx === 0 ? addEmail : () => removeEmail(idx)}
+                                    onClick={idx === 0 ? addEmail : () => removeEmail(email.id)}
                                     title={idx === 0 ? 'Add more' : 'Remove'}
                                 >
                                     <i className={idx === 0 ? "fas fa-plus" : "fas fa-trash-alt"} style={{ fontSize: '0.8rem' }}></i>
@@ -525,7 +525,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 <h4 style={{ ...labelStyle, fontSize: '1rem', color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <i className="fas fa-cogs" style={{ color: '#10b981' }}></i> System Details
                 </h4>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '24px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
                     <div>
                         <label style={labelStyle}>Source</label>
                         <select
@@ -549,17 +549,19 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                     </div>
 
                     <div>
+                        <label style={labelStyle}>Assign</label>
+                        <select style={customSelectStyle} value={formData.owner} onChange={(e) => handleInputChange('owner', e.target.value)}>
+                            {OWNER_EMPLOYEES.map(emp => <option key={emp} value={emp}>{emp}</option>)}
+                        </select>
+                    </div>
+
+                    <div>
                         <label style={labelStyle}>Team</label>
                         <select style={customSelectStyle} value={formData.team} onChange={(e) => handleInputChange('team', e.target.value)}>
                             {TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
                     </div>
-                    <div>
-                        <label style={labelStyle}>Owner</label>
-                        <select style={customSelectStyle} value={formData.owner} onChange={(e) => handleInputChange('owner', e.target.value)}>
-                            {OWNER_EMPLOYEES.map(emp => <option key={emp} value={emp}>{emp}</option>)}
-                        </select>
-                    </div>
+
                     <div>
                         <label style={labelStyle}>Visible to</label>
                         <select style={customSelectStyle} value={formData.visibleTo} onChange={(e) => handleInputChange('visibleTo', e.target.value)}>
