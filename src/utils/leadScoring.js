@@ -1,127 +1,105 @@
 /**
  * Lead Scoring Engine
- * Strictly follows PDF Logic for Bharat Properties CRM
+ * Uses Dynamic Configuration from PropertyConfigContext
  */
-
-export const SCORING_CRITERIA = {
-    FORM_MAX: 52,
-    REQUIREMENT: {
-        propertyType: 2,
-        subType: 2,
-        unitType: 2,
-        area: 2,
-        facing: 1,
-        road: 1,
-        direction: 1,
-        propertyUnitType: 1
-    },
-    BUDGET: {
-        PERFECT: 10,
-        SLIGHTLY_LOWER: 6,
-        MISMATCH: 2
-    },
-    LOCATION: {
-        LEVEL_1: 10, // <= 1km / 1 project
-        LEVEL_2: 8,  // <= 3km / 3 projects
-        LEVEL_3: 5,  // <= 6km / 6 projects
-        LEVEL_4: 2   // > 6km
-    },
-    TIMELINE: {
-        URGENT: 10,
-        FIFTEEN_DAYS: 7,
-        ONE_MONTH: 5,
-        NOT_CONFIRMED: 0
-    },
-    PAYMENT: {
-        SELF: 5,
-        LOAN: 3,
-        WHITE: 2,
-        COLLECTOR: 5,
-        FLEXIBLE: 5,
-        MAX: 10
-    },
-    SOURCE: {
-        TIER_1: 5, // Old Client, Walk-In, Friends, Relative, Channel Partner
-        TIER_2: 4, // Hoarding, Own Website
-        TIER_3: 3, // Marketplace (99Acres etc)
-        TIER_4: 2, // SMS, Google, LinkedIn
-        TIER_5: 1  // Social Media
-    }
-};
-
-export const ACTIVITY_POINTS = {
-    CONNECTED_CALL: 10,
-    WHATSAPP_REPLY: 6,
-    VISIT_SCHEDULED: 8,
-    VISIT_COMPLETED: 12,
-    EMAIL_OPEN: 2,
-    INACTIVITY_7D: -5,
-    FOLLOWUP_MISSED: -10
-};
 
 /**
  * Calculates Total Lead Score
+ * @param {Object} lead - The lead object
+ * @param {Array} activities - List of activities for this lead
+ * @param {Object} config - { scoringAttributes, activityMasterFields }
  */
-export const calculateLeadScore = (lead, activities = []) => {
-    // 1. Lead Form Score (Max 52)
+export const calculateLeadScore = (lead, activities = [], config = {}) => {
+    const { scoringAttributes = {}, activityMasterFields = {} } = config;
+
+    // Helper to get attribute point safely
+    const getAttrPoint = (key) => scoringAttributes[key]?.points || 0;
+
+    // 1. Lead Form Score
     let formScore = 0;
     const reqBreakdown = {};
 
-    // A. Requirement (Max 32) - Simplified for mock env (assume 1 point per specific detail provided)
-    // In a real app, this checks if field is NOT EMPTY
-    Object.keys(SCORING_CRITERIA.REQUIREMENT).forEach(key => {
-        if (lead.detailedReq && lead.detailedReq[key]) {
-            const pts = SCORING_CRITERIA.REQUIREMENT[key];
+    // A. Requirement (Mapped to 'requirement' attribute)
+    // For mock env, simple check if detailedReq has keys
+    if (lead.detailedReq) {
+        const reqKeys = Object.keys(lead.detailedReq).length;
+        // Simple logic: If > 3 fields filled, give full requirement points, else partial?
+        // Let's keep it simple: if detailedReq exists and has meaningful data
+        if (reqKeys > 0) {
+            const pts = getAttrPoint('requirement');
             formScore += pts;
-            reqBreakdown[key] = pts;
-        } else {
-            reqBreakdown[key] = 0;
+            reqBreakdown['requirement'] = pts;
         }
-    });
+    }
 
-    // B. Budget Match Logic (Max 10)
-    let budgetScore = SCORING_CRITERIA.BUDGET.MISMATCH;
-    if (lead.budgetMatch === 'perfect') budgetScore = SCORING_CRITERIA.BUDGET.PERFECT;
-    else if (lead.budgetMatch === 'slightly_lower') budgetScore = SCORING_CRITERIA.BUDGET.SLIGHTLY_LOWER;
+    // B. Budget Match
+    const budgetPts = getAttrPoint('budget'); // Max points for perfect
+    let budgetScore = 2; // Default low
+    if (lead.budgetMatch === 'perfect') budgetScore = budgetPts;
+    else if (lead.budgetMatch === 'slightly_lower') budgetScore = Math.floor(budgetPts * 0.6);
     formScore += budgetScore;
 
-    // C. Location Preference (Max 10)
-    let locScore = SCORING_CRITERIA.LOCATION.LEVEL_4;
-    if (lead.locationPref === 'level1') locScore = SCORING_CRITERIA.LOCATION.LEVEL_1;
-    else if (lead.locationPref === 'level2') locScore = SCORING_CRITERIA.LOCATION.LEVEL_2;
-    else if (lead.locationPref === 'level3') locScore = SCORING_CRITERIA.LOCATION.LEVEL_3;
+    // C. Location Preference
+    const locPts = getAttrPoint('location');
+    let locScore = 2;
+    if (lead.locationPref === 'level1') locScore = locPts;
+    else if (lead.locationPref === 'level2') locScore = Math.floor(locPts * 0.8);
+    // ... simplifications for other levels
     formScore += locScore;
 
-    // D. Timeline (Max 10)
-    let timeScore = SCORING_CRITERIA.TIMELINE.NOT_CONFIRMED;
-    if (lead.timeline === 'urgent') timeScore = SCORING_CRITERIA.TIMELINE.URGENT;
-    else if (lead.timeline === '15days') timeScore = SCORING_CRITERIA.TIMELINE.FIFTEEN_DAYS;
-    else if (lead.timeline === '1month') timeScore = SCORING_CRITERIA.TIMELINE.ONE_MONTH;
+    // D. Timeline
+    const timePts = getAttrPoint('timeline');
+    let timeScore = 0;
+    if (lead.timeline === 'urgent') timeScore = timePts;
+    else if (lead.timeline === '15days') timeScore = Math.floor(timePts * 0.7);
     formScore += timeScore;
 
-    // E. Payment (Max 10 Cumulative)
+    // E. Payment
+    const payPts = getAttrPoint('payment');
     let payScore = 0;
-    if (Array.isArray(lead.payment)) {
-        lead.payment.forEach(cond => {
-            payScore += SCORING_CRITERIA.PAYMENT[cond.toUpperCase()] || 0;
-        });
+    if (Array.isArray(lead.payment) && lead.payment.length > 0) {
+        payScore = payPts; // Simplified: Any clean payment plan = points
     }
-    payScore = Math.min(payScore, SCORING_CRITERIA.PAYMENT.MAX);
     formScore += payScore;
 
-    // F. Source Score (Max 5)
-    let srcScore = 1;
-    const src = lead.source?.toLowerCase() || '';
-    if (['walk-in', 'old client', 'friends', 'relative', 'channel partner'].includes(src)) srcScore = 5;
-    else if (['hoarding', 'own website'].includes(src)) srcScore = 4;
-    else if (['99acres', 'magicbricks', 'whatsapp', 'cold calling'].includes(src)) srcScore = 3;
-    else if (['sms', 'google', 'linkedin'].includes(src)) srcScore = 2;
+    // F. Source
+    const srcPts = getAttrPoint('source');
+    let srcScore = 0;
+    // Assume specific high quality sources get points
+    const highIntentSources = ['walk-in', 'old client', 'referral', 'channel partner'];
+    if (highIntentSources.includes(lead.source?.toLowerCase())) {
+        srcScore = srcPts;
+    }
     formScore += srcScore;
 
-    // 2. Task & Communication Score (Dynamic)
+    // 2. Activity Score (Deep Search in Hierarchy)
     let activityScore = 0;
     activities.forEach(act => {
-        activityScore += ACTIVITY_POINTS[act.type] || 0;
+        // Find activity in master fields
+        const actDef = activityMasterFields?.activities?.find(a => a.name === act.type || a.name === act.activityType);
+        if (actDef) {
+            // Find purpose
+            const purposeName = act.purpose || act.callPurpose || act.meetingPurpose || act.emailPurpose || act.visitType || act.agenda;
+            const purpDef = actDef.purposes?.find(p => p.name === purposeName);
+
+            if (purpDef) {
+                // Find outcome
+                const outcomeLabel = act.outcome || act.result || act.callOutcome || act.completionResult || act.meetingOutcomeStatus;
+
+                // Special handling: outcome might be just "Connected" (Status) or "Thinking" (Result)
+                // We sum points for BOTH Status and Result if they exist and have scores
+
+                // Check Status/Outcome first
+                const outcomeObj = purpDef.outcomes.find(o => o.label === outcomeLabel);
+                if (outcomeObj) activityScore += (outcomeObj.score || 0);
+
+                // Check Completion Result if separate (e.g. Call Result after Status connected)
+                if (act.completionResult && act.completionResult !== outcomeLabel) {
+                    const resObj = purpDef.outcomes.find(o => o.label === act.completionResult);
+                    if (resObj) activityScore += (resObj.score || 0);
+                }
+            }
+        }
     });
 
     const total = formScore + activityScore;
@@ -130,15 +108,6 @@ export const calculateLeadScore = (lead, activities = []) => {
         total,
         formScore,
         activityScore,
-        breakdown: {
-            requirement: Object.values(reqBreakdown).reduce((a, b) => a + b, 0),
-            budget: budgetScore,
-            location: locScore,
-            timeline: timeScore,
-            payment: payScore,
-            source: srcScore,
-            activity: activityScore
-        },
         temperature: getLeadTemperature(total),
         intent: getAIIntent(total)
     };

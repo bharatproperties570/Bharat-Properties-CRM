@@ -164,8 +164,6 @@ export const PropertyConfigProvider = ({ children }) => {
         fundingTypes: ['Home Loan', 'Self Funding', 'Loan Against Property', 'Personal Loan', 'Business Loan'],
         furnishingStatuses: ['Unfurnished', 'Semi-Furnished', 'Fully-Furnished'],
         timelines: ['Immediate', 'Within 3 Months', 'Within 6 Months', 'More than 6 Months'],
-        // Campaign Fields
-        // Campaign Hierarchy: Campaign Name -> Source -> Medium
         campaigns: [
             {
                 name: 'Organic Campaign',
@@ -195,6 +193,20 @@ export const PropertyConfigProvider = ({ children }) => {
         ]
     });
 
+    // Scoring Attributes State (Static Weights)
+    const [scoringAttributes, setScoringAttributes] = useState({
+        requirement: { label: 'Detailed Requirement', points: 32 },
+        budget: { label: 'Budget Match', points: 10 },
+        location: { label: 'Location Match', points: 10 },
+        timeline: { label: 'Timeline Urgency', points: 10 },
+        payment: { label: 'Payment Flexibility', points: 10 },
+        source: { label: 'High Intent Source', points: 5 }
+    });
+
+    const updateScoringAttributes = (newAttributes) => {
+        setScoringAttributes(prev => ({ ...prev, ...newAttributes }));
+    };
+
     const updateLeadMasterFields = (field, newValues) => {
         setLeadMasterFields(prev => ({
             ...prev,
@@ -202,51 +214,240 @@ export const PropertyConfigProvider = ({ children }) => {
         }));
     };
 
-    // Activity Master Fields (Hierarchical: Activity -> Purpose -> Outcome)
+    // Activity Master Fields (Hierarchical: Activity -> Purpose -> Outcome { label, score })
     const [activityMasterFields, setActivityMasterFields] = useState({
         activities: [
             {
                 name: 'Call',
                 purposes: [
-                    { name: 'Introduction / First Contact', outcomes: ['Connected', 'Not Reachable', 'Wrong Number', 'Callback Requested', 'Busy'] },
-                    { name: 'Requirement Gathering', outcomes: ['Requirements Shared', 'Partial Info', 'Refused to Share', 'Rescheduled'] },
-                    { name: 'Follow-up', outcomes: ['Still Interested', 'Ready for Visit', 'Negotiation Mode', 'Lost Interest', 'No Response'] },
-                    { name: 'Negotiation', outcomes: ['Offer Accepted', 'Offer Rejected', 'Counter Offer Made', 'Decision Pending'] },
-                    { name: 'Post-Visit Feedback', outcomes: ['Liked Property', 'Disliked - Price', 'Disliked - Location', 'Thinking/Hold', 'Booking Request'] },
-                    { name: 'Payment Reminder', outcomes: ['Payment Promised', 'Already Paid', 'Dispute', 'Extension Requested'] }
+                    {
+                        name: 'Introduction / First Contact',
+                        outcomes: [
+                            { label: 'Connected', score: 10 },
+                            { label: 'Not Reachable', score: -2 },
+                            { label: 'Wrong Number', score: -10 },
+                            { label: 'Callback Requested', score: 5 },
+                            { label: 'Busy', score: 0 }
+                        ]
+                    },
+                    {
+                        name: 'Requirement Gathering',
+                        outcomes: [
+                            { label: 'Requirements Shared', score: 15 },
+                            { label: 'Partial Info', score: 8 },
+                            { label: 'Refused to Share', score: -5 },
+                            { label: 'Rescheduled', score: 0 }
+                        ]
+                    },
+                    {
+                        name: 'Follow-up',
+                        outcomes: [
+                            { label: 'Still Interested', score: 10 },
+                            { label: 'Ready for Visit', score: 20 },
+                            { label: 'Negotiation Mode', score: 12 },
+                            { label: 'Lost Interest', score: -10 },
+                            { label: 'No Response', score: -5 }
+                        ]
+                    },
+                    {
+                        name: 'Negotiation',
+                        outcomes: [
+                            { label: 'Offer Accepted', score: 50 },
+                            { label: 'Offer Rejected', score: -20 },
+                            { label: 'Counter Offer Made', score: 10 },
+                            { label: 'Decision Pending', score: 0 }
+                        ]
+                    },
+                    {
+                        name: 'Post-Visit Feedback',
+                        outcomes: [
+                            { label: 'Liked Property', score: 25 },
+                            { label: 'Disliked - Price', score: -5 },
+                            { label: 'Disliked - Location', score: -5 },
+                            { label: 'Thinking/Hold', score: 0 },
+                            { label: 'Booking Request', score: 40 }
+                        ]
+                    },
+                    {
+                        name: 'Payment Reminder',
+                        outcomes: [
+                            { label: 'Payment Promised', score: 5 },
+                            { label: 'Already Paid', score: 0 },
+                            { label: 'Dispute', score: -10 },
+                            { label: 'Extension Requested', score: -2 }
+                        ]
+                    }
                 ]
             },
             {
                 name: 'Meeting',
                 purposes: [
-                    { name: 'Initial Consultation', outcomes: ['Qualified', 'Need More Time', 'Not Qualified', 'Rescheduled'] },
-                    { name: 'Project Presentation', outcomes: ['Impressed', 'Neutral', 'Skeptical', 'Requested Site Visit'] },
-                    { name: 'Price Negotiation', outcomes: ['Deal Closed', 'Stalemate', 'Discount Approved', 'Walk-away'] },
-                    { name: 'Document Collection', outcomes: ['All Collected', 'Partial', 'Pending', 'Issues Found'] },
-                    { name: 'Final Closing', outcomes: ['Signed', 'Reviewing Draft', 'Postponed', 'Cancelled'] }
+                    {
+                        name: 'Initial Consultation',
+                        outcomes: [
+                            { label: 'Qualified', score: 15 },
+                            { label: 'Need More Time', score: 5 },
+                            { label: 'Not Qualified', score: -10 },
+                            { label: 'Rescheduled', score: 0 }
+                        ]
+                    },
+                    {
+                        name: 'Project Presentation',
+                        outcomes: [
+                            { label: 'Impressed', score: 20 },
+                            { label: 'Neutral', score: 5 },
+                            { label: 'Skeptical', score: -5 },
+                            { label: 'Requested Site Visit', score: 25 }
+                        ]
+                    },
+                    {
+                        name: 'Price Negotiation',
+                        outcomes: [
+                            { label: 'Deal Closed', score: 100 },
+                            { label: 'Stalemate', score: 0 },
+                            { label: 'Discount Approved', score: 10 },
+                            { label: 'Walk-away', score: -50 }
+                        ]
+                    },
+                    {
+                        name: 'Document Collection',
+                        outcomes: [
+                            { label: 'All Collected', score: 10 },
+                            { label: 'Partial', score: 5 },
+                            { label: 'Pending', score: 0 },
+                            { label: 'Issues Found', score: -5 }
+                        ]
+                    },
+                    {
+                        name: 'Final Closing',
+                        outcomes: [
+                            { label: 'Signed', score: 100 },
+                            { label: 'Reviewing Draft', score: 10 },
+                            { label: 'Postponed', score: -5 },
+                            { label: 'Cancelled', score: -50 }
+                        ]
+                    }
                 ]
             },
             {
                 name: 'Site Visit',
                 purposes: [
-                    { name: 'First Visit (Solo)', outcomes: ['Very Interested', 'Somewhat Interested', 'Not Interested', 'Price Issue'] },
-                    { name: 'Re-Visit (With Family)', outcomes: ['Shortlisted', 'Family Liked', 'Family Disliked', 'Need Consensus'] },
-                    { name: 'Unit Selection', outcomes: ['Unit Blocked', 'Unit Not Available', 'Changed Preference', 'Thinking'] },
-                    { name: 'Competitor Comparison', outcomes: ['Favors Us', 'Favors Competitor', 'Undecided'] }
+                    {
+                        name: 'First Visit (Solo)',
+                        outcomes: [
+                            { label: 'Very Interested', score: 30 },
+                            { label: 'Somewhat Interested', score: 15 },
+                            { label: 'Not Interested', score: -20 },
+                            { label: 'Price Issue', score: -10 }
+                        ]
+                    },
+                    {
+                        name: 'Re-Visit (With Family)',
+                        outcomes: [
+                            { label: 'Shortlisted', score: 40 },
+                            { label: 'Family Liked', score: 35 },
+                            { label: 'Family Disliked', score: -20 },
+                            { label: 'Need Consensus', score: 10 }
+                        ]
+                    },
+                    {
+                        name: 'Unit Selection',
+                        outcomes: [
+                            { label: 'Unit Blocked', score: 50 },
+                            { label: 'Unit Not Available', score: -5 },
+                            { label: 'Changed Preference', score: 0 },
+                            { label: 'Thinking', score: 5 }
+                        ]
+                    },
+                    {
+                        name: 'Competitor Comparison',
+                        outcomes: [
+                            { label: 'Favors Us', score: 20 },
+                            { label: 'Favors Competitor', score: -20 },
+                            { label: 'Undecided', score: 0 }
+                        ]
+                    }
                 ]
             },
             {
                 name: 'Email',
                 purposes: [
-                    { name: 'Introductory / Welcome', outcomes: ['Opened', 'Clicked', 'Bounced', 'No Action'] },
-                    { name: 'Property Proposal', outcomes: ['Interested', 'Request Breakdown', 'Too Expensive', 'Unsubscribe'] },
-                    { name: 'Newsletter', outcomes: ['Engagement', 'Ignored', 'Unsubscribed'] },
-                    { name: 'Payment Invoice', outcomes: ['Paid', 'Viewed', 'Overdue'] },
-                    { name: 'Seasonal Greeting', outcomes: ['Appreciated', 'No Response'] }
+                    {
+                        name: 'Introductory / Welcome',
+                        outcomes: [
+                            { label: 'Opened', score: 5 },
+                            { label: 'Clicked', score: 8 },
+                            { label: 'Bounced', score: -5 },
+                            { label: 'No Action', score: 0 }
+                        ]
+                    },
+                    {
+                        name: 'Property Proposal',
+                        outcomes: [
+                            { label: 'Interested', score: 15 },
+                            { label: 'Request Breakdown', score: 10 },
+                            { label: 'Too Expensive', score: -5 },
+                            { label: 'Unsubscribe', score: -10 }
+                        ]
+                    },
+                    {
+                        name: 'Newsletter',
+                        outcomes: [
+                            { label: 'Engagement', score: 3 },
+                            { label: 'Ignored', score: 0 },
+                            { label: 'Unsubscribed', score: -3 }
+                        ]
+                    },
+                    {
+                        name: 'Payment Invoice',
+                        outcomes: [
+                            { label: 'Paid', score: 20 },
+                            { label: 'Viewed', score: 2 },
+                            { label: 'Overdue', score: -10 }
+                        ]
+                    },
+                    {
+                        name: 'Seasonal Greeting',
+                        outcomes: [
+                            { label: 'Appreciated', score: 5 },
+                            { label: 'No Response', score: 0 }
+                        ]
+                    }
+                ]
+            },
+            {
+                name: 'Task',
+                purposes: [
+                    {
+                        name: 'General Task',
+                        outcomes: [
+                            { label: 'Completed', score: 10 },
+                            { label: 'Deferred', score: 0 },
+                            { label: 'Cancelled', score: -5 },
+                            { label: 'Partially Completed', score: 5 }
+                        ]
+                    }
                 ]
             }
         ]
     });
+
+    // Property Sizes State (Moved from PropertySettingsPage)
+    const [sizes, setSizes] = useState([
+        { id: 1, project: 'DLF Cyber City', block: 'Building 8', category: 'Residential', subCategory: 'Flat/Apartment / Builder Floor', name: '3 BHK (1200 Sq Ft)', sizeType: '3 BHK', saleableArea: '1200', description: 'Sample Entry' }
+    ]);
+
+    const addSize = (newSize) => {
+        setSizes(prev => [...prev, { ...newSize, id: Date.now() }]);
+    };
+
+    const updateSize = (updatedSize) => {
+        setSizes(prev => prev.map(s => s.id === updatedSize.id ? updatedSize : s));
+    };
+
+    const deleteSize = (id) => {
+        setSizes(prev => prev.filter(s => s.id !== id));
+    };
 
     const updateActivityMasterFields = (newActivities) => {
         setActivityMasterFields({ activities: newActivities });
@@ -262,12 +463,18 @@ export const PropertyConfigProvider = ({ children }) => {
             updateProjectMasterFields,
             projectAmenities,
             updateProjectAmenities,
+            sizes,
+            addSize,
+            updateSize,
+            deleteSize,
             companyMasterFields,
             updateCompanyMasterFields,
             leadMasterFields,
             updateLeadMasterFields,
             activityMasterFields,
-            updateActivityMasterFields
+            updateActivityMasterFields,
+            scoringAttributes,
+            updateScoringAttributes
         }}>
             {children}
         </PropertyConfigContext.Provider>

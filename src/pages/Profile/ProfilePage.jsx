@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 const ProfilePage = () => {
     // Mock user statistics
@@ -8,6 +8,34 @@ const ProfilePage = () => {
         { label: 'Conversion', value: '12.4%', icon: 'fa-chart-line', color: '#8b5cf6' },
         { label: 'Ranking', value: '#3', icon: 'fa-trophy', color: '#f59e0b' }
     ];
+
+    const [profilePicture, setProfilePicture] = useState('');
+    const fileInputRef = useRef(null);
+
+    useEffect(() => {
+        const savedPicture = localStorage.getItem('userProfilePicture');
+        if (savedPicture) {
+            setProfilePicture(savedPicture);
+        }
+    }, []);
+
+    const handlePictureUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            if (file.size > 2 * 1024 * 1024) {
+                alert('Image size should be less than 2MB');
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => {
+                const base64 = reader.result;
+                setProfilePicture(base64);
+                localStorage.setItem('userProfilePicture', base64);
+                window.dispatchEvent(new Event('storage'));
+            };
+            reader.readAsDataURL(file);
+        }
+    };
 
     const [toggles, setToggles] = useState({
         twoFactor: true,
@@ -72,10 +100,17 @@ const ProfilePage = () => {
                                 boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
                                 overflow: 'hidden'
                             }}>
-                                <img src="https://ui-avatars.com/api/?name=Suraj+Key&background=0D8ABC&color=fff&size=150" alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                <img src={profilePicture || "https://ui-avatars.com/api/?name=Suraj+Key&background=0D8ABC&color=fff&size=150"} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                             </div>
-                            <button style={{ position: 'absolute', bottom: 0, right: 0, width: '28px', height: '28px', borderRadius: '50%', background: 'var(--primary-color)', color: '#fff', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-                                <i className="fas fa-pen" style={{ fontSize: '0.65rem' }}></i>
+                            <input
+                                type="file"
+                                ref={fileInputRef}
+                                accept="image/*"
+                                style={{ display: 'none' }}
+                                onChange={handlePictureUpload}
+                            />
+                            <button onClick={() => fileInputRef.current?.click()} style={{ position: 'absolute', bottom: 0, right: 0, width: '28px', height: '28px', borderRadius: '50%', background: 'var(--primary-color)', color: '#fff', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                                <i className="fas fa-camera" style={{ fontSize: '0.65rem' }}></i>
                             </button>
                         </div>
                         <h4 style={{ margin: '0', fontSize: '1.1rem', fontWeight: 800 }}>Suraj Key</h4>

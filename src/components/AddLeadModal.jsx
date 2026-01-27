@@ -1222,7 +1222,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             </select>
                                         </div>
                                         <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Assign Owner</label>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Assign</label>
                                             <select
                                                 value={formData.owner}
                                                 onChange={(e) => handleInputChange('owner', e.target.value)}
@@ -1691,7 +1691,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         </select>
                                     </div>
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Assign Owner</label>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Assign</label>
                                         <select
                                             value={formData.owner}
                                             onChange={(e) => handleInputChange('owner', e.target.value)}
@@ -2012,53 +2012,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         />
                                     </div>
 
-                                    {/* Campaign Details Section */}
-                                    <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', marginTop: '24px' }}>
-                                        <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                            <i className="fas fa-bullhorn" style={{ color: '#f59e0b' }}></i> Campaign Details
-                                        </h3>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
-                                                <select
-                                                    value={formData.source}
-                                                    onChange={(e) => handleInputChange('source', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Source</option>
-                                                    {(leadMasterFields?.campaignSources || []).map(src => (
-                                                        <option key={src} value={src}>{src}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Medium (Sub-Source)</label>
-                                                <select
-                                                    value={formData.subSource}
-                                                    onChange={(e) => handleInputChange('subSource', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Medium</option>
-                                                    {(leadMasterFields?.campaignMediums || []).map(med => (
-                                                        <option key={med} value={med}>{med}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Campaign Name</label>
-                                                <select
-                                                    value={formData.campaign}
-                                                    onChange={(e) => handleInputChange('campaign', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Campaign</option>
-                                                    {(leadMasterFields?.campaignNames || []).map(cmp => (
-                                                        <option key={cmp} value={cmp}>{cmp}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                        </div>
-                                    </div>
+
                                 </div>
                             </div>
 

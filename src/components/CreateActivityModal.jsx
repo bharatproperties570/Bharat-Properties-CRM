@@ -18,17 +18,14 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         tasks: [{ id: Date.now(), subject: '', reminder: false, reminderTime: '' }],
 
         // Dynamic Fields
-        callPurpose: 'Prospecting',
-        emailPurpose: 'Follow-up', // New field for Email
+        purpose: '', // Standardized field for purpose/agenda/type
         duration: '', // in minutes
         callOutcome: '',
 
         meetingType: 'Office', // Office, On-Site, Virtual, Developer Office
         meetingLocation: '', // Link or Address
-        agenda: '',
         clientFeedback: '',
 
-        visitType: 'Site Visit',
         visitConfirmation: 'Tentative',
 
         reminder: false,
@@ -69,17 +66,14 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                 tasks: [{ id: Date.now(), subject: '', reminder: false, reminderTime: '' }],
                 status: 'Not Started',
 
-                callPurpose: 'Prospecting',
-                emailPurpose: 'Follow-up',
+                purpose: '',
                 duration: '15',
                 callOutcome: '',
 
                 meetingType: 'Office',
                 meetingLocation: '',
-                agenda: '',
                 clientFeedback: '',
 
-                visitType: 'Site Visit',
                 visitConfirmation: 'Tentative',
 
                 reminder: false,
@@ -118,12 +112,12 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         const timeStr = formData.dueTime ? ` at ${formData.dueTime}` : '';
 
         if (formData.activityType === 'Call') {
-            const purpose = formData.callPurpose || 'Call';
+            const purpose = formData.purpose || 'Call';
             // Format: [Purpose] with [Related] on [DD/MM/YYYY] at [Time]
             newSubject = `${purpose} with ${related} on ${dateStr}${timeStr}`;
         } else if (formData.activityType === 'Site Visit') {
             const props = formData.visitedProperties.map(p => p.project || 'Property').join(', ');
-            const vType = formData.visitType || 'Visit';
+            const vType = formData.purpose || 'Visit';
             newSubject = `${vType} at ${props} with ${related} on ${dateStr}${timeStr}`;
         }
 
@@ -133,8 +127,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
     }, [
         isOpen,
         formData.activityType,
-        formData.callPurpose,
-        formData.agenda,
+        formData.purpose,
         formData.meetingLocation,
         formData.meetingType,
         formData.relatedTo,
@@ -202,7 +195,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         }
 
         if (formData.activityType === 'Site Visit') {
-            if (!formData.visitType) newErrors.visitType = 'Visit Type is required';
+            if (!formData.purpose) newErrors.purpose = 'Visit Type is required';
             if (!formData.visitConfirmation) newErrors.visitConfirmation = 'Confirmation is required';
 
             if (formData.status === 'Completed') {
@@ -338,6 +331,38 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         flex: 1
     };
 
+    // Generic Field Renderers
+    const renderGenericActivityFields = () => (
+        <div style={{ backgroundColor: '#f3f4f6', padding: '12px', borderRadius: '8px', marginBottom: formData.status === 'Completed' ? '12px' : '16px', border: '1px solid #e5e7eb' }}>
+            <h4 style={{ margin: '0 0 8px 0', fontSize: '0.9rem', color: '#374151', display: 'flex', alignItems: 'center' }}>
+                <i className="fas fa-clipboard-list" style={{ marginRight: '8px' }}></i> {formData.activityType} Details
+            </h4>
+            <div style={rowStyle}>
+                <div style={colStyle}>
+                    <label style={labelStyle}>Purpose</label>
+                    <select name="purpose" value={formData.purpose} onChange={handleChange} style={customSelectStyle(false)}>
+                        <option value="">Select Purpose</option>
+                        {(() => {
+                            const act = activityMasterFields?.activities?.find(a => a.name === formData.activityType);
+                            return (act?.purposes || []).map(p => <option key={p.name} value={p.name}>{p.name}</option>);
+                        })()}
+                    </select>
+                </div>
+            </div>
+            <div>
+                <label style={labelStyle}>Description / Notes</label>
+                <textarea
+                    name="description"
+                    value={formData.description}
+                    onChange={handleChange}
+                    rows="3"
+                    placeholder="Enter details..."
+                    style={{ ...inputStyle(false), resize: 'vertical' }}
+                />
+            </div>
+        </div>
+    );
+
     // Dynamic Field Renderers
     const renderCallFields = () => (
         <div style={{ backgroundColor: '#f0f9ff', padding: '12px', borderRadius: '8px', marginBottom: formData.status === 'Completed' ? '12px' : '16px', border: '1px solid #bae6fd' }}>
@@ -347,7 +372,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
             <div style={rowStyle}>
                 <div style={colStyle}>
                     <label style={labelStyle}>Call Purpose</label>
-                    <select name="callPurpose" value={formData.callPurpose} onChange={handleChange} style={customSelectStyle(false)}>
+                    <select name="purpose" value={formData.purpose} onChange={handleChange} style={customSelectStyle(false)}>
                         <option value="">Select Purpose</option>
                         {(() => {
                             const callAct = activityMasterFields?.activities?.find(a => a.name === 'Call');
@@ -435,7 +460,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
 
             <div>
                 <label style={labelStyle}>Agenda</label>
-                <select name="agenda" value={formData.agenda} onChange={handleChange} style={customSelectStyle(false)}>
+                <select name="purpose" value={formData.purpose} onChange={handleChange} style={customSelectStyle(false)}>
                     <option value="">Select Agenda</option>
                     {(() => {
                         const meetAct = activityMasterFields?.activities?.find(a => a.name === 'Meeting');
@@ -580,10 +605,10 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                     <div style={{ flex: 1 }}>
                         <label style={labelStyle}>Visit Type <span style={{ color: '#ef4444' }}>*</span></label>
                         <select
-                            name="visitType"
-                            value={formData.visitType}
+                            name="purpose"
+                            value={formData.purpose}
                             onChange={handleChange}
-                            style={customSelectStyle(errors.visitType)}
+                            style={customSelectStyle(errors.purpose)}
                         >
                             <option value="">Select Type</option>
                             {(() => {
@@ -732,7 +757,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
             <div style={rowStyle}>
                 <div style={colStyle}>
                     <label style={labelStyle}>Email Purpose</label>
-                    <select name="emailPurpose" value={formData.emailPurpose} onChange={handleChange} style={customSelectStyle(false)}>
+                    <select name="purpose" value={formData.purpose} onChange={handleChange} style={customSelectStyle(false)}>
                         <option value="">Select Purpose</option>
                         {(() => {
                             const emailAct = activityMasterFields?.activities?.find(a => a.name === 'Email');
@@ -818,8 +843,8 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                                 <option value="">Select Result</option>
                                 {(() => {
                                     const callAct = activityMasterFields?.activities?.find(a => a.name === 'Call');
-                                    const purpose = callAct?.purposes?.find(p => p.name === formData.callPurpose);
-                                    return (purpose?.outcomes || []).map(o => <option key={o} value={o}>{o}</option>);
+                                    const purpose = callAct?.purposes?.find(p => p.name === formData.purpose);
+                                    return (purpose?.outcomes || []).map(o => <option key={o.label} value={o.label}>{o.label}</option>);
                                 })()}
                             </select>
                             {errors.completionResult && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.completionResult}</span>}
@@ -874,18 +899,32 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
 
                         <div style={rowStyle}>
                             <div style={colStyle}>
-                                <label style={labelStyle}>Status / Result <span style={{ color: '#ef4444' }}>*</span></label>
+                                <label style={labelStyle}>Status <span style={{ color: '#ef4444' }}>*</span></label>
                                 <select name="meetingOutcomeStatus" value={formData.meetingOutcomeStatus} onChange={handleChange} style={customSelectStyle(errors.meetingOutcomeStatus)}>
-                                    <option value="">Select Result</option>
-                                    {(() => {
-                                        const meetAct = activityMasterFields?.activities?.find(a => a.name === 'Meeting');
-                                        const purpose = meetAct?.purposes?.find(p => p.name === formData.agenda);
-                                        return (purpose?.outcomes || []).map(o => <option key={o} value={o}>{o}</option>);
-                                    })()}
+                                    <option value="">Select Status</option>
+                                    <option value="Conducted">Conducted</option>
+                                    <option value="Rescheduled">Rescheduled</option>
+                                    <option value="Cancelled">Cancelled</option>
+                                    <option value="No Show">No Show</option>
                                 </select>
                                 {errors.meetingOutcomeStatus && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.meetingOutcomeStatus}</span>}
                             </div>
-                            {/* Completion Result merged into Status/Result */}
+
+                            {/* Result - Dynamic & Conditional (Only if Conducted) */}
+                            {formData.meetingOutcomeStatus === 'Conducted' && (
+                                <div style={colStyle}>
+                                    <label style={labelStyle}>Result / Outcome <span style={{ color: '#ef4444' }}>*</span></label>
+                                    <select name="completionResult" value={formData.completionResult} onChange={handleChange} style={customSelectStyle(errors.completionResult)}>
+                                        <option value="">Select Result</option>
+                                        {(() => {
+                                            const meetAct = activityMasterFields?.activities?.find(a => a.name === 'Meeting');
+                                            const purpose = meetAct?.purposes?.find(p => p.name === formData.purpose);
+                                            return (purpose?.outcomes || []).map(o => <option key={o.label} value={o.label}>{o.label}</option>);
+                                        })()}
+                                    </select>
+                                    {errors.completionResult && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.completionResult}</span>}
+                                </div>
+                            )}
                         </div>
 
                         <div style={rowStyle}>
@@ -1014,8 +1053,8 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                                                     <option value="">Select Result</option>
                                                     {(() => {
                                                         const visitAct = activityMasterFields?.activities?.find(a => a.name === 'Site Visit');
-                                                        const purpose = visitAct?.purposes?.find(p => p.name === formData.visitType);
-                                                        return (purpose?.outcomes || []).map(o => <option key={o} value={o}>{o}</option>);
+                                                        const purpose = visitAct?.purposes?.find(p => p.name === formData.purpose);
+                                                        return (purpose?.outcomes || []).map(o => <option key={o.label} value={o.label}>{o.label}</option>);
                                                     })()}
                                                 </select>
                                                 {errors[`prop_${idx}_result`] && <span style={{ fontSize: '0.7rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors[`prop_${idx}_result`]}</span>}
@@ -1136,15 +1175,32 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                                     onChange={handleChange}
                                     style={customSelectStyle(errors.mailStatus)}
                                 >
-                                    <option value="">Select Result</option>
-                                    {(() => {
-                                        const emailAct = activityMasterFields?.activities?.find(a => a.name === 'Email');
-                                        const purpose = emailAct?.purposes?.find(p => p.name === formData.emailPurpose);
-                                        return (purpose?.outcomes || []).map(o => <option key={o} value={o}>{o}</option>);
-                                    })()}
+                                    <option value="">Select Status</option>
+                                    {['Sent', 'Delivered', 'Read', 'Replied', 'Bounced', 'Undelivered', 'Clicked', 'Opened', 'Ignored'].map(s => (
+                                        <option key={s} value={s}>{s}</option>
+                                    ))}
                                 </select>
                                 {errors.mailStatus && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.mailStatus}</span>}
                             </div>
+                        </div>
+
+                        {/* Result - Dynamic (Always show for Email?) User just said add status back. Let's make Result standalone row */}
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={labelStyle}>Result / Outcome <span style={{ color: '#ef4444' }}>*</span></label>
+                            <select
+                                name="completionResult"
+                                value={formData.completionResult}
+                                onChange={handleChange}
+                                style={customSelectStyle(errors.completionResult)}
+                            >
+                                <option value="">Select Result</option>
+                                {(() => {
+                                    const emailAct = activityMasterFields?.activities?.find(a => a.name === 'Email');
+                                    const purpose = emailAct?.purposes?.find(p => p.name === formData.purpose);
+                                    return (purpose?.outcomes || []).map(o => <option key={o.label} value={o.label}>{o.label}</option>);
+                                })()}
+                            </select>
+                            {errors.completionResult && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.completionResult}</span>}
                         </div>
 
                         <div style={rowStyle}>
@@ -1298,6 +1354,93 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                 </div>
             );
         }
+        // Default / Generic Completion Form
+        return (
+            <div className="animate-fade-in" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <div style={{
+                    borderTop: '2px solid #e2e8f0',
+                    margin: '20px 0',
+                    padding: '24px',
+                    backgroundColor: '#f9fafb',
+                    borderRadius: '12px',
+                    border: '1px solid #e5e7eb'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+                        <div style={{
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '50%',
+                            backgroundColor: '#6b7280',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: 'white',
+                            fontSize: '0.8rem'
+                        }}>
+                            <i className="fas fa-check" style={{ margin: '0 auto' }}></i>
+                        </div>
+                        <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#374151', margin: 0, letterSpacing: '-0.3px' }}>
+                            Complete {formData.activityType}
+                        </h3>
+                    </div>
+
+                    <div style={rowStyle}>
+                        <div style={colStyle}>
+                            <label style={labelStyle}>Date <span style={{ color: '#ef4444' }}>*</span></label>
+                            <input
+                                type="date"
+                                name="completionDate"
+                                value={formData.completionDate}
+                                onChange={handleChange}
+                                style={inputStyle(errors.completionDate)}
+                            />
+                            {errors.completionDate && <span style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px', display: 'block' }}>{errors.completionDate}</span>}
+                        </div>
+                        <div style={colStyle}>
+                            <label style={labelStyle}>Time <span style={{ color: '#ef4444' }}>*</span></label>
+                            <input
+                                type="time"
+                                name="completionTime"
+                                value={formData.completionTime}
+                                onChange={handleChange}
+                                style={inputStyle(errors.completionTime)}
+                            />
+                        </div>
+                    </div>
+
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={labelStyle}>Result / Outcome</label>
+                        <select
+                            name="completionResult"
+                            value={formData.completionResult}
+                            onChange={handleChange}
+                            style={customSelectStyle(errors.completionResult)}
+                        >
+                            <option value="">Select Result</option>
+                            {(() => {
+                                const act = activityMasterFields?.activities?.find(a => a.name === formData.activityType);
+                                // Reuse callPurpose for generic activity purpose mapping
+                                const purposeName = formData.purpose;
+                                const purpose = act?.purposes?.find(p => p.name === purposeName);
+                                return (purpose?.outcomes || []).map(o => <option key={o.label} value={o.label}>{o.label}</option>);
+                            })()}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style={labelStyle}>Feedback / Notes</label>
+                        <textarea
+                            name="clientFeedback"
+                            value={formData.clientFeedback}
+                            onChange={handleChange}
+                            rows="3"
+                            placeholder="Outcome details..."
+                            style={{ ...inputStyle(false), resize: 'vertical' }}
+                        />
+                    </div>
+                </div>
+            </div>
+        );
     };
 
     return (
@@ -1370,29 +1513,30 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                 <div style={{ padding: '24px 24px 0 24px', marginBottom: '16px' }}>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                         <label style={{ ...labelStyle, marginBottom: 0, marginRight: '12px' }}>Type:</label>
-                        {['Call', 'Meeting', 'Task', 'Email', 'Site Visit'].map(type => (
+                        {(activityMasterFields?.activities || []).map(act => (
                             <button
-                                key={type}
-                                onClick={() => setFormData(prev => ({ ...prev, activityType: type }))}
+                                key={act.name}
+                                onClick={() => setFormData(prev => ({ ...prev, activityType: act.name }))}
                                 style={{
                                     padding: '6px 14px',
                                     borderRadius: '20px',
-                                    border: `1px solid ${formData.activityType === type ? 'var(--primary-color)' : '#e2e8f0'}`,
-                                    background: formData.activityType === type ? 'rgba(59, 130, 246, 0.1)' : '#fff',
-                                    color: formData.activityType === type ? 'var(--primary-color)' : '#64748b',
+                                    border: `1px solid ${formData.activityType === act.name ? 'var(--primary-color)' : '#e2e8f0'}`,
+                                    background: formData.activityType === act.name ? 'rgba(59, 130, 246, 0.1)' : '#fff',
+                                    color: formData.activityType === act.name ? 'var(--primary-color)' : '#64748b',
                                     fontSize: '0.85rem',
                                     fontWeight: 600,
                                     cursor: 'pointer',
                                     transition: 'all 0.2s',
-                                    boxShadow: formData.activityType === type ? '0 2px 4px rgba(59, 130, 246, 0.1)' : 'none'
+                                    boxShadow: formData.activityType === act.name ? '0 2px 4px rgba(59, 130, 246, 0.1)' : 'none'
                                 }}
                             >
-                                {type === 'Call' && <i className="fas fa-phone-alt" style={{ marginRight: '6px' }}></i>}
-                                {type === 'Meeting' && <i className="fas fa-users" style={{ marginRight: '6px' }}></i>}
-                                {type === 'Task' && <i className="fas fa-check-square" style={{ marginRight: '6px' }}></i>}
-                                {type === 'Email' && <i className="fas fa-envelope" style={{ marginRight: '6px' }}></i>}
-                                {type === 'Site Visit' && <i className="fas fa-map-marked-alt" style={{ marginRight: '6px' }}></i>}
-                                {type}
+                                {act.name === 'Call' && <i className="fas fa-phone-alt" style={{ marginRight: '6px' }}></i>}
+                                {act.name === 'Meeting' && <i className="fas fa-users" style={{ marginRight: '6px' }}></i>}
+                                {act.name === 'Task' && <i className="fas fa-check-square" style={{ marginRight: '6px' }}></i>}
+                                {act.name === 'Email' && <i className="fas fa-envelope" style={{ marginRight: '6px' }}></i>}
+                                {act.name === 'Site Visit' && <i className="fas fa-map-marked-alt" style={{ marginRight: '6px' }}></i>}
+                                {!['Call', 'Meeting', 'Task', 'Email', 'Site Visit'].includes(act.name) && <i className="fas fa-star" style={{ marginRight: '6px' }}></i>}
+                                {act.name}
                             </button>
                         ))}
 
@@ -1437,11 +1581,12 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
 
 
                         {/* Dynamic Fields Section */}
-                        {formData.activityType === 'Call' && renderCallFields()}
-                        {formData.activityType === 'Meeting' && renderMeetingFields()}
-                        {formData.activityType === 'Site Visit' && renderSiteVisitFields()}
-                        {formData.activityType === 'Email' && renderEmailFields()}
-                        {formData.activityType === 'Task' && renderTaskFields()}
+                        {formData.activityType === 'Call' ? renderCallFields() :
+                            formData.activityType === 'Meeting' ? renderMeetingFields() :
+                                formData.activityType === 'Site Visit' ? renderSiteVisitFields() :
+                                    formData.activityType === 'Email' ? renderEmailFields() :
+                                        formData.activityType === 'Task' ? renderTaskFields() :
+                                            renderGenericActivityFields()}
 
                         {/* Subject */}
                         <div style={{ marginBottom: formData.status === 'Completed' ? '12px' : '16px' }}>

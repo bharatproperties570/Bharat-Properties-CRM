@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { companyData } from '../data/companyData';
 import { INDIAN_ADDRESS_DATA } from '../data/locationData';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
+import AddressDetailsForm from './common/AddressDetailsForm';
 
 // Mock Permission Hook
 const usePermission = (permission) => {
@@ -95,15 +96,162 @@ const MultiSelect = ({ options, selected, onChange, placeholder = "Select..." })
 };
 
 
-function AddProjectModal({ isOpen, onClose, onSave }) {
-    const context = usePropertyConfig();
-    const { masterFields, projectMasterFields, projectAmenities } = context;
-    const projectMasterFieldsSafe = projectMasterFields || {};
+
+const DEFAULT_FORM_DATA = {
+    // Basic Info
+    name: '',
+    developerName: '',
+    isJointVenture: false,
+    secondaryDeveloper: '',
+    reraNumber: '',
+    description: '',
+
+    // Multi-select Fields
+    category: ['Residential'],
+    subCategory: ['Flat/Apartment'],
+
+    // System Details (Multi-select)
+    assign: ['Suraj Keshwar'],
+    team: ['Sales'],
+
+    // Project Stats
+    landArea: '',
+    landAreaUnit: 'Acres',
+    totalBlocks: '0',
+    totalFloors: '0',
+    totalUnits: '0',
+    status: '',
+
+    // Dates
+    launchDate: '',
+    expectedCompletionDate: '',
+    possessionDate: '',
+
+    // Bank & Approvals
+    parkingType: 'Open Parking',
+    approvedBank: 'Punjab & Sind Bank',
+
+    // System Details
+    visibleTo: 'All Users',
+
+    // Location
+    locationSearch: '',
+    latitude: '',
+    longitude: '',
+    // Updated Address Schema
+    address: {
+        hNo: '',
+        street: '',
+        locality: '',
+        location: '',
+        area: '',
+        country: 'India',
+        state: '',
+        city: '',
+        tehsil: '',
+        postOffice: '',
+        pincode: ''
+    },
+
+    // Documents & Approvals (Dynamic)
+    projectDocuments: [{ documentName: '', approvalAuthority: '', registrationNo: '', date: '', file: null }],
+
+    // Media Management (Structured)
+    projectImages: [{ title: '', category: 'Main', file: null }],
+    projectVideos: [{ title: '', type: 'YouTube', url: '', file: null }],
+
+    // Amenities (Booleans)
+    amenities: {},
+
+    // Project Blocks
+    blocks: [],
+
+    // Pricing & Master Charges
+    pricing: {
+        pricingType: 'Standard',
+        unitPrices: [],
+        basePrice: { amount: '', unit: 'sqft' },
+        masterCharges: [
+            { id: 'edc', name: 'EDC (External Development Charges)', category: 'Development', basis: 'Per SqFt', amount: '', gstEnabled: true },
+            { id: 'idc', name: 'IDC (Infrastructure Development Charges)', category: 'Development', basis: 'Per SqFt', amount: '', gstEnabled: true },
+            { id: 'stamp', name: 'Stamp Duty', category: 'Statutory', basis: '% of Total', amount: '5', gstEnabled: false },
+            { id: 'reg', name: 'Registration Charges', category: 'Statutory', basis: '% of Total', amount: '1', gstEnabled: false },
+            { id: 'ifms', name: 'IFMS (Maintenance Security)', category: 'Maintenance', basis: 'Per SqFt', amount: '', gstEnabled: false }
+        ],
+        paymentPlans: [
+            {
+                name: 'Construction Linked Plan (CLP)',
+                type: 'CLP',
+                milestones: [
+                    { name: 'At the time of Booking', percentage: '10', stage: 'Booking' },
+                    { name: 'Within 30 days of booking', percentage: '10', stage: 'Allotment' }
+                ]
+            }
+        ]
+    }
+};
+
+function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projectToEdit = null }) {
+    const { projectMasterFields: masterFieldsFromContext, projectAmenities, sizes } = usePropertyConfig();
+
+    if (!companyData) {
+        console.error('companyData is undefined!');
+    }
+
+    const projectMasterFieldsSafe = masterFieldsFromContext || {};
     const [isLoading, setIsLoading] = useState(true);
     const [hasPermission, setHasPermission] = useState(false);
-    const [activeTab, setActiveTab] = useState('Basic');
+    const [activeTab, setActiveTab] = useState(initialTab || 'Basic');
+    const [currentTime, setCurrentTime] = useState(new Date());
+
+    // Helper: Fetch Address from Lat/Lng
+    const fetchAddressFromCoordinates = (lat, lng) => {
+        if (!window.google || !window.google.maps) return;
+        const geocoder = new window.google.maps.Geocoder();
+        geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+            if (status === "OK" && results[0]) {
+                const place = results[0];
+                let newState = '';
+                let newCity = '';
+                let newZip = '';
+                let newStreet = '';
+                let newLocation = '';
+
+                place.address_components.forEach(component => {
+                    const types = component.types;
+                    if (types.includes('administrative_area_level_1')) newState = component.long_name;
+                    if (types.includes('administrative_area_level_2') || types.includes('locality')) newCity = component.long_name;
+                    if (types.includes('postal_code')) newZip = component.long_name;
+                    if (types.includes('sublocality') || types.includes('neighborhood')) newLocation = component.long_name;
+                    if (types.includes('route') || types.includes('street_number')) newStreet += component.long_name + ' ';
+                });
+
+                setFormData(prev => ({
+                    ...prev,
+                    locationSearch: place.formatted_address,
+                    address: {
+                        ...prev.address,
+                        state: newState || prev.address.state,
+                        city: newCity || prev.address.city,
+                        country: 'India',
+                        pincode: newZip || prev.address.pincode,
+                        street: newStreet.trim() || prev.address.street,
+                        location: newLocation || prev.address.location
+                    }
+                }));
+            }
+        });
+    };
     const [amenityTab, setAmenityTab] = useState('Basic');
     const [amenitySearch, setAmenitySearch] = useState('');
+
+    // Current Time for Header
+
+
+    useEffect(() => {
+        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
 
     // Safe access to projectAmenities
     const amenitiesSafe = projectAmenities || {};
@@ -124,98 +272,7 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
     }
 
     // Comprehensive State
-    const [formData, setFormData] = useState({
-        // Basic Info
-        name: '',
-        developerName: '',
-        isJointVenture: false,
-        secondaryDeveloper: '',
-        reraNumber: '',
-        description: '',
-
-        // Multi-select Fields
-        category: ['Residential'],
-        subCategory: ['Flat/Apartment'],
-
-        // System Details (Multi-select)
-        assign: ['Suraj Keshwar'],
-        team: ['Sales'],
-
-        // Project Stats
-        landArea: '',
-        landAreaUnit: 'Acres',
-        totalBlocks: '0',
-        totalFloors: '0',
-        totalUnits: '0',
-        status: '',
-
-        // Dates
-        launchDate: '',
-        expectedCompletionDate: '',
-        possessionDate: '',
-
-        // Bank & Approvals
-        parkingType: 'Open Parking',
-        approvedBank: 'Punjab & Sind Bank',
-
-        // System Details
-        visibleTo: 'All Users',
-
-        // Location
-        locationSearch: '',
-        latitude: '',
-        longitude: '',
-        // Updated Address Schema
-        address: {
-            hNo: '',
-            street: '',
-            locality: '',
-            location: '',
-            area: '', // Added explicit area field
-            country: 'India',
-            state: '',
-            city: '',
-            tehsil: '',
-            postOffice: '',
-            zip: ''
-        },
-
-        // Documents & Approvals (Dynamic)
-        projectDocuments: [{ documentName: '', approvalAuthority: '', registrationNo: '', date: '', file: null }],
-
-        // Media Management (Structured)
-        projectImages: [{ title: '', category: 'Main', file: null }],
-        projectVideos: [{ title: '', type: 'YouTube', url: '', file: null }],
-
-        // Amenities (Booleans)
-        amenities: {},
-
-        // Project Blocks
-        blocks: [],
-
-        // Pricing & Master Charges (North India Professional)
-        pricing: {
-            pricingType: 'Standard',
-            basePrice: { amount: '', unit: 'sqft' },
-            masterCharges: [
-                { id: 'edc', name: 'EDC (External Development Charges)', category: 'Development', basis: 'Per SqFt', amount: '', gstEnabled: true },
-                { id: 'idc', name: 'IDC (Infrastructure Development Charges)', category: 'Development', basis: 'Per SqFt', amount: '', gstEnabled: true },
-                { id: 'stamp', name: 'Stamp Duty', category: 'Statutory', basis: '% of Total', amount: '5', gstEnabled: false },
-                { id: 'reg', name: 'Registration Charges', category: 'Statutory', basis: '% of Total', amount: '1', gstEnabled: false },
-                { id: 'ifms', name: 'IFMS (Maintenance Security)', category: 'Maintenance', basis: 'Per SqFt', amount: '', gstEnabled: false }
-            ],
-            paymentPlans: [
-                {
-                    name: 'Construction Linked Plan (CLP)',
-                    type: 'CLP',
-                    milestones: [
-                        { name: 'At the time of Booking', percentage: '10', stage: 'Booking' },
-                        { name: 'Within 30 days of booking', percentage: '10', stage: 'Allotment' }
-                    ]
-                }
-            ]
-        }
-    });
+    const [formData, setFormData] = useState(DEFAULT_FORM_DATA);
 
     const [showBlockForm, setShowBlockForm] = useState(false);
     const [editingBlockIndex, setEditingBlockIndex] = useState(null);
@@ -232,10 +289,64 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
         possessionDate: ''
     });
 
+    // --- Price Tab State & Handlers (Moved to Top Level) ---
+    const [newPriceRow, setNewPriceRow] = useState({
+        block: '',
+        subCategory: '',
+        areaType: '',
+        size: '',
+        price: ''
+    });
+
+    // Helper to get Area Types (Moved to Top Level)
+    const getAreaTypes = (subCat) => {
+        if (!subCat) return [];
+        const lower = subCat.toLowerCase();
+        if (lower.includes('plot') || lower.includes('land') || lower.includes('sco') || lower.includes('agricultural')) {
+            return ['Total Area', 'Plot Area', 'Gaj'];
+        }
+        if (lower.includes('flat') || lower.includes('apartment') || lower.includes('floor') || lower.includes('penthouse')) {
+            return ['Super Area', 'Carpet Area', 'Built-up Area'];
+        }
+        if (lower.includes('villa') || lower.includes('house')) {
+            return ['Plot Area', 'Built-up Area', 'Carpet Area'];
+        }
+        if (lower.includes('shop') || lower.includes('office')) {
+            return ['Super Area', 'Carpet Area'];
+        }
+        return ['Area', 'Super Area', 'Carpet Area'];
+    };
+
+    const handleAddPriceRow = () => {
+        if (newPriceRow.subCategory && newPriceRow.size && newPriceRow.price) {
+            const newRow = { ...newPriceRow, id: Date.now() };
+            const currentUnitPrices = formData.pricing?.unitPrices || [];
+
+            setFormData(prev => ({
+                ...prev,
+                pricing: { ...prev.pricing, unitPrices: [...currentUnitPrices, newRow] }
+            }));
+
+            setNewPriceRow({ block: '', subCategory: '', areaType: '', size: '', price: '' });
+        }
+    };
+
+    const removePriceRow = (id) => {
+        const currentUnitPrices = formData.pricing?.unitPrices || [];
+        const newRows = currentUnitPrices.filter(r => r.id !== id);
+        setFormData(prev => ({
+            ...prev,
+            pricing: { ...prev.pricing, unitPrices: newRows }
+        }));
+    };
+
 
 
     const modalRef = useRef(null);
     const searchInputRef = useRef(null);
+    const mapRef = useRef(null);
+    const googleMapRef = useRef(null);
+    const markerRef = useRef(null);
     const canCreateProject = usePermission('create_project');
 
 
@@ -245,14 +356,7 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
     const users = ['Suraj Keshwar', 'Demo User', 'Admin', 'Manager'];
     const developers = companyData.map(c => c.name).sort();
 
-    // Derived Data for Cascading Address
-    const countryData = INDIAN_ADDRESS_DATA['India'];
-    const states = formData.address.country === 'India' && countryData ? Object.keys(countryData) : [];
-    const cityData = formData.address.state && countryData && countryData[formData.address.state] ? countryData[formData.address.state] : null;
-    const cities = cityData ? Object.keys(cityData) : [];
-    const selectedCityObj = cityData && formData.address.city ? cityData[formData.address.city] : null;
-    const tehsils = selectedCityObj ? selectedCityObj.tehsils : [];
-    const postOffices = selectedCityObj ? selectedCityObj.postOffices.filter(po => !formData.address.tehsil || po.tehsil === formData.address.tehsil) : [];
+    // Cascading Address Logic handled by AddressDetailsForm
 
     useEffect(() => {
         if (isOpen) {
@@ -260,70 +364,132 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
             setTimeout(() => {
                 setHasPermission(canCreateProject);
                 setIsLoading(false);
-            }, 500);
+            }, 10);
             document.body.style.overflow = 'hidden';
+
+            if (projectToEdit) {
+                // Normalize Blocks: Ensure they are objects { name: '...' }
+                let normalizedBlocks = projectToEdit.blocks || [];
+                if (normalizedBlocks.length > 0 && typeof normalizedBlocks[0] === 'string') {
+                    normalizedBlocks = normalizedBlocks.map(b => ({ name: b }));
+                }
+
+                // Normalize Categories: Split legacy 'category' into 'category' and 'subCategory'
+                let normalizedCategory = projectToEdit.category || [];
+                let normalizedSubCategory = projectToEdit.subCategory || [];
+
+                if ((!projectToEdit.subCategory || projectToEdit.subCategory.length === 0) && normalizedCategory.length > 0) {
+                    const mainCategories = ['Residential', 'Commercial', 'Agricultural', 'Industrial', 'Institutional'];
+                    const actualCategories = normalizedCategory.filter(c => mainCategories.includes(c));
+                    const actualSubCategories = normalizedCategory.filter(c => !mainCategories.includes(c));
+
+                    // If we found split, use it. Otherwise keep as is (safer).
+                    if (actualCategories.length > 0 || actualSubCategories.length > 0) {
+                        normalizedCategory = actualCategories;
+                        normalizedSubCategory = actualSubCategories;
+                    }
+                }
+
+                setFormData(prev => ({
+                    ...prev,
+                    ...projectToEdit,
+                    blocks: normalizedBlocks,
+                    category: normalizedCategory,
+                    subCategory: normalizedSubCategory
+                }));
+            } else {
+                setFormData(DEFAULT_FORM_DATA);
+            }
+            setActiveTab(initialTab || 'Basic');
         } else {
             document.body.style.overflow = 'unset';
             setIsLoading(true);
             setActiveTab('Basic');
         }
         return () => { document.body.style.overflow = 'unset'; };
-    }, [isOpen, canCreateProject]);
+    }, [isOpen, canCreateProject, projectToEdit, initialTab]);
 
-    // Google Maps Autocomplete Integration
+    // Google Maps Integration (Interactive)
     useEffect(() => {
         if (!isOpen || activeTab !== 'Location') return;
 
-        if (window.google && window.google.maps && searchInputRef.current) {
-            const autocomplete = new window.google.maps.places.Autocomplete(searchInputRef.current, {
-                types: ['geocode'],
-                componentRestrictions: { country: 'in' },
-                fields: ['address_components', 'geometry', 'formatted_address']
-            });
+        const timer = setTimeout(() => {
+            if (window.google && mapRef.current) {
+                const defaultCenter = {
+                    lat: formData.latitude ? parseFloat(formData.latitude) : 28.6139,
+                    lng: formData.longitude ? parseFloat(formData.longitude) : 77.2090
+                };
 
-            autocomplete.addListener('place_changed', () => {
-                const place = autocomplete.getPlace();
-                if (!place.address_components) return;
+                if (!googleMapRef.current) {
+                    googleMapRef.current = new window.google.maps.Map(mapRef.current, {
+                        center: defaultCenter,
+                        zoom: 13,
+                        mapTypeControl: false,
+                        fullscreenControl: false,
+                        streetViewControl: false
+                    });
+                } else {
+                    googleMapRef.current.setCenter(defaultCenter);
+                }
 
-                let newState = '';
-                let newCity = '';
-                let newZip = '';
-                let newStreet = '';
-                let newLocation = '';
+                if (!markerRef.current) {
+                    markerRef.current = new window.google.maps.Marker({
+                        position: defaultCenter,
+                        map: googleMapRef.current,
+                        draggable: true,
+                        animation: window.google.maps.Animation.DROP,
+                        title: "Project Location"
+                    });
 
-                place.address_components.forEach(component => {
-                    const types = component.types;
-                    if (types.includes('administrative_area_level_1')) {
-                        newState = component.long_name;
-                    }
-                    if (types.includes('administrative_area_level_3') || types.includes('locality')) {
-                        newCity = component.long_name;
-                    }
-                    if (types.includes('postal_code')) {
-                        newZip = component.long_name;
-                    }
-                    if (types.includes('sublocality') || types.includes('neighborhood')) {
-                        newLocation = component.long_name;
-                    }
-                    if (types.includes('route') || types.includes('street_number')) {
-                        newStreet += component.long_name + ' ';
-                    }
-                });
+                    markerRef.current.addListener('dragend', (event) => {
+                        const newLat = event.latLng.lat();
+                        const newLng = event.latLng.lng();
+                        setFormData(prev => ({
+                            ...prev,
+                            latitude: newLat.toFixed(6),
+                            longitude: newLng.toFixed(6)
+                        }));
+                        fetchAddressFromCoordinates(newLat, newLng);
+                    });
+                } else {
+                    markerRef.current.setPosition(defaultCenter);
+                }
 
-                setFormData(prev => ({
-                    ...prev,
-                    locationSearch: place.formatted_address,
-                    address: {
-                        ...prev.address,
-                        state: newState,
-                        city: newCity,
-                        zip: newZip,
-                        street: newStreet.trim(),
-                        location: newLocation
-                    }
-                }));
-            });
-        }
+                if (searchInputRef.current) {
+                    const autocomplete = new window.google.maps.places.Autocomplete(searchInputRef.current, {
+                        types: ['geocode'],
+                        componentRestrictions: { country: 'in' },
+                        fields: ['address_components', 'geometry', 'formatted_address']
+                    });
+
+                    autocomplete.bindTo("bounds", googleMapRef.current);
+
+                    autocomplete.addListener('place_changed', () => {
+                        const place = autocomplete.getPlace();
+                        if (!place.geometry || !place.geometry.location) return;
+
+                        if (place.geometry.viewport) {
+                            googleMapRef.current.fitBounds(place.geometry.viewport);
+                        } else {
+                            googleMapRef.current.setCenter(place.geometry.location);
+                            googleMapRef.current.setZoom(17);
+                        }
+
+                        markerRef.current.setPosition(place.geometry.location);
+
+                        setFormData(prev => ({
+                            ...prev,
+                            locationSearch: place.formatted_address,
+                            latitude: place.geometry.location.lat().toFixed(6),
+                            longitude: place.geometry.location.lng().toFixed(6)
+                        }));
+                        fetchAddressFromCoordinates(place.geometry.location.lat(), place.geometry.location.lng());
+                    });
+                }
+            }
+        }, 100);
+
+        return () => clearTimeout(timer);
     }, [isOpen, activeTab]);
 
     const handleAmenityChange = (name) => {
@@ -580,7 +746,7 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
 
     const renderLocationTab = () => (
         <div className="tab-content fade-in space-y-6">
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, marginBottom: '16px' }}>
                 <label style={labelStyle}>Search Location</label>
                 <div style={{ position: 'relative' }}>
                     <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
@@ -594,113 +760,58 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                 </div>
             </div>
 
-            {/* Coordinates Section REMOVED as per request */}
+            {/* Google Map Container */}
+            <div style={{
+                height: '350px',
+                width: '100%',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                border: '1px solid #e2e8f0',
+                marginBottom: '24px',
+                position: 'relative'
+            }}>
+                <div ref={mapRef} style={{ width: '100%', height: '100%' }}></div>
+                <div style={{
+                    position: 'absolute',
+                    top: '10px',
+                    left: '10px',
+                    background: 'rgba(255, 255, 255, 0.9)',
+                    backdropFilter: 'blur(4px)',
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: '#334155',
+                    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    border: '1px solid #fff'
+                }}>
+                    <i className="fas fa-map-marker-alt" style={{ color: '#ef4444' }}></i>
+                    Drag Pin to Auto-Fill Address
+                </div>
+            </div>
+
+            {/* Coordinates (Read Only) */}
+            <div className="grid-2-col gap-24" style={{ marginBottom: '24px' }}>
+                <div>
+                    <label style={labelStyle}>Latitude</label>
+                    <input style={{ ...inputStyle, background: '#f8fafc', color: '#64748b' }} readOnly value={formData.latitude} placeholder="Latitude" />
+                </div>
+                <div>
+                    <label style={labelStyle}>Longitude</label>
+                    <input style={{ ...inputStyle, background: '#f8fafc', color: '#64748b' }} readOnly value={formData.longitude} placeholder="Longitude" />
+                </div>
+            </div>
 
             {/* Cascading Address Details Section */}
-            <div style={sectionStyle}>
-                <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <i className="fas fa-envelope-open-text" style={{ color: '#6366f1' }}></i> Address Details
-                </h4>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    {/* Level 1: Country, State, City */}
-                    <div className="grid-3-col gap-24">
-                        <div>
-                            <label style={labelStyle}>Country</label>
-                            <select
-                                style={customSelectStyle}
-                                value={formData.address.country}
-                                onChange={e => setFormData(prev => ({ ...prev, address: { ...prev.address, country: e.target.value, state: '', city: '', tehsil: '', postOffice: '', zip: '' } }))}
-                            >
-                                <option>India</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label style={labelStyle}>State</label>
-                            <select
-                                style={!formData.address.country ? customSelectStyleDisabled : customSelectStyle}
-                                value={formData.address.state}
-                                disabled={!formData.address.country}
-                                onChange={e => setFormData(prev => ({ ...prev, address: { ...prev.address, state: e.target.value, city: '', tehsil: '', postOffice: '', zip: '' } }))}
-                            >
-                                <option value="">---Select State---</option>
-                                {states.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label style={labelStyle}>City / District</label>
-                            <select
-                                style={!formData.address.state ? customSelectStyleDisabled : customSelectStyle}
-                                value={formData.address.city}
-                                disabled={!formData.address.state}
-                                onChange={e => setFormData(prev => ({ ...prev, address: { ...prev.address, city: e.target.value, tehsil: '', postOffice: '', zip: '' } }))}
-                            >
-                                <option value="">---Select City---</option>
-                                {cities.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                        </div>
-                    </div>
-
-                    {/* Level 2: Tehsil, Post Office, Zip */}
-                    <div className="grid-3-col gap-24">
-                        <div>
-                            <label style={labelStyle}>Tehsil</label>
-                            <select
-                                style={!formData.address.city ? customSelectStyleDisabled : customSelectStyle}
-                                value={formData.address.tehsil}
-                                disabled={!formData.address.city}
-                                onChange={e => setFormData(prev => ({ ...prev, address: { ...prev.address, tehsil: e.target.value } }))}
-                            >
-                                <option value="">---Select Tehsil---</option>
-                                {tehsils.map(t => <option key={t} value={t}>{t}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label style={labelStyle}>Post Office</label>
-                            <select
-                                style={!formData.address.city ? customSelectStyleDisabled : customSelectStyle}
-                                value={formData.address.postOffice}
-                                disabled={!formData.address.city}
-                                onChange={e => {
-                                    const selectedPO = postOffices.find(po => po.name === e.target.value);
-                                    setFormData(prev => ({ ...prev, address: { ...prev.address, postOffice: e.target.value, zip: selectedPO ? selectedPO.pinCode : prev.address.zip } }));
-                                }}
-                            >
-                                <option value="">---Select PO---</option>
-                                {postOffices.map(po => <option key={po.name} value={po.name}>{po.name}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label style={labelStyle}>Pin Code</label>
-                            <input style={{ ...inputStyle, background: '#f8fafc', color: '#64748b' }} readOnly placeholder="000000" value={formData.address.zip} />
-                        </div>
-                    </div>
-
-                    {/* Level 3: Street Addresses (Resized) */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 150px) 1fr', gap: '24px' }}>
-                        <div>
-                            <label style={labelStyle}>House / Flat No.</label>
-                            <input style={inputStyle} value={formData.address.hNo} onChange={e => setFormData(prev => ({ ...prev, address: { ...prev.address, hNo: e.target.value } }))} placeholder="Enter House No" />
-                        </div>
-                        <div>
-                            {/* Renamed Label */}
-                            <label style={labelStyle}>Street / Road / Landmark</label>
-                            <input style={inputStyle} value={formData.address.street} onChange={e => setFormData(prev => ({ ...prev, address: { ...prev.address, street: e.target.value } }))} placeholder="Enter Street / Road / Landmark" />
-                        </div>
-                    </div>
-
-                    {/* Level 4: Location & Area (New fields) */}
-                    <div className="grid-2-col gap-24">
-                        <div>
-                            <label style={labelStyle}>Location</label>
-                            <input style={inputStyle} value={formData.address.location} onChange={e => setFormData(prev => ({ ...prev, address: { ...prev.address, location: e.target.value } }))} placeholder="Enter Location" />
-                        </div>
-                        <div>
-                            <label style={labelStyle}>Area</label>
-                            <input style={inputStyle} value={formData.address.area} onChange={e => setFormData(prev => ({ ...prev, address: { ...prev.address, area: e.target.value } }))} placeholder="Enter Area" />
-                        </div>
-                    </div>
-                </div>
+            <div style={{ marginBottom: '24px' }}>
+                <AddressDetailsForm
+                    title="Address Details"
+                    address={formData.address}
+                    onChange={(newAddress) => setFormData(prev => ({ ...prev, address: newAddress }))}
+                />
             </div>
         </div >
     );
@@ -1121,20 +1232,23 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                 'PLC': { name: 'Corner/Park Facing PLC', category: 'PLC', basis: 'Per SqFt', amount: '', gstEnabled: true },
                 'STAMP': { name: 'Stamp Duty', category: 'Statutory', basis: '% of Total', amount: '5', gstEnabled: false },
                 'REG': { name: 'Registration Charges', category: 'Statutory', basis: '% of Total', amount: '1', gstEnabled: false },
-                'IFMS': { name: 'IFMS (Maintenance Security)', category: 'Maintenance', basis: 'Per SqFt', amount: '', gstEnabled: false }
+                'IFMS': { name: 'IFMS (Maintenance Security)', category: 'Per SqFt', amount: '', gstEnabled: false }
             };
 
+            const currentCharges = formData.pricing?.masterCharges || [];
             const newCharge = preset ? { ...defaults[preset], id: Date.now() } : { id: Date.now(), name: '', category: 'Other', basis: 'Fixed', amount: '', gstEnabled: true };
-            updatePricing('masterCharges', [...formData.pricing.masterCharges, newCharge]);
+            updatePricing('masterCharges', [...currentCharges, newCharge]);
         };
 
         const removeMasterCharge = (id) => {
-            const newCharges = formData.pricing.masterCharges.filter(c => c.id !== id);
+            const currentCharges = formData.pricing?.masterCharges || [];
+            const newCharges = currentCharges.filter(c => c.id !== id);
             updatePricing('masterCharges', newCharges);
         };
 
         const updateMasterCharge = (id, field, value) => {
-            const newCharges = formData.pricing.masterCharges.map(c => c.id === id ? { ...c, [field]: value } : c);
+            const currentCharges = formData.pricing?.masterCharges || [];
+            const newCharges = currentCharges.map(c => c.id === id ? { ...c, [field]: value } : c);
             updatePricing('masterCharges', newCharges);
         };
 
@@ -1167,24 +1281,147 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                 ];
             }
 
-            const newPlans = [...formData.pricing.paymentPlans];
-            newPlans[0] = {
-                ...newPlans[0],
-                type,
-                milestones,
-                name: type === 'CLP' ? 'Construction Linked Plan' : type === 'DPP' ? 'Down Payment Plan' : 'Possession Linked Plan'
-            };
-            updatePricing('paymentPlans', newPlans);
+            const currentPlans = formData.pricing?.paymentPlans || [];
+            const newPlans = [...currentPlans];
+            if (newPlans.length > 0) {
+                newPlans[0] = {
+                    ...newPlans[0],
+                    type,
+                    milestones,
+                    name: type === 'CLP' ? 'Construction Linked Plan' : type === 'DPP' ? 'Down Payment Plan' : 'Possession Linked Plan'
+                };
+                updatePricing('paymentPlans', newPlans);
+            }
         };
 
-        const categories = [...new Set(formData.pricing.masterCharges.map(c => c.category))];
+        // Top-level guard to prevent white screen if pricing data is missing
+        if (!formData.pricing) {
+            return (
+                <div className="tab-content fade-in">
+                    <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                        <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', marginBottom: '16px' }}></i>
+                        <p>Initializing Pricing Module...</p>
+                    </div>
+                </div>
+            );
+        }
 
         return (
             <div className="tab-content fade-in">
-                {/* Section 1: BSP */}
+
+                {/* Section 1: Unit Base Price Configuration */}
                 <div style={sectionStyle}>
                     <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <i className="fas fa-coins" style={{ color: '#f59e0b' }}></i> 1. Basic Sales Price (BSP)
+                        <i className="fas fa-tags" style={{ color: '#2563eb' }}></i> 1. Unit Base Price Configuration
+                    </h4>
+                    <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
+                        <div className="grid-3-col mb-24" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr auto', gap: '12px', alignItems: 'end' }}>
+                            <div>
+                                <label style={labelStyle}>Block</label>
+                                <select
+                                    style={customSelectStyle}
+                                    value={newPriceRow.block}
+                                    onChange={e => setNewPriceRow({ ...newPriceRow, block: e.target.value })}
+                                >
+                                    <option value="">All Blocks</option>
+                                    {(formData.blocks || []).map((b, i) => <option key={i} value={b.name}>{b.name}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Sub Category</label>
+                                <select
+                                    style={customSelectStyle}
+                                    value={newPriceRow.subCategory}
+                                    onChange={e => setNewPriceRow({ ...newPriceRow, subCategory: e.target.value, areaType: '' })}
+                                >
+                                    <option value="">Select</option>
+                                    {(formData.subCategory || []).map(sc => <option key={sc} value={sc}>{sc}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Area Type</label>
+                                <select
+                                    style={!newPriceRow.subCategory ? customSelectStyleDisabled : customSelectStyle}
+                                    value={newPriceRow.areaType}
+                                    disabled={!newPriceRow.subCategory}
+                                    onChange={e => setNewPriceRow({ ...newPriceRow, areaType: e.target.value })}
+                                >
+                                    <option value="">Select Type</option>
+                                    {getAreaTypes(newPriceRow.subCategory).map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Size</label>
+                                <select
+                                    style={!newPriceRow.subCategory ? customSelectStyleDisabled : customSelectStyle}
+                                    value={newPriceRow.size}
+                                    disabled={!newPriceRow.subCategory}
+                                    onChange={e => setNewPriceRow({ ...newPriceRow, size: e.target.value })}
+                                >
+                                    <option value="">Select Size</option>
+                                    {sizes.filter(s =>
+                                        (!s.project || s.project === formData.name) &&
+                                        (!newPriceRow.block || s.block === newPriceRow.block) &&
+                                        (!newPriceRow.subCategory || s.subCategory === newPriceRow.subCategory)
+                                    ).map(s => (
+                                        <option key={s.id} value={s.saleableArea || s.totalArea}>{s.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Base Price</label>
+                                <input
+                                    type="number"
+                                    style={inputStyle}
+                                    placeholder="₹ Price"
+                                    value={newPriceRow.price}
+                                    onChange={e => setNewPriceRow({ ...newPriceRow, price: e.target.value })}
+                                />
+                            </div>
+                            <button
+                                onClick={handleAddPriceRow}
+                                disabled={!newPriceRow.subCategory || !newPriceRow.size || !newPriceRow.price}
+                                style={{
+                                    height: '42px', padding: '0 20px', background: (!newPriceRow.subCategory || !newPriceRow.size || !newPriceRow.price) ? '#cbd5e1' : '#3b82f6',
+                                    color: '#fff', border: 'none', borderRadius: '8px', cursor: (!newPriceRow.subCategory || !newPriceRow.size || !newPriceRow.price) ? 'not-allowed' : 'pointer', fontWeight: 600
+                                }}
+                            >
+                                <i className="fas fa-plus"></i>
+                            </button>
+                        </div>
+
+                        {/* Price List Table */}
+                        <div style={{ background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 50px', padding: '10px 16px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                                <div>Block</div>
+                                <div>Sub Category</div>
+                                <div>Area Type</div>
+                                <div>Size</div>
+                                <div>Base Price</div>
+                                <div></div>
+                            </div>
+                            {(formData.pricing?.unitPrices || []).length === 0 ? (
+                                <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>No price configurations added.</div>
+                            ) : (
+                                (formData.pricing?.unitPrices || []).map((row, idx) => (
+                                    <div key={row.id || idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 50px', padding: '12px 16px', borderBottom: '1px solid #f1f5f9', alignItems: 'center', fontSize: '0.9rem', color: '#334155' }}>
+                                        <div>{row.block || 'All Blocks'}</div>
+                                        <div>{row.subCategory}</div>
+                                        <div>{row.areaType}</div>
+                                        <div>{row.size}</div>
+                                        <div style={{ fontWeight: 600 }}>₹ {row.price}</div>
+                                        <button onClick={() => removePriceRow(row.id)} style={{ color: '#ef4444', background: 'transparent', border: 'none', cursor: 'pointer' }}><i className="fas fa-trash"></i></button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Section 2: Global BSP (Fallback) */}
+                <div style={sectionStyle}>
+                    <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <i className="fas fa-coins" style={{ color: '#f59e0b' }}></i> 2. Global Basic Sales Price (Optional Fallback)
                     </h4>
                     <div style={{ maxWidth: '400px' }}>
                         <label style={labelStyle}>Base Price Amount</label>
@@ -1193,13 +1430,19 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                                 type="number"
                                 style={{ ...inputStyle, borderRight: 'none', borderRadius: '8px 0 0 8px' }}
                                 placeholder="0.00"
-                                value={formData.pricing.basePrice.amount}
-                                onChange={e => updatePricing('basePrice', { ...formData.pricing.basePrice, amount: e.target.value })}
+                                value={formData.pricing?.basePrice?.amount || ''}
+                                onChange={e => {
+                                    const currentBasePrice = formData.pricing?.basePrice || { amount: '', unit: 'sqft' };
+                                    updatePricing('basePrice', { ...currentBasePrice, amount: e.target.value });
+                                }}
                             />
                             <select
                                 style={{ ...customSelectStyle, width: '120px', borderRadius: '0 8px 8px 0', borderLeft: '1px solid #e2e8f0', background: '#f8fafc' }}
-                                value={formData.pricing.basePrice.unit}
-                                onChange={e => updatePricing('basePrice', { ...formData.pricing.basePrice, unit: e.target.value })}
+                                value={formData.pricing?.basePrice?.unit || 'sqft'}
+                                onChange={e => {
+                                    const currentBasePrice = formData.pricing?.basePrice || { amount: '', unit: 'sqft' };
+                                    updatePricing('basePrice', { ...currentBasePrice, unit: e.target.value });
+                                }}
                             >
                                 <option value="sqft">Per SqFt</option>
                                 <option value="sqyd">Per SqYd</option>
@@ -1209,11 +1452,11 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                     </div>
                 </div>
 
-                {/* Section 2: Master Charge Builder */}
+                {/* Section 3: Master Charge Builder */}
                 <div style={sectionStyle}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                         <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <i className="fas fa-layer-group" style={{ color: '#6366f1' }}></i> 2. Master Charge Solutions
+                            <i className="fas fa-layer-group" style={{ color: '#6366f1' }}></i> 3. Master Charge Solutions
                         </h4>
                         <div style={{ display: 'flex', gap: '8px' }}>
                             <button onClick={() => addMasterCharge()} style={{ padding: '8px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1344,11 +1587,11 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                     </div>
                 </div>
 
-                {/* Section 3: Payment Plan Builder */}
+                {/* Section 4: Payment Plan Builder */}
                 <div style={sectionStyle}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                         <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <i className="fas fa-calendar-alt" style={{ color: '#ec4899' }}></i> 3. Payment Plan Strategy
+                            <i className="fas fa-calendar-alt" style={{ color: '#ec4899' }}></i> 4. Payment Plan Strategy
                         </h4>
                         <div style={{ display: 'flex', gap: '8px' }}>
                             <button onClick={() => applyPlanPreset('CLP')} style={{ fontSize: '0.75rem', padding: '6px 12px', background: '#eff6ff', color: '#3b82f6', border: '1px solid #bfdbfe', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Standard CLP</button>
@@ -1861,14 +2104,16 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
 
                 {/* Header aligned with AddCompanyModal */}
                 <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(to right, #ffffff, #f8fafc)' }}>
-                    <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div style={{ width: '32px', height: '32px', background: '#eff6ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <i className="fas fa-building" style={{ color: '#2563eb' }}></i>
-                        </div>
-                        Add New Project
-                    </h2>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b', background: '#fff', padding: '6px 12px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
-                        {new Date().toDateString()}
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ width: '32px', height: '32px', background: '#eff6ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fas fa-building" style={{ color: '#2563eb' }}></i>
+                            </div>
+                            Add New Project
+                        </h2>
+                        <span style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px', fontWeight: 500, marginLeft: '42px' }}>
+                            {currentTime.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} | {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                        </span>
                     </div>
                 </div>
 

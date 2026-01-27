@@ -1,10 +1,21 @@
 import React, { useState } from 'react';
 import { inventoryData } from '../../data/mockData';
+import UploadModal from '../../components/UploadModal';
 
 function InventoryPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
+    const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+    const [selectedProperty, setSelectedProperty] = useState(null);
+
+    const handleUploadClick = () => {
+        const property = inventoryData.find(p => p.id === selectedIds[0]);
+        if (property) {
+            setSelectedProperty(property);
+            setIsUploadModalOpen(true);
+        }
+    };
 
 
     const toggleSelect = (id) => {
@@ -77,29 +88,29 @@ function InventoryPage() {
                                     {/* Single Selection Only Actions */}
                                     {selectedIds.length === 1 && (
                                         <>
-                                            <button className="action-btn" title="Edit Property"><i className="fas fa-edit"></i> Edit</button>
-                                            <button className="action-btn" title="Create Deal"><i className="fas fa-plus-circle"></i> Deal</button>
-                                            <button className="action-btn" title="Add Owner"><i className="fas fa-user-plus"></i> Owner</button>
-                                            <button className="action-btn" title="Matched Lead"><i className="fas fa-handshake"></i> Match</button>
-                                            <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
-                                            <button className="action-btn" title="Call Owner"><i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call</button>
-                                            <button className="action-btn" title="Message Owner"><i className="fas fa-comment-alt"></i> Msg</button>
-                                            <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
+                                            <button className="action-btn" title="Edit Property" style={{ flexShrink: 0 }}><i className="fas fa-edit"></i> Edit</button>
+                                            <button className="action-btn" title="Create Deal" style={{ flexShrink: 0 }}><i className="fas fa-plus-circle"></i> Deal</button>
+                                            <button className="action-btn" title="Add Owner" style={{ flexShrink: 0 }}><i className="fas fa-user-plus"></i> Owner</button>
+                                            <button className="action-btn" title="Match Lead" style={{ flexShrink: 0 }}><i className="fas fa-handshake"></i> Match</button>
+                                            <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px', flexShrink: 0 }}></div>
+                                            <button className="action-btn" title="Call Owner" style={{ flexShrink: 0 }}><i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call</button>
+                                            <button className="action-btn" title="Message Owner" style={{ flexShrink: 0 }}><i className="fas fa-comment-alt"></i> Message</button>
+                                            <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px', flexShrink: 0 }}></div>
                                         </>
                                     )}
 
                                     {/* Available for Both Single and Multi */}
-                                    <button className="action-btn" title="Add Remarks"><i className="fas fa-sticky-note"></i> Note</button>
-                                    <button className="action-btn" title="Add Tag"><i className="fas fa-tag"></i> Tag</button>
+                                    <button className="action-btn" title="Add Remarks" style={{ flexShrink: 0 }}><i className="fas fa-sticky-note"></i> Note</button>
+                                    <button className="action-btn" title="Add Tag" style={{ flexShrink: 0 }}><i className="fas fa-tag"></i> Tag</button>
 
                                     {/* Single Selection Only Actions (Files/Feedback) */}
                                     {selectedIds.length === 1 && (
                                         <>
-                                            <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
-                                            <button className="action-btn" title="Preview"><i className="fas fa-eye"></i> View</button>
-                                            <button className="action-btn" title="Upload Image"><i className="fas fa-image"></i> Img</button>
-                                            <button className="action-btn" title="Upload Document"><i className="fas fa-file-alt"></i> Doc</button>
-                                            <button className="action-btn" title="Feedback"><i className="fas fa-comment-dots"></i> Feed</button>
+                                            <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px', flexShrink: 0 }}></div>
+                                            <button className="action-btn" title="Preview" style={{ flexShrink: 0 }}><i className="fas fa-eye"></i> View</button>
+                                            <button className="action-btn" title="Upload Files" style={{ flexShrink: 0 }} onClick={handleUploadClick}><i className="fas fa-cloud-upload-alt"></i> Upload</button>
+                                            <button className="action-btn" title="Manage Documents" style={{ flexShrink: 0 }}><i className="fas fa-file-alt"></i> Document</button>
+                                            <button className="action-btn" title="Feedback" style={{ flexShrink: 0 }}><i className="fas fa-comment-dots"></i> Feedback</button>
                                         </>
                                     )}
 
@@ -461,6 +472,14 @@ function InventoryPage() {
                     <div className="stat-pill"><span style={{ color: '#f59e0b' }}>AGRI:</span> <span className="stat-val-bold">02</span></div>
                 </div>
             </footer>
+            {/* Upload Modal */}
+            <UploadModal
+                isOpen={isUploadModalOpen}
+                onClose={() => setIsUploadModalOpen(false)}
+                onSave={(data) => console.log("Saved Uploads:", data)}
+                project={selectedProperty}
+                type="property"
+            />
         </section>
     );
 }

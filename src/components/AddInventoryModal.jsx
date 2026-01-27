@@ -23,6 +23,12 @@ const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
     const { profileConfig = {} } = useContactConfig();
     const [activeTab, setActiveTab] = useState('Unit');
     const [isLoading, setIsLoading] = useState(true);
+    const [currentTime, setCurrentTime] = useState(new Date());
+
+    useEffect(() => {
+        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
 
     // Use Flat List directly
     const allProjects = PROJECTS_LIST;
@@ -153,7 +159,7 @@ const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
     useEffect(() => {
         if (isOpen) {
             setIsLoading(true);
-            setTimeout(() => setIsLoading(false), 500);
+            setTimeout(() => setIsLoading(false), 10);
             document.body.style.overflow = 'hidden';
         } else {
             document.body.style.overflow = 'unset';
@@ -161,6 +167,21 @@ const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
         }
         return () => { document.body.style.overflow = 'unset'; };
     }, [isOpen]);
+
+    // Auto-calculate Age of Construction
+    useEffect(() => {
+        if (formData.occupationDate) {
+            const occDate = new Date(formData.occupationDate);
+            const today = new Date();
+            let age = today.getFullYear() - occDate.getFullYear();
+            const m = today.getMonth() - occDate.getMonth();
+            if (m < 0 || (m === 0 && today.getDate() < occDate.getDate())) {
+                age--;
+            }
+            const ageStr = age >= 0 ? `${age} Years` : 'New';
+            setFormData(prev => ({ ...prev, ageOfConstruction: ageStr }));
+        }
+    }, [formData.occupationDate]);
 
     // Google Maps Integration
     useEffect(() => {
@@ -386,6 +407,17 @@ const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
                             ))}
                         </div>
                     </div>
+                    <div>
+                        <label style={labelStyle}>Sub Category</label>
+                        <select
+                            style={customSelectStyle}
+                            value={formData.subCategory}
+                            onChange={e => setFormData({ ...formData, subCategory: e.target.value, builtupType: '' })}
+                        >
+                            <option value="">Select Sub-Category</option>
+                            {subCategories.map(sc => <option key={sc} value={sc}>{sc}</option>)}
+                        </select>
+                    </div>
                 </div>
 
                 {/* Row 1: Unit Number + Unit Type */}
@@ -518,28 +550,17 @@ const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
                     </button>
                 </div>
 
-                {/* Global Sub Category & Type Selection for Built-up Details */}
-                <div className="grid-2-col gap-24 mb-24" style={{ marginBottom: '24px', paddingBottom: '24px', borderBottom: '1px dashed #e2e8f0' }}>
+                {/* Global Built-up Type Selection (Sub Category moved to Unit Tab) */}
+                <div style={{ marginBottom: '24px', paddingBottom: '24px', borderBottom: '1px dashed #e2e8f0' }}>
                     <div>
-                        <label style={labelStyle}>Sub Category</label>
-                        <select
-                            style={customSelectStyle}
-                            value={formData.subCategory}
-                            onChange={e => setFormData({ ...formData, subCategory: e.target.value, builtupType: '' })}
-                        >
-                            <option value="">Select Sub-Cat</option>
-                            {subCategories.map(sc => <option key={sc} value={sc}>{sc}</option>)}
-                        </select>
-                    </div>
-                    <div>
-                        <label style={labelStyle}>Built-up Type</label>
+                        <label style={labelStyle}>Built-up Type (Dependent on Sub Category)</label>
                         <select
                             style={!formData.subCategory ? customSelectStyleDisabled : customSelectStyle}
                             value={formData.builtupType}
                             disabled={!formData.subCategory}
                             onChange={e => setFormData({ ...formData, builtupType: e.target.value })}
                         >
-                            <option value="">Select Type</option>
+                            <option value="">{formData.subCategory ? "Select Type" : "Select Sub-Category in Unit Details First"}</option>
                             {builtUpTypes.map(t => <option key={t}>{t}</option>)}
                         </select>
                     </div>
@@ -598,7 +619,8 @@ const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
                 <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <i className="fas fa-couch" style={{ color: '#f59e0b' }}></i> Furnishing & Dates
                 </h4>
-                <div className="grid-2-col gap-24">
+                {/* Single Row for Dates & Furnish Status */}
+                <div className="grid-3-col gap-24">
                     <div>
                         <label style={labelStyle}>Occupation Date</label>
                         <input type="date" style={inputStyle} value={formData.occupationDate} onChange={e => setFormData({ ...formData, occupationDate: e.target.value })} />
@@ -607,8 +629,6 @@ const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
                         <label style={labelStyle}>Age of Construction</label>
                         <input type="text" style={inputStyle} placeholder="e.g. 5 Years" value={formData.ageOfConstruction} onChange={e => setFormData({ ...formData, ageOfConstruction: e.target.value })} />
                     </div>
-                </div>
-                <div className="grid-2-col gap-24 mt-24">
                     <div>
                         <label style={labelStyle}>Furnish Status</label>
                         <select style={customSelectStyle} value={formData.furnishType} onChange={e => setFormData({ ...formData, furnishType: e.target.value })}>
@@ -618,6 +638,8 @@ const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
                             <option>Unfurnished</option>
                         </select>
                     </div>
+                </div>
+                <div className="mt-24">
                     {formData.furnishType !== 'Unfurnished' && (
                         <div>
                             <label style={labelStyle}>Furnished Items</label>
@@ -1167,14 +1189,16 @@ const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
             <div style={{ background: '#fff', width: '95%', maxWidth: '1200px', height: '90vh', borderRadius: '16px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid #e2e8f0' }} ref={modalRef} className="animate-slideIn">
                 {/* Header */}
                 <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(to right, #ffffff, #f8fafc)' }}>
-                    <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div style={{ width: '32px', height: '32px', background: '#eff6ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <i className="fas fa-boxes" style={{ color: '#2563eb' }}></i>
-                        </div>
-                        Add Inventory
-                    </h2>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b', background: '#fff', padding: '6px 12px', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
-                        {new Date().toDateString()}
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ width: '32px', height: '32px', background: '#eff6ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fas fa-boxes" style={{ color: '#2563eb' }}></i>
+                            </div>
+                            Add Inventory
+                        </h2>
+                        <span style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px', fontWeight: 500, marginLeft: '42px' }}>
+                            {currentTime.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} | {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+                        </span>
                     </div>
                 </div>
 

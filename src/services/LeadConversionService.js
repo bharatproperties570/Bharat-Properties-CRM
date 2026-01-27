@@ -36,7 +36,7 @@ class LeadConversionService {
     /**
      * Core conversion logic
      */
-    convertLead(lead, ruleTriggered = 'Manual') {
+    convertLead(lead, ruleTriggered = 'Manual', config = {}) {
         if (this.isConverted(lead.mobile)) {
             return { success: false, message: 'Lead already converted' };
         }
@@ -51,7 +51,7 @@ class LeadConversionService {
             };
         }
 
-        const scoring = calculateLeadScore(lead, lead.activities || []);
+        const scoring = calculateLeadScore(lead, lead.activities || [], config);
 
         // Prepare new contact data
         const newContact = {
@@ -87,20 +87,20 @@ class LeadConversionService {
     /**
      * Auto-conversion trigger check
      */
-    evaluateAutoConversion(lead, eventType, eventData = {}) {
-        const scoring = calculateLeadScore(lead, lead.activities || []);
+    evaluateAutoConversion(lead, eventType, eventData = {}, config = {}) {
+        const scoring = calculateLeadScore(lead, lead.activities || [], config);
 
         // Official PDF Rule: Score >= 60 -> Eligible for Contact auto-conversion
         if (eventType === 'call_logged' && eventData.status === 'connected') {
             if (scoring.total >= 60) {
-                return this.convertLead(lead, 'AI Scoring: High Engagement Conversion');
+                return this.convertLead(lead, 'AI Scoring: High Engagement Conversion', config);
             }
         }
 
         // Rule B: High Intent Actions
         if (eventType === 'site_visit_scheduled' || eventType === 'property_shortlisted') {
             if (scoring.total >= 50) { // Slight buffer for high intent
-                return this.convertLead(lead, 'AI Scoring: High Intent Action Conversion');
+                return this.convertLead(lead, 'AI Scoring: High Intent Action Conversion', config);
             }
         }
 
