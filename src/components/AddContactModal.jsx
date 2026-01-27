@@ -1,7 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
+import { usePropertyConfig } from '../context/PropertyConfigContext';
+import { useContactConfig } from '../context/ContactConfigContext';
 
-import { INDIAN_ADDRESS_DATA } from '../data/locationData';
+import { INDIAN_LOCATION_HIERARCHY } from '../data/detailedLocationData';
+import AddressDetailsForm from './common/AddressDetailsForm';
+import { PROJECTS_LIST, PROJECT_DATA, CITIES } from '../data/projectData';
+import { LOCATION_DATA } from '../data/locationData';
+import { PROPERTY_CATEGORIES, DIRECTION_OPTIONS } from '../data/propertyData';
 import { companyData } from '../data/companyData';
 import api from "../../api";
 
@@ -100,29 +106,27 @@ const COUNTRY_CODES = [
 const STAGES = ['New', 'Contacted', 'Interested', 'Meeting Scheduled', 'Negotiation', 'Qualified', 'Won', 'Lost'];
 const STATUSES = ['Active', 'Inactive', 'Pending', 'Closed'];
 
-// Financial Constants
-const INCOME_SOURCES = ['Salary', 'Business', 'Rental', 'Investment', 'Pension', 'Other'];
-const BANK_NAMES = [
+
+// Note: Original hardcoded constants REMOVED in favor of profileConfig
+// INCOME_SOURCES, BANK_NAMES, DEGREE_OPTIONS now accessed dynamically
+// Fallback Constants
+const FALLBACK_INCOME_SOURCES = ['Salary', 'Business', 'Rental', 'Investment', 'Pension', 'Other'];
+const FALLBACK_BANK_NAMES = [
     "State Bank of India", "HDFC Bank", "ICICI Bank", "Punjab National Bank", "Axis Bank",
     "Canara Bank", "Bank of Baroda", "Union Bank of India", "Bank of India", "IndusInd Bank",
-    "Kotak Mahindra Bank", "Yes Bank", "IDFC First Bank", "Indian Bank", "Central Bank of India",
-    "Federal Bank", "Bank of Maharashtra", "UCO Bank", "Indian Overseas Bank", "Punjab & Sind Bank"
+    "Kotak Mahindra Bank", "Yes Bank", "IDFC First Bank", "Indian Bank", "Central Bank of India"
 ].sort();
 
-// Education Constants
-const DEGREE_OPTIONS = {
-    "High School": ["10th Standard", "12th Standard (Science)", "12th Standard (Commerce)", "12th Standard (Arts)", "Diploma"],
-    "Undergraduate": ["B.Tech", "B.E.", "B.Sc", "B.Com", "B.A.", "BBA", "BCA", "MBBS", "BDS", "B.Pharma", "LLB", "B.Arch", "B.Des"],
-    "Postgraduate": ["M.Tech", "M.Sc", "M.Com", "M.A.", "MBA", "MCA", "MD", "MS", "M.Pharma", "LLM", "M.Arch"],
-    "Doctorate": ["Ph.D", "M.Phil", "Pharm.D"]
-};
-const SUB_CATEGORIES = ['Sales Person', 'Real Estate Agent', 'Real Estate', 'IT & Software', 'Banking & Finance', 'Manufacturing', 'Retail', 'Healthcare', 'Education', 'Legal', 'Construction', 'Government', 'Other'];
-const DESIGNATIONS = ['Owner', 'CEO / Founder', 'Director', 'Manager', 'Team Lead', 'Senior Executive', 'Associate', 'Developer', 'Consultant', 'HR', 'Accountant', 'Other'];
+const FALLBACK_TITLES = ["Mr.", "Mrs.", "Ms.", "Dr.", "Prof."];
+const FALLBACK_SOCIAL = ["LinkedIn", "Facebook", "Twitter", "Instagram", "Website"];
+const FALLBACK_MOBILE_TYPES = ["Personal", "Work", "Home"];
+const FALLBACK_EMAIL_TYPES = ["Personal", "Work"];
+const FALLBACK_RELATIONSHIPS = ["Father", "Mother", "Spouse", "Brother", "Sister", "Friend", "Colleague", "Other"];
 
-// Sources for Dropdown
-const SOURCES = ['Instagram', 'Facebook', 'LinkedIn', 'Google Ads', 'Referral', 'Website', 'Walk-in', 'Cold Call', 'Other'];
-const CAMPAIGN_OPTIONS = ['Organic Campaign', 'Online Campaign', 'Offline Campaign'];
-const SUB_SOURCE_OPTIONS = ['Call', 'SMS', 'WhatsApp', 'RCS Message'];
+// Note: Sources and campaigns are now fetched from Context
+const SOURCES = [];
+const CAMPAIGN_OPTIONS = [];
+const SUB_SOURCE_OPTIONS = [];
 
 // Mock Contacts for Duplicate Check
 const MOCK_CONTACTS = [
@@ -396,8 +400,50 @@ const BUDGET_VALUES = [
     { value: 1000000000, label: "100 Crore" }
 ];
 
-const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) => {
-    const [currentTab, setCurrentTab] = useState('basic');
+const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entityType = 'contact' }) => {
+    const { masterFields, propertyConfig, leadMasterFields } = usePropertyConfig();
+    const { professionalConfig, addressConfig, profileConfig = {} } = useContactConfig();
+
+    console.log('AddContactModal Rendered');
+    console.log('profileConfig:', profileConfig);
+    console.log('docCategories:', profileConfig?.Documents?.subCategories);
+
+    // --- Profile Config Helpers ---
+    const getProfileDetails = (section, category) => {
+        const types = profileConfig?.[section]?.subCategories?.find(c => c.name === category)?.types;
+        return (types && types.length > 0) ? types : null;
+    };
+
+    const titleOptions = getProfileDetails("Personal Details", "Titles") || FALLBACK_TITLES;
+    const socialPlatforms = getProfileDetails("Personal Details", "Social Media") || FALLBACK_SOCIAL;
+    const incomeSources = getProfileDetails("Financial", "Income Sources") || FALLBACK_INCOME_SOURCES;
+    const bankList = getProfileDetails("Financial", "Loans") || FALLBACK_BANK_NAMES;
+    const mobileTypes = getProfileDetails("Contact Method", "Mobile Types") || FALLBACK_MOBILE_TYPES;
+    const emailTypes = getProfileDetails("Contact Method", "Email Types") || FALLBACK_EMAIL_TYPES;
+
+    // Education Helper
+    const educationCategories = profileConfig?.["Education History"]?.subCategories || [];
+    const getDegrees = (levelName) => {
+        const cat = educationCategories.find(c => c.name === levelName);
+        return cat?.types || [];
+    };
+
+    // Documents Helper
+    const docCategories = profileConfig?.Documents?.subCategories || [];
+    const getDocTypes = (catName) => {
+        const cat = docCategories.find(c => c.name === catName);
+        return cat?.types || [];
+    };
+
+    // Master Fields Options
+    const facingOptions = masterFields?.facings || [];
+    const roadWidthOptions = masterFields?.roadWidths || [];
+    const unitTypeOptions = masterFields?.unitTypes || [];
+    const directionOptions = masterFields?.directions || DIRECTION_OPTIONS;
+    const floorLevelOptions = masterFields?.floorLevels || [];
+
+
+    const [currentTab, setCurrentTab] = useState(entityType === 'lead' ? 'requirement' : 'basic');
     const [currentAddressType, setCurrentAddressType] = useState('permanent'); // permanent or correspondence
     const [showOnlyRequired, setShowOnlyRequired] = useState(false);
 
@@ -500,7 +546,10 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
         workOffice: '',
 
         // System Details
+        // System Details
+        campaign: '',
         source: '',
+        subSource: '',
         team: '',
         owner: '',
         visibleTo: '',
@@ -552,7 +601,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
         incomes: [{ incomeType: '', amount: '' }],
 
         // Documents - Array
-        documents: [{ documentName: '', documentNo: '', documentPicture: null }]
+        documents: [{ documentName: '', documentType: '', documentNo: '', projectName: '', block: '', unitNumber: '', documentPicture: null }]
     });
 
     const handleInputChange = (field, value) => {
@@ -726,11 +775,8 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
                                                 onChange={(e) => handleInputChange('title', e.target.value)}
                                                 style={customSelectStyle}
                                             >
-                                                <option value="">Select</option>
-                                                <option value="Mr.">Mr.</option>
-                                                <option value="Ms.">Ms.</option>
-                                                <option value="Mrs.">Mrs.</option>
-                                                <option value="Dr.">Dr.</option>
+                                                <option value="">Title</option>
+                                                {titleOptions.map(t => <option key={t} value={t}>{t}</option>)}
                                             </select>
                                         </div>
                                         <div>
@@ -806,9 +852,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
                                                     }}
                                                     style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', color: '#475569' }}
                                                 >
-                                                    <option value="Personal">Personal</option>
-                                                    <option value="Work">Work</option>
-                                                    <option value="Home">Home</option>
+                                                    {mobileTypes.map(type => <option key={type} value={type}>{type}</option>)}
                                                 </select>
                                                 <button type="button" onClick={() => {
                                                     if (index === 0) handleInputChange('phones', [...formData.phones, { number: '', type: 'Personal' }]);
@@ -848,8 +892,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
                                                     }}
                                                     style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', color: '#475569' }}
                                                 >
-                                                    <option value="Personal">Personal</option>
-                                                    <option value="Work">Work</option>
+                                                    {emailTypes.map(type => <option key={type} value={type}>{type}</option>)}
                                                 </select>
                                                 <button type="button" onClick={() => {
                                                     if (index === 0) handleInputChange('emails', [...formData.emails, { address: '', type: 'Personal' }]);
@@ -870,9 +913,10 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
                                         {/* Tags & Source Card */}
                                         <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                                             <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                                <i className="fas fa-tags" style={{ color: '#8b5cf6' }}></i> Segmentation
+                                                <i className="fas fa-bullhorn" style={{ color: '#f59e0b' }}></i> Campaign & Source
                                             </h3>
-                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+                                                {/* Source */}
                                                 <div>
                                                     <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
                                                     <select
@@ -881,7 +925,17 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
                                                         style={customSelectStyle}
                                                     >
                                                         <option value="">Select Source</option>
-                                                        {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                                                        {(() => {
+                                                            const allSources = [];
+                                                            (leadMasterFields?.campaigns || []).forEach(c => {
+                                                                (c.sources || []).forEach(s => {
+                                                                    if (!allSources.includes(s.name)) {
+                                                                        allSources.push(s.name);
+                                                                    }
+                                                                });
+                                                            });
+                                                            return allSources.map(s => <option key={s} value={s}>{s}</option>);
+                                                        })()}
                                                     </select>
                                                 </div>
                                             </div>
@@ -972,13 +1026,17 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
                                                             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Profession Category</label>
                                                             <select
                                                                 value={formData.professionCategory}
-                                                                onChange={(e) => handleInputChange('professionCategory', e.target.value)}
+                                                                onChange={(e) => {
+                                                                    handleInputChange('professionCategory', e.target.value);
+                                                                    handleInputChange('professionSubCategory', ''); // Reset child
+                                                                    handleInputChange('designation', ''); // Reset child
+                                                                }}
                                                                 style={customSelectStyle}
                                                             >
                                                                 <option value="">Select Category</option>
-                                                                <option value="Salaried">Salaried</option>
-                                                                <option value="Self-Employed">Self-Employed</option>
-                                                                <option value="Business">Business</option>
+                                                                {Object.keys(professionalConfig).map(cat => (
+                                                                    <option key={cat} value={cat}>{cat}</option>
+                                                                ))}
                                                             </select>
                                                         </div>
 
@@ -987,11 +1045,17 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
                                                             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Sub-Category</label>
                                                             <select
                                                                 value={formData.professionSubCategory}
-                                                                onChange={(e) => handleInputChange('professionSubCategory', e.target.value)}
-                                                                style={customSelectStyle}
+                                                                onChange={(e) => {
+                                                                    handleInputChange('professionSubCategory', e.target.value);
+                                                                    handleInputChange('designation', ''); // Reset child
+                                                                }}
+                                                                style={!formData.professionCategory ? customSelectStyleDisabled : customSelectStyle}
+                                                                disabled={!formData.professionCategory}
                                                             >
                                                                 <option value="">Select Sub-Category</option>
-                                                                {SUB_CATEGORIES.map(sc => <option key={sc} value={sc}>{sc}</option>)}
+                                                                {formData.professionCategory && professionalConfig[formData.professionCategory]?.subCategories.map(sc => (
+                                                                    <option key={sc.name} value={sc.name}>{sc.name}</option>
+                                                                ))}
                                                             </select>
                                                         </div>
 
@@ -1001,10 +1065,17 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
                                                             <select
                                                                 value={formData.designation}
                                                                 onChange={(e) => handleInputChange('designation', e.target.value)}
-                                                                style={customSelectStyle}
+                                                                style={!formData.professionSubCategory ? customSelectStyleDisabled : customSelectStyle}
+                                                                disabled={!formData.professionSubCategory}
                                                             >
                                                                 <option value="">Select Designation</option>
-                                                                {DESIGNATIONS.map(d => <option key={d} value={d}>{d}</option>)}
+                                                                {formData.professionCategory && formData.professionSubCategory &&
+                                                                    professionalConfig[formData.professionCategory]?.subCategories
+                                                                        .find(s => s.name === formData.professionSubCategory)?.types
+                                                                        .map(d => (
+                                                                            <option key={d} value={d}>{d}</option>
+                                                                        ))
+                                                                }
                                                             </select>
                                                         </div>
 
@@ -1171,6 +1242,647 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
                                     </div>
                                 </div>
                             </div>
+                        ) : currentTab === 'requirement' ? (
+                            <div className="no-scrollbar" style={{ padding: '4px' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+                                    {/* Requirement Type */}
+                                    <div style={sectionCardStyle}>
+                                        <h4 style={labelStyle}>Requirement Type</h4>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                                            {[
+                                                { label: 'Buy', icon: 'fa-shopping-cart' },
+                                                { label: 'Rent', icon: 'fa-key' },
+                                                { label: 'Lease', icon: 'fa-file-contract' }
+                                            ].map(opt => (
+                                                <button
+                                                    key={opt.label}
+                                                    type="button"
+                                                    onClick={() => handleInputChange('requirement', opt.label)}
+                                                    style={{
+                                                        padding: '6px', // Further reduced padding
+                                                        borderRadius: '8px',
+                                                        border: formData.requirement === opt.label ? '1px solid #3b82f6' : '1px solid #e2e8f0',
+                                                        background: formData.requirement === opt.label ? '#eff6ff' : '#fff',
+                                                        color: formData.requirement === opt.label ? '#2563eb' : '#64748b',
+                                                        display: 'flex',
+                                                        flexDirection: 'column',
+                                                        alignItems: 'center',
+                                                        gap: '4px',
+                                                        cursor: 'pointer',
+                                                        transition: 'all 0.2s'
+                                                    }}
+                                                >
+                                                    <i className={`fas ${opt.icon}`} style={{ fontSize: '0.9rem' }}></i> {/* Further reduced icon size */}
+                                                    <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{opt.label}</span> {/* Reduced font size */}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Property Category */}
+                                    <div style={sectionCardStyle}>
+                                        <h4 style={labelStyle}>Property Category</h4>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))', gap: '8px' }}> {/* Reduced grid gap and min-width */}
+                                            {[
+                                                { label: 'Residential', icon: 'fa-home' },
+                                                { label: 'Commercial', icon: 'fa-building' },
+                                                { label: 'Industrial', icon: 'fa-industry' },
+                                                { label: 'Agricultural', icon: 'fa-seedling' },
+                                                { label: 'Institutional', icon: 'fa-university' }
+                                            ].map(cat => (
+                                                <button
+                                                    key={cat.label}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const newCats = formData.propertyType.includes(cat.label)
+                                                            ? formData.propertyType.filter(c => c !== cat.label)
+                                                            : [...formData.propertyType, cat.label];
+                                                        handleInputChange('propertyType', newCats);
+                                                    }}
+                                                    style={{
+                                                        padding: '6px', // Further reduced padding
+                                                        borderRadius: '8px',
+                                                        border: formData.propertyType.includes(cat.label) ? '1px solid #3b82f6' : '1px solid #e2e8f0',
+                                                        background: formData.propertyType.includes(cat.label) ? '#eff6ff' : '#fff',
+                                                        color: formData.propertyType.includes(cat.label) ? '#2563eb' : '#64748b',
+                                                        display: 'flex',
+                                                        flexDirection: 'column',
+                                                        alignItems: 'center',
+                                                        gap: '4px',
+                                                        cursor: 'pointer',
+                                                        transition: 'all 0.2s',
+                                                        height: '100%'
+                                                    }}
+                                                >
+                                                    <i className={`fas ${cat.icon}`} style={{ fontSize: '0.9rem' }}></i> {/* Further reduced icon size */}
+                                                    <span style={{ fontSize: '0.75rem', fontWeight: 600, textAlign: 'center' }}>{cat.label}</span> {/* Reduced font size */}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Sub Categories */}
+                                    {formData.propertyType.length > 0 && (
+                                        <div style={sectionCardStyle}>
+                                            <h4 style={labelStyle}>Property Sub-Category</h4>
+                                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                                {Array.from(new Set(formData.propertyType.flatMap(cat => propertyConfig[cat]?.subCategories.map(sub => sub.name) || []))).map(sub => (
+                                                    <button
+                                                        key={sub}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const newSubs = formData.subType.includes(sub)
+                                                                ? formData.subType.filter(s => s !== sub)
+                                                                : [...formData.subType, sub];
+                                                            handleInputChange('subType', newSubs);
+                                                        }}
+                                                        style={{
+                                                            padding: '6px 14px',
+                                                            borderRadius: '20px',
+                                                            border: formData.subType.includes(sub) ? '1px solid #6366f1' : '1px solid #e2e8f0',
+                                                            background: formData.subType.includes(sub) ? '#eef2ff' : '#fff',
+                                                            color: formData.subType.includes(sub) ? '#4f46e5' : '#64748b',
+                                                            fontSize: '0.85rem',
+                                                            cursor: 'pointer',
+                                                            fontWeight: formData.subType.includes(sub) ? 500 : 400,
+                                                            transition: 'all 0.2s'
+                                                        }}
+                                                    >
+                                                        {sub}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Area Range and Size Type */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                        <div style={sectionCardStyle}>
+                                            <h4 style={labelStyle}>Area Range</h4>
+                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                <input
+                                                    type="text"
+                                                    value={formData.areaMin}
+                                                    onChange={(e) => handleInputChange('areaMin', e.target.value)}
+                                                    placeholder="Min"
+                                                    style={{ ...inputStyle, minWidth: '0', flex: 1 }} // Allow shrink
+                                                />
+                                                <span style={{ color: '#94a3b8' }}>-</span>
+                                                <input
+                                                    type="text"
+                                                    value={formData.areaMax}
+                                                    onChange={(e) => handleInputChange('areaMax', e.target.value)}
+                                                    placeholder="Max"
+                                                    style={{ ...inputStyle, minWidth: '0', flex: 1 }} // Allow shrink
+                                                />
+                                                <div style={{ width: '130px', flexShrink: 0 }}> {/* Adjusted width */}
+                                                    <select
+                                                        value={formData.areaMetric}
+                                                        onChange={(e) => handleInputChange('areaMetric', e.target.value)}
+                                                        style={{ ...inputStyle, paddingRight: '4px' }}
+                                                    >
+                                                        <option value="Sq Yard">Sq Yard</option>
+                                                        <option value="Sq Feet">Sq Feet</option>
+                                                        <option value="Sq Meter">Sq Meter</option>
+                                                        <option value="Acre">Acre</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div style={sectionCardStyle}>
+                                            <h4 style={labelStyle}>Size Type</h4>
+                                            <CustomMultiSelect
+                                                options={(() => {
+                                                    // Dynamic Size Types based on selected Sub-Categories
+                                                    if (formData.subType.length === 0) return [];
+
+                                                    const allRawTypes = formData.subType.flatMap(subName => {
+                                                        // Find the subcategory object across all categories
+                                                        for (const cat of Object.values(propertyConfig)) {
+                                                            const foundSub = cat.subCategories.find(s => s.name === subName);
+                                                            if (foundSub) {
+                                                                return foundSub.types.map(t => typeof t === 'string' ? t : t.name) || [];
+                                                            }
+                                                        }
+                                                        return [];
+                                                    });
+
+                                                    return Array.from(new Set(allRawTypes)).sort();
+                                                })()}
+                                                value={formData.unitType}
+                                                onChange={(val) => handleInputChange('unitType', val)}
+                                                placeholder={formData.subType.length > 0 ? "Select Size Types" : "Select Sub-Category First"}
+                                                disabled={formData.subType.length === 0}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Transaction Details */}
+                                    <div style={{ background: '#f0f9ff', padding: '16px', borderRadius: '8px', border: '1px solid #bae6fd' }}>
+                                        <h4 style={{ ...labelStyle, color: '#0369a1', marginBottom: '16px' }}>Transaction Preferences</h4>
+
+                                        {/* Row 1: Budget Range (Moved to Top) */}
+                                        <div style={{ marginBottom: '20px' }}>
+
+
+                                            <label style={{ fontSize: '0.85rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>
+                                                Budget Range <span style={{ color: '#ef4444' }}>*</span>
+                                            </label>
+                                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                                {/* Min Budget */}
+                                                <select
+                                                    value={formData.budgetMin}
+                                                    onChange={(e) => {
+                                                        const newVal = e.target.value;
+                                                        handleInputChange('budgetMin', newVal);
+                                                        // Reset Max if it becomes invalid (less than or equal to new Min)
+                                                        if (formData.budgetMax && Number(formData.budgetMax) <= Number(newVal)) {
+                                                            handleInputChange('budgetMax', '');
+                                                        }
+                                                    }}
+                                                    style={{ ...customSelectStyle, flex: 1 }}
+                                                >
+                                                    <option value="">Min</option>
+                                                    {BUDGET_VALUES.map((opt) => (
+                                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                    ))}
+                                                </select>
+
+                                                <span style={{ color: '#94a3b8', fontWeight: 600 }}>-</span>
+
+                                                {/* Max Budget */}
+                                                <select
+                                                    value={formData.budgetMax}
+                                                    onChange={(e) => handleInputChange('budgetMax', e.target.value)}
+                                                    style={{ ...customSelectStyle, flex: 1 }}
+                                                    disabled={!formData.budgetMin} // Disable if Min not selected
+                                                >
+                                                    <option value="">Max</option>
+                                                    {BUDGET_VALUES
+                                                        .filter(opt => !formData.budgetMin || opt.value > Number(formData.budgetMin))
+                                                        .map((opt) => (
+                                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                        ))
+                                                    }
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        {/* Row 2: Transaction Type & Funding */}
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', alignItems: 'start' }}>
+                                            <div>
+                                                <label style={{ fontSize: '0.8rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>Transaction Type</label>
+                                                <select
+                                                    value={formData.transactionType}
+                                                    onChange={(e) => handleInputChange('transactionType', e.target.value)}
+                                                    style={customSelectStyle}
+                                                >
+                                                    <option value="">Select Type</option>
+                                                    <option value="Collector Rate">Collector Rate</option>
+                                                    <option value="Full White">Full White</option>
+                                                    <option value="Flexible">Flexible</option>
+                                                </select>
+
+                                                {/* Percentage Input for Flexible */}
+                                                {formData.transactionType === 'Flexible' && (
+                                                    <div style={{ marginTop: '12px' }}>
+                                                        <label style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px', display: 'block' }}>White Portion (%)</label>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                            <input
+                                                                type="range"
+                                                                min="0"
+                                                                max="100"
+                                                                step="5"
+                                                                value={formData.whitePortion || 50}
+                                                                onChange={(e) => handleInputChange('whitePortion', e.target.value)}
+                                                                style={{ flex: 1, accentColor: '#3b82f6' }}
+                                                            />
+                                                            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#3b82f6', width: '40px', textAlign: 'right' }}>
+                                                                {formData.whitePortion || 50}%
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Funding - Standalone Dropdown */}
+                                            <div>
+                                                <label style={{ fontSize: '0.8rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>Funding</label>
+                                                <select
+                                                    value={formData.funding}
+                                                    onChange={(e) => handleInputChange('funding', e.target.value)}
+                                                    style={customSelectStyle}
+                                                >
+                                                    <option value="">Select Funding</option>
+                                                    <option value="Home Loan">Home Loan</option>
+                                                    <option value="Self Funding">Self Funding</option>
+                                                    <option value="Loan Against Property">Loan Against Property</option>
+                                                    <option value="Personal Loan">Personal Loan</option>
+                                                    <option value="Business Loan">Business Loan</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Other Specifics Grid - Moved Below Transaction */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '16px' }}>
+                                        <div>
+                                            <h4 style={labelStyle}>Furnishing</h4>
+                                            <select
+                                                value={formData.furnishing}
+                                                onChange={(e) => handleInputChange('furnishing', e.target.value)}
+                                                style={customSelectStyle}
+                                            >
+                                                <option value="">Any</option>
+                                                <option value="Unfurnished">Unfurnished</option>
+                                                <option value="Semi-Furnished">Semi-Furnished</option>
+                                                <option value="Fully-Furnished">Fully-Furnished</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <h4 style={labelStyle}>Timeline</h4>
+                                            <select
+                                                value={formData.timeline}
+                                                onChange={(e) => handleInputChange('timeline', e.target.value)}
+                                                style={customSelectStyle}
+                                            >
+                                                <option value="">Any</option>
+                                                <option value="Immediate">Immediate</option>
+                                                <option value="Within 3 Months">Within 3 Months</option>
+                                                <option value="Within 6 Months">Within 6 Months</option>
+                                                <option value="More than 6 Months">More than 6 Months</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div style={{ marginTop: '16px' }}>
+                                        <label style={{ fontSize: '0.8rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>Send Matched Deals via</label>
+                                        <CustomMultiSelect
+                                            options={['WhatsApp', 'Message', 'RCS Message', 'Mail']}
+                                            value={formData.sendMatchedDeal}
+                                            onChange={(val) => handleInputChange('sendMatchedDeal', val)}
+                                            placeholder="Select Channels"
+                                        />
+                                    </div>
+                                </div>
+
+                            </div>
+
+                        ) : currentTab === 'location' ? (
+
+                            <div className="no-scrollbar">
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+                                    {/* Toggle Mode */}
+                                    <div style={{ display: 'flex', justifyContent: 'center' }}>
+                                        <div style={{ background: '#f8fafc', padding: '4px', borderRadius: '12px', display: 'flex', gap: '8px', border: '1px solid #e2e8f0' }}>
+                                            <button
+                                                type="button"
+                                                onClick={() => setLocationTab('search')}
+                                                style={{
+                                                    padding: '10px 24px',
+                                                    borderRadius: '8px',
+                                                    border: locationTab === 'search' ? '1px solid #3b82f6' : '1px solid transparent',
+                                                    background: locationTab === 'search' ? '#eff6ff' : 'transparent',
+                                                    color: locationTab === 'search' ? '#2563eb' : '#64748b',
+                                                    fontWeight: 600,
+                                                    boxShadow: locationTab === 'search' ? '0 1px 2px rgba(59, 130, 246, 0.1)' : 'none',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '8px',
+                                                    fontSize: '0.9rem'
+                                                }}
+                                            >
+                                                <i className="fas fa-map-marker-alt"></i>
+                                                Search Location
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setLocationTab('select')}
+                                                style={{
+                                                    padding: '10px 24px',
+                                                    borderRadius: '8px',
+                                                    border: locationTab === 'select' ? '1px solid #3b82f6' : '1px solid transparent',
+                                                    background: locationTab === 'select' ? '#eff6ff' : 'transparent',
+                                                    color: locationTab === 'select' ? '#2563eb' : '#64748b',
+                                                    fontWeight: 600,
+                                                    boxShadow: locationTab === 'select' ? '0 1px 2px rgba(59, 130, 246, 0.1)' : 'none',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '8px',
+                                                    fontSize: '0.9rem'
+                                                }}
+                                            >
+                                                <i className="fas fa-building"></i>
+                                                Select Project
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {locationTab === 'search' ? (
+                                        <div style={sectionCardStyle}>
+                                            <h4 style={labelStyle}>Search Location</h4>
+
+                                            {/* Row 1: Search Location (Flex Grow) + Range (Fixed) */}
+                                            <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', alignItems: 'flex-start' }}>
+                                                <div style={{ flex: 1 }}>
+                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Search Location</label>
+                                                    <input
+                                                        ref={searchInputRef}
+                                                        type="text"
+                                                        value={formData.searchLocation}
+                                                        onChange={(e) => handleInputChange('searchLocation', e.target.value)}
+                                                        placeholder="Search area, city or landmark..."
+                                                        style={{ ...inputStyle, paddingLeft: '32px', backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%2394a3b8\' stroke-width=\'2\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' d=\'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z\' /%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: '10px center', backgroundSize: '16px' }}
+                                                    />
+                                                </div>
+                                                <div style={{ width: '140px' }}>
+                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Range</label>
+                                                    <select
+                                                        value={formData.range}
+                                                        onChange={(e) => handleInputChange('range', e.target.value)}
+                                                        style={customSelectStyle}
+                                                    >
+                                                        <option value="0 km">Exact</option>
+                                                        <option value="Within 1 km">0-1 km</option>
+                                                        <option value="Within 2 km">0-2 km</option>
+                                                        <option value="Within 5 km">0-5 km</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            {/* Row 2: Street/Road/Landmark Address (New Field) */}
+                                            <div style={{ marginBottom: '20px' }}>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Street/Road/Landmark Address</label>
+                                                <input
+                                                    type="text"
+                                                    value={formData.streetAddress}
+                                                    onChange={(e) => handleInputChange('streetAddress', e.target.value)}
+                                                    placeholder="Enter street name, road no, or landmark"
+                                                    style={inputStyle}
+                                                />
+                                            </div>
+
+                                            {/* Row 3: Location/Sector & Area (Equal Size) */}
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '20px', marginBottom: '20px' }}>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Location/Sector</label>
+                                                    <input type="text" value={formData.locArea} onChange={(e) => handleInputChange('locArea', e.target.value)} style={inputStyle} />
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Area</label>
+                                                    <input
+                                                        ref={areaInputRef}
+                                                        type="text"
+                                                        value={formData.areaSearch}
+                                                        onChange={(e) => handleInputChange('areaSearch', e.target.value)}
+                                                        placeholder="Search area..."
+                                                        style={inputStyle}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* Row 4: City, State, Pin Code (Equal Size) */}
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', gap: '20px' }}>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>City</label>
+                                                    <input type="text" value={formData.locCity} onChange={(e) => handleInputChange('locCity', e.target.value)} style={inputStyle} />
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>State</label>
+                                                    <input type="text" value={formData.locState} onChange={(e) => handleInputChange('locState', e.target.value)} style={inputStyle} />
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Pin Code</label>
+                                                    <input type="text" value={formData.locPinCode} onChange={(e) => handleInputChange('locPinCode', e.target.value)} style={inputStyle} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div style={sectionCardStyle}>
+                                            <h4 style={labelStyle}>Select Project</h4>
+
+                                            {/* City Selection (Single) */}
+                                            <div style={{ marginBottom: '20px' }}>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>City</label>
+                                                <select
+                                                    value={formData.projectCity}
+                                                    onChange={(e) => handleProjectCityChange(e.target.value)}
+                                                    style={customSelectStyle}
+                                                >
+                                                    <option value="">Select City</option>
+                                                    {CITIES.map(city => (
+                                                        <option key={city} value={city}>{city}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            {/* Project Selection (Multi, Dependent on City) */}
+                                            <div style={{ marginBottom: '20px' }}>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Project Name</label>
+                                                <CustomMultiSelect
+                                                    options={availableProjects}
+                                                    value={formData.projectName}
+                                                    onChange={handleProjectSelectionChange}
+                                                    placeholder={formData.projectCity ? "Select Projects" : "Select City First"}
+                                                    disabled={!formData.projectCity}
+                                                />
+                                            </div>
+
+                                            {/* Block/Tower Selection (Multi, Dependent on Project) */}
+                                            <div style={{ marginBottom: '20px' }}>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Block/Tower</label>
+                                                <CustomMultiSelect
+                                                    options={availableTowers}
+                                                    value={formData.projectTowers}
+                                                    onChange={(val) => handleInputChange('projectTowers', val)} // Simple update
+                                                    placeholder={formData.projectName.length > 0 ? "Select Towers" : "Select Project First"}
+                                                    disabled={formData.projectName.length === 0}
+                                                />
+                                            </div>
+
+                                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'spaceBetween', alignItems: 'center', marginBottom: '16px' }}>
+                                                    <h5 style={{ margin: 0, fontSize: '0.9rem', color: '#334155' }}>Specific Units</h5>
+                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#64748b', cursor: 'pointer' }}>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={showSpecificUnit}
+                                                            onChange={(e) => setShowSpecificUnit(e.target.checked)}
+                                                        />
+                                                        I have specific unit numbers
+                                                    </label>
+                                                </div>
+
+                                                {showSpecificUnit && (
+                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                                        <div>
+                                                            <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Unit Type</label>
+                                                            <select
+                                                                value={formData.specificUnitType}
+                                                                onChange={(e) => handleInputChange('specificUnitType', e.target.value)}
+                                                                style={customSelectStyle}
+                                                            >
+                                                                <option value="single">Single Unit</option>
+                                                                <option value="row">Row/Multiple</option>
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Unit No. (Start)</label>
+                                                            <input
+                                                                type="text"
+                                                                value={formData.propertyNo}
+                                                                onChange={(e) => handleInputChange('propertyNo', e.target.value)}
+                                                                placeholder="e.g. 101"
+                                                                style={inputStyle}
+                                                            />
+                                                        </div>
+                                                        {formData.specificUnitType === 'row' && (
+                                                            <div>
+                                                                <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Unit No. (End)</label>
+                                                                <input
+                                                                    type="text"
+                                                                    value={formData.propertyNoEnd}
+                                                                    onChange={(e) => handleInputChange('propertyNoEnd', e.target.value)}
+                                                                    placeholder="e.g. 110"
+                                                                    style={inputStyle}
+                                                                />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Orientation Section (Common) */}
+                                    <div style={sectionCardStyle}>
+                                        <h4 style={labelStyle}>Orientation & Placement</h4>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', gap: '20px' }}>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Facing</label>
+                                                <CustomMultiSelect
+                                                    options={masterFields.facings || []} // Use from Context
+                                                    value={formData.facing}
+                                                    onChange={(val) => handleInputChange('facing', val)}
+                                                    placeholder="Select Facing"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Road Width</label>
+                                                <CustomMultiSelect
+                                                    options={masterFields.roadWidths || []} // Use from Context
+                                                    value={formData.roadWidth}
+                                                    onChange={(val) => handleInputChange('roadWidth', val)}
+                                                    placeholder="Select Width"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Floors Allowed</label>
+                                                <input
+                                                    type="text"
+                                                    value={formData.floorsAllowed || ''}
+                                                    onChange={(e) => handleInputChange('floorsAllowed', e.target.value)}
+                                                    placeholder="e.g. G+3"
+                                                    style={inputStyle}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* New Media Fields Row 1 */}
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '16px' }}>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Required Documents</label>
+                                                <CustomMultiSelect
+                                                    options={masterFields.documents || []}
+                                                    value={formData.documents || []}
+                                                    onChange={(val) => handleInputChange('documents', val)}
+                                                    placeholder="Select Documents"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Image Types</label>
+                                                <CustomMultiSelect
+                                                    options={masterFields.images || []}
+                                                    value={formData.images || []}
+                                                    onChange={(val) => handleInputChange('images', val)}
+                                                    placeholder="Select Image Types"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* New Media Fields Row 2 */}
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '16px' }}>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Video Types</label>
+                                                <CustomMultiSelect
+                                                    options={masterFields.videos || []}
+                                                    value={formData.videos || []}
+                                                    onChange={(val) => handleInputChange('videos', val)}
+                                                    placeholder="Select Video Types"
+                                                />
+                                            </div>
+                                            {/* Floor Level Field */}
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Floor Level</label>
+                                                <CustomMultiSelect
+                                                    options={masterFields.floorLevels || []}
+                                                    value={formData.floorLevel || []}
+                                                    onChange={(val) => handleInputChange('floorLevel', val)}
+                                                    placeholder="Select Floor"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                         ) : currentTab === 'personal' ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                                 {/* Personal Basic Info */}
@@ -1252,213 +1964,190 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
                                             const addrKey = currentAddressType === 'permanent' ? 'personalAddress' : 'correspondenceAddress';
                                             const addr = formData[addrKey];
 
-                                            // Data Resolution
-                                            const countryData = INDIAN_ADDRESS_DATA['India'];
-                                            const states = addr.country === 'India' && countryData ? Object.keys(countryData) : [];
-                                            const cityData = addr.state && countryData && countryData[addr.state] ? countryData[addr.state] : null;
-                                            const cities = cityData ? Object.keys(cityData) : [];
-                                            const selectedCityObj = cityData && addr.city ? cityData[addr.city] : null;
-                                            const tehsils = selectedCityObj ? selectedCityObj.tehsils : [];
-                                            const postOffices = selectedCityObj ? selectedCityObj.postOffices.filter(po => !addr.tehsil || po.tehsil === addr.tehsil) : [];
+                                            // Data Resolution from Config (Deep Hierarchy: Country -> State -> City -> Location -> Tehsil -> PO)
+                                            // 1. Country (Roots)
+                                            const countries = Object.keys(addressConfig);
 
-                                            const dropdownStyle = customSelectStyle;
-                                            const disabledStyle = customSelectStyleDisabled;
+                                            // 2. State
+                                            const countryNode = addressConfig[addr.country];
+                                            const states = countryNode?.subCategories?.map(s => s.name) || [];
+
+                                            // 3. City
+                                            const stateNode = countryNode?.subCategories?.find(s => s.name === addr.state);
+                                            const cities = stateNode?.subCategories?.map(s => s.name) || [];
+
+                                            // 4. Location (Sector/Area)
+                                            const cityNode = stateNode?.subCategories?.find(s => s.name === addr.city);
+                                            const locations = cityNode?.subCategories?.map(s => s.name) || [];
 
                                             return (
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                                                    {/* Row 1: Country, State, City */}
-                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Country</label>
-                                                            <select
-                                                                value={addr.country}
-                                                                onChange={(e) => handleInputChange(addrKey, { ...addr, country: e.target.value, state: '', city: '', tehsil: '', postOffice: '', pincode: '' })}
-                                                                style={dropdownStyle}
-                                                            >
-                                                                <option value="India">India</option>
-                                                                {/* Add other countries if needed */}
-                                                            </select>
-                                                        </div>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>State</label>
-                                                            <select
-                                                                value={addr.state}
-                                                                onChange={(e) => handleInputChange(addrKey, { ...addr, state: e.target.value, city: '', tehsil: '', postOffice: '', pincode: '' })}
-                                                                disabled={!addr.country}
-                                                                style={!addr.country ? disabledStyle : dropdownStyle}
-                                                            >
-                                                                <option value="">Select State</option>
-                                                                {states.map(s => <option key={s} value={s}>{s}</option>)}
-                                                            </select>
-                                                        </div>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>City / District</label>
-                                                            <select
-                                                                value={addr.city}
-                                                                onChange={(e) => handleInputChange(addrKey, { ...addr, city: e.target.value, tehsil: '', postOffice: '', pincode: '' })}
-                                                                disabled={!addr.state}
-                                                                style={!addr.state ? disabledStyle : dropdownStyle}
-                                                            >
-                                                                <option value="">Select City</option>
-                                                                {cities.map(c => <option key={c} value={c}>{c}</option>)}
-                                                            </select>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Row 2: Tehsil, PO, Pin */}
-                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Tehsil</label>
-                                                            <select
-                                                                value={addr.tehsil}
-                                                                onChange={(e) => handleInputChange(addrKey, { ...addr, tehsil: e.target.value })}
-                                                                disabled={!addr.city}
-                                                                style={!addr.city ? disabledStyle : dropdownStyle}
-                                                            >
-                                                                <option value="">Select Tehsil</option>
-                                                                {tehsils.map(t => <option key={t} value={t}>{t}</option>)}
-                                                            </select>
-                                                        </div>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Post Office</label>
-                                                            <select
-                                                                value={addr.postOffice}
-                                                                onChange={(e) => {
-                                                                    const selectedPO = postOffices.find(po => po.name === e.target.value);
-                                                                    handleInputChange(addrKey, { ...addr, postOffice: e.target.value, pincode: selectedPO ? selectedPO.pincode : addr.pincode });
-                                                                }}
-                                                                disabled={!addr.city}
-                                                                style={!addr.city ? disabledStyle : dropdownStyle}
-                                                            >
-                                                                <option value="">Select PO</option>
-                                                                {postOffices.map(po => <option key={po.name} value={po.name}>{po.name}</option>)}
-                                                            </select>
-                                                        </div>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Pincode</label>
-                                                            <input
-                                                                type="text"
-                                                                value={addr.pincode}
-                                                                readOnly
-                                                                placeholder="Pincode"
-                                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', background: '#f1f5f9', color: '#64748b' }}
-                                                            />
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Row 3: House No & Street (New Placement) */}
-                                                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 120px) 1fr', gap: '20px' }}>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>House Number</label>
-                                                            <input
-                                                                type="text"
-                                                                placeholder="House No"
-                                                                value={addr.hNo}
-                                                                onChange={(e) => handleInputChange(addrKey, { ...addr, hNo: e.target.value })}
-                                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', background: '#fff' }}
-                                                            />
-                                                        </div>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Street / Road / Landmark</label>
-                                                            <input
-                                                                type="text"
-                                                                placeholder="Enter Street, Road or Landmark"
-                                                                value={addr.street}
-                                                                onChange={(e) => handleInputChange(addrKey, { ...addr, street: e.target.value })}
-                                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', background: '#fff' }}
-                                                            />
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Row 3: Area, Location */}
-                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Area</label>
-                                                            <input
-                                                                type="text"
-                                                                placeholder="Enter Area"
-                                                                value={addr.area}
-                                                                onChange={(e) => handleInputChange(addrKey, { ...addr, area: e.target.value })}
-                                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', background: '#fff' }}
-                                                            />
-                                                        </div>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Sector</label>
-                                                            <input
-                                                                type="text"
-                                                                placeholder="Enter Sector"
-                                                                value={addr.location}
-                                                                onChange={(e) => handleInputChange(addrKey, { ...addr, location: e.target.value })}
-                                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', background: '#fff' }}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                </div>
+                                                <AddressDetailsForm
+                                                    title={addrKey === 'personalAddress' ? 'Personal Address' : 'Correspondence Address'}
+                                                    address={addr}
+                                                    onChange={(newAddr) => handleInputChange(addrKey, newAddr)}
+                                                />
                                             );
                                         })()}
                                     </div>
                                 )}
+
 
                                 {/* Documents Card */}
                                 <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                                     <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
                                         <i className="fas fa-file-alt" style={{ color: '#64748b' }}></i> Documents
                                     </h3>
-                                    {formData.documents.map((doc, index) => (
-                                        <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 40px', gap: '12px', marginBottom: '12px' }}>
-                                            <select value={doc.documentName} onChange={(e) => {
-                                                const newDocs = [...formData.documents];
-                                                newDocs[index].documentName = e.target.value;
-                                                handleInputChange('documents', newDocs);
-                                            }} style={customSelectStyle}>
-                                                <option value="">Select Doc</option>
-                                                {['ID Proof', 'Address Proof', 'Other'].map(d => <option key={d} value={d}>{d}</option>)}
-                                            </select>
-                                            <input type="text" placeholder="Document No" value={doc.documentNo} onChange={(e) => {
-                                                const newDocs = [...formData.documents];
-                                                newDocs[index].documentNo = e.target.value;
-                                                handleInputChange('documents', newDocs);
-                                            }} style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-                                            <label style={{
-                                                padding: '10px',
-                                                background: '#f8fafc',
-                                                border: '1px dashed #cbd5e1',
-                                                borderRadius: '6px',
-                                                fontSize: '0.8rem',
-                                                color: '#64748b',
-                                                textAlign: 'center',
-                                                cursor: 'pointer',
-                                                display: 'block',
-                                                whiteSpace: 'nowrap',
-                                                overflow: 'hidden',
-                                                textOverflow: 'ellipsis'
+                                    {formData.documents.map((doc, index) => {
+                                        const availableDocTypes = getDocTypes(doc.documentName);
+
+                                        return (
+                                            <div key={index} style={{
+                                                background: '#fff',
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: '8px',
+                                                padding: '12px',
+                                                marginBottom: '12px',
+                                                boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
                                             }}>
-                                                {doc.documentPicture ? (doc.documentPicture.name || 'File Selected') : 'Upload'}
-                                                <input
-                                                    type="file"
-                                                    accept="image/*,application/pdf"
-                                                    style={{ display: 'none' }}
-                                                    onChange={(e) => {
-                                                        const file = e.target.files[0];
-                                                        if (file) {
-                                                            const newDocs = [...formData.documents];
-                                                            newDocs[index].documentPicture = file;
-                                                            handleInputChange('documents', newDocs);
-                                                        }
-                                                    }}
-                                                />
-                                            </label>
-                                            <button type="button" onClick={() => {
-                                                if (index === 0) handleInputChange('documents', [...formData.documents, { documentName: '', documentNo: '', documentPicture: null }]);
-                                                else {
-                                                    const newDocs = formData.documents.filter((_, i) => i !== index);
-                                                    handleInputChange('documents', newDocs);
-                                                }
-                                            }} style={{ borderRadius: '6px', border: 'none', background: index === 0 ? '#eff6ff' : '#fef2f2', color: index === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer' }}>
-                                                <i className={`fas ${index === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
-                                            </button>
-                                        </div>
-                                    ))}
+                                                {/* Row 1: Identity */}
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 32px', gap: '8px', marginBottom: '12px' }}>
+                                                    <div>
+                                                        <label style={labelStyle}>Category</label>
+                                                        <select
+                                                            value={doc.documentName}
+                                                            onChange={(e) => {
+                                                                const newDocs = [...formData.documents];
+                                                                newDocs[index].documentName = e.target.value;
+                                                                newDocs[index].documentType = '';
+                                                                handleInputChange('documents', newDocs);
+                                                            }}
+                                                            style={{ ...customSelectStyle, fontSize: '0.85rem', padding: '8px' }}
+                                                        >
+                                                            <option value="">Select Category</option>
+                                                            {docCategories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label style={labelStyle}>Document Type</label>
+                                                        <select
+                                                            value={doc.documentType}
+                                                            onChange={(e) => {
+                                                                const newDocs = [...formData.documents];
+                                                                newDocs[index].documentType = e.target.value;
+                                                                handleInputChange('documents', newDocs);
+                                                            }}
+                                                            disabled={!doc.documentName}
+                                                            style={{ ...(!doc.documentName ? customSelectStyleDisabled : customSelectStyle), fontSize: '0.85rem', padding: '8px' }}
+                                                        >
+                                                            <option value="">Select Type</option>
+                                                            {availableDocTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'end' }}>
+                                                        <button type="button" onClick={() => {
+                                                            if (index === 0) handleInputChange('documents', [...formData.documents, { documentName: '', documentType: '', documentNo: '', projectName: '', block: '', unitNumber: '', documentPicture: null }]);
+                                                            else {
+                                                                const newDocs = formData.documents.filter((_, i) => i !== index);
+                                                                handleInputChange('documents', newDocs);
+                                                            }
+                                                        }} style={{ height: '36px', width: '100%', borderRadius: '6px', border: 'none', background: index === 0 ? '#eff6ff' : '#fef2f2', color: index === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                            <i className={`fas ${index === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Row 2: Property Context */}
+                                                <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '6px', border: '1px solid #f1f5f9', marginBottom: '12px' }}>
+                                                    <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '6px', display: 'block' }}>
+                                                        Link to Property (Optional)
+                                                    </label>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                                                        <select
+                                                            value={doc.projectName}
+                                                            onChange={(e) => {
+                                                                const newDocs = [...formData.documents];
+                                                                newDocs[index].projectName = e.target.value;
+                                                                newDocs[index].block = '';
+                                                                newDocs[index].unitNumber = '';
+                                                                handleInputChange('documents', newDocs);
+                                                            }}
+                                                            style={{ ...customSelectStyle, background: '#fff', fontSize: '0.85rem', padding: '8px' }}
+                                                        >
+                                                            <option value="">Select Project</option>
+                                                            {PROJECTS_LIST.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                                                        </select>
+                                                        <select
+                                                            value={doc.block}
+                                                            disabled={!doc.projectName}
+                                                            onChange={(e) => {
+                                                                const newDocs = [...formData.documents];
+                                                                newDocs[index].block = e.target.value;
+                                                                handleInputChange('documents', newDocs);
+                                                            }}
+                                                            style={{ ...(!doc.projectName ? customSelectStyleDisabled : customSelectStyle), background: doc.projectName ? '#fff' : '#f1f5f9', fontSize: '0.85rem', padding: '8px' }}
+                                                        >
+                                                            <option value="">Block</option>
+                                                            {(() => {
+                                                                const proj = PROJECTS_LIST.find(p => p.name === doc.projectName);
+                                                                return proj?.blocks?.map(b => <option key={b} value={b}>{b}</option>) || [];
+                                                            })()}
+                                                        </select>
+                                                        <select
+                                                            value={doc.unitNumber}
+                                                            disabled={!doc.projectName}
+                                                            onChange={(e) => {
+                                                                const newDocs = [...formData.documents];
+                                                                newDocs[index].unitNumber = e.target.value;
+                                                                handleInputChange('documents', newDocs);
+                                                            }}
+                                                            style={{ ...(!doc.projectName ? customSelectStyleDisabled : customSelectStyle), background: doc.projectName ? '#fff' : '#f1f5f9', fontSize: '0.85rem', padding: '8px' }}
+                                                        >
+                                                            <option value="">Unit No</option>
+                                                            {(() => {
+                                                                const proj = PROJECTS_LIST.find(p => p.name === doc.projectName);
+                                                                return proj?.units?.map(u => <option key={u} value={u}>{u}</option>) || [];
+                                                            })()}
+                                                        </select>
+                                                    </div>
+                                                </div>
+
+                                                {/* Row 3: Evidence */}
+                                                <label style={{
+                                                    display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: '#fff',
+                                                    border: '1px dashed #cbd5e1', borderRadius: '6px', cursor: 'pointer', color: '#64748b', fontSize: '0.85rem',
+                                                    transition: 'all 0.2s', ':hover': { borderColor: '#3b82f6', background: '#eff6ff' }
+                                                }}>
+                                                    <div style={{ width: '28px', height: '28px', background: '#ecfdf5', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                        <i className="fas fa-file-upload" style={{ color: '#10b981', fontSize: '0.9rem' }}></i>
+                                                    </div>
+                                                    <div style={{ flex: 1 }}>
+                                                        <span style={{ fontWeight: 600, color: '#334155' }}>
+                                                            {doc.documentPicture ? (doc.documentPicture.name) : "Upload Document File"}
+                                                        </span>
+                                                        {!doc.documentPicture && <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: '6px' }}>PDF or Image</span>}
+                                                    </div>
+                                                    <input
+                                                        type="file"
+                                                        accept="image/*,application/pdf"
+                                                        style={{ display: 'none' }}
+                                                        onChange={(e) => {
+                                                            const file = e.target.files[0];
+                                                            if (file) {
+                                                                const newDocs = [...formData.documents];
+                                                                newDocs[index].documentPicture = file;
+                                                                handleInputChange('documents', newDocs);
+                                                            }
+                                                        }}
+                                                    />
+                                                    {doc.documentPicture ? (
+                                                        <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 600 }}>File Selected</span>
+                                                    ) : (
+                                                        <span style={{ padding: '4px 10px', background: '#f1f5f9', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>Browse</span>
+                                                    )}
+                                                </label>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         ) : currentTab === 'other' ? (
@@ -1469,7 +2158,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
                                         <i className="fas fa-graduation-cap" style={{ color: '#f59e0b' }}></i> Education History
                                     </h3>
                                     {formData.educations.map((edu, index) => {
-                                        const availableDegrees = edu.education && DEGREE_OPTIONS[edu.education] ? DEGREE_OPTIONS[edu.education] : [];
+                                        const availableDegrees = getDegrees(edu.education);
 
                                         return (
                                             <div key={index} style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 1fr) 1fr 2fr 40px', gap: '12px', marginBottom: '12px', alignItems: 'end' }}>
@@ -1480,14 +2169,14 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
                                                         onChange={(e) => {
                                                             const newEdu = [...formData.educations];
                                                             newEdu[index].education = e.target.value;
-                                                            newEdu[index].degree = ''; // Reset degree on level change
+                                                            newEdu[index].degree = ''; // Reset degree
                                                             handleInputChange('educations', newEdu);
                                                         }}
                                                         style={customSelectStyle}
                                                     >
                                                         <option value="">Select Level</option>
-                                                        {Object.keys(DEGREE_OPTIONS).map(level => (
-                                                            <option key={level} value={level}>{level}</option>
+                                                        {educationCategories.map(cat => (
+                                                            <option key={cat.name} value={cat.name}>{cat.name}</option>
                                                         ))}
                                                     </select>
                                                 </div>
@@ -1556,7 +2245,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
                                                 style={customSelectStyle}
                                             >
                                                 <option value="">Select Source</option>
-                                                {INCOME_SOURCES.map(source => <option key={source} value={source}>{source}</option>)}
+                                                {incomeSources.map(source => <option key={source} value={source}>{source}</option>)}
                                             </select>
                                             <input
                                                 type="number"
@@ -1609,7 +2298,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
                                                 style={customSelectStyle}
                                             >
                                                 <option value="">Select Bank</option>
-                                                {BANK_NAMES.map(bank => <option key={bank} value={bank}>{bank}</option>)}
+                                                {bankList.map(bank => <option key={bank} value={bank}>{bank}</option>)}
                                             </select>
                                             <input
                                                 type="number"
@@ -1652,10 +2341,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add' }) 
                                                 style={customSelectStyle}
                                             >
                                                 <option value="">Select Platform</option>
-                                                <option value="LinkedIn">LinkedIn</option>
-                                                <option value="Facebook">Facebook</option>
-                                                <option value="Instagram">Instagram</option>
-                                                <option value="Twitter">Twitter/X</option>
+                                                {socialPlatforms.map(p => <option key={p} value={p}>{p}</option>)}
                                             </select>
                                             <input
                                                 type="text"

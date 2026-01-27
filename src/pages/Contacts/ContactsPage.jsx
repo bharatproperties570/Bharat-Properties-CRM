@@ -213,7 +213,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
 
                 <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0, position: 'relative' }}>
                     {/* Toolbar */}
-                    <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 101, padding: '15px 2rem', borderBottom: '1px solid #eef2f5', minHeight: '65px', display: 'flex', alignItems: 'center', background: '#fff' }}>
+                    <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 101, padding: '15px var(--row-padding)', borderBottom: '1px solid #eef2f5', minHeight: '65px', display: 'flex', alignItems: 'center', background: '#fff' }}>
                         {selectedCount > 0 ? (
                             <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingTop: '4px', paddingBottom: '2px' }}>
                                 {/* Select All Checkbox - Always visible */}
@@ -436,20 +436,18 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                     {viewMode === 'list' ? (
                         <>
                             {/* Header Strip (Pati) */}
-                            <div className="list-header contact-list-grid" style={{ position: 'sticky', top: '65px', background: '#f8fafc', zIndex: 100, borderBottom: '2px solid #e2e8f0' }}>
-                                <div>
-                                    <input
-                                        type="checkbox"
-                                        checked={isAllSelected}
-                                        ref={input => {
-                                            if (input) {
-                                                input.indeterminate = isIndeterminate;
-                                            }
-                                        }}
-                                        onChange={toggleSelectAll}
-                                        style={{ cursor: 'pointer' }}
-                                    />
-                                </div>
+                            <div className="list-header contact-list-grid" style={{ position: 'sticky', top: '65px', zIndex: 100 }}>
+                                <input
+                                    type="checkbox"
+                                    checked={isAllSelected}
+                                    ref={input => {
+                                        if (input) {
+                                            input.indeterminate = isIndeterminate;
+                                        }
+                                    }}
+                                    onChange={toggleSelectAll}
+                                    style={{ cursor: 'pointer' }}
+                                />
                                 <div>Personal Details</div>
                                 <div>Location & Address</div>
                                 <div>Professional Detail</div>
@@ -462,7 +460,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             <div id="contactListContent">
                                 {Object.keys(groups).map(groupName => (
                                     <div key={groupName} className="list-group">
-                                        <div className="group-header" style={{ padding: '12px 2rem', letterSpacing: '0.5px' }}>{groupName.toUpperCase()}</div>
+                                        <div className="group-header" style={{ padding: '12px var(--row-padding)', letterSpacing: '0.5px' }}>{groupName.toUpperCase()}</div>
                                         {groups[groupName].map((item, idx) => (
                                             <div
                                                 key={item._id || item.mobile || idx}
@@ -840,7 +838,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                     )}
                 </div>
             </div>
-            <footer className="summary-footer" style={{ height: '60px', padding: '0 2rem' }}>
+            <footer className="summary-footer" style={{ height: '60px', padding: '0 var(--row-padding)' }}>
                 <div className="summary-label" style={{ background: '#334155', color: '#fff', padding: '4px 12px', borderRadius: '6px', fontSize: '0.7rem' }}>SUMMARY</div>
                 <div style={{ display: 'flex', gap: '20px' }}>
                     <div className="stat-pill">TOTAL CONTACTS <strong>{totalCount}</strong></div>

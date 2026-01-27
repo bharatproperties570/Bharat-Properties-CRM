@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { INDIAN_ADDRESS_DATA } from '../data/locationData';
+import AddressDetailsForm from './common/AddressDetailsForm';
+import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { contactData } from '../data/mockData';
 
 const COUNTRY_CODES = [
@@ -11,7 +13,7 @@ const COUNTRY_CODES = [
 
 const COMPANY_TYPES = ['Private Limited', 'Public Limited', 'Partnership', 'Proprietorship', 'LLP', 'NGO', 'Other'];
 const INDUSTRIES = ['Real Estate', 'Technology', 'Healthcare', 'Finance', 'Manufacturing', 'Retail', 'Education', 'Other'];
-const SOURCES = ['Instagram', 'Facebook', 'LinkedIn', 'Google Ads', 'Referral', 'Website', 'Walk-in', 'Cold Call', 'Other'];
+const SOURCES = []; // Removed
 const TEAMS = ['Sales', 'Marketing', 'Operations', 'Finance', 'Support'];
 const OWNER_EMPLOYEES = ['Suresh Kumar', 'Ramesh Sharma', 'Anjali Gupta', 'Vikram Singh'];
 
@@ -85,6 +87,7 @@ const AnimatedSegmentControl = ({ options, value, onChange }) => {
 const ADDRESS_TYPES = ['Registered Office', 'Branch Office', 'Corporate Office', 'Head Office', 'Site Office'];
 
 function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
+    const { leadMasterFields } = usePropertyConfig();
     const isEdit = !!initialData;
     const [currentTab, setCurrentTab] = useState('basic');
     const [currentAddressType, setCurrentAddressType] = useState('Registered Office');
@@ -111,7 +114,9 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
         industry: '',
         description: '',
         gstNumber: '',
-        source: 'Instagram',
+        campaign: '',
+        source: '',
+        subSource: '',
         team: 'Sales',
         owner: 'Suresh Kumar',
         visibleTo: 'My Team',
@@ -136,7 +141,9 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 industry: initialData.category || '', // Mapping industry
                 description: initialData.description || '',
                 gstNumber: initialData.gstNumber || '',
-                source: initialData.source || 'Instagram',
+                campaign: initialData.campaign || '',
+                source: initialData.source || '',
+                subSource: initialData.subSource || '',
                 team: initialData.team || 'Sales',
                 owner: initialData.ownership || 'Suresh Kumar',
                 visibleTo: initialData.visibleTo || 'Everyone',
@@ -167,7 +174,9 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 industry: '',
                 description: '',
                 gstNumber: '',
-                source: 'Instagram',
+                campaign: '',
+                source: '',
+                subSource: '',
                 team: 'Sales',
                 owner: 'Suresh Kumar',
                 visibleTo: 'Everyone',
@@ -516,13 +525,29 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 <h4 style={{ ...labelStyle, fontSize: '1rem', color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <i className="fas fa-cogs" style={{ color: '#10b981' }}></i> System Details
                 </h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '24px' }}>
                     <div>
                         <label style={labelStyle}>Source</label>
-                        <select style={customSelectStyle} value={formData.source} onChange={(e) => handleInputChange('source', e.target.value)}>
-                            {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                        <select
+                            style={customSelectStyle}
+                            value={formData.source}
+                            onChange={(e) => handleInputChange('source', e.target.value)}
+                        >
+                            <option value="">Select Source</option>
+                            {(() => {
+                                const allSources = [];
+                                (leadMasterFields?.campaigns || []).forEach(c => {
+                                    (c.sources || []).forEach(s => {
+                                        if (!allSources.includes(s.name)) {
+                                            allSources.push(s.name);
+                                        }
+                                    });
+                                });
+                                return allSources.map(s => <option key={s} value={s}>{s}</option>);
+                            })()}
                         </select>
                     </div>
+
                     <div>
                         <label style={labelStyle}>Team</label>
                         <select style={customSelectStyle} value={formData.team} onChange={(e) => handleInputChange('team', e.target.value)}>
@@ -640,95 +665,54 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 </div>
             )}
 
-            <div style={{ background: '#fff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
-                <h3 style={{ ...labelStyle, fontSize: '1.1rem', color: '#10b981', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <i className="fas fa-map-marked-alt"></i> {(currentAddressType === 'Branch Office' || currentAddressType === 'Site Office') ? (addr.branchName || `${currentAddressType === 'Branch Office' ? 'Branch' : 'Site'} ${(currentAddressType === 'Branch Office' ? activeBranchIndex : activeSiteIndex) + 1}`) : currentAddressType} Details
-                </h3>
+            <div style={{ background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                <div style={{ padding: '24px', borderBottom: '1px solid #f1f5f9' }}>
+                    <h3 style={{ ...labelStyle, fontSize: '1.1rem', color: '#10b981', marginBottom: '0', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <i className="fas fa-map-marked-alt"></i> {(currentAddressType === 'Branch Office' || currentAddressType === 'Site Office') ? (addr.branchName || `${currentAddressType === 'Branch Office' ? 'Branch' : 'Site'} ${(currentAddressType === 'Branch Office' ? activeBranchIndex : activeSiteIndex) + 1}`) : currentAddressType} Details
+                    </h3>
+                </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ padding: '24px' }}>
                     {(currentAddressType === 'Branch Office' || currentAddressType === 'Site Office') && (
-                        <div>
+                        <div style={{ marginBottom: '24px' }}>
                             <label style={labelStyle}>{currentAddressType === 'Branch Office' ? 'Branch' : 'Site'} Name</label>
                             <input style={inputStyle} placeholder={`e.g. ${currentAddressType === 'Branch Office' ? 'City Center Branch' : 'Main Project Site'}, Alpha Square Office`} value={addr.branchName} onChange={(e) => handleAddressChange(currentAddressType, 'branchName', e.target.value)} />
                         </div>
                     )}
 
-                    {/* Row 1: Country, State, City */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px' }}>
-                        <div>
-                            <label style={labelStyle}>Country</label>
-                            <input style={{ ...inputStyle, background: '#f8fafc', fontWeight: 600 }} value="India" readOnly />
-                        </div>
-                        <div>
-                            <label style={labelStyle}>State</label>
-                            <select style={customSelectStyle} value={addr.state} onChange={(e) => handleAddressChange(currentAddressType, 'state', e.target.value)}>
-                                <option value="">Select State</option>
-                                {states.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label style={labelStyle}>City</label>
-                            <select style={customSelectStyle} value={addr.city} onChange={(e) => handleAddressChange(currentAddressType, 'city', e.target.value)} disabled={!addr.state}>
-                                <option value="">Select City</option>
-                                {cities.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                        </div>
-                    </div>
+                    <AddressDetailsForm
+                        title="" // Title handled by parent header
+                        address={addr}
+                        onChange={(newAddr) => {
+                            // Map flat address back to specific fields if needed, or update bulk
+                            // handleAddressChange expects (type, field, value) usually, but here we might need a bulk update helper or loop
+                            // Existing handleAddressChange updates ONE field.
+                            // We need to update multiple fields.
+                            // Let's create a bulk updater or call handleAddressChange for each changed field.
+                            // Efficient way: modify local state and setFormData.
 
-                    {/* Row 2: Tehsil, PO, Pin */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px' }}>
-                        <div>
-                            <label style={labelStyle}>Tehsil</label>
-                            <select style={customSelectStyle} value={addr.tehsil} onChange={(e) => handleAddressChange(currentAddressType, 'tehsil', e.target.value)} disabled={!addr.city}>
-                                <option value="">Select Tehsil</option>
-                                {tehsils.map(t => <option key={t} value={t}>{t}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label style={labelStyle}>Post Office</label>
-                            <select
-                                style={customSelectStyle}
-                                value={addr.postOffice}
-                                onChange={(e) => {
-                                    const po = postOffices.find(po => po.name === e.target.value);
-                                    handleAddressChange(currentAddressType, 'postOffice', e.target.value);
-                                    if (po) handleAddressChange(currentAddressType, 'pinCode', po.pinCode);
-                                }}
-                                disabled={!addr.city}
-                            >
-                                <option value="">Select Post Office</option>
-                                {postOffices.map(po => <option key={po.name} value={po.name}>{po.name}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label style={labelStyle}>Pin Code</label>
-                            <input style={inputStyle} placeholder="Enter 6 digit PIN" value={addr.pinCode} onChange={(e) => handleAddressChange(currentAddressType, 'pinCode', e.target.value)} />
-                        </div>
-                    </div>
+                            // actually, let's look at handleAddressChange again. It's: setFormData(...)
+                            // We can create a specific bulk update handler or update handleAddressChange to accept object.
+                            // For now, I will assume I can pass individual updates or refactor handleAddressChange below.
 
-                    {/* Row 3: House No & Street */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 120px) 1fr', gap: '24px' }}>
-                        <div>
-                            <label style={labelStyle}>House No.</label>
-                            <input style={inputStyle} placeholder="House No" value={addr.hNo} onChange={(e) => handleAddressChange(currentAddressType, 'hNo', e.target.value)} />
-                        </div>
-                        <div>
-                            <label style={labelStyle}>Street / Road / Landmark</label>
-                            <input style={inputStyle} placeholder="Enter Street, Road or Landmark" value={addr.street} onChange={(e) => handleAddressChange(currentAddressType, 'street', e.target.value)} />
-                        </div>
-                    </div>
+                            // Retaining original logic: We need to update state, city, tehsil etc.
+                            // AddressDetailsForm returns the FULL updated address object 'newAddr'.
+                            // We should simply update the specific entry in formData with 'newAddr'.
 
-                    {/* Row 4: Area & Location */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                        <div>
-                            <label style={labelStyle}>Area</label>
-                            <input style={inputStyle} placeholder="Enter Area" value={addr.area} onChange={(e) => handleAddressChange(currentAddressType, 'area', e.target.value)} />
-                        </div>
-                        <div>
-                            <label style={labelStyle}>Location / Sector</label>
-                            <input style={inputStyle} placeholder="Enter Location or Sector" value={addr.location} onChange={(e) => handleAddressChange(currentAddressType, 'location', e.target.value)} />
-                        </div>
-                    </div>
+                            setFormData(prev => {
+                                let newAddresses = { ...prev.addresses };
+                                if (currentAddressType === 'Branch Office' || currentAddressType === 'Site Office') {
+                                    const activeIndex = currentAddressType === 'Branch Office' ? activeBranchIndex : activeSiteIndex;
+                                    const list = [...newAddresses[currentAddressType]];
+                                    list[activeIndex] = { ...list[activeIndex], ...newAddr };
+                                    newAddresses[currentAddressType] = list;
+                                } else {
+                                    newAddresses[currentAddressType] = { ...newAddresses[currentAddressType], ...newAddr };
+                                }
+                                return { ...prev, addresses: newAddresses };
+                            });
+                        }}
+                    />
                 </div>
             </div>
 

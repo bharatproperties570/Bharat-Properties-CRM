@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
 import AppRouter from './router/AppRouter';
 import MainLayout from './layouts/MainLayout';
+import { PropertyConfigProvider } from './context/PropertyConfigContext';
+import { ContactConfigProvider } from './context/ContactConfigContext';
 
 function App() {
     // Global Navigation State (Routing Logic Only)
@@ -65,19 +67,21 @@ function App() {
     }, []);
 
     return (
-        <>
-            <Toaster position="top-right" />
-            <MainLayout currentView={currentView} onNavigate={handleNavigate}>
-                {(modalHandlers) => (
-                    <AppRouter
-                        currentView={currentView}
-                        currentContactId={currentContactId}
-                        onNavigate={handleNavigate}
-                        {...modalHandlers}
-                    />
-                )}
-            </MainLayout>
-        </>
+        <ContactConfigProvider>
+            <PropertyConfigProvider>
+                <Toaster position="top-right" />
+                <MainLayout currentView={currentView} onNavigate={handleNavigate}>
+                    {(modalHandlers) => (
+                        <AppRouter
+                            currentView={currentView}
+                            currentContactId={currentContactId}
+                            onNavigate={handleNavigate}
+                            {...modalHandlers}
+                        />
+                    )}
+                </MainLayout>
+            </PropertyConfigProvider>
+        </ContactConfigProvider>
     );
 }
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { companyData } from '../data/companyData';
 import { INDIAN_ADDRESS_DATA } from '../data/locationData';
+import { usePropertyConfig } from '../context/PropertyConfigContext';
 
 // Mock Permission Hook
 const usePermission = (permission) => {
@@ -95,10 +96,32 @@ const MultiSelect = ({ options, selected, onChange, placeholder = "Select..." })
 
 
 function AddProjectModal({ isOpen, onClose, onSave }) {
+    const context = usePropertyConfig();
+    const { masterFields, projectMasterFields, projectAmenities } = context;
+    const projectMasterFieldsSafe = projectMasterFields || {};
     const [isLoading, setIsLoading] = useState(true);
     const [hasPermission, setHasPermission] = useState(false);
     const [activeTab, setActiveTab] = useState('Basic');
     const [amenityTab, setAmenityTab] = useState('Basic');
+    const [amenitySearch, setAmenitySearch] = useState('');
+
+    // Safe access to projectAmenities
+    const amenitiesSafe = projectAmenities || {};
+
+    // Derived Amenity Lists from Context
+    const basicAmenities = (amenitiesSafe['Basic'] || []).map(a => a.name);
+    const featuredAmenities = (amenitiesSafe['Featured'] || []).map(a => a.name);
+    const nearbyAmenities = (amenitiesSafe['Nearby'] || []).map(a => a.name);
+
+    // Create a lookup for icons for rendering
+    const AMENITY_ICON_LOOKUP = {};
+    if (projectAmenities) {
+        Object.values(projectAmenities).flat().forEach(a => {
+            if (a && a.name) {
+                AMENITY_ICON_LOOKUP[a.name] = a.icon;
+            }
+        });
+    }
 
     // Comprehensive State
     const [formData, setFormData] = useState({
@@ -200,54 +223,22 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
         name: '',
         floors: '',
         units: '',
-        status: 'Upcoming'
+        status: 'Upcoming',
+        landArea: '',
+        landAreaUnit: 'Acres',
+        parkingType: 'Open Parking',
+        launchDate: '',
+        expectedCompletionDate: '',
+        possessionDate: ''
     });
 
-    const [amenitySearch, setAmenitySearch] = useState('');
+
 
     const modalRef = useRef(null);
     const searchInputRef = useRef(null);
     const canCreateProject = usePermission('create_project');
 
-    // --- Amenities Icon Mapping ---
-    const AMENITY_ICONS = {
-        'Car Parking': 'fa-car', 'Intercom': 'fa-phone-alt', 'Multi-Purpose Hall': 'fa-users',
-        '24x7 Water Supply': 'fa-tint', 'Municipal Water Supply': 'fa-faucet', 'Garbage Management System': 'fa-trash-alt',
-        'Fire Fighting System': 'fa-fire-extinguisher', 'Visitor Car Parking': 'fa-car-side', 'Earthquake Resistance': 'fa-house-damage',
-        'Lift': 'fa-elevator', 'Maintenance Staff': 'fa-concierge-bell', 'Power Supply': 'fa-bolt', 'Air Condition': 'fa-snowflake',
-        'Security': 'fa-shield-alt', 'Bike Parking': 'fa-motorcycle', 'Others': 'fa-ellipsis-h', 'Senior Citizen Corner': 'fa-blind',
-        'Worship Place': 'fa-place-of-worship', 'HAVC System': 'fa-fan', 'Cricket Pitch': 'fa-baseball-ball', 'Two Tier Security': 'fa-user-shield',
-        'Cafeteria': 'fa-utensils', 'Car Washing Area': 'fa-car-wash', 'No Common Wall': 'fa-border-none', 'Driver Dormitory': 'fa-bed',
-        'EPABX System': 'fa-phone-volume', 'CCTV': 'fa-video', 'Gymnasium': 'fa-dumbbell', 'Garden': 'fa-leaf', 'Power Back Up': 'fa-battery-full',
-        'Party Lawn': 'fa-glass-cheers', 'Gazebo': 'fa-archway', 'Cold Storage': 'fa-box-open', 'Solar Water Heater': 'fa-sun',
-        'Jogging Track': 'fa-running', 'DTH Connection': 'fa-satellite-dish', 'Three Tier Security': 'fa-user-lock', 'Smoking Area': 'fa-smoking',
-        'Spa & Saloon': 'fa-spa', 'Solar Power': 'fa-solar-panel', 'Video Door Phone': 'fa-video-slash', 'Utility Shop': 'fa-shopping-cart',
-        'Steam Room': 'fa-hot-tub', 'Amphi Theatre': 'fa-landmark', 'Private Car Parking': 'fa-car-rear', 'Guest Room': 'fa-hotel',
-        'Internet': 'fa-wifi', 'Kids Play Area': 'fa-child', 'Barbeque Facility': 'fa-hamburger', 'Basket Ball Court': 'fa-basketball-ball',
-        'Skating Rink': 'fa-skating', 'Society Office': 'fa-building', 'Squash Court': 'fa-table-tennis', 'Waiting Lounge': 'fa-couch',
-        'Yoga And Meditation Center': 'fa-om', 'Water Softener': 'fa-water', 'Swipe Card Entry': 'fa-id-card', 'Health Facilities': 'fa-heartbeat',
-        'Library': 'fa-book', 'Day Care Center': 'fa-baby', 'Reception': 'fa-user-tie', 'School': 'fa-school', 'Hospital': 'fa-hospital',
-        'Metro Station': 'fa-subway', 'Shopping Mall': 'fa-shopping-bag', 'Market': 'fa-store'
-    };
-    const basicAmenities = [
-        'Car Parking', 'Intercom', 'Multi-Purpose Hall', '24x7 Water Supply',
-        'Municipal Water Supply', 'Garbage Management System', 'Fire Fighting System',
-        'Visitor Car Parking', 'Earthquake Resistance', 'Lift', 'Maintenance Staff',
-        'Power Supply', 'Air Condition', 'Security', 'Bike Parking', 'Others'
-    ];
-    const featuredAmenities = [
-        'Senior Citizen Corner', 'Worship Place', 'HAVC System', 'Cricket Pitch',
-        'Two Tier Security', 'Cafeteria', 'Car Washing Area', 'No Common Wall',
-        'Driver Dormitory', 'EPABX System', 'CCTV', 'Gymnasium', 'Garden',
-        'Power Back Up', 'Party Lawn', 'Gazebo', 'Cold Storage', 'Solar Water Heater',
-        'Jogging Track', 'DTH Connection', 'Three Tier Security', 'Smoking Area',
-        'Spa & Saloon', 'Solar Power', 'Video Door Phone', 'Utility Shop', 'Steam Room',
-        'Amphi Theatre', 'Private Car Parking', 'Guest Room', 'Internet', 'Kids Play Area',
-        'Barbeque Facility', 'Basket Ball Court', 'Skating Rink', 'Society Office',
-        'Squash Court', 'Waiting Lounge', 'Yoga And Meditation Center', 'Water Softener',
-        'Swipe Card Entry', 'Health Facilities', 'Library', 'Day Care Center', 'Reception'
-    ];
-    const nearbyAmenities = ['School', 'Hospital', 'Metro Station', 'Shopping Mall', 'Market'];
+
     const categories = ['Residential', 'Commercial', 'Agricultural', 'Industrial', 'Institutional'];
     const subCategories = ['Plot', 'House', 'Flat/Apartment', 'Builder Floor', 'Villa', 'Penthouse', 'SCO', 'Office Space', 'Shop'];
     const teams = ['Sales', 'Marketing', 'Post Sales', 'Pre Sales', 'Finance', 'HR'];
@@ -513,17 +504,18 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                         <label style={labelStyle}>Current Status</label>
                         <select style={customSelectStyle} value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })}>
                             <option value="">---Select Status---</option>
-                            <option value="New Launch">New Launch</option>
-                            <option value="Under Construction">Under Construction</option>
-                            <option value="Ready to Move">Ready to Move</option>
+                            {(projectMasterFieldsSafe.projectStatuses || []).map(status => (
+                                <option key={status} value={status}>{status}</option>
+                            ))}
                         </select>
                     </div>
                     <div>
                         <label style={labelStyle}>Parking Type</label>
                         <select style={customSelectStyle} value={formData.parkingType} onChange={e => setFormData({ ...formData, parkingType: e.target.value })}>
-                            <option>Open Parking</option>
-                            <option>Covered Parking</option>
-                            <option>Basement Parking</option>
+                            <option value="">---Select Parking---</option>
+                            {(projectMasterFieldsSafe.parkingTypes || []).map(type => (
+                                <option key={type} value={type}>{type}</option>
+                            ))}
                         </select>
                     </div>
                 </div>
@@ -815,7 +807,7 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                                     fontSize: '1.2rem', transition: 'all 0.2s'
                                 }}>
-                                    <i className={`fas ${AMENITY_ICONS[amenity] || 'fa-star'}`}></i>
+                                    <i className={`fas ${AMENITY_ICON_LOOKUP[amenity] || 'fa-star'}`}></i>
                                 </div>
                                 <span style={{
                                     fontSize: '0.85rem', fontWeight: 600,
@@ -849,7 +841,18 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
             } else {
                 setFormData({ ...formData, blocks: [...formData.blocks, blockFormData] });
             }
-            setBlockFormData({ name: '', floors: '', units: '', status: 'Upcoming' });
+            setBlockFormData({
+                name: '',
+                floors: '',
+                units: '',
+                status: 'Upcoming',
+                landArea: '',
+                landAreaUnit: 'Acres',
+                parkingType: 'Open Parking',
+                launchDate: '',
+                expectedCompletionDate: '',
+                possessionDate: ''
+            });
             setShowBlockForm(false);
         };
 
@@ -890,47 +893,119 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                         <h5 style={{ margin: '0 0 20px 0', fontSize: '0.95rem', fontWeight: 700, color: '#334155' }}>
                             {editingBlockIndex !== null ? 'Edit Block' : 'Add New Block Configuration'}
                         </h5>
-                        <div className="grid-4-col gap-16">
-                            <div>
-                                <label style={labelStyle}>Block Name</label>
-                                <input
-                                    style={inputStyle}
-                                    placeholder="e.g. Block A"
-                                    value={blockFormData.name}
-                                    onChange={e => setBlockFormData({ ...blockFormData, name: e.target.value })}
-                                />
+                        <div style={{ display: 'grid', gap: '20px' }}>
+                            {/* Basic Config */}
+                            <div className="grid-4-col gap-16">
+                                <div>
+                                    <label style={labelStyle}>Block Name</label>
+                                    <input
+                                        style={inputStyle}
+                                        placeholder="e.g. Block A"
+                                        value={blockFormData.name}
+                                        onChange={e => setBlockFormData({ ...blockFormData, name: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Total Floors</label>
+                                    <input
+                                        type="number"
+                                        style={inputStyle}
+                                        placeholder="0"
+                                        value={blockFormData.floors}
+                                        onChange={e => setBlockFormData({ ...blockFormData, floors: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Total Units</label>
+                                    <input
+                                        type="number"
+                                        style={inputStyle}
+                                        placeholder="0"
+                                        value={blockFormData.units}
+                                        onChange={e => setBlockFormData({ ...blockFormData, units: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Status</label>
+                                    <select
+                                        style={customSelectStyle}
+                                        value={blockFormData.status}
+                                        onChange={e => setBlockFormData({ ...blockFormData, status: e.target.value })}
+                                    >
+                                        <option value="">Status</option>
+                                        {(projectMasterFieldsSafe.projectStatuses || []).map(status => (
+                                            <option key={status} value={status}>{status}</option>
+                                        ))}
+                                    </select>
+                                </div>
                             </div>
-                            <div>
-                                <label style={labelStyle}>Total Floors</label>
-                                <input
-                                    type="number"
-                                    style={inputStyle}
-                                    placeholder="0"
-                                    value={blockFormData.floors}
-                                    onChange={e => setBlockFormData({ ...blockFormData, floors: e.target.value })}
-                                />
+
+                            {/* Land & Parking */}
+                            <div className="grid-2-col gap-24">
+                                <div>
+                                    <label style={labelStyle}>Land Area (Allocated)</label>
+                                    <div style={{ display: 'flex' }}>
+                                        <input
+                                            style={{ ...inputStyle, borderRight: 'none', borderRadius: '8px 0 0 8px' }}
+                                            placeholder="0"
+                                            value={blockFormData.landArea}
+                                            onChange={e => setBlockFormData({ ...blockFormData, landArea: e.target.value })}
+                                        />
+                                        <select
+                                            style={{ ...customSelectStyle, width: '100px', borderRadius: '0 8px 8px 0', borderLeft: '1px solid #e2e8f0', background: '#f8fafc' }}
+                                            value={blockFormData.landAreaUnit}
+                                            onChange={e => setBlockFormData({ ...blockFormData, landAreaUnit: e.target.value })}
+                                        >
+                                            <option>Acres</option>
+                                            <option>Hectares</option>
+                                            <option>Sq Yards</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Parking Type</label>
+                                    <select
+                                        style={customSelectStyle}
+                                        value={blockFormData.parkingType}
+                                        onChange={e => setBlockFormData({ ...blockFormData, parkingType: e.target.value })}
+                                    >
+                                        <option value="">Parking</option>
+                                        {(projectMasterFieldsSafe.parkingTypes || []).map(type => (
+                                            <option key={type} value={type}>{type}</option>
+                                        ))}
+                                    </select>
+                                </div>
                             </div>
-                            <div>
-                                <label style={labelStyle}>Total Units</label>
-                                <input
-                                    type="number"
-                                    style={inputStyle}
-                                    placeholder="0"
-                                    value={blockFormData.units}
-                                    onChange={e => setBlockFormData({ ...blockFormData, units: e.target.value })}
-                                />
-                            </div>
-                            <div>
-                                <label style={labelStyle}>Status</label>
-                                <select
-                                    style={customSelectStyle}
-                                    value={blockFormData.status}
-                                    onChange={e => setBlockFormData({ ...blockFormData, status: e.target.value })}
-                                >
-                                    <option>Upcoming</option>
-                                    <option>In Progress</option>
-                                    <option>Completed</option>
-                                </select>
+
+                            {/* Timeline Details */}
+                            <div className="grid-3-col gap-24">
+                                <div>
+                                    <label style={labelStyle}>Block Launch Date</label>
+                                    <input
+                                        type="date"
+                                        style={inputStyle}
+                                        value={blockFormData.launchDate}
+                                        onChange={e => setBlockFormData({ ...blockFormData, launchDate: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Expected Completion</label>
+                                    <input
+                                        type="date"
+                                        style={inputStyle}
+                                        value={blockFormData.expectedCompletionDate}
+                                        onChange={e => setBlockFormData({ ...blockFormData, expectedCompletionDate: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Possession Date</label>
+                                    <input
+                                        type="date"
+                                        style={inputStyle}
+                                        value={blockFormData.possessionDate}
+                                        onChange={e => setBlockFormData({ ...blockFormData, possessionDate: e.target.value })}
+                                    />
+                                </div>
                             </div>
                         </div>
                         <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
@@ -982,7 +1057,21 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                                         </div>
                                     </div>
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                    <span style={{
+                                        padding: '4px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 600,
+                                        background: '#f1f5f9', color: '#475569'
+                                    }}>
+                                        <i className="fas fa-parking" style={{ marginRight: '6px' }}></i> {block.parkingType}
+                                    </span>
+                                    {block.expectedCompletionDate && (
+                                        <span style={{
+                                            padding: '4px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 600,
+                                            background: '#eff6ff', color: '#1e40af'
+                                        }}>
+                                            <i className="fas fa-calendar-check" style={{ marginRight: '6px' }}></i> {block.expectedCompletionDate}
+                                        </span>
+                                    )}
                                     <span style={{
                                         padding: '4px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 600,
                                         background: block.status === 'Completed' ? '#dcfce7' : block.status === 'In Progress' ? '#fef9c3' : '#f1f5f9',
@@ -1396,11 +1485,9 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                                 style={customSelectStyle}
                             >
                                 <option value="">Select Name</option>
-                                <option value="Approval">Approval</option>
-                                <option value="Agreement">Agreement</option>
-                                <option value="Certificate">Certificate</option>
-                                <option value="License">License</option>
-                                <option value="Other">Other</option>
+                                {(projectMasterFieldsSafe.approvals || []).map(app => (
+                                    <option key={app} value={app}>{app}</option>
+                                ))}
                             </select>
                         </div>
                         <div>
@@ -1415,11 +1502,9 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                                 style={customSelectStyle}
                             >
                                 <option value="">Select Authority</option>
-                                <option value="RERA">RERA</option>
-                                <option value="GMADA">GMADA</option>
-                                <option value="PUDA">PUDA</option>
-                                <option value="MC">Municipal Corporation</option>
-                                <option value="Other">Other</option>
+                                {(projectMasterFieldsSafe.approvalAuthorities || []).map(auth => (
+                                    <option key={auth} value={auth}>{auth}</option>
+                                ))}
                             </select>
                         </div>
                         <div>

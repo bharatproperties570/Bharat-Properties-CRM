@@ -29,7 +29,7 @@ const DashboardPage = () => {
     };
 
     return (
-        <section id="dashboardView" className="view-section active" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-gray)', overflow: 'hidden' }}>
+        <section id="dashboardView" className="view-section active" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)', overflow: 'hidden' }}>
             <div className="view-scroll-wrapper" style={{ flex: 1, overflowY: 'auto', padding: '24px 2rem' }}>
 
                 {/* PREMIUM HEADER STRIP */}

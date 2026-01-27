@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { usePropertyConfig } from '../context/PropertyConfigContext';
 
 import { INDIAN_LOCATION_HIERARCHY } from '../data/detailedLocationData';
 import { PROJECT_DATA, CITIES } from '../data/projectData';
 import { LOCATION_DATA, INDIAN_ADDRESS_DATA } from '../data/locationData';
-import { PROPERTY_CATEGORIES, DIRECTION_OPTIONS, FACING_OPTIONS, ROAD_WIDTH_OPTIONS, PROPERTY_UNIT_TYPE_OPTIONS } from '../data/propertyData';
+import { PROPERTY_CATEGORIES, DIRECTION_OPTIONS } from '../data/propertyData';
 
 // Simple Custom Multi-Select Component
 const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled }) => {
@@ -121,9 +122,10 @@ const SUB_CATEGORIES = ['Real Estate', 'IT & Software', 'Banking & Finance', 'Ma
 const DESIGNATIONS = ['Owner', 'CEO / Founder', 'Director', 'Manager', 'Team Lead', 'Senior Executive', 'Associate', 'Developer', 'Consultant', 'HR', 'Accountant', 'Other'];
 
 // Sources for Dropdown
-const SOURCES = ['Instagram', 'Facebook', 'LinkedIn', 'Google Ads', 'Referral', 'Website', 'Walk-in', 'Cold Call', 'Other'];
-const CAMPAIGN_OPTIONS = ['Organic Campaign', 'Online Campaign', 'Offline Campaign'];
-const SUB_SOURCE_OPTIONS = ['Call', 'SMS', 'WhatsApp', 'RCS Message'];
+// Sources and Campaigns are now fetched from Context
+const SOURCES = [];
+const CAMPAIGN_OPTIONS = [];
+const SUB_SOURCE_OPTIONS = [];
 
 // Mock Contacts for Duplicate Check
 const MOCK_CONTACTS = [
@@ -398,11 +400,17 @@ const BUDGET_VALUES = [
 ];
 
 const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entityType = 'lead', contactData, title = "Add New Lead", saveLabel = "Save" }) => {
+    const { propertyConfig, masterFields, leadMasterFields } = usePropertyConfig(); // Updated context
     const [currentTab, setCurrentTab] = useState('requirement'); // default to requirement for lead
     const [currentAddressType, setCurrentAddressType] = useState('permanent'); // permanent or correspondence
     const [showOnlyRequired, setShowOnlyRequired] = useState(false);
 
-    // Company Logic
+    // Master Fields Options
+    const facingOptions = masterFields?.facings || [];
+    const roadWidthOptions = masterFields?.roadWidths || [];
+    const unitTypeOptions = masterFields?.unitTypes || [];
+    const directionOptions = masterFields?.directions || DIRECTION_OPTIONS;
+    const floorLevelOptions = masterFields?.floorLevels || [];
     const [companyList, setCompanyList] = useState(['Company A', 'Company B', 'Bharat Properties']);
     const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
     const [companySearch, setCompanySearch] = useState('');
@@ -481,6 +489,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         }, 1000);
         return () => clearInterval(timer);
     }, []);
+
+
 
     const [formData, setFormData] = useState({
         // Basic Details
@@ -1130,43 +1140,64 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                     </div>
                                 </div>
 
-                                {/* Campaign Details (Added for completeness) */}
+                                {/* Campaign Details (Dynamic Hierarchy) */}
                                 <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                                     <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
                                         <i className="fas fa-bullhorn" style={{ color: '#f59e0b' }}></i> Campaign Details
                                     </h3>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+                                        {/* Campaign - Level 1 */}
                                         <div>
                                             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Campaign Name</label>
                                             <select
                                                 value={formData.campaign}
-                                                onChange={(e) => handleInputChange('campaign', e.target.value)}
+                                                onChange={(e) => {
+                                                    handleInputChange('campaign', e.target.value);
+                                                    handleInputChange('source', ''); // Reset Child
+                                                    handleInputChange('subSource', ''); // Reset Grandchild
+                                                }}
                                                 style={customSelectStyle}
                                             >
                                                 <option value="">Select Campaign</option>
-                                                {CAMPAIGN_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                                                {(leadMasterFields?.campaigns || []).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                                             </select>
                                         </div>
+
+                                        {/* Source - Level 2 */}
                                         <div>
                                             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
                                             <select
                                                 value={formData.source}
-                                                onChange={(e) => handleInputChange('source', e.target.value)}
-                                                style={customSelectStyle}
+                                                onChange={(e) => {
+                                                    handleInputChange('source', e.target.value);
+                                                    handleInputChange('subSource', ''); // Reset Child
+                                                }}
+                                                disabled={!formData.campaign}
+                                                style={!formData.campaign ? customSelectStyleDisabled : customSelectStyle}
                                             >
                                                 <option value="">Select Source</option>
-                                                {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                                                {(() => {
+                                                    const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign);
+                                                    return (selectedCamp?.sources || []).map(s => <option key={s.name} value={s.name}>{s.name}</option>);
+                                                })()}
                                             </select>
                                         </div>
+
+                                        {/* Medium - Level 3 */}
                                         <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Sub Source</label>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Medium</label>
                                             <select
                                                 value={formData.subSource}
                                                 onChange={(e) => handleInputChange('subSource', e.target.value)}
-                                                style={customSelectStyle}
+                                                disabled={!formData.source}
+                                                style={!formData.source ? customSelectStyleDisabled : customSelectStyle}
                                             >
-                                                <option value="">Select Sub Source</option>
-                                                {SUB_SOURCE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                                                <option value="">Select Medium</option>
+                                                {(() => {
+                                                    const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign);
+                                                    const selectedSrc = (selectedCamp?.sources || []).find(s => s.name === formData.source);
+                                                    return (selectedSrc?.mediums || []).map(m => <option key={m} value={m}>{m}</option>);
+                                                })()}
                                             </select>
                                         </div>
                                     </div>
@@ -1378,37 +1409,58 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         <i className="fas fa-bullhorn" style={{ color: '#f59e0b' }}></i> Campaign Details
                                     </h3>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+                                        {/* Campaign - Level 1 */}
                                         <div>
                                             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Campaign Name</label>
                                             <select
                                                 value={formData.campaign}
-                                                onChange={(e) => handleInputChange('campaign', e.target.value)}
+                                                onChange={(e) => {
+                                                    handleInputChange('campaign', e.target.value);
+                                                    handleInputChange('source', '');
+                                                    handleInputChange('subSource', '');
+                                                }}
                                                 style={customSelectStyle}
                                             >
                                                 <option value="">Select Campaign</option>
-                                                {CAMPAIGN_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                                                {(leadMasterFields?.campaigns || []).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                                             </select>
                                         </div>
+
+                                        {/* Source - Level 2 */}
                                         <div>
                                             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
                                             <select
                                                 value={formData.source}
-                                                onChange={(e) => handleInputChange('source', e.target.value)}
-                                                style={customSelectStyle}
+                                                onChange={(e) => {
+                                                    handleInputChange('source', e.target.value);
+                                                    handleInputChange('subSource', '');
+                                                }}
+                                                disabled={!formData.campaign}
+                                                style={!formData.campaign ? customSelectStyleDisabled : customSelectStyle}
                                             >
                                                 <option value="">Select Source</option>
-                                                {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                                                {(() => {
+                                                    const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign);
+                                                    return (selectedCamp?.sources || []).map(s => <option key={s.name} value={s.name}>{s.name}</option>);
+                                                })()}
                                             </select>
                                         </div>
+
+                                        {/* Medium - Level 3 */}
                                         <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Sub Source</label>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Medium</label>
                                             <select
                                                 value={formData.subSource}
                                                 onChange={(e) => handleInputChange('subSource', e.target.value)}
-                                                style={customSelectStyle}
+                                                disabled={!formData.source}
+                                                style={!formData.source ? customSelectStyleDisabled : customSelectStyle}
                                             >
-                                                <option value="">Select Sub Source</option>
-                                                {SUB_SOURCE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                                                <option value="">Select Medium</option>
+                                                {(() => {
+                                                    const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign);
+                                                    const selectedSrc = (selectedCamp?.sources || []).find(s => s.name === formData.source);
+                                                    return (selectedSrc?.mediums || []).map(m => <option key={m} value={m}>{m}</option>);
+                                                })()}
                                             </select>
                                         </div>
                                     </div>
@@ -1679,6 +1731,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         />
                                     </div>
 
+
                                     {/* Property Category */}
                                     <div style={sectionCardStyle}>
                                         <h4 style={labelStyle}>Property Category</h4>
@@ -1726,7 +1779,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         <div style={sectionCardStyle}>
                                             <h4 style={labelStyle}>Property Sub-Category</h4>
                                             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                                {Array.from(new Set(formData.propertyType.flatMap(cat => PROPERTY_CATEGORIES[cat]?.subCategories || []))).map(sub => (
+                                                {Array.from(new Set(formData.propertyType.flatMap(cat => propertyConfig[cat]?.subCategories.map(sub => sub.name) || []))).map(sub => (
                                                     <button
                                                         key={sub}
                                                         type="button"
@@ -1793,10 +1846,28 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         <div style={sectionCardStyle}>
                                             <h4 style={labelStyle}>Size Type</h4>
                                             <CustomMultiSelect
-                                                options={['1 RK', '1 BHK', '2 BHK', '3 BHK', '4 BHK', '5 BHK', 'Duplex', 'Penthouse', 'Villa']}
+                                                options={(() => {
+                                                    // Dynamic Size Types based on selected Sub-Categories
+                                                    if (formData.subType.length === 0) return [];
+
+                                                    const allRawTypes = formData.subType.flatMap(subName => {
+                                                        // Find the subcategory object across all categories
+                                                        for (const cat of Object.values(propertyConfig)) {
+                                                            const foundSub = cat.subCategories.find(s => s.name === subName);
+                                                            if (foundSub) {
+                                                                // Extract names from object-based types
+                                                                return foundSub.types.map(t => typeof t === 'string' ? t : t.name) || [];
+                                                            }
+                                                        }
+                                                        return [];
+                                                    });
+
+                                                    return Array.from(new Set(allRawTypes)).sort();
+                                                })()}
                                                 value={formData.unitType}
                                                 onChange={(val) => handleInputChange('unitType', val)}
-                                                placeholder="Select Size Types"
+                                                placeholder={formData.subType.length > 0 ? "Select Size Types" : "Select Sub-Category First"}
+                                                disabled={formData.subType.length === 0}
                                             />
                                         </div>
                                     </div>
@@ -1805,21 +1876,17 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                     <div style={{ background: '#f0f9ff', padding: '16px', borderRadius: '8px', border: '1px solid #bae6fd' }}>
                                         <h4 style={{ ...labelStyle, color: '#0369a1', marginBottom: '16px' }}>Transaction Preferences</h4>
 
-                                        {/* Row 1: Budget Range (Moved to Top) */}
+                                        {/* Row 1: Budget Range */}
                                         <div style={{ marginBottom: '20px' }}>
-
-
                                             <label style={{ fontSize: '0.85rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>
                                                 Budget Range <span style={{ color: '#ef4444' }}>*</span>
                                             </label>
                                             <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                                {/* Min Budget */}
                                                 <select
                                                     value={formData.budgetMin}
                                                     onChange={(e) => {
                                                         const newVal = e.target.value;
                                                         handleInputChange('budgetMin', newVal);
-                                                        // Reset Max if it becomes invalid (less than or equal to new Min)
                                                         if (formData.budgetMax && Number(formData.budgetMax) <= Number(newVal)) {
                                                             handleInputChange('budgetMax', '');
                                                         }
@@ -1834,12 +1901,11 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
                                                 <span style={{ color: '#94a3b8', fontWeight: 600 }}>-</span>
 
-                                                {/* Max Budget */}
                                                 <select
                                                     value={formData.budgetMax}
                                                     onChange={(e) => handleInputChange('budgetMax', e.target.value)}
                                                     style={{ ...customSelectStyle, flex: 1 }}
-                                                    disabled={!formData.budgetMin} // Disable if Min not selected
+                                                    disabled={!formData.budgetMin}
                                                 >
                                                     <option value="">Max</option>
                                                     {BUDGET_VALUES
@@ -1862,9 +1928,9 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                     style={customSelectStyle}
                                                 >
                                                     <option value="">Select Type</option>
-                                                    <option value="Collector Rate">Collector Rate</option>
-                                                    <option value="Full White">Full White</option>
-                                                    <option value="Flexible">Flexible</option>
+                                                    {(leadMasterFields?.transactionTypes || []).map(type => (
+                                                        <option key={type} value={type}>{type}</option>
+                                                    ))}
                                                 </select>
 
                                                 {/* Percentage Input for Flexible */}
@@ -1889,7 +1955,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                 )}
                                             </div>
 
-                                            {/* Funding - Standalone Dropdown */}
+                                            {/* Funding */}
                                             <div>
                                                 <label style={{ fontSize: '0.8rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>Funding</label>
                                                 <select
@@ -1898,17 +1964,15 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                     style={customSelectStyle}
                                                 >
                                                     <option value="">Select Funding</option>
-                                                    <option value="Home Loan">Home Loan</option>
-                                                    <option value="Self Funding">Self Funding</option>
-                                                    <option value="Loan Against Property">Loan Against Property</option>
-                                                    <option value="Personal Loan">Personal Loan</option>
-                                                    <option value="Business Loan">Business Loan</option>
+                                                    {(leadMasterFields?.fundingTypes || []).map(fund => (
+                                                        <option key={fund} value={fund}>{fund}</option>
+                                                    ))}
                                                 </select>
                                             </div>
                                         </div>
                                     </div>
 
-                                    {/* Other Specifics Grid - Moved Below Transaction */}
+                                    {/* Other Specifics Grid */}
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '16px' }}>
                                         <div>
                                             <h4 style={labelStyle}>Furnishing</h4>
@@ -1918,9 +1982,9 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                 style={customSelectStyle}
                                             >
                                                 <option value="">Any</option>
-                                                <option value="Unfurnished">Unfurnished</option>
-                                                <option value="Semi-Furnished">Semi-Furnished</option>
-                                                <option value="Fully-Furnished">Fully-Furnished</option>
+                                                {(leadMasterFields?.furnishingStatuses || []).map(status => (
+                                                    <option key={status} value={status}>{status}</option>
+                                                ))}
                                             </select>
                                         </div>
                                         <div>
@@ -1931,10 +1995,9 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                 style={customSelectStyle}
                                             >
                                                 <option value="">Any</option>
-                                                <option value="Immediate">Immediate</option>
-                                                <option value="Within 3 Months">Within 3 Months</option>
-                                                <option value="Within 6 Months">Within 6 Months</option>
-                                                <option value="More than 6 Months">More than 6 Months</option>
+                                                {(leadMasterFields?.timelines || []).map(time => (
+                                                    <option key={time} value={time}>{time}</option>
+                                                ))}
                                             </select>
                                         </div>
                                     </div>
@@ -1948,8 +2011,55 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             placeholder="Select Channels"
                                         />
                                     </div>
-                                </div>
 
+                                    {/* Campaign Details Section */}
+                                    <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', marginTop: '24px' }}>
+                                        <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                                            <i className="fas fa-bullhorn" style={{ color: '#f59e0b' }}></i> Campaign Details
+                                        </h3>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
+                                                <select
+                                                    value={formData.source}
+                                                    onChange={(e) => handleInputChange('source', e.target.value)}
+                                                    style={customSelectStyle}
+                                                >
+                                                    <option value="">Select Source</option>
+                                                    {(leadMasterFields?.campaignSources || []).map(src => (
+                                                        <option key={src} value={src}>{src}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Medium (Sub-Source)</label>
+                                                <select
+                                                    value={formData.subSource}
+                                                    onChange={(e) => handleInputChange('subSource', e.target.value)}
+                                                    style={customSelectStyle}
+                                                >
+                                                    <option value="">Select Medium</option>
+                                                    {(leadMasterFields?.campaignMediums || []).map(med => (
+                                                        <option key={med} value={med}>{med}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Campaign Name</label>
+                                                <select
+                                                    value={formData.campaign}
+                                                    onChange={(e) => handleInputChange('campaign', e.target.value)}
+                                                    style={customSelectStyle}
+                                                >
+                                                    <option value="">Select Campaign</option>
+                                                    {(leadMasterFields?.campaignNames || []).map(cmp => (
+                                                        <option key={cmp} value={cmp}>{cmp}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                         ) : currentTab === 'location' ? (
@@ -2186,46 +2296,38 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                     {/* Orientation Section (Common) */}
                                     <div style={sectionCardStyle}>
                                         <h4 style={labelStyle}>Orientation & Placement</h4>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-
-                                            {/* direction */}
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '20px' }}>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Facing</label>
+                                                <CustomMultiSelect
+                                                    options={masterFields.facings || []} // Use from Context
+                                                    value={formData.facing}
+                                                    onChange={(val) => handleInputChange('facing', val)}
+                                                    placeholder="Select Facing"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Road Width</label>
+                                                <CustomMultiSelect
+                                                    options={masterFields.roadWidths || []} // Use from Context
+                                                    value={formData.roadWidth}
+                                                    onChange={(val) => handleInputChange('roadWidth', val)}
+                                                    placeholder="Select Width"
+                                                />
+                                            </div>
                                             <div>
                                                 <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Direction</label>
                                                 <CustomMultiSelect
-                                                    options={DIRECTION_OPTIONS}
+                                                    options={masterFields.directions || []} // Use from Context
                                                     value={formData.direction || []}
                                                     onChange={(val) => handleInputChange('direction', val)}
                                                     placeholder="Select Direction"
                                                 />
                                             </div>
-
-                                            {/* facing */}
                                             <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Facing</label>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Unit Type</label>
                                                 <CustomMultiSelect
-                                                    options={FACING_OPTIONS}
-                                                    value={formData.facing}
-                                                    onChange={(val) => handleInputChange('facing', val)}
-                                                    placeholder="Select Facing Attributes"
-                                                />
-                                            </div>
-
-                                            {/* roadWidth */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Road Width</label>
-                                                <CustomMultiSelect
-                                                    options={ROAD_WIDTH_OPTIONS}
-                                                    value={formData.roadWidth || []}
-                                                    onChange={(val) => handleInputChange('roadWidth', val)}
-                                                    placeholder="Select Road Widths"
-                                                />
-                                            </div>
-
-                                            {/* propertyUnitType */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Property Unit Type</label>
-                                                <CustomMultiSelect
-                                                    options={PROPERTY_UNIT_TYPE_OPTIONS}
+                                                    options={masterFields.unitTypes || []} // Use from Context
                                                     value={formData.propertyUnitType || []}
                                                     onChange={(val) => handleInputChange('propertyUnitType', val)}
                                                     placeholder="Select Unit Type"
