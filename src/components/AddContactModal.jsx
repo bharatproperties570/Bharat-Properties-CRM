@@ -404,9 +404,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
     const { masterFields, propertyConfig, leadMasterFields } = usePropertyConfig();
     const { professionalConfig, addressConfig, profileConfig = {} } = useContactConfig();
 
-    console.log('AddContactModal Rendered');
-    console.log('profileConfig:', profileConfig);
-    console.log('docCategories:', profileConfig?.Documents?.subCategories);
+
 
     // --- Profile Config Helpers ---
     const getProfileDetails = (section, category) => {
