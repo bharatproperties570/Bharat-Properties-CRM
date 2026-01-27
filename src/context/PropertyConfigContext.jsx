@@ -432,6 +432,23 @@ export const PropertyConfigProvider = ({ children }) => {
         ]
     });
 
+    // Property Sizes State (Moved from PropertySettingsPage)
+    const [sizes, setSizes] = useState([
+        { id: 1, project: 'DLF Cyber City', block: 'Building 8', category: 'Residential', subCategory: 'Flat/Apartment / Builder Floor', name: '3 BHK (1200 Sq Ft)', sizeType: '3 BHK', saleableArea: '1200', description: 'Sample Entry' }
+    ]);
+
+    const addSize = (newSize) => {
+        setSizes(prev => [...prev, { ...newSize, id: Date.now() }]);
+    };
+
+    const updateSize = (updatedSize) => {
+        setSizes(prev => prev.map(s => s.id === updatedSize.id ? updatedSize : s));
+    };
+
+    const deleteSize = (id) => {
+        setSizes(prev => prev.filter(s => s.id !== id));
+    };
+
     const updateActivityMasterFields = (newActivities) => {
         setActivityMasterFields({ activities: newActivities });
     };
@@ -446,6 +463,10 @@ export const PropertyConfigProvider = ({ children }) => {
             updateProjectMasterFields,
             projectAmenities,
             updateProjectAmenities,
+            sizes,
+            addSize,
+            updateSize,
+            deleteSize,
             companyMasterFields,
             updateCompanyMasterFields,
             leadMasterFields,

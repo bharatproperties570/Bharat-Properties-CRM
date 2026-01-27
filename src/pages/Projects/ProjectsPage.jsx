@@ -1,218 +1,441 @@
 import React, { useState } from 'react';
 import { PROJECTS_LIST } from '../../data/projectData';
 import AddProjectModal from '../../components/AddProjectModal';
+import AddProjectPriceModal from '../../components/AddProjectPriceModal';
+import UploadModal from '../../components/UploadModal';
+import AddDocumentModal from '../../components/AddDocumentModal';
 
 function ProjectsPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
 
-    const projectsData = PROJECTS_LIST;
+    const [projectsData, setProjectsData] = useState(PROJECTS_LIST);
 
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isPriceModalOpen, setIsPriceModalOpen] = useState(false);
+
+    const [editProjectData, setEditProjectData] = useState(null);
+    const [initialModalTab, setInitialModalTab] = useState('Basic');
+
+    const [viewMode, setViewMode] = useState('list');
+    const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+    const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
+
+    const handleUploadClick = () => {
+        const project = projectsData.find(p => p.id === selectedIds[0]);
+        if (project) {
+            setEditProjectData(project);
+            setIsUploadModalOpen(true);
+        }
+    };
+
+    const handleDocumentClick = () => {
+        const project = projectsData.find(p => p.id === selectedIds[0]);
+        if (project) {
+            setEditProjectData(project);
+            setIsDocumentModalOpen(true);
+        }
+    };
+
+    const toggleSelect = (id) => {
+        if (selectedIds.includes(id)) {
+            setSelectedIds(selectedIds.filter(itemId => itemId !== id));
+        } else {
+            setSelectedIds([...selectedIds, id]);
+        }
+    };
+
+    const handleOpenAddModal = () => {
+        setEditProjectData(null);
+        setInitialModalTab('Basic');
+        setIsAddModalOpen(true);
+    };
+
+    const handlePriceClick = () => {
+        const project = projectsData.find(p => p.id === selectedIds[0]);
+        if (project) {
+            setEditProjectData(project);
+            setIsPriceModalOpen(true);
+        }
+    };
+
+    const handleSavePrice = (updatedProjectData) => {
+        console.log("Saving Price Data:", updatedProjectData);
+        setProjectsData(prev => prev.map(p => p.id === updatedProjectData.id ? updatedProjectData : p));
+        setIsPriceModalOpen(false);
+    };
 
     const handleSaveProject = (projectData) => {
         console.log("Saving project:", projectData);
+        if (projectData.id) {
+            setProjectsData(prev => prev.map(p => p.id === projectData.id ? projectData : p));
+        } else {
+            // Basic add logic for new projects (if needed later)
+            // setProjectsData(prev => [...prev, { ...projectData, id: Date.now() }]);
+        }
         setIsAddModalOpen(false);
-        // Here you would typically dispatch an action or call an API to save the project
     };
+
+    const renderHeader = () => (
+        <div className="page-header">
+            <div className="page-title-group">
+                <i className="fas fa-bars" style={{ color: '#68737d' }}></i>
+                <div>
+                    <span className="working-list-label">Luxury Portfolio</span>
+                    <h1>Real Estate Projects</h1>
+                </div>
+                <div className="verified-badge" style={{ background: '#e3f2fd', color: '#1976d2', padding: '4px 10px', borderRadius: '20px', fontSize: '0.7rem', fontWeight: 800, marginLeft: '10px' }}>
+                    <i className="fas fa-check-circle"></i> VERIFIED LIST
+                </div>
+            </div>
+            <div className="header-actions" style={{ display: 'flex', gap: '12px' }}>
+                <div className="view-toggle-group">
+                    <button
+                        className={`view-toggle-btn ${viewMode === 'list' ? 'active' : ''}`}
+                        onClick={() => setViewMode('list')}
+                    >
+                        <i className="fas fa-list"></i> List View
+                    </button>
+                    <button
+                        className={`view-toggle-btn ${viewMode === 'map' ? 'active' : ''}`}
+                        onClick={() => setViewMode('map')}
+                    >
+                        <i className="fas fa-map-marked-alt"></i> Map View
+                    </button>
+                </div>
+                <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <i className="fas fa-filter"></i> Filters
+                </button>
+            </div>
+        </div>
+    );
+
+    const renderMapView = () => (
+        <>
+            {renderHeader()}
+            <div className="content-body" style={{ paddingTop: 0 }}>
+                <div style={{ height: 'calc(100vh - 160px)', position: 'relative', margin: '0', display: 'flex' }}>
+                    {/* Sidebar List */}
+                    <div style={{ width: '350px', background: '#fff', borderRight: '1px solid #e2e8f0', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ padding: '15px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+                                <i className="fas fa-map-pin" style={{ color: '#ef4444', marginRight: '6px' }}></i>
+                                Projects by Location ({projectsData.length})
+                            </div>
+                        </div>
+                        <div style={{ flex: 1, overflowY: 'auto' }}>
+                            {projectsData.map(project => (
+                                <div key={project.id} style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.2s' }} onMouseOver={e => e.currentTarget.style.background = '#f8fafc'} onMouseOut={e => e.currentTarget.style.background = '#fff'}>
+                                    <div style={{ display: 'flex', gap: '12px' }}>
+                                        <div style={{ width: '50px', height: '50px', background: '#f1f5f9', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <i className="fas fa-building" style={{ color: '#cbd5e1' }}></i>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>{project.name}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{project.location}</div>
+                                            <span style={{ fontSize: '0.65rem', background: '#ecfdf5', color: '#059669', padding: '2px 6px', borderRadius: '4px', fontWeight: 600, marginTop: '4px', display: 'inline-block' }}>Active</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Google Map Placeholder */}
+                    <div style={{ flex: 1, background: '#e2e8f0', position: 'relative' }}>
+                        <iframe
+                            width="100%"
+                            height="100%"
+                            frameBorder="0"
+                            style={{ border: 0 }}
+                            src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d109782.91037748405!2d76.69036504285265!3d30.698544258807534!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x390fed0be66c4021%3A0xa59fbc01d248358!2sMohali%2C%20Punjab!5e0!3m2!1sen!2sin!4v1705330000000!5m2!1sen!2sin"
+                            allowFullScreen
+                        ></iframe>
+
+                        {/* Project Pin Markers Overlay */}
+                        {projectsData.map((project, idx) => {
+                            if (!project.lat || !project.lng) return null;
+
+                            // Convert lat/lng to approximate pixel position for demo purposes
+                            // Center of our demo map region (Mohali/Chandigarh)
+                            const centerLat = 30.6985;
+                            const centerLng = 76.7112;
+                            // Scaling factor to spread pins visibly
+                            const latDiff = (project.lat - centerLat) * 3000;
+                            const lngDiff = (project.lng - centerLng) * 3000;
+
+                            return (
+                                <div
+                                    key={project.id}
+                                    style={{
+                                        position: 'absolute',
+                                        left: `calc(50% + ${lngDiff}px)`,
+                                        top: `calc(50% - ${latDiff}px)`,
+                                        transform: 'translate(-50%, -100%)',
+                                        cursor: 'pointer',
+                                        zIndex: 10,
+                                        transition: 'all 0.2s'
+                                    }}
+                                    title={project.name}
+                                >
+                                    {/* Pin Marker */}
+                                    <div style={{
+                                        width: 'auto',
+                                        height: 'auto',
+                                        position: 'relative',
+                                        filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center'
+                                    }}>
+                                        {/* Pin Shape */}
+                                        <div style={{
+                                            background: '#fff',
+                                            padding: '4px 8px',
+                                            borderRadius: '4px',
+                                            fontWeight: 700,
+                                            fontSize: '0.75rem',
+                                            color: '#1e293b',
+                                            marginBottom: '4px',
+                                            whiteSpace: 'nowrap',
+                                            border: '1px solid #e2e8f0'
+                                        }}>
+                                            {project.name}
+                                        </div>
+                                        <svg width="32" height="40" viewBox="0 0 32 40">
+                                            <path
+                                                d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z"
+                                                fill="var(--primary-color)"
+                                                stroke="#fff"
+                                                strokeWidth="2"
+                                            />
+                                            <text x="50%" y="45%" dominantBaseline="middle" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">{idx + 1}</text>
+                                        </svg>
+                                    </div>
+                                </div>
+                            );
+                        })}
+
+                        {/* Map Controls Overlay */}
+                        <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <button style={{
+                                background: '#fff',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '6px',
+                                padding: '8px 12px',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                            }}>
+                                <i className="fas fa-expand-arrows-alt" style={{ marginRight: '6px' }}></i>
+                                Fullscreen
+                            </button>
+                            <button style={{
+                                background: '#fff',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '6px',
+                                padding: '8px 12px',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                            }}>
+                                <i className="fas fa-layer-group" style={{ marginRight: '6px' }}></i>
+                                Layers
+                            </button>
+                        </div>
+                        <div style={{ position: 'absolute', top: '20px', left: '20px', background: 'rgba(255,255,255,0.9)', padding: '10px 15px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', backdropFilter: 'blur(4px)' }}>
+                            <div style={{ fontWeight: 700, color: '#1e293b' }}><i className="fas fa-info-circle" style={{ color: '#3b82f6', marginRight: '8px' }}></i> Map View Active</div>
+                            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Displaying all {projectsData.length} projects</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </>
+    );
 
     return (
         <section id="projectsView" className="view-section active">
-            <div className="view-scroll-wrapper">
-                <div className="page-header">
-                    <div className="page-title-group">
-                        <i className="fas fa-bars" style={{ color: '#68737d' }}></i>
-                        <div>
-                            <span className="working-list-label">Luxury Portfolio</span>
-                            <h1>Real Estate Projects</h1>
+            {viewMode === 'list' ? (
+                <div className="view-scroll-wrapper">
+                    {renderHeader()}
+
+                    <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0 }}>
+                        {/* Toolbar */}
+                        <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', borderBottom: '1px solid #eef2f5', minHeight: '45px', display: 'flex', alignItems: 'center', background: '#fff' }}>
+                            {selectedIds.length > 0 ? (
+                                <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingTop: '4px', paddingBottom: '2px' }}>
+                                    <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>
+                                        {selectedIds.length} Selected
+                                    </div>
+
+                                    {/* Single Selection Only Actions */}
+                                    {selectedIds.length === 1 && (
+                                        <>
+                                            <button className="action-btn" title="Add Price" onClick={handlePriceClick}><i className="fas fa-rupee-sign"></i> Price</button>
+                                            <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
+                                            <button className="action-btn" title="Edit Project"><i className="fas fa-edit"></i> Edit</button>
+                                            <button className="action-btn" title="Share Project"><i className="fas fa-share-alt"></i> Share</button>
+                                            <button className="action-btn" title="Preview"><i className="fas fa-eye"></i> Preview</button>
+                                            <button className="action-btn" title="Matched Leads"><i className="fas fa-handshake"></i> Matches</button>
+
+                                            <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
+
+                                            <button className="action-btn" title="Publish on Website"><i className="fas fa-globe"></i> Publish</button>
+                                        </>
+                                    )}
+
+                                    {/* Available for Both Single and Multi */}
+                                    <button className="action-btn" title="Add Tag"><i className="fas fa-tag"></i> Tag</button>
+
+                                    {/* Single Selection Only (Uploads) */}
+                                    {selectedIds.length === 1 && (
+                                        <>
+                                            <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
+                                            <button className="action-btn" title="Upload Files" onClick={handleUploadClick}><i className="fas fa-cloud-upload-alt"></i> Upload</button>
+                                            <button className="action-btn" title="Manage Documents" onClick={handleDocumentClick}><i className="fas fa-file-alt"></i> Document</button>
+                                        </>
+                                    )}
+
+                                    <div style={{ marginLeft: 'auto' }}>
+                                        <button className="action-btn danger" title="Delete"><i className="fas fa-trash-alt"></i></button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                                    <div className="search-panel" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                                        <div style={{ position: 'relative' }}>
+                                            <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.9rem' }}></i>
+                                            <input
+                                                type="text"
+                                                placeholder="Search project name, block or unit..."
+                                                value={searchTerm}
+                                                onChange={(e) => setSearchTerm(e.target.value)}
+                                                style={{ width: '450px', padding: '10px 12px 10px 40px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem', outline: 'none', transition: 'all 0.2s', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.02)' }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                                        <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
+                                            Displaying <strong>{projectsData.length}</strong> of <strong>{projectsData.length * 5}</strong> Projects
+                                        </div>
+                                        <div className="pagination-nums" style={{ display: 'flex', gap: '8px' }}>
+                                            <span className="page-num active">1</span>
+                                            <span className="page-num">2</span>
+                                            <span className="page-num">Next <i className="fas fa-chevron-right" style={{ fontSize: '0.6rem' }}></i></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                        <div className="verified-badge" style={{ background: '#e3f2fd', color: '#1976d2', padding: '4px 10px', borderRadius: '20px', fontSize: '0.7rem', fontWeight: 800, marginLeft: '10px' }}>
-                            <i className="fas fa-check-circle"></i> VERIFIED LIST
+
+                        {/* Header */}
+                        <div className="list-header project-list-grid" style={{ position: 'sticky', top: '45px', zIndex: 99, padding: '15px 1.5rem', background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                            <div><input type="checkbox" /></div>
+                            <div>Project Identity</div>
+                            <div>Location & Area</div>
+                            <div>Blocks & Phases</div>
+                            <div>Property Type</div>
+                            <div>Launch Status</div>
+                            <div>Management</div>
                         </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                        <button
-                            className="btn-primary"
-                            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-                            onClick={() => setIsAddModalOpen(true)}
-                        >
-                            <i className="fas fa-plus"></i> Add Project
-                        </button>
-                        <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <i className="fas fa-file-export"></i> Export Report
-                        </button>
-                        <i className="fas fa-sliders-h header-icon"></i>
-                    </div>
-                </div>
 
-                <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0 }}>
-                    {/* Toolbar */}
-                    <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', borderBottom: '1px solid #eef2f5', minHeight: '45px', display: 'flex', alignItems: 'center', background: '#fff' }}>
-                        {selectedIds.length > 0 ? (
-                            <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingTop: '4px', paddingBottom: '2px' }}>
-                                <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>
-                                    {selectedIds.length} Selected
-                                </div>
-
-                                {/* Single Selection Only Actions */}
-                                {selectedIds.length === 1 && (
-                                    <>
-                                        <button className="action-btn" title="Edit Project"><i className="fas fa-edit"></i> Edit</button>
-                                        <button className="action-btn" title="Share Project"><i className="fas fa-share-alt"></i> Share</button>
-                                        <button className="action-btn" title="Preview"><i className="fas fa-eye"></i> Preview</button>
-                                        <button className="action-btn" title="Matched Leads"><i className="fas fa-handshake"></i> Matches</button>
-
-                                        <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
-
-                                        <button className="action-btn" title="Publish on Website"><i className="fas fa-globe"></i> Publish</button>
-                                    </>
-                                )}
-
-                                {/* Available for Both Single and Multi */}
-                                <button className="action-btn" title="Add Tag"><i className="fas fa-tag"></i> Tag</button>
-
-                                {/* Single Selection Only (Uploads) */}
-                                {selectedIds.length === 1 && (
-                                    <>
-                                        <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
-                                        <button className="action-btn" title="Upload Image"><i className="fas fa-image"></i> Img</button>
-                                        <button className="action-btn" title="Upload Document"><i className="fas fa-file-alt"></i> Doc</button>
-                                    </>
-                                )}
-
-                                <div style={{ marginLeft: 'auto' }}>
-                                    <button className="action-btn danger" title="Delete"><i className="fas fa-trash-alt"></i></button>
-                                </div>
-                            </div>
-                        ) : (
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                                <div className="search-panel" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                    <div style={{ position: 'relative' }}>
-                                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.9rem' }}></i>
-                                        <input
-                                            type="text"
-                                            placeholder="Search project name, block or unit..."
-                                            value={searchTerm}
-                                            onChange={(e) => setSearchTerm(e.target.value)}
-                                            style={{ width: '450px', padding: '10px 12px 10px 40px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem', outline: 'none', transition: 'all 0.2s', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.02)' }}
-                                        />
+                        <div className="list-content">
+                            {Object.entries(
+                                projectsData.reduce((acc, project) => {
+                                    // Simple city extraction or default to 'Other'
+                                    const city = project.location.includes('Mohali') ? 'Mohali' :
+                                        project.location.includes('Chandigarh') ? 'Chandigarh' :
+                                            project.location.includes('Kurukshetra') ? 'Kurukshetra' : 'Other Locations';
+                                    if (!acc[city]) acc[city] = [];
+                                    acc[city].push(project);
+                                    return acc;
+                                }, {})
+                            ).map(([city, projects]) => (
+                                <div key={city} className="list-group">
+                                    <div className="group-header" style={{ padding: '10px 2rem', background: '#f1f5f9', letterSpacing: '1px', fontWeight: 700, fontSize: '0.75rem', color: '#64748b', borderBottom: '1px solid #e2e8f0' }}>
+                                        {city.toUpperCase()} PROJECTS <span style={{ marginLeft: '8px', background: '#e2e8f0', padding: '1px 6px', borderRadius: '4px', fontSize: '0.7rem' }}>{projects.length}</span>
                                     </div>
-                                </div>
+                                    {projects.map((project, index) => (
+                                        <div key={project.id} className="list-item project-list-grid" style={{ padding: '15px 1.5rem', borderBottom: '1px solid #f1f5f9', transition: 'all 0.2s ease' }}>
+                                            <input
+                                                type="checkbox"
+                                                className="item-check"
+                                                checked={selectedIds.includes(project.id)}
+                                                onChange={() => toggleSelect(project.id)}
+                                            />
 
-                                <div className="toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                    <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
-                                        Displaying <strong>{projectsData.length}</strong> of <strong>{projectsData.length * 5}</strong> Projects
-                                    </div>
-                                    <div className="pagination-nums" style={{ display: 'flex', gap: '8px' }}>
-                                        <span className="page-num active">1</span>
-                                        <span className="page-num">2</span>
-                                        <span className="page-num">Next <i className="fas fa-chevron-right" style={{ fontSize: '0.6rem' }}></i></span>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Header */}
-                    <div className="list-header project-list-grid" style={{ position: 'sticky', top: '45px', zIndex: 99, padding: '15px 1.5rem', background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                        <div><input type="checkbox" /></div>
-                        <div>Project Identity</div>
-                        <div>Location & Area</div>
-                        <div>Blocks & Phases</div>
-                        <div>Property Type</div>
-                        <div>Launch Status</div>
-                        <div>Management</div>
-                    </div>
-
-                    <div className="list-content">
-                        {Object.entries(
-                            projectsData.reduce((acc, project) => {
-                                // Simple city extraction or default to 'Other'
-                                const city = project.location.includes('Mohali') ? 'Mohali' :
-                                    project.location.includes('Chandigarh') ? 'Chandigarh' :
-                                        project.location.includes('Kurukshetra') ? 'Kurukshetra' : 'Other Locations';
-                                if (!acc[city]) acc[city] = [];
-                                acc[city].push(project);
-                                return acc;
-                            }, {})
-                        ).map(([city, projects]) => (
-                            <div key={city} className="list-group">
-                                <div className="group-header" style={{ padding: '10px 2rem', background: '#f1f5f9', letterSpacing: '1px', fontWeight: 700, fontSize: '0.75rem', color: '#64748b', borderBottom: '1px solid #e2e8f0' }}>
-                                    {city.toUpperCase()} PROJECTS <span style={{ marginLeft: '8px', background: '#e2e8f0', padding: '1px 6px', borderRadius: '4px', fontSize: '0.7rem' }}>{projects.length}</span>
-                                </div>
-                                {projects.map((project, index) => (
-                                    <div key={project.id} className="list-item project-list-grid" style={{ padding: '15px 1.5rem', borderBottom: '1px solid #f1f5f9', transition: 'all 0.2s ease' }}>
-                                        <input
-                                            type="checkbox"
-                                            className="item-check"
-                                            checked={selectedIds.includes(project.id)}
-                                            onChange={() => toggleSelect(project.id)}
-                                        />
-
-                                        {/* Col 2: Project Identity */}
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                            <div className={`project-thumbnail ${project.thumb}`} style={{ boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-                                                <i className="fas fa-building"></i>
+                                            {/* Col 2: Project Identity */}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                                <div className={`project-thumbnail ${project.thumb}`} style={{ boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+                                                    <i className="fas fa-building"></i>
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontWeight: 800, color: 'var(--primary-color)', fontSize: '0.95rem', cursor: 'pointer', lineHeight: 1.2 }}>{project.name}</div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                                                        <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>ID: PRJ-{project.id}</span>
+                                                        <i className="fas fa-check-circle" style={{ color: 'var(--primary-color)', fontSize: '0.7rem' }} title="Verified Project"></i>
+                                                    </div>
+                                                </div>
                                             </div>
+
+                                            {/* Col 3: Location */}
+                                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                                <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.8rem', marginTop: '3px' }}></i>
+                                                <div className="address-clamp" style={{ fontSize: '0.8rem', color: '#475569', lineHeight: '1.4', fontWeight: 500 }}>
+                                                    {project.location}
+                                                </div>
+                                            </div>
+
+                                            {/* Col 4: Blocks (Separated) */}
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                                {project.blocks.length > 0 ? project.blocks.map((block, i) => (
+                                                    <span key={i} className="tag-blue" style={{ fontSize: '0.65rem', padding: '2px 8px' }}>
+                                                        {typeof block === 'object' ? block.name : block}
+                                                    </span>
+                                                )) : <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic' }}>Open Campus</span>}
+                                            </div>
+
+                                            {/* Col 5: Category (Separated) */}
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                                {project.category.slice(0, 2).map((cat, i) => (
+                                                    <span key={i} className="tag-outline-orange" style={{ fontSize: '0.65rem' }}>{cat}</span>
+                                                ))}
+                                                {project.category.length > 2 && <span className="tag-muted" style={{ fontSize: '0.65rem' }}>+{project.category.length - 2}</span>}
+                                            </div>
+
+                                            {/* Col 6: Status */}
                                             <div>
-                                                <div style={{ fontWeight: 800, color: 'var(--primary-color)', fontSize: '0.95rem', cursor: 'pointer', lineHeight: 1.2 }}>{project.name}</div>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
-                                                    <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>ID: PRJ-{project.id}</span>
-                                                    <i className="fas fa-check-circle" style={{ color: 'var(--primary-color)', fontSize: '0.7rem' }} title="Verified Project"></i>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a' }}>UNDER CONSTRUCTION</div>
+                                                    <div className="progress-bar-bg" style={{ width: '100%', height: '4px', background: '#e2e8f0', borderRadius: '2px' }}>
+                                                        <div style={{ width: '65%', height: '100%', background: '#f59e0b', borderRadius: '2px' }}></div>
+                                                    </div>
+                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>65% Complete</div>
+                                                </div>
+                                            </div>
+
+                                            {/* Col 7: Management */}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <div className="profile-circle" style={{ width: '28px', height: '28px', fontSize: '0.65rem', background: '#f1f5f9', color: '#64748b' }}>AD</div>
+                                                <div>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>Admin</div>
+                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Updated {project.date}</div>
                                                 </div>
                                             </div>
                                         </div>
-
-                                        {/* Col 3: Location */}
-                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                            <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.8rem', marginTop: '3px' }}></i>
-                                            <div className="address-clamp" style={{ fontSize: '0.8rem', color: '#475569', lineHeight: '1.4', fontWeight: 500 }}>
-                                                {project.location}
-                                            </div>
-                                        </div>
-
-                                        {/* Col 4: Blocks (Separated) */}
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                                            {project.blocks.length > 0 ? project.blocks.map(block => (
-                                                <span key={block} className="tag-blue" style={{ fontSize: '0.65rem', padding: '2px 8px' }}>{block}</span>
-                                            )) : <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic' }}>Open Campus</span>}
-                                        </div>
-
-                                        {/* Col 5: Category (Separated) */}
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                                            {project.category.slice(0, 2).map((cat, i) => (
-                                                <span key={i} className="tag-outline-orange" style={{ fontSize: '0.65rem' }}>{cat}</span>
-                                            ))}
-                                            {project.category.length > 2 && <span className="tag-muted" style={{ fontSize: '0.65rem' }}>+{project.category.length - 2}</span>}
-                                        </div>
-
-                                        {/* Col 6: Status */}
-                                        <div>
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a' }}>UNDER CONSTRUCTION</div>
-                                                <div className="progress-bar-bg" style={{ width: '100%', height: '4px', background: '#e2e8f0', borderRadius: '2px' }}>
-                                                    <div style={{ width: '65%', height: '100%', background: '#f59e0b', borderRadius: '2px' }}></div>
-                                                </div>
-                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>65% Complete</div>
-                                            </div>
-                                        </div>
-
-                                        {/* Col 7: Management */}
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                            <div className="profile-circle" style={{ width: '28px', height: '28px', fontSize: '0.65rem', background: '#f1f5f9', color: '#64748b' }}>AD</div>
-                                            <div>
-                                                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>Admin</div>
-                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Updated {project.date}</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        ))}
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                </div>
 
-            </div>
+                </div>
+            ) : (
+                renderMapView()
+            )}
 
             <footer className="summary-footer" style={{ height: '60px', padding: '0 2rem' }}>
                 <div className="summary-label" style={{ background: '#334155', color: '#fff', padding: '4px 12px', borderRadius: '6px', fontSize: '0.7rem' }}>LIVE SUMMARY</div>
@@ -244,8 +467,32 @@ function ProjectsPage() {
                 isOpen={isAddModalOpen}
                 onClose={() => setIsAddModalOpen(false)}
                 onSave={handleSaveProject}
+                projectToEdit={editProjectData}
+                initialTab={initialModalTab}
             />
-        </section>
+
+            <AddProjectPriceModal
+                isOpen={isPriceModalOpen}
+                onClose={() => setIsPriceModalOpen(false)}
+                onSave={handleSavePrice}
+                project={editProjectData}
+            />
+
+            <UploadModal
+                isOpen={isUploadModalOpen}
+                onClose={() => setIsUploadModalOpen(false)}
+                onSave={(data) => console.log("Saved Uploads:", data)}
+                project={editProjectData}
+                type="project"
+            />
+
+            <AddDocumentModal
+                isOpen={isDocumentModalOpen}
+                onClose={() => setIsDocumentModalOpen(false)}
+                onSave={(data) => console.log("Saved Documents:", data)}
+                project={editProjectData}
+            />
+        </section >
     );
 }
 

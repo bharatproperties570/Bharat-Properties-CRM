@@ -147,9 +147,8 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
                 <div className="profile-wrapper">
                     <div
                         className="profile-circle"
-                        onClick={() => fileInputRef.current?.click()}
-                        style={{ cursor: 'pointer', position: 'relative', overflow: 'hidden' }}
-                        title="Click to upload profile picture"
+                        style={{ position: 'relative', overflow: 'hidden' }}
+                        title="Profile"
                     >
                         {profilePicture ? (
                             <img

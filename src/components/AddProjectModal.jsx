@@ -96,18 +96,157 @@ const MultiSelect = ({ options, selected, onChange, placeholder = "Select..." })
 };
 
 
-function AddProjectModal({ isOpen, onClose, onSave }) {
-    const context = usePropertyConfig();
-    const { masterFields, projectMasterFields, projectAmenities } = context;
-    const projectMasterFieldsSafe = projectMasterFields || {};
+
+const DEFAULT_FORM_DATA = {
+    // Basic Info
+    name: '',
+    developerName: '',
+    isJointVenture: false,
+    secondaryDeveloper: '',
+    reraNumber: '',
+    description: '',
+
+    // Multi-select Fields
+    category: ['Residential'],
+    subCategory: ['Flat/Apartment'],
+
+    // System Details (Multi-select)
+    assign: ['Suraj Keshwar'],
+    team: ['Sales'],
+
+    // Project Stats
+    landArea: '',
+    landAreaUnit: 'Acres',
+    totalBlocks: '0',
+    totalFloors: '0',
+    totalUnits: '0',
+    status: '',
+
+    // Dates
+    launchDate: '',
+    expectedCompletionDate: '',
+    possessionDate: '',
+
+    // Bank & Approvals
+    parkingType: 'Open Parking',
+    approvedBank: 'Punjab & Sind Bank',
+
+    // System Details
+    visibleTo: 'All Users',
+
+    // Location
+    locationSearch: '',
+    latitude: '',
+    longitude: '',
+    // Updated Address Schema
+    address: {
+        hNo: '',
+        street: '',
+        locality: '',
+        location: '',
+        area: '',
+        country: 'India',
+        state: '',
+        city: '',
+        tehsil: '',
+        postOffice: '',
+        pincode: ''
+    },
+
+    // Documents & Approvals (Dynamic)
+    projectDocuments: [{ documentName: '', approvalAuthority: '', registrationNo: '', date: '', file: null }],
+
+    // Media Management (Structured)
+    projectImages: [{ title: '', category: 'Main', file: null }],
+    projectVideos: [{ title: '', type: 'YouTube', url: '', file: null }],
+
+    // Amenities (Booleans)
+    amenities: {},
+
+    // Project Blocks
+    blocks: [],
+
+    // Pricing & Master Charges
+    pricing: {
+        pricingType: 'Standard',
+        unitPrices: [],
+        basePrice: { amount: '', unit: 'sqft' },
+        masterCharges: [
+            { id: 'edc', name: 'EDC (External Development Charges)', category: 'Development', basis: 'Per SqFt', amount: '', gstEnabled: true },
+            { id: 'idc', name: 'IDC (Infrastructure Development Charges)', category: 'Development', basis: 'Per SqFt', amount: '', gstEnabled: true },
+            { id: 'stamp', name: 'Stamp Duty', category: 'Statutory', basis: '% of Total', amount: '5', gstEnabled: false },
+            { id: 'reg', name: 'Registration Charges', category: 'Statutory', basis: '% of Total', amount: '1', gstEnabled: false },
+            { id: 'ifms', name: 'IFMS (Maintenance Security)', category: 'Maintenance', basis: 'Per SqFt', amount: '', gstEnabled: false }
+        ],
+        paymentPlans: [
+            {
+                name: 'Construction Linked Plan (CLP)',
+                type: 'CLP',
+                milestones: [
+                    { name: 'At the time of Booking', percentage: '10', stage: 'Booking' },
+                    { name: 'Within 30 days of booking', percentage: '10', stage: 'Allotment' }
+                ]
+            }
+        ]
+    }
+};
+
+function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projectToEdit = null }) {
+    const { projectMasterFields: masterFieldsFromContext, projectAmenities, sizes } = usePropertyConfig();
+
+    if (!companyData) {
+        console.error('companyData is undefined!');
+    }
+
+    const projectMasterFieldsSafe = masterFieldsFromContext || {};
     const [isLoading, setIsLoading] = useState(true);
     const [hasPermission, setHasPermission] = useState(false);
-    const [activeTab, setActiveTab] = useState('Basic');
+    const [activeTab, setActiveTab] = useState(initialTab || 'Basic');
+    const [currentTime, setCurrentTime] = useState(new Date());
+
+    // Helper: Fetch Address from Lat/Lng
+    const fetchAddressFromCoordinates = (lat, lng) => {
+        if (!window.google || !window.google.maps) return;
+        const geocoder = new window.google.maps.Geocoder();
+        geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+            if (status === "OK" && results[0]) {
+                const place = results[0];
+                let newState = '';
+                let newCity = '';
+                let newZip = '';
+                let newStreet = '';
+                let newLocation = '';
+
+                place.address_components.forEach(component => {
+                    const types = component.types;
+                    if (types.includes('administrative_area_level_1')) newState = component.long_name;
+                    if (types.includes('administrative_area_level_2') || types.includes('locality')) newCity = component.long_name;
+                    if (types.includes('postal_code')) newZip = component.long_name;
+                    if (types.includes('sublocality') || types.includes('neighborhood')) newLocation = component.long_name;
+                    if (types.includes('route') || types.includes('street_number')) newStreet += component.long_name + ' ';
+                });
+
+                setFormData(prev => ({
+                    ...prev,
+                    locationSearch: place.formatted_address,
+                    address: {
+                        ...prev.address,
+                        state: newState || prev.address.state,
+                        city: newCity || prev.address.city,
+                        country: 'India',
+                        pincode: newZip || prev.address.pincode,
+                        street: newStreet.trim() || prev.address.street,
+                        location: newLocation || prev.address.location
+                    }
+                }));
+            }
+        });
+    };
     const [amenityTab, setAmenityTab] = useState('Basic');
     const [amenitySearch, setAmenitySearch] = useState('');
 
     // Current Time for Header
-    const [currentTime, setCurrentTime] = useState(new Date());
+
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -133,100 +272,7 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
     }
 
     // Comprehensive State
-    const [formData, setFormData] = useState({
-        // Basic Info
-        name: '',
-        developerName: '',
-        isJointVenture: false,
-        secondaryDeveloper: '',
-        reraNumber: '',
-        description: '',
-
-        // Multi-select Fields
-        category: ['Residential'],
-        subCategory: ['Flat/Apartment'],
-
-        // System Details (Multi-select)
-        assign: ['Suraj Keshwar'],
-        team: ['Sales'],
-
-        // Project Stats
-        landArea: '',
-        landAreaUnit: 'Acres',
-        totalBlocks: '0',
-        totalFloors: '0',
-        totalUnits: '0',
-        status: '',
-
-        // Dates
-        launchDate: '',
-        expectedCompletionDate: '',
-        possessionDate: '',
-
-        // Bank & Approvals
-        parkingType: 'Open Parking',
-        approvedBank: 'Punjab & Sind Bank',
-
-        // System Details
-        visibleTo: 'All Users',
-
-        // Location
-        locationSearch: '',
-        latitude: '',
-        longitude: '',
-        // Updated Address Schema
-        address: {
-            hNo: '',
-            street: '',
-            locality: '',
-            location: '',
-            area: '', // Added explicit area field
-            country: 'India',
-            state: '',
-            city: '',
-            tehsil: '',
-            postOffice: '',
-            postOffice: '',
-            pincode: ''
-        },
-
-        // Documents & Approvals (Dynamic)
-        projectDocuments: [{ documentName: '', approvalAuthority: '', registrationNo: '', date: '', file: null }],
-
-        // Media Management (Structured)
-        projectImages: [{ title: '', category: 'Main', file: null }],
-        projectVideos: [{ title: '', type: 'YouTube', url: '', file: null }],
-
-        // Amenities (Booleans)
-        amenities: {},
-
-        // Project Blocks
-        blocks: [],
-
-        // Pricing & Master Charges (North India Professional)
-        pricing: {
-            pricingType: 'Standard',
-            unitPrices: [], // { id, block, subCategory, areaType, size, price }
-            basePrice: { amount: '', unit: 'sqft' },
-            masterCharges: [
-                { id: 'edc', name: 'EDC (External Development Charges)', category: 'Development', basis: 'Per SqFt', amount: '', gstEnabled: true },
-                { id: 'idc', name: 'IDC (Infrastructure Development Charges)', category: 'Development', basis: 'Per SqFt', amount: '', gstEnabled: true },
-                { id: 'stamp', name: 'Stamp Duty', category: 'Statutory', basis: '% of Total', amount: '5', gstEnabled: false },
-                { id: 'reg', name: 'Registration Charges', category: 'Statutory', basis: '% of Total', amount: '1', gstEnabled: false },
-                { id: 'ifms', name: 'IFMS (Maintenance Security)', category: 'Maintenance', basis: 'Per SqFt', amount: '', gstEnabled: false }
-            ],
-            paymentPlans: [
-                {
-                    name: 'Construction Linked Plan (CLP)',
-                    type: 'CLP',
-                    milestones: [
-                        { name: 'At the time of Booking', percentage: '10', stage: 'Booking' },
-                        { name: 'Within 30 days of booking', percentage: '10', stage: 'Allotment' }
-                    ]
-                }
-            ]
-        }
-    });
+    const [formData, setFormData] = useState(DEFAULT_FORM_DATA);
 
     const [showBlockForm, setShowBlockForm] = useState(false);
     const [editingBlockIndex, setEditingBlockIndex] = useState(null);
@@ -298,6 +344,9 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
 
     const modalRef = useRef(null);
     const searchInputRef = useRef(null);
+    const mapRef = useRef(null);
+    const googleMapRef = useRef(null);
+    const markerRef = useRef(null);
     const canCreateProject = usePermission('create_project');
 
 
@@ -317,68 +366,130 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                 setIsLoading(false);
             }, 10);
             document.body.style.overflow = 'hidden';
+
+            if (projectToEdit) {
+                // Normalize Blocks: Ensure they are objects { name: '...' }
+                let normalizedBlocks = projectToEdit.blocks || [];
+                if (normalizedBlocks.length > 0 && typeof normalizedBlocks[0] === 'string') {
+                    normalizedBlocks = normalizedBlocks.map(b => ({ name: b }));
+                }
+
+                // Normalize Categories: Split legacy 'category' into 'category' and 'subCategory'
+                let normalizedCategory = projectToEdit.category || [];
+                let normalizedSubCategory = projectToEdit.subCategory || [];
+
+                if ((!projectToEdit.subCategory || projectToEdit.subCategory.length === 0) && normalizedCategory.length > 0) {
+                    const mainCategories = ['Residential', 'Commercial', 'Agricultural', 'Industrial', 'Institutional'];
+                    const actualCategories = normalizedCategory.filter(c => mainCategories.includes(c));
+                    const actualSubCategories = normalizedCategory.filter(c => !mainCategories.includes(c));
+
+                    // If we found split, use it. Otherwise keep as is (safer).
+                    if (actualCategories.length > 0 || actualSubCategories.length > 0) {
+                        normalizedCategory = actualCategories;
+                        normalizedSubCategory = actualSubCategories;
+                    }
+                }
+
+                setFormData(prev => ({
+                    ...prev,
+                    ...projectToEdit,
+                    blocks: normalizedBlocks,
+                    category: normalizedCategory,
+                    subCategory: normalizedSubCategory
+                }));
+            } else {
+                setFormData(DEFAULT_FORM_DATA);
+            }
+            setActiveTab(initialTab || 'Basic');
         } else {
             document.body.style.overflow = 'unset';
             setIsLoading(true);
             setActiveTab('Basic');
         }
         return () => { document.body.style.overflow = 'unset'; };
-    }, [isOpen, canCreateProject]);
+    }, [isOpen, canCreateProject, projectToEdit, initialTab]);
 
-    // Google Maps Autocomplete Integration
+    // Google Maps Integration (Interactive)
     useEffect(() => {
         if (!isOpen || activeTab !== 'Location') return;
 
-        if (window.google && window.google.maps && searchInputRef.current) {
-            const autocomplete = new window.google.maps.places.Autocomplete(searchInputRef.current, {
-                types: ['geocode'],
-                componentRestrictions: { country: 'in' },
-                fields: ['address_components', 'geometry', 'formatted_address']
-            });
+        const timer = setTimeout(() => {
+            if (window.google && mapRef.current) {
+                const defaultCenter = {
+                    lat: formData.latitude ? parseFloat(formData.latitude) : 28.6139,
+                    lng: formData.longitude ? parseFloat(formData.longitude) : 77.2090
+                };
 
-            autocomplete.addListener('place_changed', () => {
-                const place = autocomplete.getPlace();
-                if (!place.address_components) return;
+                if (!googleMapRef.current) {
+                    googleMapRef.current = new window.google.maps.Map(mapRef.current, {
+                        center: defaultCenter,
+                        zoom: 13,
+                        mapTypeControl: false,
+                        fullscreenControl: false,
+                        streetViewControl: false
+                    });
+                } else {
+                    googleMapRef.current.setCenter(defaultCenter);
+                }
 
-                let newState = '';
-                let newCity = '';
-                let newZip = '';
-                let newStreet = '';
-                let newLocation = '';
+                if (!markerRef.current) {
+                    markerRef.current = new window.google.maps.Marker({
+                        position: defaultCenter,
+                        map: googleMapRef.current,
+                        draggable: true,
+                        animation: window.google.maps.Animation.DROP,
+                        title: "Project Location"
+                    });
 
-                place.address_components.forEach(component => {
-                    const types = component.types;
-                    if (types.includes('administrative_area_level_1')) {
-                        newState = component.long_name;
-                    }
-                    if (types.includes('administrative_area_level_3') || types.includes('locality')) {
-                        newCity = component.long_name;
-                    }
-                    if (types.includes('postal_code')) {
-                        newZip = component.long_name;
-                    }
-                    if (types.includes('sublocality') || types.includes('neighborhood')) {
-                        newLocation = component.long_name;
-                    }
-                    if (types.includes('route') || types.includes('street_number')) {
-                        newStreet += component.long_name + ' ';
-                    }
-                });
+                    markerRef.current.addListener('dragend', (event) => {
+                        const newLat = event.latLng.lat();
+                        const newLng = event.latLng.lng();
+                        setFormData(prev => ({
+                            ...prev,
+                            latitude: newLat.toFixed(6),
+                            longitude: newLng.toFixed(6)
+                        }));
+                        fetchAddressFromCoordinates(newLat, newLng);
+                    });
+                } else {
+                    markerRef.current.setPosition(defaultCenter);
+                }
 
-                setFormData(prev => ({
-                    ...prev,
-                    locationSearch: place.formatted_address,
-                    address: {
-                        ...prev.address,
-                        state: newState,
-                        city: newCity,
-                        pincode: newZip,
-                        street: newStreet.trim(),
-                        location: newLocation
-                    }
-                }));
-            });
-        }
+                if (searchInputRef.current) {
+                    const autocomplete = new window.google.maps.places.Autocomplete(searchInputRef.current, {
+                        types: ['geocode'],
+                        componentRestrictions: { country: 'in' },
+                        fields: ['address_components', 'geometry', 'formatted_address']
+                    });
+
+                    autocomplete.bindTo("bounds", googleMapRef.current);
+
+                    autocomplete.addListener('place_changed', () => {
+                        const place = autocomplete.getPlace();
+                        if (!place.geometry || !place.geometry.location) return;
+
+                        if (place.geometry.viewport) {
+                            googleMapRef.current.fitBounds(place.geometry.viewport);
+                        } else {
+                            googleMapRef.current.setCenter(place.geometry.location);
+                            googleMapRef.current.setZoom(17);
+                        }
+
+                        markerRef.current.setPosition(place.geometry.location);
+
+                        setFormData(prev => ({
+                            ...prev,
+                            locationSearch: place.formatted_address,
+                            latitude: place.geometry.location.lat().toFixed(6),
+                            longitude: place.geometry.location.lng().toFixed(6)
+                        }));
+                        fetchAddressFromCoordinates(place.geometry.location.lat(), place.geometry.location.lng());
+                    });
+                }
+            }
+        }, 100);
+
+        return () => clearTimeout(timer);
     }, [isOpen, activeTab]);
 
     const handleAmenityChange = (name) => {
@@ -635,7 +746,7 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
 
     const renderLocationTab = () => (
         <div className="tab-content fade-in space-y-6">
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, marginBottom: '16px' }}>
                 <label style={labelStyle}>Search Location</label>
                 <div style={{ position: 'relative' }}>
                     <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
@@ -649,7 +760,50 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                 </div>
             </div>
 
-            {/* Coordinates Section REMOVED as per request */}
+            {/* Google Map Container */}
+            <div style={{
+                height: '350px',
+                width: '100%',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                border: '1px solid #e2e8f0',
+                marginBottom: '24px',
+                position: 'relative'
+            }}>
+                <div ref={mapRef} style={{ width: '100%', height: '100%' }}></div>
+                <div style={{
+                    position: 'absolute',
+                    top: '10px',
+                    left: '10px',
+                    background: 'rgba(255, 255, 255, 0.9)',
+                    backdropFilter: 'blur(4px)',
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: '#334155',
+                    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    border: '1px solid #fff'
+                }}>
+                    <i className="fas fa-map-marker-alt" style={{ color: '#ef4444' }}></i>
+                    Drag Pin to Auto-Fill Address
+                </div>
+            </div>
+
+            {/* Coordinates (Read Only) */}
+            <div className="grid-2-col gap-24" style={{ marginBottom: '24px' }}>
+                <div>
+                    <label style={labelStyle}>Latitude</label>
+                    <input style={{ ...inputStyle, background: '#f8fafc', color: '#64748b' }} readOnly value={formData.latitude} placeholder="Latitude" />
+                </div>
+                <div>
+                    <label style={labelStyle}>Longitude</label>
+                    <input style={{ ...inputStyle, background: '#f8fafc', color: '#64748b' }} readOnly value={formData.longitude} placeholder="Longitude" />
+                </div>
+            </div>
 
             {/* Cascading Address Details Section */}
             <div style={{ marginBottom: '24px' }}>
@@ -1198,13 +1352,21 @@ function AddProjectModal({ isOpen, onClose, onSave }) {
                             </div>
                             <div>
                                 <label style={labelStyle}>Size</label>
-                                <input
-                                    type="number"
-                                    style={inputStyle}
-                                    placeholder="Size"
+                                <select
+                                    style={!newPriceRow.subCategory ? customSelectStyleDisabled : customSelectStyle}
                                     value={newPriceRow.size}
+                                    disabled={!newPriceRow.subCategory}
                                     onChange={e => setNewPriceRow({ ...newPriceRow, size: e.target.value })}
-                                />
+                                >
+                                    <option value="">Select Size</option>
+                                    {sizes.filter(s =>
+                                        (!s.project || s.project === formData.name) &&
+                                        (!newPriceRow.block || s.block === newPriceRow.block) &&
+                                        (!newPriceRow.subCategory || s.subCategory === newPriceRow.subCategory)
+                                    ).map(s => (
+                                        <option key={s.id} value={s.saleableArea || s.totalArea}>{s.name}</option>
+                                    ))}
+                                </select>
                             </div>
                             <div>
                                 <label style={labelStyle}>Base Price</label>
