@@ -493,6 +493,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         // System Details
         source: '',
         campaign: '',
+        tags: [],
         team: '',
         owner: '',
         visibleTo: '',
