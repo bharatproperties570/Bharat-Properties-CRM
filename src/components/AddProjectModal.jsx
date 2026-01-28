@@ -2109,7 +2109,7 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                             <div style={{ width: '32px', height: '32px', background: '#eff6ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                 <i className="fas fa-building" style={{ color: '#2563eb' }}></i>
                             </div>
-                            Add New Project
+                            {projectToEdit ? 'Update Project' : 'Add New Project'}
                         </h2>
                         <span style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px', fontWeight: 500, marginLeft: '42px' }}>
                             {currentTime.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} | {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
@@ -2167,7 +2167,7 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                         {activeTab !== 'Upload' ? (
                             <button onClick={handleNext} style={buttonStyle.primary}>Next</button>
                         ) : (
-                            <button onClick={handleSave} disabled={isLoading || !hasPermission} style={buttonStyle.success}>Save Project</button>
+                            <button onClick={handleSave} disabled={isLoading || !hasPermission} style={buttonStyle.success}>{projectToEdit ? 'Update Project' : 'Save Project'}</button>
                         )}
                     </div>
                 </div>

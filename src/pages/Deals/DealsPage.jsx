@@ -284,7 +284,17 @@ function DealsPage() {
                                     {/* Col 2: Property Details */}
                                     <div className="super-cell">
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                                            <div className={`project-thumbnail ${deal.status === 'Open' ? 'thumb-active' : 'thumb-inactive'}`}>
+                                            <div
+                                                className={`project-thumbnail ${deal.status === 'Open' ? 'thumb-active' : 'thumb-inactive'}`}
+                                                style={{
+                                                    width: 'auto',
+                                                    minWidth: '60px',
+                                                    height: '28px',
+                                                    borderRadius: '6px',
+                                                    padding: '0 10px',
+                                                    aspectRatio: 'auto'
+                                                }}
+                                            >
                                                 {deal.unitNo}
                                             </div>
                                             <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{deal.corner}</div>

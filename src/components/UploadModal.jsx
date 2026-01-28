@@ -91,7 +91,11 @@ const UploadModal = ({ isOpen, onClose, onSave, project = null, type = 'project'
                         </h2>
                         {project && (
                             <span style={{ fontSize: '0.9rem', color: '#64748b', marginTop: '4px', marginLeft: '42px' }}>
-                                For: <span style={{ fontWeight: 600, color: '#0f172a' }}>{project.name}</span>
+                                For: <span style={{ fontWeight: 600, color: '#0f172a' }}>
+                                    {type === 'property'
+                                        ? `${project.unitNo} - ${project.area}`
+                                        : project.name}
+                                </span>
                             </span>
                         )}
                     </div>

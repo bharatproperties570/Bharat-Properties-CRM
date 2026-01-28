@@ -403,52 +403,127 @@ export default function AddProjectPriceModal({ isOpen, onClose, onSave, project 
                                 <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', background: '#f3e8ff', borderRadius: '8px' }}>
                                     <i className="fas fa-file-invoice-dollar" style={{ color: '#9333ea', fontSize: '0.8rem' }}></i>
                                 </span>
-                                3. Master Additional Charges
+                                3. Master Charge Solutions
                             </div>
-                            <div style={{ display: 'flex', gap: '10px' }}>
-                                <button onClick={() => addMasterCharge('EDC')} style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>+ EDC</button>
-                                <button onClick={() => addMasterCharge('IDC')} style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>+ IDC</button>
-                                <button onClick={() => addMasterCharge()} style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #3b82f6', background: '#eff6ff', color: '#3b82f6', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}>+ Custom</button>
-                            </div>
+                            <button onClick={() => addMasterCharge()} style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: '#9333ea', color: '#fff', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-plus"></i> Add Custom Charge
+                            </button>
                         </h4>
 
+                        {/* Presets Bar */}
+                        <div style={{ marginBottom: '24px', padding: '16px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '12px' }}>Professional Presets (One-Click Add)</span>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                {[
+                                    { id: 'EDC', label: 'EDC', color: '#eff6ff', textColor: '#3b82f6' },
+                                    { id: 'IDC', label: 'IDC', color: '#eff6ff', textColor: '#3b82f6' },
+                                    { id: 'PLC', label: 'Add PLC', color: '#fdf2f8', textColor: '#db2777' },
+                                    { id: 'STAMP', label: 'Stamp Duty', color: '#f0fdf4', textColor: '#16a34a' },
+                                    { id: 'REG', label: 'Registration', color: '#f0fdf4', textColor: '#16a34a' },
+                                    { id: 'IFMS', label: 'IFMS Security', color: '#fff7ed', textColor: '#ea580c' }
+                                ].map(p => (
+                                    <button key={p.id} onClick={() => addMasterCharge(p.id)} style={{ padding: '6px 12px', background: p.color, color: p.textColor, border: 'none', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', transition: 'transform 0.2s' }} onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.05)'} onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}>
+                                        <i className="fas fa-plus mr-1"></i> {p.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
                         {(formData.pricing?.masterCharges || []).length === 0 ? (
-                            <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '0.9rem', border: '1px dashed #cbd5e1', borderRadius: '12px' }}>
-                                No additional charges added.
+                            <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '0.9rem', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                <div style={{ marginBottom: '12px', fontSize: '1.5rem', color: '#cbd5e1' }}><i className="fas fa-receipt"></i></div>
+                                No additional charges added. Use presets above to start.
                             </div>
                         ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                {(formData.pricing?.masterCharges || []).map((charge, idx) => (
-                                    <div key={charge.id} style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'end', gap: '16px' }}>
-                                        <div style={{ flex: 2 }}>
-                                            <label style={labelStyle}>Charge Name</label>
-                                            <input style={inputStyle} value={charge.name} onChange={e => updateMasterCharge(charge.id, 'name', e.target.value)} placeholder="e.g. Club Membership" />
-                                        </div>
-                                        <div style={{ flex: 1 }}>
-                                            <label style={labelStyle}>Category</label>
-                                            <select style={customSelectStyle} value={charge.category} onChange={e => updateMasterCharge(charge.id, 'category', e.target.value)}>
+                            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 2fr) 1.2fr 1fr 1.5fr 1fr 40px', gap: '16px', padding: '12px 20px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                                    <div>Charge Name</div>
+                                    <div>Category</div>
+                                    <div>Basis</div>
+                                    <div>Amount</div>
+                                    <div>GST</div>
+                                    <div></div>
+                                </div>
+                                <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                                    {(formData.pricing?.masterCharges || []).map((charge, idx) => (
+                                        <div key={charge.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 2fr) 1.2fr 1fr 1.5fr 1fr 40px', gap: '16px', padding: '16px 20px', borderBottom: '1px solid #f1f5f9', alignItems: 'center' }}>
+                                            <input
+                                                style={{ ...inputStyle, fontWeight: 600 }}
+                                                value={charge.name}
+                                                placeholder="Charge Name"
+                                                onChange={e => updateMasterCharge(charge.id, 'name', e.target.value)}
+                                            />
+                                            <select
+                                                style={customSelectStyle}
+                                                value={charge.category}
+                                                onChange={e => updateMasterCharge(charge.id, 'category', e.target.value)}
+                                            >
                                                 <option>Development</option>
                                                 <option>PLC</option>
                                                 <option>Statutory</option>
                                                 <option>Maintenance</option>
+                                                <option>Facility</option>
                                                 <option>Other</option>
                                             </select>
-                                        </div>
-                                        <div style={{ flex: 1 }}>
-                                            <label style={labelStyle}>Basis</label>
-                                            <select style={customSelectStyle} value={charge.basis} onChange={e => updateMasterCharge(charge.id, 'basis', e.target.value)}>
+                                            <select
+                                                style={customSelectStyle}
+                                                value={charge.basis}
+                                                onChange={e => updateMasterCharge(charge.id, 'basis', e.target.value)}
+                                            >
                                                 <option>Per SqFt</option>
-                                                <option>Fixed</option>
+                                                <option>% of BSP</option>
                                                 <option>% of Total</option>
+                                                <option>Fixed</option>
                                             </select>
+                                            <div style={{ display: 'flex' }}>
+                                                <input
+                                                    type="number"
+                                                    style={{ ...inputStyle, borderRight: 'none', borderRadius: '8px 0 0 8px' }}
+                                                    value={charge.amount}
+                                                    placeholder="0.00"
+                                                    onChange={e => updateMasterCharge(charge.id, 'amount', e.target.value)}
+                                                />
+                                                <div style={{ width: '40px', background: '#f8fafc', border: '1px solid #e2e8f0', borderLeft: 'none', borderRadius: '0 8px 8px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#64748b', fontSize: '0.85rem' }}>
+                                                    {charge.basis.includes('%') ? '%' : charge.basis === 'Per SqFt' ? '/ft' : '₹'}
+                                                </div>
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <button
+                                                    onClick={() => updateMasterCharge(charge.id, 'gstEnabled', !charge.gstEnabled)}
+                                                    style={{
+                                                        width: '44px',
+                                                        height: '24px',
+                                                        borderRadius: '12px',
+                                                        background: charge.gstEnabled ? '#10b981' : '#cbd5e1',
+                                                        border: 'none',
+                                                        position: 'relative',
+                                                        cursor: 'pointer',
+                                                        transition: 'background 0.3s'
+                                                    }}
+                                                >
+                                                    <div style={{
+                                                        width: '18px',
+                                                        height: '18px',
+                                                        background: '#fff',
+                                                        borderRadius: '50%',
+                                                        position: 'absolute',
+                                                        top: '3px',
+                                                        left: charge.gstEnabled ? '23px' : '3px',
+                                                        transition: 'left 0.3s'
+                                                    }}></div>
+                                                </button>
+                                            </div>
+                                            <button
+                                                onClick={() => removeMasterCharge(charge.id)}
+                                                style={{ border: 'none', background: 'transparent', color: '#cbd5e1', cursor: 'pointer' }}
+                                                onMouseOver={e => e.currentTarget.style.color = '#ef4444'}
+                                                onMouseOut={e => e.currentTarget.style.color = '#cbd5e1'}
+                                            >
+                                                <i className="fas fa-trash"></i>
+                                            </button>
                                         </div>
-                                        <div style={{ flex: 1 }}>
-                                            <label style={labelStyle}>Amount/Rate</label>
-                                            <input type="number" style={inputStyle} value={charge.amount} onChange={e => updateMasterCharge(charge.id, 'amount', e.target.value)} placeholder="0.00" />
-                                        </div>
-                                        <button onClick={() => removeMasterCharge(charge.id)} style={{ width: '42px', height: '42px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px', color: '#ef4444', background: '#fff', border: '1px solid #fecaca', cursor: 'pointer', transition: 'all 0.2s' }}><i className="fas fa-trash-alt"></i></button>
-                                    </div>
-                                ))}
+                                    ))}
+                                </div>
                             </div>
                         )}
                     </div>

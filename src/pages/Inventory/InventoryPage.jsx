@@ -1,28 +1,162 @@
 import React, { useState } from 'react';
 import { inventoryData } from '../../data/mockData';
 import UploadModal from '../../components/UploadModal';
+import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
+import AddInventoryModal from '../../components/AddInventoryModal';
+import AddOwnerModal from '../../components/AddOwnerModal';
+import SendMailModal from '../Contacts/components/SendMailModal';
+import SendMessageModal from '../../components/SendMessageModal';
+import ManageTagsModal from '../../components/ManageTagsModal';
 
 function InventoryPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+    const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
+    const [isEditInventoryModalOpen, setIsEditInventoryModalOpen] = useState(false);
     const [selectedProperty, setSelectedProperty] = useState(null);
 
+    // Contextual Action States
+    const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false);
+    const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+    const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
+    const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
+
+    // Data placeholders for modals
+    const [modalData, setModalData] = useState([]);
+    const [currentOwners, setCurrentOwners] = useState([]);
+    const [inventoryItems, setInventoryItems] = useState(inventoryData);
+
+    const getSelectedProperty = () => inventoryItems.find(p => p.id === selectedIds[0]);
+
     const handleUploadClick = () => {
-        const property = inventoryData.find(p => p.id === selectedIds[0]);
+        const property = getSelectedProperty();
         if (property) {
             setSelectedProperty(property);
             setIsUploadModalOpen(true);
         }
     };
 
+    const handleEditClick = () => {
+        const property = getSelectedProperty();
+        if (property) {
+            setSelectedProperty(property);
+            setIsEditInventoryModalOpen(true);
+        }
+    };
+
+    const handleDocumentClick = () => {
+        const property = getSelectedProperty();
+        if (property) {
+            setSelectedProperty(property);
+            setIsDocumentModalOpen(true);
+        }
+    };
+
+    // --- New Action Handlers ---
+
+    const handleOwnerClick = () => {
+        const property = getSelectedProperty();
+        if (property) {
+            // Mock parsing owner data from flat mock data
+            const owners = [];
+            if (property.ownerName) owners.push({ name: property.ownerName, mobile: property.ownerPhone, role: 'Property Owner' });
+            if (property.associatedContact) owners.push({ name: property.associatedContact, mobile: property.associatedPhone, role: 'Associate', relationship: 'Broker' });
+
+            setCurrentOwners(owners);
+            setSelectedProperty(property);
+            setIsOwnerModalOpen(true);
+        }
+    };
+
+    const handleSaveOwners = (owners) => {
+        if (!selectedProperty) return;
+
+        const updatedItems = inventoryItems.map(item => {
+            if (item.id === selectedProperty.id) {
+                const updates = {
+                    ownerName: '', ownerPhone: '',
+                    associatedContact: '', associatedPhone: ''
+                };
+
+                const owner = owners.find(o => o.role === 'Property Owner');
+                if (owner) {
+                    updates.ownerName = owner.name;
+                    updates.ownerPhone = owner.mobile;
+                } else {
+                    updates.ownerEmail = '';
+                }
+
+                const associate = owners.find(o => o.role === 'Associate');
+                if (associate) {
+                    updates.associatedContact = associate.name;
+                    updates.associatedPhone = associate.mobile;
+                } else {
+                    updates.associatedEmail = '';
+                }
+
+                return { ...item, ...updates };
+            }
+            return item;
+        });
+
+        setInventoryItems(updatedItems);
+        const newSelected = updatedItems.find(i => i.id === selectedProperty.id);
+        setSelectedProperty(newSelected);
+        toast.success('Owner details updated successfully');
+    };
+
+    const getTargetContacts = () => {
+        // Collect owners/associates from selected properties
+        const targets = [];
+        selectedIds.forEach(id => {
+            const prop = inventoryItems.find(p => p.id === id);
+            if (prop) {
+                if (prop.ownerName) targets.push({ name: prop.ownerName, mobile: prop.ownerPhone, email: prop.ownerEmail || 'owner@example.com' });
+                if (prop.associatedContact) targets.push({ name: prop.associatedContact, mobile: prop.associatedPhone, email: prop.associatedEmail || 'associate@example.com' });
+            }
+        });
+        return targets;
+    };
+
+    const handleEmailClick = () => {
+        const targets = getTargetContacts();
+        if (targets.length > 0) {
+            setModalData(targets); // Pass to email modal
+            setIsEmailModalOpen(true);
+        }
+    };
+
+    const handleMessageClick = () => {
+        const targets = getTargetContacts().map(t => ({ name: t.name, phone: t.mobile }));
+        if (targets.length > 0) {
+            setModalData(targets);
+            setIsMessageModalOpen(true);
+        }
+    };
+
+    const handleTagClick = () => {
+        const targets = getTargetContacts();
+        if (targets.length > 0) {
+            setModalData(targets);
+            setIsTagsModalOpen(true);
+        }
+    };
 
     const toggleSelect = (id) => {
         if (selectedIds.includes(id)) {
-            setSelectedIds(selectedIds.filter(v => v !== id));
+            setSelectedIds(selectedIds.filter(itemId => itemId !== id));
         } else {
             setSelectedIds([...selectedIds, id]);
+        }
+    };
+
+    const handleSelectAll = (e) => {
+        if (e.target.checked) {
+            setSelectedIds(inventoryItems.map(item => item.id));
+        } else {
+            setSelectedIds([]);
         }
     };
 
@@ -56,7 +190,6 @@ function InventoryPage() {
                             <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fas fa-filter"></i> Filters
                             </button>
-                            <i className="fas fa-sliders-h header-icon"></i>
                         </div>
                     </div>
 
@@ -88,28 +221,26 @@ function InventoryPage() {
                                     {/* Single Selection Only Actions */}
                                     {selectedIds.length === 1 && (
                                         <>
-                                            <button className="action-btn" title="Edit Property" style={{ flexShrink: 0 }}><i className="fas fa-edit"></i> Edit</button>
+                                            <button className="action-btn" title="Edit Property" style={{ flexShrink: 0 }} onClick={handleEditClick}><i className="fas fa-edit"></i> Edit</button>
                                             <button className="action-btn" title="Create Deal" style={{ flexShrink: 0 }}><i className="fas fa-plus-circle"></i> Deal</button>
-                                            <button className="action-btn" title="Add Owner" style={{ flexShrink: 0 }}><i className="fas fa-user-plus"></i> Owner</button>
                                             <button className="action-btn" title="Match Lead" style={{ flexShrink: 0 }}><i className="fas fa-handshake"></i> Match</button>
+                                            <button className="action-btn" title="Add Owner" style={{ flexShrink: 0 }} onClick={handleOwnerClick}><i className="fas fa-user-plus"></i> Owner</button>
                                             <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px', flexShrink: 0 }}></div>
                                             <button className="action-btn" title="Call Owner" style={{ flexShrink: 0 }}><i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call</button>
-                                            <button className="action-btn" title="Message Owner" style={{ flexShrink: 0 }}><i className="fas fa-comment-alt"></i> Message</button>
+                                            <button className="action-btn" title="Message Owner" style={{ flexShrink: 0 }} onClick={handleMessageClick}><i className="fas fa-comment-alt"></i> Message</button>
+                                            <button className="action-btn" title="Email Owner" style={{ flexShrink: 0 }} onClick={handleEmailClick}><i className="fas fa-envelope"></i> Email</button>
                                             <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px', flexShrink: 0 }}></div>
                                         </>
                                     )}
 
                                     {/* Available for Both Single and Multi */}
-                                    <button className="action-btn" title="Add Remarks" style={{ flexShrink: 0 }}><i className="fas fa-sticky-note"></i> Note</button>
-                                    <button className="action-btn" title="Add Tag" style={{ flexShrink: 0 }}><i className="fas fa-tag"></i> Tag</button>
+                                    <button className="action-btn" title="Add Tag" style={{ flexShrink: 0 }} onClick={handleTagClick}><i className="fas fa-tag"></i> Tag</button>
 
                                     {/* Single Selection Only Actions (Files/Feedback) */}
                                     {selectedIds.length === 1 && (
                                         <>
-                                            <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px', flexShrink: 0 }}></div>
-                                            <button className="action-btn" title="Preview" style={{ flexShrink: 0 }}><i className="fas fa-eye"></i> View</button>
                                             <button className="action-btn" title="Upload Files" style={{ flexShrink: 0 }} onClick={handleUploadClick}><i className="fas fa-cloud-upload-alt"></i> Upload</button>
-                                            <button className="action-btn" title="Manage Documents" style={{ flexShrink: 0 }}><i className="fas fa-file-alt"></i> Document</button>
+                                            <button className="action-btn" title="Manage Documents" style={{ flexShrink: 0 }} onClick={handleDocumentClick}><i className="fas fa-file-alt"></i> Document</button>
                                             <button className="action-btn" title="Feedback" style={{ flexShrink: 0 }}><i className="fas fa-comment-dots"></i> Feedback</button>
                                         </>
                                     )}
@@ -132,7 +263,7 @@ function InventoryPage() {
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                         <div style={{ fontSize: '0.85rem', color: '#68737d', fontWeight: 500 }}>
-                                            Total: <strong>1,441</strong> Properties
+                                            Total: <strong>{inventoryItems.length}</strong> Properties
                                         </div>
                                         <div className="pagination-nums" style={{ display: 'flex', gap: '4px' }}>
                                             <span className="page-num active">1</span>
@@ -145,7 +276,7 @@ function InventoryPage() {
                         </div>
 
                         <div className="list-header inventory-list-grid" style={{ position: 'sticky', top: '45px', zIndex: 99, padding: '12px 1.5rem', background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                            <div><input type="checkbox" /></div>
+                            <div><input type="checkbox" onChange={handleSelectAll} checked={selectedIds.length === inventoryItems.length && inventoryItems.length > 0} /></div>
                             <div>Property Details</div>
                             <div>Project & Location</div>
                             <div>Orientation</div>
@@ -156,7 +287,7 @@ function InventoryPage() {
                         </div>
 
                         <div className="list-content">
-                            {inventoryData.map((item) => (
+                            {inventoryItems.map((item) => (
                                 <div key={item.id} className="list-item inventory-list-grid" style={{ padding: '10px 1.5rem', alignItems: 'flex-start' }}>
                                     <input
                                         type="checkbox"
@@ -168,7 +299,17 @@ function InventoryPage() {
 
                                     <div className="super-cell">
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                                            <div className={`project-thumbnail ${item.status === 'Active' ? 'thumb-active' : 'thumb-inactive'}`}>
+                                            <div
+                                                className={`project-thumbnail ${item.status === 'Active' ? 'thumb-active' : 'thumb-inactive'}`}
+                                                style={{
+                                                    width: 'auto',
+                                                    minWidth: '60px',
+                                                    height: '28px',
+                                                    borderRadius: '6px',
+                                                    padding: '0 10px',
+                                                    aspectRatio: 'auto'
+                                                }}
+                                            >
                                                 {item.unitNo}
                                             </div>
                                             <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{item.corner}</div>
@@ -300,7 +441,7 @@ function InventoryPage() {
                                 <div style={{ padding: '15px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
                                     <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
                                         <i className="fas fa-map-pin" style={{ color: '#ef4444', marginRight: '6px' }}></i>
-                                        Properties by Location ({inventoryData.length})
+                                        Properties by Location ({inventoryItems.length})
                                     </div>
                                     <input
                                         type="text"
@@ -316,7 +457,7 @@ function InventoryPage() {
                                     />
                                 </div>
                                 <div style={{ flex: 1, overflowY: 'auto' }}>
-                                    {inventoryData.map((item, idx) => (
+                                    {inventoryItems.map((item, idx) => (
                                         <div
                                             key={idx}
                                             style={{
@@ -373,7 +514,7 @@ function InventoryPage() {
                                 ></iframe>
 
                                 {/* Property Pin Markers Overlay */}
-                                {inventoryData.map((item, idx) => {
+                                {inventoryItems.map((item, idx) => {
                                     // Convert lat/lng to approximate pixel position
                                     const centerLat = 30.6985;
                                     const centerLng = 76.7112;
@@ -472,6 +613,14 @@ function InventoryPage() {
                     <div className="stat-pill"><span style={{ color: '#f59e0b' }}>AGRI:</span> <span className="stat-val-bold">02</span></div>
                 </div>
             </footer>
+
+            <AddInventoryModal
+                isOpen={isEditInventoryModalOpen}
+                onClose={() => setIsEditInventoryModalOpen(false)}
+                onSave={(data) => console.log("Updated Inventory:", data)}
+                property={selectedProperty}
+            />
+
             {/* Upload Modal */}
             <UploadModal
                 isOpen={isUploadModalOpen}
@@ -479,6 +628,45 @@ function InventoryPage() {
                 onSave={(data) => console.log("Saved Uploads:", data)}
                 project={selectedProperty}
                 type="property"
+            />
+
+            {/* Document Modal */}
+            <AddInventoryDocumentModal
+                isOpen={isDocumentModalOpen}
+                onClose={() => setIsDocumentModalOpen(false)}
+                onSave={(data) => console.log("Saved Documents:", data)}
+                project={selectedProperty}
+            />
+
+
+
+            <AddOwnerModal
+                isOpen={isOwnerModalOpen}
+                onClose={() => setIsOwnerModalOpen(false)}
+                onSave={handleSaveOwners}
+                currentOwners={currentOwners}
+            />
+
+            {/* Email Modal */}
+            <SendMailModal
+                isOpen={isEmailModalOpen}
+                onClose={() => setIsEmailModalOpen(false)}
+                recipients={modalData}
+            />
+
+            {/* Message Modal */}
+            <SendMessageModal
+                isOpen={isMessageModalOpen}
+                onClose={() => setIsMessageModalOpen(false)}
+                selectedContacts={modalData}
+            />
+
+            {/* Tags Modal */}
+            <ManageTagsModal
+                isOpen={isTagsModalOpen}
+                onClose={() => setIsTagsModalOpen(false)}
+                selectedContacts={modalData}
+                onUpdateTags={(tags) => console.log('Tags Updated:', tags)}
             />
         </section>
     );

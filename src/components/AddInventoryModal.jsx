@@ -18,7 +18,7 @@ const getYouTubeThumbnail = (url) => {
     return null;
 };
 
-const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
+const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
     const { masterFields, propertyConfig } = usePropertyConfig();
     const { profileConfig = {} } = useContactConfig();
     const [activeTab, setActiveTab] = useState('Unit');
@@ -27,8 +27,29 @@ const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-        return () => clearInterval(timer);
     }, []);
+
+    // Pre-fill form data if editing
+    useEffect(() => {
+        if (property) {
+            setFormData(prev => ({
+                ...prev,
+                projectName: property.project || '',
+                unitNumber: property.unitNo || '',
+                unitType: property.unitType || '',
+                category: property.type || 'Residential',
+                // Map other fields as needed... simplistic mapping for now
+                block: property.block || '',
+                size: property.size || '',
+                locationSearch: property.location || '',
+                // Add more mappings based on actual data structure match
+            }));
+            // If project name exists, try to find matching project to set presets?
+            // For now, just pre-fill basic fields to show it works
+        } else {
+            // Reset or default? (Ideally reset form)
+        }
+    }, [property, isOpen]);
 
     // Use Flat List directly
     const allProjects = PROJECTS_LIST;
@@ -304,7 +325,7 @@ const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
 
     // --- Styling Constants ---
     const labelStyle = {
-        fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '6px', display: 'block'
+        fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '10px', display: 'block'
     };
     const inputStyle = {
         width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0',
@@ -380,7 +401,7 @@ const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
                     <i className="fas fa-home" style={{ color: '#3b82f6' }}></i> Basic Unit Details
                 </h4>
 
-                <div className="grid-2-col gap-24">
+                <div className="grid-2-col">
                     <div>
                         <label style={labelStyle}>Category</label>
                         <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '8px', width: 'fit-content', border: '1px solid #e2e8f0' }}>
@@ -421,7 +442,7 @@ const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
                 </div>
 
                 {/* Row 1: Unit Number + Unit Type */}
-                <div className="grid-2-col gap-24 mt-24">
+                <div className="grid-2-col" style={{ marginTop: '32px' }}>
                     <div>
                         <label style={labelStyle}>Unit Number</label>
                         <input
@@ -446,7 +467,7 @@ const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
                 </div>
 
                 {/* Row 2: Project Name + Block + Size */}
-                <div className="grid-3-col gap-24 mt-24">
+                <div className="grid-3-col" style={{ marginTop: '32px' }}>
                     <div>
                         <label style={labelStyle}>Project Name</label>
                         <select
@@ -1194,7 +1215,7 @@ const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
                             <div style={{ width: '32px', height: '32px', background: '#eff6ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                 <i className="fas fa-boxes" style={{ color: '#2563eb' }}></i>
                             </div>
-                            Add Inventory
+                            {property ? 'Update Inventory' : 'Add Inventory'}
                         </h2>
                         <span style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px', fontWeight: 500, marginLeft: '42px' }}>
                             {currentTime.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} | {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
@@ -1236,23 +1257,28 @@ const AddInventoryModal = ({ isOpen, onClose, onSave }) => {
 
                 {/* Footer */}
                 <div style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <button onClick={onClose} style={buttonStyle.cancel}>Cancel</button>
+
+                    {/* Left: Cancel Button */}
+                    <div>
+                        <button onClick={onClose} style={buttonStyle.cancel}>Cancel</button>
+                    </div>
+
+                    {/* Right: Back + Next/Save */}
                     <div style={{ display: 'flex', gap: '12px' }}>
                         {activeTab !== 'Unit' && (
-                            <button onClick={handlePrev} style={buttonStyle.secondary}>Previous</button>
+                            <button onClick={handlePrev} style={buttonStyle.secondary}>Back</button>
                         )}
                         {activeTab !== 'Upload' ? (
                             <button onClick={handleNext} style={buttonStyle.primary}>Next</button>
                         ) : (
-                            <button onClick={() => { onSave?.(formData); onClose(); }} style={buttonStyle.success}>Save Inventory</button>
+                            <button onClick={() => { onSave?.(formData); onClose(); }} style={buttonStyle.success}>{property ? 'Update Inventory' : 'Save Inventory'}</button>
                         )}
                     </div>
                 </div>
                 <style>{`
-                 .grid-2-col { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
-                 .grid-3-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
-                 .grid-4-col { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
-                 .mt-24 { margin-top: 24px; }
+                 .grid-2-col { display: grid; grid-template-columns: repeat(2, 1fr); gap: 32px; }
+                .grid-3-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; }
+                .grid-4-col { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; }
                   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
                   @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
                   .animate-slideIn { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }

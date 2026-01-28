@@ -59,6 +59,15 @@ function ProjectsPage() {
         }
     };
 
+    const handleEditProject = () => {
+        const project = projectsData.find(p => p.id === selectedIds[0]);
+        if (project) {
+            setEditProjectData(project);
+            setInitialModalTab('Basic');
+            setIsAddModalOpen(true);
+        }
+    };
+
     const handleSavePrice = (updatedProjectData) => {
         console.log("Saving Price Data:", updatedProjectData);
         setProjectsData(prev => prev.map(p => p.id === updatedProjectData.id ? updatedProjectData : p));
@@ -275,7 +284,7 @@ function ProjectsPage() {
                                         <>
                                             <button className="action-btn" title="Add Price" onClick={handlePriceClick}><i className="fas fa-rupee-sign"></i> Price</button>
                                             <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
-                                            <button className="action-btn" title="Edit Project"><i className="fas fa-edit"></i> Edit</button>
+                                            <button className="action-btn" title="Edit Project" onClick={handleEditProject}><i className="fas fa-edit"></i> Edit</button>
                                             <button className="action-btn" title="Share Project"><i className="fas fa-share-alt"></i> Share</button>
                                             <button className="action-btn" title="Preview"><i className="fas fa-eye"></i> Preview</button>
                                             <button className="action-btn" title="Matched Leads"><i className="fas fa-handshake"></i> Matches</button>
