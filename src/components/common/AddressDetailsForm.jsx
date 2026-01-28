@@ -63,7 +63,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
                         <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Country</label>
                         <select
                             value={address.country}
-                            onChange={(e) => handleAddressChange({ country: e.target.value, state: '', city: '', location: '', tehsil: '', postOffice: '', pincode: '' })}
+                            onChange={(e) => handleAddressChange({ country: e.target.value, state: '', city: '', location: '', tehsil: '', postOffice: '', pinCode: '' })}
                             style={getDropdownStyle(false)}
                         >
                             <option value="">Select Country</option>
@@ -74,7 +74,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
                         <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>State</label>
                         <select
                             value={address.state}
-                            onChange={(e) => handleAddressChange({ state: e.target.value, city: '', location: '', tehsil: '', postOffice: '', pincode: '' })}
+                            onChange={(e) => handleAddressChange({ state: e.target.value, city: '', location: '', tehsil: '', postOffice: '', pinCode: '' })}
                             disabled={!address.country}
                             style={!address.country ? getDisabledStyle() : getDropdownStyle(false)}
                         >
@@ -86,7 +86,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
                         <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>City</label>
                         <select
                             value={address.city}
-                            onChange={(e) => handleAddressChange({ city: e.target.value, location: '', tehsil: '', postOffice: '', pincode: '' })}
+                            onChange={(e) => handleAddressChange({ city: e.target.value, location: '', tehsil: '', postOffice: '', pinCode: '' })}
                             disabled={!address.state}
                             style={!address.state ? getDisabledStyle() : getDropdownStyle(false)}
                         >
@@ -96,13 +96,13 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
                     </div>
                 </div>
 
-                {/* Row 2: Location, Tehsil, Post Office */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)', gap: '20px' }}>
+                {/* Row 2: Location, Tehsil, Post Office, Pin Code */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)', gap: '20px' }}>
                     <div>
                         <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Location/Sector</label>
                         <select
                             value={address.location}
-                            onChange={(e) => handleAddressChange({ location: e.target.value, tehsil: '', postOffice: '', pincode: '' })}
+                            onChange={(e) => handleAddressChange({ location: e.target.value, tehsil: '', postOffice: '', pinCode: '' })}
                             disabled={!address.city}
                             style={!address.city ? getDisabledStyle() : getDropdownStyle(false)}
                         >
@@ -114,7 +114,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
                         <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Tehsil</label>
                         <select
                             value={address.tehsil}
-                            onChange={(e) => handleAddressChange({ tehsil: e.target.value, postOffice: '', pincode: '' })}
+                            onChange={(e) => handleAddressChange({ tehsil: e.target.value, postOffice: '', pinCode: '' })}
                             disabled={!address.location}
                             style={!address.location ? getDisabledStyle() : getDropdownStyle(false)}
                         >
@@ -123,30 +123,15 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
                         </select>
                     </div>
                     <div>
-                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>
-                            Post Office
-                            {address.pincode && (
-                                <span style={{
-                                    marginLeft: '8px',
-                                    fontSize: '0.75rem',
-                                    color: '#ec4899',
-                                    background: '#fdf2f8',
-                                    padding: '2px 8px',
-                                    borderRadius: '12px',
-                                    fontWeight: 600
-                                }}>
-                                    PIN: {address.pincode}
-                                </span>
-                            )}
-                        </label>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Post Office</label>
                         <select
                             value={address.postOffice}
                             onChange={(e) => {
-                                // Logic to auto-select pincode
+                                // Logic to auto-select pinCode
                                 const selectedPO = tehsilNode?.subCategories?.find(s => s.name === e.target.value);
                                 const availablePins = selectedPO?.types || [];
                                 const autoPin = availablePins.length === 1 ? availablePins[0] : '';
-                                handleAddressChange({ postOffice: e.target.value, pincode: autoPin });
+                                handleAddressChange({ postOffice: e.target.value, pinCode: autoPin });
                             }}
                             disabled={!address.tehsil}
                             style={!address.tehsil ? getDisabledStyle() : getDropdownStyle(false)}
@@ -154,6 +139,25 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
                             <option value="">Select PO</option>
                             {postOffices.map(po => <option key={po} value={po}>{po}</option>)}
                         </select>
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Pin Code</label>
+                        <input
+                            type="text"
+                            placeholder="Pin Code"
+                            value={address.pinCode || ''}
+                            onChange={(e) => handleAddressChange({ pinCode: e.target.value })}
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                borderRadius: '6px',
+                                border: '1px solid #cbd5e1',
+                                fontSize: '0.9rem',
+                                outline: 'none',
+                                background: '#fff',
+                                color: '#1e293b'
+                            }}
+                        />
                     </div>
                 </div>
 

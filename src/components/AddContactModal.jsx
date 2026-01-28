@@ -544,10 +544,9 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
         workOffice: '',
 
         // System Details
-        // System Details
-        campaign: '',
+        // campaign: '',
         source: '',
-        subSource: '',
+        // subSource: '',
         team: '',
         owner: '',
         visibleTo: '',
@@ -602,6 +601,8 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
         documents: [{ documentName: '', documentType: '', documentNo: '', projectName: '', block: '', unitNumber: '', documentPicture: null }]
     });
 
+
+
     const handleInputChange = (field, value) => {
         setFormData(prev => ({
             ...prev,
@@ -619,9 +620,9 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
     const handleSave = async () => {
         const toastId = toast.loading('Adding contact...');
         try {
-             console.log("API BASE URL:", api.defaults.baseURL);
+            console.log("API BASE URL:", api.defaults.baseURL);
             const response = await api.post("add-contact", formData);
-           
+
 
 
             if (response.data && response.data.success) {
@@ -1698,7 +1699,7 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                                                 </div>
                                                 <div>
                                                     <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Pin Code</label>
-                                                    <input type="text" value={formData.locPinCode} onChange={(e) => handleInputChange('locPinCode', e.target.value)} style={inputStyle} />
+                                                    <input type="text" name='pinCode' value={formData.locPinCode} onChange={(e) => handleInputChange('locPinCode', e.target.value)} style={inputStyle} />
                                                 </div>
                                             </div>
                                         </div>
