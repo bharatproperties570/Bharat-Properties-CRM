@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+import api from '../../api'; // Import API for contact search
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 
 import { INDIAN_LOCATION_HIERARCHY } from '../data/detailedLocationData';
 import { PROJECT_DATA, CITIES } from '../data/projectData';
-import { LOCATION_DATA, INDIAN_ADDRESS_DATA } from '../data/locationData';
+import { LOCATION_DATA } from '../data/locationData';
 import { PROPERTY_CATEGORIES, DIRECTION_OPTIONS } from '../data/propertyData';
 
 // Simple Custom Multi-Select Component
@@ -103,29 +104,14 @@ const STAGES = ['New', 'Contacted', 'Interested', 'Meeting Scheduled', 'Negotiat
 const STATUSES = ['Active', 'Inactive', 'Pending', 'Closed'];
 
 // Financial Constants
-const INCOME_SOURCES = ['Salary', 'Business', 'Rental', 'Investment', 'Pension', 'Other'];
-const BANK_NAMES = [
-    "State Bank of India", "HDFC Bank", "ICICI Bank", "Punjab National Bank", "Axis Bank",
-    "Canara Bank", "Bank of Baroda", "Union Bank of India", "Bank of India", "IndusInd Bank",
-    "Kotak Mahindra Bank", "Yes Bank", "IDFC First Bank", "Indian Bank", "Central Bank of India",
-    "Federal Bank", "Bank of Maharashtra", "UCO Bank", "Indian Overseas Bank", "Punjab & Sind Bank"
-].sort();
+
 
 // Education Constants
-const DEGREE_OPTIONS = {
-    "High School": ["10th Standard", "12th Standard (Science)", "12th Standard (Commerce)", "12th Standard (Arts)", "Diploma"],
-    "Undergraduate": ["B.Tech", "B.E.", "B.Sc", "B.Com", "B.A.", "BBA", "BCA", "MBBS", "BDS", "B.Pharma", "LLB", "B.Arch", "B.Des"],
-    "Postgraduate": ["M.Tech", "M.Sc", "M.Com", "M.A.", "MBA", "MCA", "MD", "MS", "M.Pharma", "LLM", "M.Arch"],
-    "Doctorate": ["Ph.D", "M.Phil", "Pharm.D"]
-};
-const SUB_CATEGORIES = ['Real Estate', 'IT & Software', 'Banking & Finance', 'Manufacturing', 'Retail', 'Healthcare', 'Education', 'Legal', 'Construction', 'Government', 'Other'];
-const DESIGNATIONS = ['Owner', 'CEO / Founder', 'Director', 'Manager', 'Team Lead', 'Senior Executive', 'Associate', 'Developer', 'Consultant', 'HR', 'Accountant', 'Other'];
+
 
 // Sources for Dropdown
 // Sources and Campaigns are now fetched from Context
-const SOURCES = [];
-const CAMPAIGN_OPTIONS = [];
-const SUB_SOURCE_OPTIONS = [];
+
 
 // Mock Contacts for Duplicate Check
 const MOCK_CONTACTS = [
@@ -226,7 +212,7 @@ const DuplicateResults = ({ contacts, onUpdate }) => {
                         {contact.emails?.[0] && (
                             <div style={{ fontSize: '0.8rem', color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <i className="fas fa-envelope" style={{ fontSize: '0.7rem', color: '#94a3b8' }}></i>
-                                {contact.emails[0]}
+                                {typeof contact.emails[0] === 'string' ? contact.emails[0] : contact.emails[0]?.address}
                             </div>
                         )}
                     </div>
@@ -402,7 +388,7 @@ const BUDGET_VALUES = [
 const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entityType = 'lead', contactData, title = "Add New Lead", saveLabel = "Save" }) => {
     const { propertyConfig, masterFields, leadMasterFields } = usePropertyConfig(); // Updated context
     const [currentTab, setCurrentTab] = useState('requirement'); // default to requirement for lead
-    const [currentAddressType, setCurrentAddressType] = useState('permanent'); // permanent or correspondence
+
     const [showOnlyRequired, setShowOnlyRequired] = useState(false);
 
     // Master Fields Options
@@ -411,19 +397,21 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     const unitTypeOptions = masterFields?.unitTypes || [];
     const directionOptions = masterFields?.directions || DIRECTION_OPTIONS;
     const floorLevelOptions = masterFields?.floorLevels || [];
-    const [companyList, setCompanyList] = useState(['Company A', 'Company B', 'Bharat Properties']);
-    const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
-    const [companySearch, setCompanySearch] = useState('');
+
 
     // Document Name Logic
-    const [documentNameList, setDocumentNameList] = useState(['ID Proof', 'Address Proof', 'Other']);
-    const [activeDocumentSearchIndex, setActiveDocumentSearchIndex] = useState(null);
-    const [documentSearchTerm, setDocumentSearchTerm] = useState('');
+
 
     const [locationTab, setLocationTab] = useState('select'); // 'select' or 'search'
     const [showSpecificUnit, setShowSpecificUnit] = useState(false);
     const [currentTime, setCurrentTime] = useState(new Date());
     const [similarContacts, setSimilarContacts] = useState([]);
+
+    // Contact Search State
+    const [contactSearchQuery, setContactSearchQuery] = useState('');
+    const [contactSearchResults, setContactSearchResults] = useState([]);
+    const [isContactSearchLoading, setIsContactSearchLoading] = useState(false);
+    const [selectedContact, setSelectedContact] = useState(null);
 
     // Input Style
     const inputStyle = {
@@ -497,23 +485,14 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         title: '',
         name: '',
         surname: '',
-        fatherName: '',
         countryCode: '+91',
         phones: [{ number: '', type: 'Personal' }],
         emails: [{ address: '', type: 'Personal' }],
-        tags: [],
-        description: '',
-
-        // Professional Details
-        professionCategory: '',
-        professionSubCategory: '',
-        designation: '',
-        company: '',
+        contactDetails: '', // Link to Contact ID
 
         // System Details
         source: '',
-        subSource: '', // Added for Leads
-        campaign: '', // Added for Leads
+        campaign: '',
         team: '',
         owner: '',
         visibleTo: '',
@@ -531,7 +510,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         areaMax: '',
         areaMetric: 'Sq Yard',
         searchLocation: '',
-        areaSearch: '', // New Field
+        areaSearch: '',
         streetAddress: '',
         range: 'Within 3 km',
         locCity: '', locArea: '', locBlock: [], locPinCode: '',
@@ -549,61 +528,14 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
         // Select Location Fields
         projectName: [],
-        projectCity: '', // New Field
-        projectTowers: [], // New Field
-        specificUnitType: 'single', // 'single' or 'row'
+        projectCity: '',
+        projectTowers: [],
+        specificUnitType: 'single',
         propertyNo: '',
         propertyNoEnd: '',
-
-        // Personal Address
-        personalAddress: {
-            hNo: '',
-            street: '',
-            country: '',
-            state: '',
-            city: '',
-            tehsil: '',
-            postOffice: '',
-            pinCode: '',
-            location: '',
-            area: ''
-        },
-
-        // Correspondence Address
-        correspondenceAddress: {
-            hNo: '',
-            street: '',
-            country: '',
-            state: '',
-            city: '',
-            tehsil: '',
-            postOffice: '',
-            pinCode: '',
-            location: '',
-            area: ''
-        },
-
-        // Other Details
-        gender: '',
-        maritalStatus: '',
-        birthDate: '',
-        anniversaryDate: '',
-
-        // Education - Array
-        educations: [{ education: '', degree: '', school: '' }],
-
-        // Loan - Array
-        loans: [{ loanType: '', bank: '', loanAmount: '' }],
-
-        // Social Media - Array
-        socialMedia: [{ platform: '', url: '' }],
-
-        // Income - Array  
-        incomes: [{ incomeType: '', amount: '' }],
-
-        // Documents - Array
-        documents: [{ documentName: '', documentNo: '', documentPicture: null }]
     });
+
+
 
     // Auto-fill from contactData
     useEffect(() => {
@@ -638,39 +570,16 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 phones: contactData.mobile ? [{ number: contactData.mobile, type: 'Personal' }] : prev.phones,
                 // Emails
                 emails: contactData.email ? [{ address: contactData.email, type: 'Personal' }] : prev.emails,
-                // Professional (if available in contactData)
-                designation: contactData.designation || prev.designation,
-                company: contactData.company || prev.company,
                 // System
                 source: contactData.source || prev.source,
-                description: contactData.remarks || prev.description,
-                // Requirement stuff (Basic mapping for mock data)
-                requirement: contactData.req?.type?.toLowerCase()?.includes('rent') ? 'Rent' : 'Buy',
-                propertyType: contactData.req?.type?.toLowerCase()?.includes('residential') ? ['Residential'] :
-                    contactData.req?.type?.toLowerCase()?.includes('commercial') ? ['Commercial'] :
-                        contactData.req?.type?.toLowerCase()?.includes('industrial') ? ['Industrial'] :
-                            contactData.req?.type?.toLowerCase()?.includes('agriculture') ? ['Agriculture'] :
-                                contactData.req?.type?.toLowerCase()?.includes('institutional') ? ['Institutional'] : prev.propertyType,
+                campaign: contactData.campaign || prev.campaign,
+                team: contactData.team || prev.team,
+                owner: contactData.owner || prev.owner,
+                visibleTo: contactData.visibleTo || prev.visibleTo,
             }));
 
-            // Optional: Parse Budget and Location if they are strings from leadData
-            if (contactData.budget) {
-                const parts = contactData.budget?.replace(/₹/g, '')?.replace(/,/g, '')?.split(' - ') || [];
-                if (parts.length === 2) {
-                    setFormData(prev => ({
-                        ...prev,
-                        budgetMin: parts[0],
-                        budgetMax: parts[1]
-                    }));
-                }
-            }
-            if (contactData.location) {
-                setFormData(prev => ({
-                    ...prev,
-                    areaSearch: contactData.location,
-                    searchLocation: contactData.location
-                }));
-            }
+        
+          
         }
     }, [contactData]);
 
@@ -692,12 +601,68 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
     const handleProjectSelectionChange = (projects) => {
         // projects is an array of selected project Names
-        // If a project is deselected, we should potentialy filter out towers?
-        // For now, let's just update the projects. User can manually adjust towers if needed,
-        // or we can implement strict filtering.
         setFormData(prev => ({
             ...prev,
             projectName: projects
+        }));
+    };
+
+    // --- Contact Search Logic ---
+    useEffect(() => {
+        const delayDebounceFn = setTimeout(() => {
+            if (contactSearchQuery.length >= 2) {
+                handleContactSearch(contactSearchQuery);
+            } else {
+                setContactSearchResults([]);
+            }
+        }, 500);
+
+        return () => clearTimeout(delayDebounceFn);
+    }, [contactSearchQuery]);
+
+    const handleContactSearch = async (query) => {
+        setIsContactSearchLoading(true);
+        try {
+            // Using the endpoint confirmed in ContactsPage.jsx
+            const response = await api.get(`get-all-contact?search=${query}`);
+            console.log(response);
+
+            if (response.data && response.data.success) {
+                setContactSearchResults(response.data.data);
+            } else {
+                setContactSearchResults([]);
+            }
+        } catch (error) {
+            console.error("Error searching contacts:", error);
+            setContactSearchResults([]);
+        } finally {
+            setIsContactSearchLoading(false);
+        }
+    };
+
+    const handleSelectContact = (contact) => {
+        setContactSearchQuery(''); // Clear query or keep name? Resetting clears dropdown
+        setContactSearchResults([]);
+        setSelectedContact(contact);
+
+        // Populate form data
+        setFormData(prev => ({
+            ...prev,
+            title: contact.title || prev.title,
+            name: contact.name || prev.name,
+            surname: contact.surname || prev.surname,
+            countryCode: contact.countryCode || prev.countryCode,
+            phones: contact.mobile ? [{ number: contact.mobile, type: 'Personal' }] : (contact.phones && contact.phones.length > 0 ? contact.phones : prev.phones),
+            emails: contact.email ? [{ address: contact.email, type: 'Personal' }] : (contact.emails && contact.emails.length > 0 ? contact.emails : prev.emails),
+
+            // Map other fields if available in contact
+            source: contact.source || prev.source,
+            // campaign: contact.campaign || prev.campaign,
+            team: contactData.team || prev.team,
+            owner: contactData.owner || prev.owner,
+            visibleTo: contactData.visibleTo || prev.visibleTo,
+
+            contactDetails: contact._id // Store ID for linking (Was contactId)
         }));
     };
 
@@ -712,32 +677,93 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             .flatMap(p => p.towers)
         : [];
 
-    const handleSave = () => {
-        onAdd(formData);
-        onClose();
+    const handleSave = async () => {
+        // Validation check (e.g., name and phone)
+        if (!formData.name && !formData.phones[0].number) {
+            // Add toast here if needed
+            alert("Name or Phone is required");
+            return;
+        }
+
+        try {
+            // Check for ID in selectedContact (object) OR formData.contactDetails (ref from selection)
+            let finalContactId = selectedContact?._id || formData.contactDetails;
+
+            // If no existing contact selected, create new one first
+            if (!finalContactId) {
+                // Prepare contact payload
+                // Minimal payload based on formData
+                const contactPayload = {
+                    title: formData.title,
+                    name: formData.name,
+                    surname: formData.surname,
+                    phones: formData.phones,
+                    emails: formData.emails,
+                    source: formData.source,
+                    // campaign: formData.campaign || prev.campaign,
+                    team: formData.team || prev.team,
+                    owner: formData.owner || prev.owner,
+                    visibleTo: formData.visibleTo || prev.visibleTo,
+                };
+                console.log(contactPayload);
+
+                // Call Add Contact API
+                try {
+                    const response = await api.post("add-contact", contactPayload);
+                    if (response.data && response.data.success) {
+                        finalContactId = response.data.data._id; // Assuming response.data.data is the created object
+                        // console.log("Created new contact:", finalContactId);
+                    } else {
+                        throw new Error("Failed to create new contact: " + (response.data?.message || "Unknown error"));
+                    }
+                } catch (contactError) {
+                    console.error("Error creating contact:", contactError);
+                    alert("Failed to save contact details. Please try again.");
+                    return;
+                }
+            }
+
+            // Now call onAdd with the lead data including the contactDetails (ID)
+            const leadPayload = {
+                ...formData,
+                contactDetails: finalContactId // Changed from contactId to contactDetails
+            };
+
+            // Optimization: If linking to an existing contact, we don't need to save redundant contact details (phones/emails) on the lead itself,
+            // as they are fetched via populate. We keep 'name' for the Lead Title/Display purposes.
+            if (finalContactId) {
+                delete leadPayload.phones;
+                delete leadPayload.emails;
+                delete leadPayload.title;
+                delete leadPayload.name;
+                delete leadPayload.surname;
+                delete leadPayload.source;
+                delete leadPayload.campaign;
+                delete leadPayload.team;
+                delete leadPayload.owner;
+                delete leadPayload.visibleTo;
+
+            }
+console.log(leadPayload);
+            onAdd(leadPayload);
+            onClose();
+
+        } catch (error) {
+            console.error("Error saving lead:", error);
+            alert("An error occurred while saving. Please try again.");
+        }
     };
+    
 
     // Navigation Logic
     const handleNext = () => {
-        if (entityType === 'lead') {
-            if (currentTab === 'requirement') setCurrentTab('location');
-            else if (currentTab === 'location') setCurrentTab('basic');
-        } else {
-            // Contact Flow
-            if (currentTab === 'basic') setCurrentTab('personal');
-            else if (currentTab === 'personal') setCurrentTab('other');
-        }
+        if (currentTab === 'requirement') setCurrentTab('location');
+        else if (currentTab === 'location') setCurrentTab('basic');
     };
 
     const handlePrev = () => {
-        if (entityType === 'lead') {
-            if (currentTab === 'location') setCurrentTab('requirement');
-            else if (currentTab === 'basic') setCurrentTab('location');
-        } else {
-            // Contact Flow
-            if (currentTab === 'personal') setCurrentTab('basic');
-            else if (currentTab === 'other') setCurrentTab('personal');
-        }
+        if (currentTab === 'location') setCurrentTab('requirement');
+        else if (currentTab === 'basic') setCurrentTab('location');
     };
 
     // Placeholder for Populate
@@ -903,8 +929,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                 {entityType === 'lead' && <button onClick={() => setCurrentTab('requirement')} style={tabStyle(currentTab === 'requirement')}>Requirement</button>}
                                 {entityType === 'lead' && <button onClick={() => setCurrentTab('location')} style={tabStyle(currentTab === 'location')}>Location</button>}
                                 <button onClick={() => setCurrentTab('basic')} style={tabStyle(currentTab === 'basic')}>{entityType === 'lead' ? 'Contact Details' : 'Basic Details'}</button>
-                                {entityType !== 'lead' && <button onClick={() => setCurrentTab('personal')} style={tabStyle(currentTab === 'personal')}>Personal</button>}
-                                {entityType !== 'lead' && <button onClick={() => setCurrentTab('other')} style={tabStyle(currentTab === 'other')}>Other</button>}
+
                             </div>
                         </div>
                     )}
@@ -1184,7 +1209,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         </div>
 
                                         {/* Medium - Level 3 */}
-                                        <div>
+                                        {/* <div>
                                             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Medium</label>
                                             <select
                                                 value={formData.subSource}
@@ -1199,7 +1224,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                     return (selectedSrc?.mediums || []).map(m => <option key={m} value={m}>{m}</option>);
                                                 })()}
                                             </select>
-                                        </div>
+                                        </div> */}
                                     </div>
                                 </div>
 
@@ -1251,6 +1276,93 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
                             </div>
                         ) : currentTab === 'basic' ? (<div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+                            {/* NEW: Search Existing Contact */}
+                            <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                                    <i className="fas fa-search" style={{ color: '#64748b' }}></i> Search Existing Contact
+                                </h3>
+                                <div style={{ position: 'relative' }}>
+                                    <div style={{ position: 'relative' }}>
+                                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
+                                        <input
+                                            type="text"
+                                            value={contactSearchQuery}
+                                            onChange={(e) => setContactSearchQuery(e.target.value)}
+                                            placeholder="Search by name to auto-fill details..."
+                                            style={{
+                                                width: '100%',
+                                                padding: '12px 12px 12px 36px',
+                                                borderRadius: '8px',
+                                                border: '1px solid #cbd5e1',
+                                                fontSize: '0.95rem',
+                                                outline: 'none',
+                                                transition: 'all 0.2s',
+                                                background: '#f8fafc'
+                                            }}
+                                            onFocus={(e) => e.target.style.background = '#fff'}
+                                            onBlur={(e) => e.target.style.background = '#f8fafc'}
+                                        />
+                                        {isContactSearchLoading && (
+                                            <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)' }}>
+                                                <i className="fas fa-circle-notch fa-spin" style={{ color: '#3b82f6' }}></i>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Search Results Dropdown */}
+                                    {contactSearchResults.length > 0 && (
+                                        <div style={{
+                                            position: 'absolute',
+                                            top: '100%',
+                                            left: 0,
+                                            right: 0,
+                                            background: '#fff',
+                                            borderRadius: '8px',
+                                            border: '1px solid #e2e8f0',
+                                            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                                            marginTop: '8px',
+                                            zIndex: 50,
+                                            maxHeight: '300px',
+                                            overflowY: 'auto'
+                                        }}>
+                                            {contactSearchResults.map(contact => (
+                                                <div
+                                                    key={contact._id}
+                                                    onClick={() => handleSelectContact(contact)}
+                                                    style={{
+                                                        padding: '12px 16px',
+                                                        borderBottom: '1px solid #f1f5f9',
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'space-between',
+                                                        transition: 'background 0.2s'
+                                                    }}
+                                                    onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                                                >
+                                                    <div>
+                                                        <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.9rem' }}>
+                                                            {contact.title} {contact.name} {contact.surname}
+                                                        </div>
+                                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                                            {contact.mobile || contact.phones?.[0]?.number || contact.phones?.[0]?.phoneNumber} • {contact.email || contact.emails?.[0]?.address || (typeof contact.emails?.[0] === 'string' ? contact.emails[0] : '')}
+                                                        </div>
+                                                        {contact.company && (
+                                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>
+                                                                <i className="fas fa-building"></i> {contact.company}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <i className="fas fa-chevron-right" style={{ color: '#cbd5e1', fontSize: '0.8rem' }}></i>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
                             {/* Identity Card */}
                             <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                                 <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
@@ -1447,7 +1559,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         </div>
 
                                         {/* Medium - Level 3 */}
-                                        <div>
+                                        {/* <div>
                                             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Medium</label>
                                             <select
                                                 value={formData.subSource}
@@ -1462,215 +1574,15 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                     return (selectedSrc?.mediums || []).map(m => <option key={m} value={m}>{m}</option>);
                                                 })()}
                                             </select>
-                                        </div>
+                                        </div> */}
                                     </div>
                                 </div>
                             )}
 
-                            {(!showOnlyRequired && entityType !== 'lead') && (
-                                <>
-                                    {/* Tags & Source Card */}
-                                    <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                        <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                            <i className="fas fa-tags" style={{ color: '#8b5cf6' }}></i> Segmentation
-                                        </h3>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
-                                                <select
-                                                    value={formData.source}
-                                                    onChange={(e) => handleInputChange('source', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Source</option>
-                                                    {SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
-                                                </select>
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Tags</label>
-                                            <div style={{
-                                                width: '100%',
-                                                padding: '6px 12px',
-                                                borderRadius: '6px',
-                                                border: '1px solid #cbd5e1',
-                                                background: '#fff',
-                                                display: 'flex',
-                                                flexWrap: 'wrap',
-                                                gap: '6px',
-                                                alignItems: 'center',
-                                                minHeight: '42px'
-                                            }}>
-                                                {formData.tags.map((tag, index) => (
-                                                    <div key={index} style={{
-                                                        background: '#eff6ff',
-                                                        color: '#3b82f6',
-                                                        padding: '4px 10px',
-                                                        borderRadius: '16px',
-                                                        fontSize: '0.8rem',
-                                                        fontWeight: 500,
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '6px'
-                                                    }}>
-                                                        {tag}
-                                                        <span
-                                                            onClick={() => handleInputChange('tags', formData.tags.filter((_, i) => i !== index))}
-                                                            style={{ cursor: 'pointer', fontSize: '1rem', lineHeight: '0.8' }}
-                                                        >&times;</span>
-                                                    </div>
-                                                ))}
-                                                <input
-                                                    type="text"
-                                                    placeholder={formData.tags.length === 0 ? "Add tags (Press Enter)" : ""}
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Enter' && e.target.value.trim()) {
-                                                            e.preventDefault();
-                                                            if (!formData.tags.includes(e.target.value.trim())) {
-                                                                handleInputChange('tags', [...formData.tags, e.target.value.trim()]);
-                                                            }
-                                                            e.target.value = '';
-                                                        } else if (e.key === 'Backspace' && !e.target.value && formData.tags.length > 0) {
-                                                            handleInputChange('tags', formData.tags.slice(0, -1));
-                                                        }
-                                                    }}
-                                                    style={{
-                                                        border: 'none',
-                                                        outline: 'none',
-                                                        fontSize: '0.9rem',
-                                                        color: '#1e293b',
-                                                        flex: 1,
-                                                        minWidth: '120px'
-                                                    }}
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-                                </>
-                            )}
+
 
                             {/* Professional Details Card */}
-                            {(!showOnlyRequired && entityType !== 'lead') && (
-                                <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                    <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                        <i className="fas fa-briefcase" style={{ color: '#0ea5e9' }}></i> Professional Details
-                                    </h3>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                        {/* 1. Profession Category */}
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Profession Category</label>
-                                            <select
-                                                value={formData.professionCategory}
-                                                onChange={(e) => handleInputChange('professionCategory', e.target.value)}
-                                                style={customSelectStyle}
-                                            >
-                                                <option value="">Select Category</option>
-                                                <option value="Salaried">Salaried</option>
-                                                <option value="Self-Employed">Self-Employed</option>
-                                                <option value="Business">Business</option>
-                                            </select>
-                                        </div>
 
-                                        {/* 2. Sub-Category */}
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Sub-Category</label>
-                                            <select
-                                                value={formData.professionSubCategory}
-                                                onChange={(e) => handleInputChange('professionSubCategory', e.target.value)}
-                                                style={customSelectStyle}
-                                            >
-                                                <option value="">Select Sub-Category</option>
-                                                {SUB_CATEGORIES.map(sc => <option key={sc} value={sc}>{sc}</option>)}
-                                            </select>
-                                        </div>
-
-                                        {/* 3. Designation */}
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Designation</label>
-                                            <select
-                                                value={formData.designation}
-                                                onChange={(e) => handleInputChange('designation', e.target.value)}
-                                                style={customSelectStyle}
-                                            >
-                                                <option value="">Select Designation</option>
-                                                {DESIGNATIONS.map(d => <option key={d} value={d}>{d}</option>)}
-                                            </select>
-                                        </div>
-
-                                        {/* 4. Company (Creatable Select) */}
-                                        <div style={{ position: 'relative' }}>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Company</label>
-                                            <div style={{ position: 'relative' }}>
-                                                <input
-                                                    type="text"
-                                                    value={formData.company}
-                                                    onChange={(e) => {
-                                                        const val = e.target.value;
-                                                        handleInputChange('company', val);
-                                                        setCompanySearch(val);
-                                                        setShowCompanyDropdown(true);
-                                                    }}
-                                                    onFocus={() => {
-                                                        setCompanySearch(formData.company);
-                                                        setShowCompanyDropdown(true);
-                                                    }}
-                                                    onBlur={() => setTimeout(() => setShowCompanyDropdown(false), 200)}
-                                                    placeholder="Select or Type New Company"
-                                                    style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
-                                                    autoComplete="off"
-                                                />
-                                                {showCompanyDropdown && (
-                                                    <div style={{
-                                                        position: 'absolute', top: '100%', left: 0, right: 0,
-                                                        background: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px',
-                                                        marginTop: '4px', zIndex: 50, maxHeight: '200px', overflowY: 'auto',
-                                                        boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
-                                                    }}>
-                                                        {(() => {
-                                                            const filtered = companyList.filter(c => c.toLowerCase().includes(companySearch.toLowerCase()));
-                                                            const showAddNew = companySearch && !companyList.some(c => c.toLowerCase() === companySearch.toLowerCase());
-
-                                                            return (
-                                                                <>
-                                                                    {filtered.map(comp => (
-                                                                        <div
-                                                                            key={comp}
-                                                                            onMouseDown={() => {
-                                                                                handleInputChange('company', comp);
-                                                                                setShowCompanyDropdown(false);
-                                                                            }}
-                                                                            style={{ padding: '10px 12px', cursor: 'pointer', fontSize: '0.9rem', color: '#334155' }}
-                                                                            className="hover:bg-slate-50"
-                                                                        >
-                                                                            {comp}
-                                                                        </div>
-                                                                    ))}
-                                                                    {showAddNew && (
-                                                                        <div
-                                                                            onMouseDown={() => {
-                                                                                const newCompany = companySearch;
-                                                                                setCompanyList(prev => [...prev, newCompany]);
-                                                                                handleInputChange('company', newCompany);
-                                                                                setShowCompanyDropdown(false);
-                                                                            }}
-                                                                            style={{ padding: '10px 12px', cursor: 'pointer', fontSize: '0.9rem', color: '#2563eb', borderTop: '1px dashed #e2e8f0', background: '#eff6ff' }}
-                                                                        >
-                                                                            + Add "{companySearch}"
-                                                                        </div>
-                                                                    )}
-                                                                    {!showAddNew && filtered.length === 0 && (
-                                                                        <div style={{ padding: '12px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>No matches</div>
-                                                                    )}
-                                                                </>
-                                                            );
-                                                        })()}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
 
                             {/* System Assignment Card */}
                             <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
@@ -2289,516 +2201,6 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            </div>
-                        ) : currentTab === 'personal' ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                                {/* Personal Basic Info */}
-                                <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                    <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                        <i className="fas fa-user-clock" style={{ color: '#ec4899' }}></i> Bio Details
-                                    </h3>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Gender</label>
-                                            <select
-                                                value={formData.gender}
-                                                onChange={(e) => handleInputChange('gender', e.target.value)}
-                                                style={customSelectStyle}
-                                            >
-                                                <option value="">Select Gender</option>
-                                                <option value="Male">Male</option>
-                                                <option value="Female">Female</option>
-                                                <option value="Other">Other</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Marital Status</label>
-                                            <select
-                                                value={formData.maritalStatus}
-                                                onChange={(e) => handleInputChange('maritalStatus', e.target.value)}
-                                                style={customSelectStyle}
-                                            >
-                                                <option value="">Select Status</option>
-                                                <option value="Single">Single</option>
-                                                <option value="Married">Married</option>
-                                                <option value="Divorced">Divorced</option>
-                                                <option value="Widowed">Widowed</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Date of Birth</label>
-                                            <input
-                                                type="date"
-                                                value={formData.birthDate}
-                                                onChange={(e) => handleInputChange('birthDate', e.target.value)}
-                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
-                                            />
-                                        </div>
-                                        {formData.maritalStatus === 'Married' && (
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Anniversary Date</label>
-                                                <input
-                                                    type="date"
-                                                    value={formData.anniversaryDate}
-                                                    onChange={(e) => handleInputChange('anniversaryDate', e.target.value)}
-                                                    style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
-                                                />
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Address Details Card (Unified) */}
-                                {(!showOnlyRequired && entityType !== 'lead') && (
-                                    <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <i className="fas fa-map-marker-alt" style={{ color: '#6366f1' }}></i> Address Details
-                                            </h3>
-                                            <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: '6px', padding: '4px' }}>
-                                                <button
-                                                    onClick={() => setCurrentAddressType('permanent')}
-                                                    style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', background: currentAddressType === 'permanent' ? '#fff' : 'transparent', color: currentAddressType === 'permanent' ? '#0f172a' : '#64748b', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', boxShadow: currentAddressType === 'permanent' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}
-                                                >Permanent</button>
-                                                <button
-                                                    onClick={() => setCurrentAddressType('correspondence')}
-                                                    style={{ padding: '6px 12px', borderRadius: '4px', border: 'none', background: currentAddressType === 'correspondence' ? '#fff' : 'transparent', color: currentAddressType === 'correspondence' ? '#0f172a' : '#64748b', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', boxShadow: currentAddressType === 'correspondence' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}
-                                                >Correspondence</button>
-                                            </div>
-                                        </div>
-
-                                        {(() => {
-                                            const addrKey = currentAddressType === 'permanent' ? 'personalAddress' : 'correspondenceAddress';
-                                            const addr = formData[addrKey];
-
-                                            // Data Resolution
-                                            const countryData = INDIAN_ADDRESS_DATA['India'];
-                                            const states = addr.country === 'India' && countryData ? Object.keys(countryData) : [];
-                                            const cityData = addr.state && countryData && countryData[addr.state] ? countryData[addr.state] : null;
-                                            const cities = cityData ? Object.keys(cityData) : [];
-                                            const selectedCityObj = cityData && addr.city ? cityData[addr.city] : null;
-                                            const tehsils = selectedCityObj ? selectedCityObj.tehsils : [];
-                                            const postOffices = selectedCityObj ? selectedCityObj.postOffices.filter(po => !addr.tehsil || po.tehsil === addr.tehsil) : [];
-
-                                            const dropdownStyle = customSelectStyle;
-                                            const disabledStyle = customSelectStyleDisabled;
-
-                                            return (
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                                                    {/* Row 1: Country, State, City */}
-                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Country</label>
-                                                            <select
-                                                                value={addr.country}
-                                                                onChange={(e) => handleInputChange(addrKey, { ...addr, country: e.target.value, state: '', city: '', tehsil: '', postOffice: '', pincode: '' })}
-                                                                style={dropdownStyle}
-                                                            >
-                                                                <option value="India">India</option>
-                                                                {/* Add other countries if needed */}
-                                                            </select>
-                                                        </div>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>State</label>
-                                                            <select
-                                                                value={addr.state}
-                                                                onChange={(e) => handleInputChange(addrKey, { ...addr, state: e.target.value, city: '', tehsil: '', postOffice: '', pincode: '' })}
-                                                                disabled={!addr.country}
-                                                                style={!addr.country ? disabledStyle : dropdownStyle}
-                                                            >
-                                                                <option value="">Select State</option>
-                                                                {states.map(s => <option key={s} value={s}>{s}</option>)}
-                                                            </select>
-                                                        </div>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>City / District</label>
-                                                            <select
-                                                                value={addr.city}
-                                                                onChange={(e) => handleInputChange(addrKey, { ...addr, city: e.target.value, tehsil: '', postOffice: '', pincode: '' })}
-                                                                disabled={!addr.state}
-                                                                style={!addr.state ? disabledStyle : dropdownStyle}
-                                                            >
-                                                                <option value="">Select City</option>
-                                                                {cities.map(c => <option key={c} value={c}>{c}</option>)}
-                                                            </select>
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Row 2: Tehsil, PO, Pin */}
-                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Tehsil</label>
-                                                            <select
-                                                                value={addr.tehsil}
-                                                                onChange={(e) => handleInputChange(addrKey, { ...addr, tehsil: e.target.value })}
-                                                                disabled={!addr.city}
-                                                                style={!addr.city ? disabledStyle : dropdownStyle}
-                                                            >
-                                                                <option value="">Select Tehsil</option>
-                                                                {tehsils.map(t => <option key={t} value={t}>{t}</option>)}
-                                                            </select>
-                                                        </div>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Post Office</label>
-                                                            <select
-                                                                value={addr.postOffice}
-                                                                onChange={(e) => {
-                                                                    const selectedPO = postOffices.find(po => po.name === e.target.value);
-                                                                    handleInputChange(addrKey, { ...addr, postOffice: e.target.value, pincode: selectedPO ? selectedPO.pincode : addr.pincode });
-                                                                }}
-                                                                disabled={!addr.city}
-                                                                style={!addr.city ? disabledStyle : dropdownStyle}
-                                                            >
-                                                                <option value="">Select PO</option>
-                                                                {postOffices.map(po => <option key={po.name} value={po.name}>{po.name}</option>)}
-                                                            </select>
-                                                        </div>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Pincode</label>
-                                                            <input
-                                                                type="text"
-                                                                value={addr.pincode}
-                                                                readOnly
-                                                                placeholder="Pincode"
-                                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', background: '#f1f5f9', color: '#64748b' }}
-                                                            />
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Row 3: House No & Street (New Placement) */}
-                                                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 120px) 1fr', gap: '20px' }}>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>House Number</label>
-                                                            <input
-                                                                type="text"
-                                                                placeholder="House No"
-                                                                value={addr.hNo}
-                                                                onChange={(e) => handleInputChange(addrKey, { ...addr, hNo: e.target.value })}
-                                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', background: '#fff' }}
-                                                            />
-                                                        </div>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Street / Road / Landmark</label>
-                                                            <input
-                                                                type="text"
-                                                                placeholder="Enter Street, Road or Landmark"
-                                                                value={addr.street}
-                                                                onChange={(e) => handleInputChange(addrKey, { ...addr, street: e.target.value })}
-                                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', background: '#fff' }}
-                                                            />
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Row 3: Area, Location */}
-                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Area</label>
-                                                            <input
-                                                                type="text"
-                                                                placeholder="Enter Area"
-                                                                value={addr.area}
-                                                                onChange={(e) => handleInputChange(addrKey, { ...addr, area: e.target.value })}
-                                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', background: '#fff' }}
-                                                            />
-                                                        </div>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Sector</label>
-                                                            <input
-                                                                type="text"
-                                                                placeholder="Enter Sector"
-                                                                value={addr.location}
-                                                                onChange={(e) => handleInputChange(addrKey, { ...addr, location: e.target.value })}
-                                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', background: '#fff' }}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })()}
-                                    </div>
-                                )}
-
-                                {/* Documents Card */}
-                                <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                    <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                        <i className="fas fa-file-alt" style={{ color: '#64748b' }}></i> Documents
-                                    </h3>
-                                    {formData.documents.map((doc, index) => (
-                                        <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 40px', gap: '12px', marginBottom: '12px' }}>
-                                            <select value={doc.documentName} onChange={(e) => {
-                                                const newDocs = [...formData.documents];
-                                                newDocs[index].documentName = e.target.value;
-                                                handleInputChange('documents', newDocs);
-                                            }} style={customSelectStyle}>
-                                                <option value="">Select Doc</option>
-                                                {['ID Proof', 'Address Proof', 'Other'].map(d => <option key={d} value={d}>{d}</option>)}
-                                            </select>
-                                            <input type="text" placeholder="Document No" value={doc.documentNo} onChange={(e) => {
-                                                const newDocs = [...formData.documents];
-                                                newDocs[index].documentNo = e.target.value;
-                                                handleInputChange('documents', newDocs);
-                                            }} style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-                                            <label style={{
-                                                padding: '10px',
-                                                background: '#f8fafc',
-                                                border: '1px dashed #cbd5e1',
-                                                borderRadius: '6px',
-                                                fontSize: '0.8rem',
-                                                color: '#64748b',
-                                                textAlign: 'center',
-                                                cursor: 'pointer',
-                                                display: 'block',
-                                                whiteSpace: 'nowrap',
-                                                overflow: 'hidden',
-                                                textOverflow: 'ellipsis'
-                                            }}>
-                                                {doc.documentPicture ? (doc.documentPicture.name || 'File Selected') : 'Upload'}
-                                                <input
-                                                    type="file"
-                                                    accept="image/*,application/pdf"
-                                                    style={{ display: 'none' }}
-                                                    onChange={(e) => {
-                                                        const file = e.target.files[0];
-                                                        if (file) {
-                                                            const newDocs = [...formData.documents];
-                                                            newDocs[index].documentPicture = file;
-                                                            handleInputChange('documents', newDocs);
-                                                        }
-                                                    }}
-                                                />
-                                            </label>
-                                            <button type="button" onClick={() => {
-                                                if (index === 0) handleInputChange('documents', [...formData.documents, { documentName: '', documentNo: '', documentPicture: null }]);
-                                                else {
-                                                    const newDocs = formData.documents.filter((_, i) => i !== index);
-                                                    handleInputChange('documents', newDocs);
-                                                }
-                                            }} style={{ borderRadius: '6px', border: 'none', background: index === 0 ? '#eff6ff' : '#fef2f2', color: index === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer' }}>
-                                                <i className={`fas ${index === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        ) : currentTab === 'other' ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                                {/* Education Card (Moved from Personal) */}
-                                <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                    <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                        <i className="fas fa-graduation-cap" style={{ color: '#f59e0b' }}></i> Education History
-                                    </h3>
-                                    {formData.educations.map((edu, index) => {
-                                        const availableDegrees = edu.education && DEGREE_OPTIONS[edu.education] ? DEGREE_OPTIONS[edu.education] : [];
-
-                                        return (
-                                            <div key={index} style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 1fr) 1fr 2fr 40px', gap: '12px', marginBottom: '12px', alignItems: 'end' }}>
-                                                <div>
-                                                    <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Level</label>
-                                                    <select
-                                                        value={edu.education}
-                                                        onChange={(e) => {
-                                                            const newEdu = [...formData.educations];
-                                                            newEdu[index].education = e.target.value;
-                                                            newEdu[index].degree = ''; // Reset degree on level change
-                                                            handleInputChange('educations', newEdu);
-                                                        }}
-                                                        style={customSelectStyle}
-                                                    >
-                                                        <option value="">Select Level</option>
-                                                        {Object.keys(DEGREE_OPTIONS).map(level => (
-                                                            <option key={level} value={level}>{level}</option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-                                                <div>
-                                                    <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Degree/Course</label>
-                                                    <select
-                                                        value={edu.degree}
-                                                        onChange={(e) => {
-                                                            const newEdu = [...formData.educations];
-                                                            newEdu[index].degree = e.target.value;
-                                                            handleInputChange('educations', newEdu);
-                                                        }}
-                                                        disabled={!edu.education}
-                                                        style={!edu.education ? customSelectStyleDisabled : customSelectStyle}
-                                                    >
-                                                        <option value="">Select Degree</option>
-                                                        {availableDegrees.map(deg => (
-                                                            <option key={deg} value={deg}>{deg}</option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-                                                <div>
-                                                    <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Institute</label>
-                                                    <input
-                                                        type="text"
-                                                        placeholder="School/University"
-                                                        value={edu.school}
-                                                        onChange={(e) => {
-                                                            const newEdu = [...formData.educations];
-                                                            newEdu[index].school = e.target.value;
-                                                            handleInputChange('educations', newEdu);
-                                                        }}
-                                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
-                                                    />
-                                                </div>
-                                                <button type="button" onClick={() => {
-                                                    if (index === 0) handleInputChange('educations', [...formData.educations, { education: '', degree: '', school: '' }]);
-                                                    else {
-                                                        const newEdu = formData.educations.filter((_, i) => i !== index);
-                                                        handleInputChange('educations', newEdu);
-                                                    }
-                                                }} style={{ height: '40px', borderRadius: '6px', border: 'none', background: index === 0 ? '#eff6ff' : '#fef2f2', color: index === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer' }}>
-                                                    <i className={`fas ${index === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
-                                                </button>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                                {/* Financials Card */}
-                                <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                    <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                        <i className="fas fa-coins" style={{ color: '#eab308' }}></i> Financial Details
-                                    </h3>
-
-                                    {/* Income */}
-                                    <h4 style={{ fontSize: '0.9rem', color: '#475569', marginBottom: '12px' }}>Annual Income Source</h4>
-                                    {formData.incomes.map((inc, index) => (
-                                        <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 40px', gap: '12px', marginBottom: '12px' }}>
-                                            <select
-                                                value={inc.incomeType}
-                                                onChange={(e) => {
-                                                    const newInc = [...formData.incomes];
-                                                    newInc[index].incomeType = e.target.value;
-                                                    handleInputChange('incomes', newInc);
-                                                }}
-                                                style={customSelectStyle}
-                                            >
-                                                <option value="">Select Source</option>
-                                                {INCOME_SOURCES.map(source => <option key={source} value={source}>{source}</option>)}
-                                            </select>
-                                            <input
-                                                type="number"
-                                                placeholder="Amount"
-                                                value={inc.amount}
-                                                onChange={(e) => {
-                                                    const newInc = [...formData.incomes];
-                                                    newInc[index].amount = e.target.value;
-                                                    handleInputChange('incomes', newInc);
-                                                }}
-                                                style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
-                                            />
-                                            <button type="button" onClick={() => {
-                                                if (index === 0) handleInputChange('incomes', [...formData.incomes, { incomeType: '', amount: '' }]);
-                                                else {
-                                                    const newInc = formData.incomes.filter((_, i) => i !== index);
-                                                    handleInputChange('incomes', newInc);
-                                                }
-                                            }} style={{ borderRadius: '6px', border: 'none', background: index === 0 ? '#eff6ff' : '#fef2f2', color: index === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer' }}>
-                                                <i className={`fas ${index === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
-                                            </button>
-                                        </div>
-                                    ))}
-
-                                    {/* Loans */}
-                                    <h4 style={{ fontSize: '0.9rem', color: '#475569', margin: '20px 0 12px 0', paddingTop: '16px', borderTop: '1px dashed #e2e8f0' }}>Existing Loans</h4>
-                                    {formData.loans.map((loan, index) => (
-                                        <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 40px', gap: '12px', marginBottom: '12px' }}>
-                                            <select
-                                                value={loan.loanType}
-                                                onChange={(e) => {
-                                                    const newLoans = [...formData.loans];
-                                                    newLoans[index].loanType = e.target.value;
-                                                    handleInputChange('loans', newLoans);
-                                                }}
-                                                style={customSelectStyle}
-                                            >
-                                                <option value="">Type</option>
-                                                <option value="Home">Home Loan</option>
-                                                <option value="Car">Car Loan</option>
-                                                <option value="Personal">Personal Loan</option>
-                                            </select>
-                                            <select
-                                                value={loan.bank}
-                                                onChange={(e) => {
-                                                    const newLoans = [...formData.loans];
-                                                    newLoans[index].bank = e.target.value;
-                                                    handleInputChange('loans', newLoans);
-                                                }}
-                                                style={customSelectStyle}
-                                            >
-                                                <option value="">Select Bank</option>
-                                                {BANK_NAMES.map(bank => <option key={bank} value={bank}>{bank}</option>)}
-                                            </select>
-                                            <input
-                                                type="number"
-                                                placeholder="Amount"
-                                                value={loan.loanAmount}
-                                                onChange={(e) => {
-                                                    const newLoans = [...formData.loans];
-                                                    newLoans[index].loanAmount = e.target.value;
-                                                    handleInputChange('loans', newLoans);
-                                                }}
-                                                style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
-                                            />
-                                            <button type="button" onClick={() => {
-                                                if (index === 0) handleInputChange('loans', [...formData.loans, { loanType: '', bank: '', loanAmount: '' }]);
-                                                else {
-                                                    const newLoans = formData.loans.filter((_, i) => i !== index);
-                                                    handleInputChange('loans', newLoans);
-                                                }
-                                            }} style={{ borderRadius: '6px', border: 'none', background: index === 0 ? '#eff6ff' : '#fef2f2', color: index === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer' }}>
-                                                <i className={`fas ${index === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                {/* Social Media Card */}
-                                <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                    <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                        <i className="fas fa-hashtag" style={{ color: '#ec4899' }}></i> Social Presence
-                                    </h3>
-                                    {formData.socialMedia.map((social, index) => (
-                                        <div key={index} style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 160px) 1fr 40px', gap: '12px', marginBottom: '12px' }}>
-                                            <select
-                                                value={social.platform}
-                                                onChange={(e) => {
-                                                    const newSocial = [...formData.socialMedia];
-                                                    newSocial[index].platform = e.target.value;
-                                                    handleInputChange('socialMedia', newSocial);
-                                                }}
-                                                style={customSelectStyle}
-                                            >
-                                                <option value="">Select Platform</option>
-                                                <option value="LinkedIn">LinkedIn</option>
-                                                <option value="Facebook">Facebook</option>
-                                                <option value="Instagram">Instagram</option>
-                                                <option value="Twitter">Twitter/X</option>
-                                            </select>
-                                            <input
-                                                type="text"
-                                                placeholder="Profile URL / Handle"
-                                                value={social.url}
-                                                onChange={(e) => {
-                                                    const newSocial = [...formData.socialMedia];
-                                                    newSocial[index].url = e.target.value;
-                                                    handleInputChange('socialMedia', newSocial);
-                                                }}
-                                                style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
-                                            />
-                                            <button type="button" onClick={() => {
-                                                if (index === 0) handleInputChange('socialMedia', [...formData.socialMedia, { platform: '', url: '' }]);
-                                                else {
-                                                    const newSocial = formData.socialMedia.filter((_, i) => i !== index);
-                                                    handleInputChange('socialMedia', newSocial);
-                                                }
-                                            }} style={{ borderRadius: '6px', border: 'none', background: index === 0 ? '#eff6ff' : '#fef2f2', color: index === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer' }}>
-                                                <i className={`fas ${index === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
-                                            </button>
-                                        </div>
-                                    ))}
                                 </div>
                             </div>
                         ) : null
