@@ -57,41 +57,84 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     };
 
     // Server-side Pagination & Search
-    useEffect(() => {
-        const fetchLeads = async () => {
-            setLoading(true);
-            try {
-
-                  const queryParams = new URLSearchParams({
+ useEffect(() => {
+  const fetchLeads = async () => {
+    setLoading(true);
+    try {
+      const queryParams = new URLSearchParams({
         page: currentPage,
         limit: recordsPerPage,
         search: searchTerm,
       });
 
-              const res = await api.get(
-        `api/lead/get-lead?${queryParams.toString()}`,
+      const res = await api.get(
+        `api/lead/get-lead?${queryParams.toString()}`
       );
-                console.log(res);
-                
-                if (res.data.success) {
-                    setLeads(res.data.data || []);
-                    setTotalPages(res.data.totalPages || 1);
-                    setTotalCount(res.data.total || 0);
-                }
-            } catch (error) {
-                console.error("Error fetching leads:", error);
-                // showToast("Failed to fetch leads");
-            } finally {
-                setLoading(false);
-            }
-        };
 
-        const timer = setTimeout(() => {
-            fetchLeads();
-        }, 500); // Debounce
+      if (res.data.success) {
+        const mappedLeads = (res.data.data || []).map((lead) => {
+          const contact = lead.contactDetails || {};
 
-        return () => clearTimeout(timer);
-    }, [currentPage, recordsPerPage, searchTerm]);
+          return {
+            _id: lead._id,
+
+            // ===== BASIC INFO =====
+            name: `${contact.name || ""} ${contact.surname || ""}`.trim(),
+            mobile: contact.phones?.[0]?.number || "",
+            email: contact.emails?.[0]?.address || "",
+
+            // ===== REQUIREMENT =====
+            req: {
+              type: `${lead.requirement || ""} ${lead.subType?.[0] || ""}`.trim(),
+              size: `${lead.areaMin || ""}-${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
+            },
+
+            // ===== BUDGET =====
+            budget: lead.budgetMin || lead.budgetMax
+              ? `₹${Number(lead.budgetMin || 0).toLocaleString()} - ₹${Number(
+                  lead.budgetMax || 0
+                ).toLocaleString()}`
+              : "—",
+
+            // ===== LOCATION =====
+            location: [
+              lead.projectCity,
+              lead.locCity,
+              lead.locArea,
+            ].filter(Boolean).join(", "),
+
+            // ===== SOURCE & ASSIGNMENT =====
+            source: lead.subSource || contact.source || "Direct",
+            owner: contact.owner || "Unassigned",
+            team: contact.team || "",
+
+            // ===== STATUS (UI EXPECTED SHAPE) =====
+            status: {
+              label: "New",
+              class: "new",
+            },
+
+            // ===== META =====
+            lastAct: "Today",
+            addOn: `Added ${new Date(lead.createdAt).toLocaleDateString()}`,
+          };
+        });
+
+        setLeads(mappedLeads);
+        setTotalPages(res.data.totalPages || 1);
+        setTotalCount(res.data.total || 0);
+      }
+    } catch (error) {
+      console.error("Error fetching leads:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const timer = setTimeout(fetchLeads, 500); // debounce
+  return () => clearTimeout(timer);
+}, [currentPage, recordsPerPage, searchTerm]);
+
 
     const toggleSelect = (name) => {
         if (selectedIds.includes(name)) {
