@@ -491,7 +491,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         contactDetails: '', // Link to Contact ID
 
         // System Details
-        source: '',
+        // source: '',
         campaign: '',
         tags: [],
         team: '',
@@ -526,6 +526,10 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         transactionType: '',
         transactionFlexiblePercent: 50,
         sendMatchedDeal: [],
+        campaignName:"",
+        source:"",
+        subSource:"",
+
 
         // Select Location Fields
         projectName: [],
@@ -641,31 +645,41 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         }
     };
 
-    const handleSelectContact = (contact) => {
-        setContactSearchQuery(''); // Clear query or keep name? Resetting clears dropdown
-        setContactSearchResults([]);
-        setSelectedContact(contact);
+   const handleSelectContact = (contact) => {
+  setContactSearchQuery('');
+  setContactSearchResults([]);
+  setSelectedContact(contact);
 
-        // Populate form data
-        setFormData(prev => ({
-            ...prev,
-            title: contact.title || prev.title,
-            name: contact.name || prev.name,
-            surname: contact.surname || prev.surname,
-            countryCode: contact.countryCode || prev.countryCode,
-            phones: contact.mobile ? [{ number: contact.mobile, type: 'Personal' }] : (contact.phones && contact.phones.length > 0 ? contact.phones : prev.phones),
-            emails: contact.email ? [{ address: contact.email, type: 'Personal' }] : (contact.emails && contact.emails.length > 0 ? contact.emails : prev.emails),
+  setFormData(prev => ({
+    ...prev,
+    title: contact?.title ?? prev.title,
+    name: contact?.name ?? prev.name,
+    surname: contact?.surname ?? prev.surname,
+    countryCode: contact?.countryCode ?? prev.countryCode,
 
-            // Map other fields if available in contact
-            source: contact.source || prev.source,
-            // campaign: contact.campaign || prev.campaign,
-            team: contactData.team || prev.team,
-            owner: contactData.owner || prev.owner,
-            visibleTo: contactData.visibleTo || prev.visibleTo,
+    phones:
+      contact?.mobile
+        ? [{ number: contact.mobile, type: 'Personal' }]
+        : contact?.phones?.length
+        ? contact.phones
+        : prev.phones,
 
-            contactDetails: contact._id // Store ID for linking (Was contactId)
-        }));
-    };
+    emails:
+      contact?.email
+        ? [{ address: contact.email, type: 'Personal' }]
+        : contact?.emails?.length
+        ? contact.emails
+        : prev.emails,
+
+    source: contact?.source ?? prev.source,
+    team: contact?.team ?? prev.team,
+    owner: contact?.owner ?? prev.owner,
+    visibleTo: contact?.visibleTo ?? prev.visibleTo,
+
+    contactDetails: contact?._id
+  }));
+};
+
 
     // Derived Data for Dropdowns
     const availableProjects = formData.projectCity && PROJECT_DATA[formData.projectCity]
@@ -701,12 +715,10 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                     phones: formData.phones,
                     emails: formData.emails,
                     source: formData.source,
-                    // campaign: formData.campaign || prev.campaign,
-                    team: formData.team || prev.team,
-                    owner: formData.owner || prev.owner,
-                    visibleTo: formData.visibleTo || prev.visibleTo,
+                    team: formData.team,
+                    owner: formData.owner,
+                    visibleTo: formData.visibleTo,
                 };
-                console.log(contactPayload);
 
                 // Call Add Contact API
                 try {
@@ -743,10 +755,25 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 delete leadPayload.team;
                 delete leadPayload.owner;
                 delete leadPayload.visibleTo;
+                delete leadPayload.tags;
+                delete leadPayload.countryCode;
 
             }
-            console.log(leadPayload);
-            onAdd(leadPayload);
+               // Call Add Contact API
+                try {
+                    const response = await api.post("api/lead/create-lead", leadPayload);
+                    if (response.data && response.data.success) {
+                        finalContactId = response.data.data._id; // Assuming response.data.data is the created object
+                        // console.log("Created new contact:", finalContactId);
+                    } else {
+                        throw new Error("Failed to create new contact: " + (response.data?.message || "Unknown error"));
+                    }
+                } catch (contactError) {
+                    console.error("Error creating contact:", contactError);
+                    alert("Failed to save contact details. Please try again.");
+                    return;
+                }
+          
             onClose();
 
         } catch (error) {
