@@ -20,6 +20,7 @@ import FeedbackTemplatePage from './views/FeedbackTemplatePage';
 import TriggersSettingsPage from './views/TriggersSettingsPage';
 import FieldRulesSettingsPage from './views/FieldRulesSettingsPage';
 import DistributionRulesPage from './views/DistributionRulesPage';
+import SequencesSettingsPage from './views/SequencesSettingsPage';
 
 
 
@@ -429,6 +430,8 @@ const SettingsHubPage = () => {
                         <FieldRulesSettingsPage />
                     ) : activeTab === 'distributions' ? (
                         <DistributionRulesPage />
+                    ) : activeTab === 'sequences' ? (
+                        <SequencesSettingsPage />
                     ) : (
                         <EmptyState title={currentLabel} />
                     )}

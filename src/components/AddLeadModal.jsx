@@ -3,6 +3,8 @@ import api from '../../api'; // Import API for contact search
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useFieldRules } from '../context/FieldRulesContext';
 import { useDistribution } from '../context/DistributionContext';
+import { useSequences } from '../context/SequenceContext';
+import { useTriggers } from '../context/TriggersContext';
 
 import { INDIAN_LOCATION_HIERARCHY } from '../data/detailedLocationData';
 import { PROJECT_DATA, CITIES } from '../data/projectData';
@@ -389,8 +391,10 @@ const BUDGET_VALUES = [
 
 const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entityType = 'lead', contactData, title = "Add New Lead", saveLabel = "Save" }) => {
     const { propertyConfig, masterFields, leadMasterFields } = usePropertyConfig();
-    const { validate, validateAsync } = useFieldRules(); // Get Async Validator
+    const { validate, validateAsync } = useFieldRules(); // Get Validator Engine
     const { executeDistribution } = useDistribution(); // Get Distribution Engine
+    const { evaluateAndEnroll } = useSequences();
+    const { fireEvent } = useTriggers();
     const [currentTab, setCurrentTab] = useState('requirement');
     const [showOnlyRequired, setShowOnlyRequired] = useState(false);
 
@@ -786,6 +790,35 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
             console.log(leadPayload);
             onAdd(leadPayload);
+
+            // Enroll in Sequence
+            evaluateAndEnroll(leadPayload, 'leads');
+
+            // Fire Triggers
+            if (mode === 'add') {
+                fireEvent('lead_created', leadPayload, { entityType: 'leads' });
+            } else {
+                fireEvent('lead_updated', leadPayload, { entityType: 'leads' });
+
+                // If stage changed (detecting if different from initialData/contactData)
+                if (leadPayload.stage !== (contactData?.stage || initialData?.stage)) {
+                    fireEvent('lead_stage_changed', leadPayload, {
+                        entityType: 'leads',
+                        previousValue: contactData?.stage || initialData?.stage,
+                        currentValue: leadPayload.stage
+                    });
+                }
+
+                // If status changed
+                if (leadPayload.status !== (contactData?.status || initialData?.status)) {
+                    fireEvent('lead_status_changed', leadPayload, {
+                        entityType: 'leads',
+                        previousValue: contactData?.status || initialData?.status,
+                        currentValue: leadPayload.status
+                    });
+                }
+            }
+
             onClose();
 
         } catch (error) {

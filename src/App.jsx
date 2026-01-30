@@ -8,6 +8,8 @@ import { ContactConfigProvider } from './context/ContactConfigContext';
 import { ActivityProvider } from './context/ActivityContext';
 import { FieldRulesProvider } from './context/FieldRulesContext';
 import { DistributionProvider } from './context/DistributionContext';
+import { SequenceProvider } from './context/SequenceContext';
+import { TriggersProvider } from './context/TriggersContext';
 
 function App() {
     // Global Navigation State (Routing Logic Only)
@@ -76,17 +78,21 @@ function App() {
                 <PropertyConfigProvider>
                     <ActivityProvider>
                         <DistributionProvider>
-                            <Toaster position="top-right" />
-                            <MainLayout currentView={currentView} onNavigate={handleNavigate}>
-                                {(modalHandlers) => (
-                                    <AppRouter
-                                        currentView={currentView}
-                                        currentContactId={currentContactId}
-                                        onNavigate={handleNavigate}
-                                        {...modalHandlers}
-                                    />
-                                )}
-                            </MainLayout>
+                            <SequenceProvider>
+                                <TriggersProvider>
+                                    <Toaster position="top-right" />
+                                    <MainLayout currentView={currentView} onNavigate={handleNavigate}>
+                                        {(modalHandlers) => (
+                                            <AppRouter
+                                                currentView={currentView}
+                                                currentContactId={currentContactId}
+                                                onNavigate={handleNavigate}
+                                                {...modalHandlers}
+                                            />
+                                        )}
+                                    </MainLayout>
+                                </TriggersProvider>
+                            </SequenceProvider>
                         </DistributionProvider>
                     </ActivityProvider>
                 </PropertyConfigProvider>

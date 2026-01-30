@@ -2,9 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { contactData } from '../data/mockData';
 import { PROJECT_DATA } from '../data/projectData';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
+import { useSequences } from '../context/SequenceContext';
+import { useTriggers } from '../context/TriggersContext';
 
 const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
     const { activityMasterFields } = usePropertyConfig();
+    const { updateEnrollmentStatus } = useSequences();
+    const { fireEvent } = useTriggers();
     const [formData, setFormData] = useState({
         activityType: 'Call',
         subject: '',
@@ -227,6 +231,22 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
     const handleSubmit = () => {
         if (validate()) {
             if (onSave) onSave(formData);
+
+            // Fire activity_created event
+            fireEvent('activity_created', formData, { entityType: 'activities' });
+
+            // Pause sequences for related entities
+            if (formData.relatedTo && formData.relatedTo.length > 0) {
+                formData.relatedTo.forEach(related => {
+                    updateEnrollmentStatus(related.id, 'paused');
+                });
+            }
+
+            // Fire activity_completed event if status is completed
+            if (formData.status === 'Completed') {
+                fireEvent('activity_completed', formData, { entityType: 'activities' });
+            }
+
             onClose();
         }
     };

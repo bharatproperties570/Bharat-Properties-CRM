@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTriggers } from '../context/TriggersContext';
 
 const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [] }) => {
+    const { fireEvent } = useTriggers();
     const [channel, setChannel] = useState('SMS'); // SMS, WHATSAPP, RCS
     const [recipients, setRecipients] = useState([]);
     const [recipientInput, setRecipientInput] = useState('');
@@ -139,6 +141,10 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [] }) =
             schedule: isScheduled && showSchedule ? { date: scheduleDate, time: scheduleTime } : null
         };
         if (onSend) onSend(data);
+
+        // Fire Triggers
+        fireEvent('message_sent', data, { entityType: 'communication' });
+
         onClose();
     };
 

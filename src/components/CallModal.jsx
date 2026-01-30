@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useTriggers } from '../context/TriggersContext';
 
 const CallModal = ({ isOpen, onClose, contact, onCallEnd }) => {
+    const { fireEvent } = useTriggers();
     const [step, setStep] = useState('selection'); // selection, calling, summary
     const [callType, setCallType] = useState(null); // 'GSM', 'IVR'
     const [callStatus, setCallStatus] = useState('Idle'); // Idle, Calling, Connected, Ended
@@ -64,6 +66,17 @@ const CallModal = ({ isOpen, onClose, contact, onCallEnd }) => {
             timestamp: new Date().toISOString()
         };
         console.log('Call Logged:', summary);
+
+        // Fire Triggers
+        fireEvent('call_logged', summary, { entityType: 'communication' });
+
+        if (summary.outcome) {
+            fireEvent('call_outcome_selected', summary, {
+                entityType: 'communication',
+                outcome: summary.outcome
+            });
+        }
+
         if (onCallEnd) onCallEnd(summary);
         onClose();
     };

@@ -12,6 +12,8 @@ import LeadConversionService from '../../services/LeadConversionService';
 import { calculateLeadScore } from '../../utils/leadScoring';
 
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
+import { useSequences } from '../../context/SequenceContext';
+import EnrollSequenceModal from '../../components/EnrollSequenceModal';
 
 function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const {
@@ -60,6 +62,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     // Popover States
     const [activeScorePopover, setActiveScorePopover] = useState(null); // {leadName, x, y}
     const [activeMatchPopover, setActiveMatchPopover] = useState(null); // {leadName, x, y}
+    const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
+    const [selectedLeadForSequence, setSelectedLeadForSequence] = useState(null);
     const [toast, setToast] = useState(null);
 
     const showToast = (msg) => {
@@ -206,7 +210,19 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         >
                                             <i className="fas fa-calendar-check"></i> Activities
                                         </button>
-                                        <button className="action-btn" title="Start Sequence"><i className="fas fa-paper-plane"></i> Sequence</button>
+                                        <button
+                                            className="action-btn"
+                                            title="Start Sequence"
+                                            onClick={() => {
+                                                const selectedLead = leadData.find(l => l.name === selectedIds[0]);
+                                                if (selectedLead) {
+                                                    setSelectedLeadForSequence({ ...selectedLead, id: selectedLead.mobile });
+                                                    setIsEnrollModalOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-paper-plane"></i> Sequence
+                                        </button>
                                     </>
                                 )}
 
@@ -742,6 +758,14 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     </div>
                 )
             }
+
+            {/* Enroll Sequence Modal */}
+            <EnrollSequenceModal
+                isOpen={isEnrollModalOpen}
+                onClose={() => setIsEnrollModalOpen(false)}
+                entityId={selectedLeadForSequence?.id}
+                entityName={selectedLeadForSequence?.name}
+            />
 
             {/* Toast Notification */}
             {
