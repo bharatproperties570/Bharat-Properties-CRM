@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import PipelineDashboard from '../../components/PipelineDashboard';
-import { leadData } from '../../data/mockData';
+// import { leadData } from '../../data/mockData';
+import api from '../../../api';
 import { getInitials } from '../../utils/helpers';
 import SendMessageModal from '../../components/SendMessageModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
@@ -19,6 +20,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const {
         scoringAttributes,
         activityMasterFields,
+        updateActivityMasterFields,
         sourceQualityScores,
         inventoryFitScores,
         decayRules,
@@ -34,10 +36,15 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         decayRules,
         stageMultipliers
     };
+
+    const [leads, setLeads] = useState([]);
+    const [totalCount, setTotalCount] = useState(0);
+    const [totalPages, setTotalPages] = useState(0);
+    const [loading, setLoading] = useState(false);
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
-    const [recordsPerPage, setRecordsPerPage] = useState(25);
+    const [recordsPerPage, setRecordsPerPage] = useState(10);
 
     // Modals State
     const [isSendMessageOpen, setIsSendMessageOpen] = useState(false);
@@ -71,6 +78,86 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         setTimeout(() => setToast(null), 3000);
     };
 
+    // Server-side Pagination & Search
+    useEffect(() => {
+        const fetchLeads = async () => {
+            setLoading(true);
+            try {
+                const queryParams = new URLSearchParams({
+                    page: currentPage,
+                    limit: recordsPerPage,
+                    search: searchTerm,
+                });
+
+                const res = await api.get(
+                    `api/lead/get-lead?${queryParams.toString()}`
+                );
+
+                if (res.data.success) {
+                    const mappedLeads = (res.data.data || []).map((lead) => {
+                        const contact = lead.contactDetails || {};
+
+                        return {
+                            _id: lead._id,
+
+                            // ===== BASIC INFO =====
+                            name: `${contact.name || ""} ${contact.surname || ""}`.trim(),
+                            mobile: contact.phones?.[0]?.number || "",
+                            email: contact.emails?.[0]?.address || "",
+
+                            // ===== REQUIREMENT =====
+                            req: {
+                                type: `${lead.requirement || ""} ${lead.subType?.[0] || ""}`.trim(),
+                                size: `${lead.areaMin || ""}-${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
+                            },
+
+                            // ===== BUDGET =====
+                            budget: lead.budgetMin || lead.budgetMax
+                                ? `₹${Number(lead.budgetMin || 0).toLocaleString()} - ₹${Number(
+                                    lead.budgetMax || 0
+                                ).toLocaleString()}`
+                                : "—",
+
+                            // ===== LOCATION =====
+                            location: [
+                                lead.projectCity,
+                                lead.locCity,
+                                lead.locArea,
+                            ].filter(Boolean).join(", "),
+
+                            // ===== SOURCE & ASSIGNMENT =====
+                            source: lead.subSource || contact.source || "Direct",
+                            owner: contact.owner || "Unassigned",
+                            team: contact.team || "",
+
+                            // ===== STATUS (UI EXPECTED SHAPE) =====
+                            status: {
+                                label: "New",
+                                class: "new",
+                            },
+
+                            // ===== META =====
+                            lastAct: "Today",
+                            addOn: `Added ${new Date(lead.createdAt).toLocaleDateString()}`,
+                        };
+                    });
+
+                    setLeads(mappedLeads);
+                    setTotalPages(res.data.totalPages || 1);
+                    setTotalCount(res.data.total || 0);
+                }
+            } catch (error) {
+                console.error("Error fetching leads:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const timer = setTimeout(fetchLeads, 500); // debounce
+        return () => clearTimeout(timer);
+    }, [currentPage, recordsPerPage, searchTerm]);
+
+
     const toggleSelect = (name) => {
         if (selectedIds.includes(name)) {
             setSelectedIds(selectedIds.filter(id => id !== name));
@@ -80,7 +167,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     }
 
     const getSelectedLeads = () => {
-        return leadData.filter(l => selectedIds.includes(l.name)).map(l => ({
+        // Use leads state instead of leadData
+        return leads.filter(l => selectedIds.includes(l.name)).map(l => ({
             ...l,
             id: l.mobile // Ensure ID exists for shared components
         }));
@@ -88,21 +176,11 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
     const isSelected = (name) => selectedIds.includes(name);
     const selectedCount = selectedIds.length;
-    const totalCount = leadData.length;
+    // const totalCount = leadData.length; // Removed, using state
 
-    const filteredLeads = (leadData || []).filter(lead => {
-        if (!lead) return false;
-        const nameMatch = lead.name?.toLowerCase()?.includes(searchTerm.toLowerCase());
-        const mobileMatch = lead.mobile?.includes(searchTerm);
-        const emailMatch = lead.email?.toLowerCase()?.includes(searchTerm.toLowerCase());
-        return nameMatch || mobileMatch || emailMatch;
-    });
-
-    // Pagination
-    const indexOfLastRecord = currentPage * recordsPerPage;
-    const indexOfFirstRecord = indexOfLastRecord - recordsPerPage;
-    const currentRecords = filteredLeads.slice(indexOfFirstRecord, indexOfLastRecord);
-    const totalPages = Math.ceil(filteredLeads.length / recordsPerPage);
+    // Removed client-side filtering and pagination usage
+    // const filteredLeads ...
+    // const indexOfLastRecord ...
 
     const goToNextPage = () => {
         if (currentPage < totalPages) setCurrentPage(currentPage + 1);
@@ -154,7 +232,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             className="action-btn"
                                             title="Edit Lead"
                                             onClick={() => {
-                                                const selectedLead = leadData.find(l => l.name === selectedIds[0]);
+                                                const selectedLead = leads.find(l => l.name === selectedIds[0]);
                                                 if (selectedLead) {
                                                     setEditingLead(selectedLead);
                                                     setIsAddLeadModalOpen(true);
@@ -167,7 +245,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             className="action-btn"
                                             title="Call Lead"
                                             onClick={() => {
-                                                const selectedLead = leadData.find(l => l.name === selectedIds[0]);
+                                                const selectedLead = leads.find(l => l.name === selectedIds[0]);
                                                 if (selectedLead) {
                                                     setSelectedLeadForCall({ ...selectedLead, id: selectedLead.mobile });
                                                     setIsCallModalOpen(true);
@@ -180,7 +258,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             className="action-btn"
                                             title="Email Lead"
                                             onClick={() => {
-                                                const selectedLead = leadData.find(l => l.name === selectedIds[0]);
+                                                const selectedLead = leads.find(l => l.name === selectedIds[0]);
                                                 if (selectedLead) {
                                                     setSelectedLeadsForMail([{
                                                         id: selectedLead.mobile,
@@ -197,7 +275,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             className="action-btn"
                                             title="Add Activity"
                                             onClick={() => {
-                                                const selectedLead = leadData.find(l => l.name === selectedIds[0]);
+                                                const selectedLead = leads.find(l => l.name === selectedIds[0]);
                                                 if (selectedLead && onAddActivity) {
                                                     const relatedAccount = [{
                                                         id: selectedLead.mobile, // Using mobile as ID for now since leadData doesn't have ID
@@ -334,7 +412,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                     <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                                        Showing: <strong>{filteredLeads.length}</strong> / <strong>{totalCount}</strong>
+                                        Showing: <strong>{leads.length}</strong> / <strong>{totalCount}</strong>
                                     </div>
 
                                     {/* Records Per Page */}
@@ -422,7 +500,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                     {/* Data List (Div Grid) */}
                     <div id="leadListContent">
-                        {currentRecords.map((c, idx) => {
+                        {loading ? <div style={{ padding: '20px', textAlign: 'center' }}>Loading...</div> : leads.map((c, idx) => {
                             if (!c) return null;
                             // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
                             const typeStr = c.req?.type || 'Requirement Missing';
@@ -536,7 +614,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                 onBlur={() => showToast(`Budget updated for ${c.name}. Recalculating matches...`)}
                                                 style={{ color: 'var(--primary-color)', fontWeight: 800, fontSize: '0.85rem', outline: 'none' }}
                                             >{(c.budget || '').replace('<br/>', ' ')}</div>
-                                            <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, marginTop: '2px' }}>{c.req.size || 'Std. Size'}</div>
+                                            <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, marginTop: '2px' }}>{c?.req?.size || 'Std. Size'}</div>
                                         </div>
                                     </div>
 
@@ -753,7 +831,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                 <div style={{ background: '#dcfce7', color: '#166534', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 900 }}>{item.match}</div>
                             </div>
                         ))}
-                        <button style={{ width: '100%', marginTop: '10px', padding: '8px', background: 'var(--premium-blue)', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 900, cursor: 'pointer' }}>View All {leadData.find(l => l.name === activeMatchPopover.name)?.matched} Matches</button>
+                        <button style={{ width: '100%', marginTop: '10px', padding: '8px', background: 'var(--premium-blue)', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 900, cursor: 'pointer' }}>View All {leads.find(l => l.name === activeMatchPopover.name)?.matched} Matches</button>
                         <style>{`.match-item-hover:hover { background: #f8fafc; }`}</style>
                     </div>
                 )
@@ -776,7 +854,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     </div>
                 )
             }
-        </section >
+        </section>
     );
 }
 

@@ -499,7 +499,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         contactDetails: '',
 
         // System Details
-        source: '',
+        // source: '',
         campaign: '',
         tags: [],
         team: '',
@@ -534,6 +534,10 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         transactionType: '',
         transactionFlexiblePercent: 50,
         sendMatchedDeal: [],
+        campaignName: "",
+        source: "",
+        subSource: "",
+
 
         // Select Location Fields
         projectName: [],
@@ -650,19 +654,31 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
         setFormData(prev => ({
             ...prev,
-            title: contact.title || prev.title,
-            name: contact.name || prev.name,
-            surname: contact.surname || prev.surname,
-            countryCode: contact.countryCode || prev.countryCode,
-            phones: contact.mobile ? [{ number: contact.mobile, type: 'Personal' }] : (contact.phones && contact.phones.length > 0 ? contact.phones : prev.phones),
-            emails: contact.email ? [{ address: contact.email, type: 'Personal' }] : (contact.emails && contact.emails.length > 0 ? contact.emails : prev.emails),
+            title: contact?.title ?? prev.title,
+            name: contact?.name ?? prev.name,
+            surname: contact?.surname ?? prev.surname,
+            countryCode: contact?.countryCode ?? prev.countryCode,
 
-            source: contact.source || prev.source,
-            team: contact.team || prev.team,
-            owner: contact.owner || prev.owner,
-            visibleTo: contact.visibleTo || prev.visibleTo,
+            phones:
+                contact?.mobile
+                    ? [{ number: contact.mobile, type: 'Personal' }]
+                    : contact?.phones?.length
+                        ? contact.phones
+                        : prev.phones,
 
-            contactDetails: contact._id
+            emails:
+                contact?.email
+                    ? [{ address: contact.email, type: 'Personal' }]
+                    : contact?.emails?.length
+                        ? contact.emails
+                        : prev.emails,
+
+            source: contact?.source ?? prev.source,
+            team: contact?.team ?? prev.team,
+            owner: contact?.owner ?? prev.owner,
+            visibleTo: contact?.visibleTo ?? prev.visibleTo,
+
+            contactDetails: contact?._id
         }));
     };
 
@@ -715,12 +731,11 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                     phones: formData.phones,
                     emails: formData.emails,
                     source: formData.source,
-                    // campaign: formData.campaign,
+                    countryCode: formData.countryCode,
                     team: formData.team,
                     owner: formData.owner,
                     visibleTo: formData.visibleTo,
                 };
-                console.log(contactPayload);
 
                 // Call Add Contact API
                 try {
@@ -757,68 +772,66 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 delete leadPayload.team;
                 delete leadPayload.owner;
                 delete leadPayload.visibleTo;
+                delete leadPayload.tags;
+                delete leadPayload.countryCode;
 
             }
-
             // --- DISTRIBUTION ENGINE EXECUTION ---
-            // Execute distribution rules to assign owner if not manually set
             if (!formData.owner) {
                 try {
                     const distributionResult = executeDistribution('leads', {
                         ...formData,
-                        id: `temp_${Date.now()}`, // Temporary ID for distribution
+                        id: `temp_${Date.now()}`,
                         budget: formData.budgetMax || formData.budgetMin,
                         location: formData.locArea || formData.searchLocation,
                         propertyType: formData.propertyType[0],
                         leadScore: formData.leadScore || 0
-                    }, {
-                        users: [], // Will be populated from context
-                        teams: [],
-                        leads: [],
-                        activities: []
-                    });
+                    }, { users: [], teams: [], leads: [], activities: [] });
 
                     if (distributionResult.success) {
                         leadPayload.owner = distributionResult.assignedTo;
-                        console.log(`Lead auto-assigned to ${distributionResult.assignedTo} via rule: ${distributionResult.ruleName}`);
                     }
                 } catch (distError) {
                     console.error('Distribution engine error:', distError);
-                    // Continue without auto-assignment
                 }
             }
 
-            console.log(leadPayload);
+            // Call Add Lead API (from origin/main)
+            try {
+                const response = await api.post("api/lead/create-lead", leadPayload);
+                if (!response.data || !response.data.success) {
+                    throw new Error("Failed to create lead: " + (response.data?.message || "Unknown error"));
+                }
+
+                // Fire Triggers & Sequences on success
+                evaluateAndEnroll(leadPayload, 'leads');
+
+                if (mode === 'add') {
+                    fireEvent('lead_created', leadPayload, { entityType: 'leads' });
+                } else {
+                    fireEvent('lead_updated', leadPayload, { entityType: 'leads' });
+                    if (leadPayload.stage !== (contactData?.stage || initialData?.stage)) {
+                        fireEvent('lead_stage_changed', leadPayload, {
+                            entityType: 'leads',
+                            previousValue: contactData?.stage || initialData?.stage,
+                            currentValue: leadPayload.stage
+                        });
+                    }
+                    if (leadPayload.status !== (contactData?.status || initialData?.status)) {
+                        fireEvent('lead_status_changed', leadPayload, {
+                            entityType: 'leads',
+                            previousValue: contactData?.status || initialData?.status,
+                            currentValue: leadPayload.status
+                        });
+                    }
+                }
+            } catch (leadError) {
+                console.error("Error creating lead:", leadError);
+                alert("Failed to save lead. Please try again.");
+                return;
+            }
+
             onAdd(leadPayload);
-
-            // Enroll in Sequence
-            evaluateAndEnroll(leadPayload, 'leads');
-
-            // Fire Triggers
-            if (mode === 'add') {
-                fireEvent('lead_created', leadPayload, { entityType: 'leads' });
-            } else {
-                fireEvent('lead_updated', leadPayload, { entityType: 'leads' });
-
-                // If stage changed (detecting if different from initialData/contactData)
-                if (leadPayload.stage !== (contactData?.stage || initialData?.stage)) {
-                    fireEvent('lead_stage_changed', leadPayload, {
-                        entityType: 'leads',
-                        previousValue: contactData?.stage || initialData?.stage,
-                        currentValue: leadPayload.stage
-                    });
-                }
-
-                // If status changed
-                if (leadPayload.status !== (contactData?.status || initialData?.status)) {
-                    fireEvent('lead_status_changed', leadPayload, {
-                        entityType: 'leads',
-                        previousValue: contactData?.status || initialData?.status,
-                        currentValue: leadPayload.status
-                    });
-                }
-            }
-
             onClose();
 
         } catch (error) {
