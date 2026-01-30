@@ -5,6 +5,10 @@ import MainLayout from './layouts/MainLayout';
 import { PropertyConfigProvider } from './context/PropertyConfigContext';
 import { ContactConfigProvider } from './context/ContactConfigContext';
 
+import { ActivityProvider } from './context/ActivityContext';
+import { FieldRulesProvider } from './context/FieldRulesContext';
+import { DistributionProvider } from './context/DistributionContext';
+
 function App() {
     // Global Navigation State (Routing Logic Only)
     const [currentView, setCurrentView] = useState(() => {
@@ -68,19 +72,25 @@ function App() {
 
     return (
         <ContactConfigProvider>
-            <PropertyConfigProvider>
-                <Toaster position="top-right" />
-                <MainLayout currentView={currentView} onNavigate={handleNavigate}>
-                    {(modalHandlers) => (
-                        <AppRouter
-                            currentView={currentView}
-                            currentContactId={currentContactId}
-                            onNavigate={handleNavigate}
-                            {...modalHandlers}
-                        />
-                    )}
-                </MainLayout>
-            </PropertyConfigProvider>
+            <FieldRulesProvider>
+                <PropertyConfigProvider>
+                    <ActivityProvider>
+                        <DistributionProvider>
+                            <Toaster position="top-right" />
+                            <MainLayout currentView={currentView} onNavigate={handleNavigate}>
+                                {(modalHandlers) => (
+                                    <AppRouter
+                                        currentView={currentView}
+                                        currentContactId={currentContactId}
+                                        onNavigate={handleNavigate}
+                                        {...modalHandlers}
+                                    />
+                                )}
+                            </MainLayout>
+                        </DistributionProvider>
+                    </ActivityProvider>
+                </PropertyConfigProvider>
+            </FieldRulesProvider>
         </ContactConfigProvider>
     );
 }

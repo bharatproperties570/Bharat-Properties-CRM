@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../../api'; // Import API for contact search
 import { usePropertyConfig } from '../context/PropertyConfigContext';
+import { useFieldRules } from '../context/FieldRulesContext';
+import { useDistribution } from '../context/DistributionContext';
 
 import { INDIAN_LOCATION_HIERARCHY } from '../data/detailedLocationData';
 import { PROJECT_DATA, CITIES } from '../data/projectData';
@@ -386,10 +388,18 @@ const BUDGET_VALUES = [
 ];
 
 const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entityType = 'lead', contactData, title = "Add New Lead", saveLabel = "Save" }) => {
-    const { propertyConfig, masterFields, leadMasterFields } = usePropertyConfig(); // Updated context
-    const [currentTab, setCurrentTab] = useState('requirement'); // default to requirement for lead
-
+    const { propertyConfig, masterFields, leadMasterFields } = usePropertyConfig();
+    const { validate, validateAsync } = useFieldRules(); // Get Async Validator
+    const { executeDistribution } = useDistribution(); // Get Distribution Engine
+    const [currentTab, setCurrentTab] = useState('requirement');
     const [showOnlyRequired, setShowOnlyRequired] = useState(false);
+
+    // UI Enforcement State
+    const [hiddenFields, setHiddenFields] = useState([]);
+    const [readOnlyFields, setReadOnlyFields] = useState([]);
+    const [isSaving, setIsSaving] = useState(false);
+
+
 
     // Master Fields Options
     const facingOptions = masterFields?.facings || [];
@@ -397,10 +407,6 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     const unitTypeOptions = masterFields?.unitTypes || [];
     const directionOptions = masterFields?.directions || DIRECTION_OPTIONS;
     const floorLevelOptions = masterFields?.floorLevels || [];
-
-
-    // Document Name Logic
-
 
     const [locationTab, setLocationTab] = useState('select'); // 'select' or 'search'
     const [showSpecificUnit, setShowSpecificUnit] = useState(false);
@@ -478,8 +484,6 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         return () => clearInterval(timer);
     }, []);
 
-
-
     const [formData, setFormData] = useState({
         // Basic Details
         title: '',
@@ -488,7 +492,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         countryCode: '+91',
         phones: [{ number: '', type: 'Personal' }],
         emails: [{ address: '', type: 'Personal' }],
-        contactDetails: '', // Link to Contact ID
+        contactDetails: '',
 
         // System Details
         source: '',
@@ -536,12 +540,19 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         propertyNoEnd: '',
     });
 
+    // Passive Validation (Visibility Check)
+    useEffect(() => {
+        // Run sync validation actively to determine UI state
+        // We pass 'view' context to distinguish from 'save' validation implies
+        const result = validate('lead', formData, { context: 'view', stage: formData.stage || 'New' });
+        setHiddenFields(result.hiddenFields || []);
+        setReadOnlyFields(result.readonlyFields || []);
+    }, [formData, validate]);
 
 
     // Auto-fill from contactData
     useEffect(() => {
         if (contactData) {
-            // Parse Name
             const nameParts = contactData.name ? contactData.name.split(' ') : [];
             let title = '';
             let firstName = '';
@@ -551,9 +562,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 title = nameParts[0];
                 nameParts.shift();
             }
-            firstName = nameParts.join(' '); // Use remaining as name
-            // If we want to split first and last strictly, we can, but preserving as 'name' is often safer if single field used
-            // But formData has name and surname. Let's try to split last word as surname if > 1 word
+            firstName = nameParts.join(' ');
             if (nameParts.length > 1) {
                 lastName = nameParts.pop();
                 firstName = nameParts.join(' ');
@@ -561,26 +570,19 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 firstName = nameParts.join(' ');
             }
 
-
             setFormData(prev => ({
                 ...prev,
                 title: title,
                 name: firstName,
                 surname: lastName,
-                // Phones
                 phones: contactData.mobile ? [{ number: contactData.mobile, type: 'Personal' }] : prev.phones,
-                // Emails
                 emails: contactData.email ? [{ address: contactData.email, type: 'Personal' }] : prev.emails,
-                // System
                 source: contactData.source || prev.source,
                 campaign: contactData.campaign || prev.campaign,
                 team: contactData.team || prev.team,
                 owner: contactData.owner || prev.owner,
                 visibleTo: contactData.visibleTo || prev.visibleTo,
             }));
-
-
-
         }
     }, [contactData]);
 
@@ -595,13 +597,12 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         setFormData(prev => ({
             ...prev,
             projectCity: city,
-            projectName: [], // Reset projects
-            projectTowers: [] // Reset towers
+            projectName: [],
+            projectTowers: []
         }));
     };
 
     const handleProjectSelectionChange = (projects) => {
-        // projects is an array of selected project Names
         setFormData(prev => ({
             ...prev,
             projectName: projects
@@ -624,10 +625,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     const handleContactSearch = async (query) => {
         setIsContactSearchLoading(true);
         try {
-            // Using the endpoint confirmed in ContactsPage.jsx
             const response = await api.get(`get-all-contact?search=${query}`);
-            console.log(response);
-
             if (response.data && response.data.success) {
                 setContactSearchResults(response.data.data);
             } else {
@@ -642,11 +640,10 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     };
 
     const handleSelectContact = (contact) => {
-        setContactSearchQuery(''); // Clear query or keep name? Resetting clears dropdown
+        setContactSearchQuery('');
         setContactSearchResults([]);
         setSelectedContact(contact);
 
-        // Populate form data
         setFormData(prev => ({
             ...prev,
             title: contact.title || prev.title,
@@ -656,14 +653,12 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             phones: contact.mobile ? [{ number: contact.mobile, type: 'Personal' }] : (contact.phones && contact.phones.length > 0 ? contact.phones : prev.phones),
             emails: contact.email ? [{ address: contact.email, type: 'Personal' }] : (contact.emails && contact.emails.length > 0 ? contact.emails : prev.emails),
 
-            // Map other fields if available in contact
             source: contact.source || prev.source,
-            // campaign: contact.campaign || prev.campaign,
-            team: contactData.team || prev.team,
-            owner: contactData.owner || prev.owner,
-            visibleTo: contactData.visibleTo || prev.visibleTo,
+            team: contact.team || prev.team,
+            owner: contact.owner || prev.owner,
+            visibleTo: contact.visibleTo || prev.visibleTo,
 
-            contactDetails: contact._id // Store ID for linking (Was contactId)
+            contactDetails: contact._id
         }));
     };
 
@@ -679,15 +674,30 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         : [];
 
     const handleSave = async () => {
-        // Validation check (e.g., name and phone)
-        if (!formData.name && !formData.phones[0].number) {
-            // Add toast here if needed
-            alert("Name or Phone is required");
-            return;
-        }
-
+        setIsSaving(true);
         try {
-            // Check for ID in selectedContact (object) OR formData.contactDetails (ref from selection)
+            // --- FIELD RULES ENGINE VALIDATION (ASYNC) ---
+            const validationResult = await validateAsync('lead', formData, { stage: formData.stage || 'New' });
+
+            if (!validationResult.isValid) {
+                const errorMessages = Object.entries(validationResult.errors)
+                    .map(([field, msg]) => `• ${msg}`)
+                    .join('\n');
+
+                alert(`Validation Failed:\n${errorMessages}`);
+                setIsSaving(false);
+                return;
+            }
+
+            // Basic sanity check (Hardcoded backup)
+            if (!formData.name && !formData.phones[0].number) {
+                alert("Name or Phone is required");
+                setIsSaving(false);
+                return;
+            }
+
+            // ... (rest of save logic)
+            // Ensure we setIsSaving(false) in catch or end
             let finalContactId = selectedContact?._id || formData.contactDetails;
 
             // If no existing contact selected, create new one first
@@ -701,10 +711,10 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                     phones: formData.phones,
                     emails: formData.emails,
                     source: formData.source,
-                    // campaign: formData.campaign || prev.campaign,
-                    team: formData.team || prev.team,
-                    owner: formData.owner || prev.owner,
-                    visibleTo: formData.visibleTo || prev.visibleTo,
+                    // campaign: formData.campaign,
+                    team: formData.team,
+                    owner: formData.owner,
+                    visibleTo: formData.visibleTo,
                 };
                 console.log(contactPayload);
 
@@ -745,6 +755,35 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 delete leadPayload.visibleTo;
 
             }
+
+            // --- DISTRIBUTION ENGINE EXECUTION ---
+            // Execute distribution rules to assign owner if not manually set
+            if (!formData.owner) {
+                try {
+                    const distributionResult = executeDistribution('leads', {
+                        ...formData,
+                        id: `temp_${Date.now()}`, // Temporary ID for distribution
+                        budget: formData.budgetMax || formData.budgetMin,
+                        location: formData.locArea || formData.searchLocation,
+                        propertyType: formData.propertyType[0],
+                        leadScore: formData.leadScore || 0
+                    }, {
+                        users: [], // Will be populated from context
+                        teams: [],
+                        leads: [],
+                        activities: []
+                    });
+
+                    if (distributionResult.success) {
+                        leadPayload.owner = distributionResult.assignedTo;
+                        console.log(`Lead auto-assigned to ${distributionResult.assignedTo} via rule: ${distributionResult.ruleName}`);
+                    }
+                } catch (distError) {
+                    console.error('Distribution engine error:', distError);
+                    // Continue without auto-assignment
+                }
+            }
+
             console.log(leadPayload);
             onAdd(leadPayload);
             onClose();
@@ -790,7 +829,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         padding: '8px 20px', borderRadius: '9999px', fontSize: '0.9rem', fontWeight: 600,
         cursor: 'pointer', transition: 'all 0.2s', border: 'none', outline: 'none',
         backgroundColor: active ? '#fff' : 'transparent', color: active ? '#0f172a' : '#64748b',
-        boxShadow: active ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+        boxShadow: active ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+        display: 'flex', alignItems: 'center', gap: '8px'
     });
 
     const buttonStyle = {
@@ -927,10 +967,23 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                     {!showOnlyRequired && (
                         <div style={{ padding: '16px 32px 0 32px', background: '#fff' }}>
                             <div style={{ display: 'flex', gap: '8px', padding: '4px', background: '#f1f5f9', borderRadius: '9999px', width: 'fit-content' }}>
-                                {entityType === 'lead' && <button onClick={() => setCurrentTab('requirement')} style={tabStyle(currentTab === 'requirement')}>Requirement</button>}
-                                {entityType === 'lead' && <button onClick={() => setCurrentTab('location')} style={tabStyle(currentTab === 'location')}>Location</button>}
-                                <button onClick={() => setCurrentTab('basic')} style={tabStyle(currentTab === 'basic')}>{entityType === 'lead' ? 'Contact Details' : 'Basic Details'}</button>
-
+                                {entityType === 'lead' && (
+                                    <button onClick={() => setCurrentTab('requirement')} style={tabStyle(currentTab === 'requirement')}>
+                                        <i className="fas fa-clipboard-list"></i> Requirement
+                                    </button>
+                                )}
+                                {entityType === 'lead' && (
+                                    <button onClick={() => setCurrentTab('location')} style={tabStyle(currentTab === 'location')}>
+                                        <i className="fas fa-map-marker-alt"></i> Location
+                                    </button>
+                                )}
+                                <button onClick={() => setCurrentTab('basic')} style={tabStyle(currentTab === 'basic')}>
+                                    {entityType === 'lead' ? (
+                                        <><i className="fas fa-address-book"></i> Contact Details</>
+                                    ) : (
+                                        <><i className="fas fa-info-circle"></i> Basic Details</>
+                                    )}
+                                </button>
                             </div>
                         </div>
                     )}
@@ -2256,24 +2309,26 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             </div>
 
                                             {/* Source - Level 2 */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
-                                                <select
-                                                    value={formData.source}
-                                                    onChange={(e) => {
-                                                        handleInputChange('source', e.target.value);
-                                                        handleInputChange('subSource', '');
-                                                    }}
-                                                    disabled={!formData.campaign}
-                                                    style={!formData.campaign ? customSelectStyleDisabled : customSelectStyle}
-                                                >
-                                                    <option value="">Select Source</option>
-                                                    {(() => {
-                                                        const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign);
-                                                        return (selectedCamp?.sources || []).map(s => <option key={s.name} value={s.name}>{s.name}</option>);
-                                                    })()}
-                                                </select>
-                                            </div>
+                                            {!hiddenFields.includes('source') && (
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
+                                                    <select
+                                                        value={formData.source}
+                                                        onChange={(e) => {
+                                                            handleInputChange('source', e.target.value);
+                                                            handleInputChange('subSource', '');
+                                                        }}
+                                                        disabled={!formData.campaign}
+                                                        style={!formData.campaign ? customSelectStyleDisabled : customSelectStyle}
+                                                    >
+                                                        <option value="">Select Source</option>
+                                                        {(() => {
+                                                            const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign);
+                                                            return (selectedCamp?.sources || []).map(s => <option key={s.name} value={s.name}>{s.name}</option>);
+                                                        })()}
+                                                    </select>
+                                                </div>
+                                            )}
 
                                             {/* Medium - Level 3 */}
                                             <div>

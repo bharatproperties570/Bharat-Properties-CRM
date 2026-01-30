@@ -106,8 +106,10 @@ body {
     z-index: 1000;
     position: sticky;
     top: 0;
-    overflow-y: auto; /* Allow scrolling if menu is tall */
-    flex-shrink: 0; /* Prevent shrinking */
+    overflow-y: auto;
+    /* Allow scrolling if menu is tall */
+    flex-shrink: 0;
+    /* Prevent shrinking */
 }
 
 /* Hide scrollbar for sidebar */
@@ -120,11 +122,13 @@ body {
     flex-direction: column;
     align-items: center;
     width: 100%;
-    flex: 1; /* Take available space */
+    flex: 1;
+    /* Take available space */
 }
 
 .sidebar-footer {
-    margin-top: auto; /* Push to bottom */
+    margin-top: auto;
+    /* Push to bottom */
     width: 100%;
     display: flex;
     justify-content: center;
@@ -2764,9 +2768,10 @@ body {
 
 /* Inventory Module Optimized Grid (Split Version) */
 .inventory-list-grid {
-    grid-template-columns: 40px 180px 220px 180px 250px 250px 100px 140px;
-    gap: 15px;
-    min-width: 1400px;
+    display: grid;
+    grid-template-columns: 40px minmax(140px, 1fr) minmax(180px, 1.2fr) minmax(140px, 1fr) minmax(200px, 1.4fr) minmax(200px, 1.4fr) 100px minmax(140px, 1fr);
+    gap: 1.2rem;
+    width: 100%;
 }
 
 /* Global View Scroll Pattern (Boutique Standard) */

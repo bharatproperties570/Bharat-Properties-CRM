@@ -15,8 +15,33 @@ export const PropertyConfigProvider = ({ children }) => {
     // Initialize state with the static data
     const [propertyConfig, setPropertyConfig] = useState(PROPERTY_CATEGORIES);
 
+    // Helper Hook for Persistence
+    const useLocalStorage = (key, initialValue) => {
+        const [storedValue, setStoredValue] = useState(() => {
+            try {
+                const item = window.localStorage.getItem(key);
+                return item ? JSON.parse(item) : initialValue;
+            } catch (error) {
+                console.error(error);
+                return initialValue;
+            }
+        });
+
+        const setValue = (value) => {
+            try {
+                const valueToStore = value instanceof Function ? value(storedValue) : value;
+                setStoredValue(valueToStore);
+                window.localStorage.setItem(key, JSON.stringify(valueToStore));
+            } catch (error) {
+                console.error(error);
+            }
+        };
+
+        return [storedValue, setValue];
+    };
+
     // Master Fields State (Property Specific)
-    const [masterFields, setMasterFields] = useState({
+    const [masterFields, setMasterFields] = useLocalStorage('masterFields', {
         facings: [
             'Park Facing', 'Main Road Facing', 'Corner', 'School Facing',
             'Temple/Mandir Facing', 'Commercial Facing', 'Club Facing',
@@ -44,11 +69,78 @@ export const PropertyConfigProvider = ({ children }) => {
         ],
         videos: [
             'Walkthrough', 'Drone View', 'Interior Tour'
-        ]
+        ],
+        propertyOwnerFeedback: [
+            'Interested / Warm', 'Interested / Hot', 'Not Interested',
+            'Request Call Back', 'Busy / Driving', 'Switch Off / Unreachable',
+            'Market Feedback', 'General Inquiry', 'Wrong Number / Invalid'
+        ],
+        followUpActions: [
+            'Call Back', 'Meeting Scheduled', 'Site Visit', 'Document Collection', 'Negotiation', 'WhatsApp Message', 'Email'
+        ],
+        feedbackReasons: {
+            'Interested / Warm': ['Wants to Buy (Invest)', 'Sell & Buy (Re-invest)', 'For Sale', 'For Rent', 'Evaluating Options'],
+            'Interested / Hot': ['Ready to Sell Now', 'High Intent (Urgent)', 'Multiple Parties Interested', 'Agreement Pending'],
+            'Not Interested': ['Sold Out', 'Rented Out', 'Price Too High (Expectations)', 'Plan Dropped / Personal Reason', 'Unreasonable Demands', 'Not Selling but Buying', 'Family Dispute'],
+            'Request Call Back': ['Busy / Driving', 'In Meeting', 'Sick / Family Emergency', 'Out of Station', 'Discuss with Family', 'Evening / Morning Request'],
+            'Busy / Driving': ['DND Request', 'Driving', 'Working'],
+            'Switch Off / Unreachable': ['Switch Off', 'Not Reachable', 'No Answer', 'Out of Coverage'],
+            'Market Feedback': ['Inquiring Rates Only', 'Comparative Research', 'Taxation Query', 'Checking Demand'],
+            'General Inquiry': ['Document Status', 'Maintenance Issue', 'Rent Collection', 'Ownership Dispute'],
+            'Wrong Number / Invalid': ['Wrong Number', 'Ownership Changed', 'Invalid Number', 'Language Barrier']
+        },
+        responseTemplates: {
+            'Interested / Hot': {
+                whatsapp: "Hi {owner}, great to hear from you regarding {unit}! I'm finalizing the details for our {time} meeting. Please keep the original documents ready.",
+                sms: "{unit} Update: Hi {owner}, finalized meeting for {time}. Please keep documents ready.",
+                email: "Subject: Update regarding {unit}\n\nHi {owner},\n\nGreat to hear from you regarding {unit}! I'm finalizing the details for our {time} meeting. Please keep the original documents ready.\n\nBest regards,\nBharat Properties"
+            },
+            'Interested / Warm': {
+                whatsapp: "Hi {owner}, thank you for your time discussing {unit}. I've noted your interest for {reason}. I will share some market comparisons shortly.",
+                sms: "Hi {owner}, thanks for discussing {unit}. Noted your interest as {reason}. Will share details soon.",
+                email: "Subject: Interest noted for {unit}\n\nHi {owner},\n\nThank you for your time discussing {unit}. I've noted your interest for {reason}. I will share some market comparisons shortly.\n\nBest regards,\nBharat Properties"
+            },
+            'Request Call Back': {
+                whatsapp: "Hi {owner}, apologies for the interruption. I will call you back at {time} regarding {unit} as requested.",
+                sms: "Hi {owner}, will call you back at {time} regarding {unit}. Sorry for the interruption.",
+                email: "Subject: Call back request for {unit}\n\nHi {owner},\n\nApologies for the interruption. I will call you back at {time} regarding {unit} as requested.\n\nBest regards,\nBharat Properties"
+            },
+            'Not Interested': {
+                whatsapp: "Hi {owner}, thank you for the update on {unit}. I've updated the record as {reason}. Do reach out if your plans change.",
+                sms: "Hi {owner}, noted on {unit} as {reason}. Reach out if plans change. Thanks.",
+                email: "Subject: Status update for {unit}\n\nHi {owner},\n\nThank you for the update on {unit}. I've updated the record as {reason}. Do reach out if your plans change.\n\nBest regards,\nBharat Properties"
+            },
+            'Busy / Driving': {
+                whatsapp: "Hi {owner}, I tried calling you regarding {unit}. I'll reach out again later today.",
+                sms: "Hi {owner}, tried calling for {unit}. Will call again later. Thanks.",
+                email: "Subject: Missed you regarding {unit}\n\nHi {owner},\n\nI tried calling you regarding {unit}. I'll reach out again later today.\n\nBest regards,\nBharat Properties"
+            },
+            'Market Feedback': {
+                whatsapp: "Hi {owner}, thank you for the insight on {unit}. If you decide to proceed with sale or rent, I have active buyers ready.",
+                sms: "Hi {owner}, thanks for feedback on {unit}. Contact us if you decide to sell/rent. Active buyers ready.",
+                email: "Subject: Market feedback for {unit}\n\nHi {owner},\n\nThank you for the insight on {unit}. If you decide to proceed with sale or rent, I have active buyers ready.\n\nBest regards,\nBharat Properties"
+            }
+        },
+        triggers: {
+            'Feedback Received': {
+                whatsapp: true,
+                sms: false,
+                email: false
+            }
+        },
+        feedbackRules: {
+            'Not Interested': {
+                'Sold Out': { templateKey: 'Not Interested', actionType: 'None', sendWhatsapp: true, sendSms: false, sendEmail: false },
+                'Rented Out': { templateKey: 'Not Interested', actionType: 'None', sendWhatsapp: true, sendSms: false, sendEmail: false }
+            },
+            'Interested / Hot': {
+                'Ready to Sell Now': { templateKey: 'Interested / Hot', actionType: 'Meeting Scheduled', sendWhatsapp: true, sendSms: false, sendEmail: false }
+            }
+        }
     });
 
     // Project Master Fields (Moved/Copied from Property)
-    const [projectMasterFields, setProjectMasterFields] = useState({
+    const [projectMasterFields, setProjectMasterFields] = useLocalStorage('projectMasterFields', {
         approvals: [
             'RERA', 'DTCP', 'TCP', 'CLU', 'OC', 'CC'
         ],
@@ -70,7 +162,7 @@ export const PropertyConfigProvider = ({ children }) => {
     });
 
     // Dynamic Amenities Configuration
-    const [projectAmenities, setProjectAmenities] = useState({
+    const [projectAmenities, setProjectAmenities] = useLocalStorage('projectAmenities', {
         'Basic': [
             { id: 'bp1', name: 'Car Parking', icon: 'fa-car' },
             { id: 'bp2', name: 'Intercom', icon: 'fa-phone-alt' },
@@ -142,7 +234,7 @@ export const PropertyConfigProvider = ({ children }) => {
     };
 
     // Company Master Fields
-    const [companyMasterFields, setCompanyMasterFields] = useState({
+    const [companyMasterFields, setCompanyMasterFields] = useLocalStorage('companyMasterFields', {
         companyTypes: [
             'Private Limited', 'Public Limited', 'LLP', 'Sole Proprietorship', 'Partnership', 'One Person Company'
         ],
@@ -159,7 +251,7 @@ export const PropertyConfigProvider = ({ children }) => {
     };
 
     // Lead & Campaign Master Fields
-    const [leadMasterFields, setLeadMasterFields] = useState({
+    const [leadMasterFields, setLeadMasterFields] = useLocalStorage('leadMasterFields', {
         transactionTypes: ['Collector Rate', 'Full White', 'Flexible'],
         fundingTypes: ['Home Loan', 'Self Funding', 'Loan Against Property', 'Personal Loan', 'Business Loan'],
         furnishingStatuses: ['Unfurnished', 'Semi-Furnished', 'Fully-Furnished'],
@@ -194,7 +286,7 @@ export const PropertyConfigProvider = ({ children }) => {
     });
 
     // Scoring Attributes State (Static Weights)
-    const [scoringAttributes, setScoringAttributes] = useState({
+    const [scoringAttributes, setScoringAttributes] = useLocalStorage('scoringAttributes', {
         requirement: { label: 'Detailed Requirement', points: 32 },
         budget: { label: 'Budget Match', points: 10 },
         location: { label: 'Location Match', points: 10 },
@@ -207,6 +299,151 @@ export const PropertyConfigProvider = ({ children }) => {
         setScoringAttributes(prev => ({ ...prev, ...newAttributes }));
     };
 
+    // --- NEW: Phased Scoring Configuration ---
+    const [scoringConfig, setScoringConfig] = useLocalStorage('scoringConfig', {
+        behavioural: { enabled: false },
+        dealFit: { enabled: false },
+        financial: { enabled: false },
+        decay: { enabled: false },
+        ai: { enabled: false }
+    });
+
+    const updateScoringConfig = (phase, newItem) => {
+        setScoringConfig(prev => ({
+            ...prev,
+            [phase]: { ...prev[phase], ...newItem }
+        }));
+    };
+
+    // Phase 1: Behavioural Scoring Signals
+    const [behaviouralSignals, setBehaviouralSignals] = useLocalStorage('behaviouralSignals', {
+        propertyMatchOpened: { label: 'Property Match Opened', points: 5 },
+        sameLocationRepeated: { label: 'Same Location Repeatedly', points: 10 },
+        fastReply: { label: 'WhatsApp Reply < 5 min', points: 8 },
+        feedbackProvided: { label: 'Site Visit Feedback Added', points: 15 },
+        repeatedNoResponse: { label: 'Repeated No Response', points: -10 }
+    });
+
+    const updateBehaviouralSignals = (newSignals) => {
+        setBehaviouralSignals(prev => ({ ...prev, ...newSignals }));
+    };
+
+    // Phase 2: Deal-Fit Intelligence (Skeleton)
+    const [dealFitSignals, setDealFitSignals] = useLocalStorage('dealFitSignals', {
+        activeProperty: { label: 'Property Active', points: 10 },
+        priceGapSmall: { label: 'Price Gap < 5%', points: 15 },
+        exactMatch: { label: 'Exact Facing/Size', points: 10 },
+        competition: { label: 'Multiple Competing Buyers', points: -10 },
+        ownerFlexible: { label: 'Owner Flexible', points: 15 }
+    });
+
+    const updateDealFitSignals = (newSignals) => {
+        setDealFitSignals(prev => ({ ...prev, ...newSignals }));
+    };
+
+    // Phase 3: Financial Readiness (Skeleton)
+    const [financialSignals, setFinancialSignals] = useLocalStorage('financialSignals', {
+        cashBuyer: { label: 'Cash Buyer', points: 25 },
+        loanApproved: { label: 'Loan Pre-approved', points: 15 },
+        sellerFirst: { label: 'Needs to Sell First', points: -15 },
+        investor: { label: 'Investor (Short Cycle)', points: 10 },
+        flexiblePayment: { label: 'Flexible Payment Plan', points: 10 }
+    });
+
+    const updateFinancialSignals = (newSignals) => {
+        setFinancialSignals(prev => ({ ...prev, ...newSignals }));
+    };
+
+    // Phase 4: Time Decay Rules (Skeleton)
+    const [decayRules, setDecayRules] = useLocalStorage('decayRules', {
+        inactive7: { label: '7 Days Inactivity', points: -5 },
+        inactive14: { label: '14 Days Inactivity', points: -10 },
+        inactive30: { label: '30 Days Inactivity (Auto-Dormant)', points: -20 } // -20 effectively kills the score usually
+    });
+
+    const updateDecayRules = (newRules) => {
+        setDecayRules(prev => ({ ...prev, ...newRules }));
+    };
+
+    // Phase 5: AI Interpretation (Skeleton)
+    const [aiSignals, setAiSignals] = useLocalStorage('aiSignals', {
+        sentimentPositive: { label: 'Positive Sentiment Analysis', points: 20 },
+        highIntentKeywords: { label: 'High Intent Keywords', points: 15 },
+        competitorMention: { label: 'Competitor Mentioned', points: -5 },
+        budgetConstraint: { label: 'Budget Constraint Mentioned', points: -10 }
+    });
+
+    const updateAiSignals = (newSignals) => {
+        setAiSignals(prev => ({ ...prev, ...newSignals }));
+    };
+
+    // --- C. SOURCE QUALITY SCORES ---
+    const [sourceQualityScores, setSourceQualityScores] = useLocalStorage('sourceQualityScores', {
+        referral: { label: 'Referral', points: 20 },
+        walkIn: { label: 'Walk-in', points: 15 },
+        google: { label: 'Google Search', points: 12 },
+        socialMedia: { label: 'Instagram / FB', points: 6 },
+        portal: { label: 'Portal', points: 4 },
+        coldCall: { label: 'Cold Call', points: 0 }
+    });
+    const updateSourceQualityScores = (newScores) => setSourceQualityScores(prev => ({ ...prev, ...newScores }));
+
+    // --- D. INVENTORY FIT SCORES ---
+    const [inventoryFitScores, setInventoryFitScores] = useLocalStorage('inventoryFitScores', {
+        match5Plus: { label: 'Matching inventory ≥ 5', points: 10 },
+        priceDev5: { label: 'Price deviation < 5%', points: 10 },
+        exactSize: { label: 'Exact size match', points: 5 },
+        locked: { label: 'Inventory locked', points: -15 },
+        none: { label: 'No inventory', points: -20 }
+    });
+    const updateInventoryFitScores = (newScores) => setInventoryFitScores(prev => ({ ...prev, ...newScores }));
+
+    // --- F. STAGE MULTIPLIERS ---
+    const [stageMultipliers, setStageMultipliers] = useLocalStorage('stageMultipliers', {
+        incoming: { label: 'Incoming', value: 0.7 },
+        prospect: { label: 'Prospect', value: 1.0 },
+        opportunity: { label: 'Opportunity', value: 1.3 },
+        negotiation: { label: 'Negotiation', value: 1.5 }
+    });
+    const updateStageMultipliers = (newMultipliers) => setStageMultipliers(prev => ({ ...prev, ...newMultipliers }));
+
+    // --- DEAL SCORING ENGINE ---
+    const [dealScoringRules, setDealScoringRules] = useLocalStorage('dealScoringRules', {
+        stages: {
+            open: { label: 'Open', points: 10 },
+            quote: { label: 'Quote', points: 20 },
+            negotiation: { label: 'Negotiation', points: 35 },
+            booked: { label: 'Booked', points: 50 }
+        },
+        signals: {
+            priceDiscussion: { label: 'Price discussion', points: 10 },
+            counterOffer: { label: 'Counter offer', points: 15 },
+            visitRepeated: { label: 'Visit repeated', points: 20 },
+            legalDocs: { label: 'Legal docs asked', points: 25 }
+        },
+        risks: {
+            ownerNonResponsive: { label: 'Owner non-responsive', points: -20 },
+            budgetGap: { label: 'Buyer budget gap', points: -15 },
+            competition: { label: 'Inventory competition', points: -10 },
+            delay15: { label: 'Delay > 15 days', points: -20 }
+        }
+    });
+    const updateDealScoringRules = (section, newRules) => {
+        setDealScoringRules(prev => ({
+            ...prev,
+            [section]: { ...prev[section], ...newRules }
+        }));
+    };
+
+    // --- SCORE BANDS ---
+    const [scoreBands, setScoreBands] = useLocalStorage('scoreBands', {
+        cold: { label: 'Cold', min: 0, max: 30, color: '#64748b' },
+        warm: { label: 'Warm', min: 31, max: 60, color: '#f59e0b' },
+        hot: { label: 'Hot', min: 61, max: 80, color: '#ef4444' },
+        superHot: { label: 'Super Hot', min: 81, max: 100, color: '#7c3aed' }
+    });
+    const updateScoreBands = (newBands) => setScoreBands(prev => ({ ...prev, ...newBands }));
+
     const updateLeadMasterFields = (field, newValues) => {
         setLeadMasterFields(prev => ({
             ...prev,
@@ -215,7 +452,7 @@ export const PropertyConfigProvider = ({ children }) => {
     };
 
     // Activity Master Fields (Hierarchical: Activity -> Purpose -> Outcome { label, score })
-    const [activityMasterFields, setActivityMasterFields] = useState({
+    const [activityMasterFields, setActivityMasterFields] = useLocalStorage('activityMasterFields', {
         activities: [
             {
                 name: 'Call',
@@ -474,7 +711,30 @@ export const PropertyConfigProvider = ({ children }) => {
             activityMasterFields,
             updateActivityMasterFields,
             scoringAttributes,
-            updateScoringAttributes
+            updateScoringAttributes,
+            scoringConfig,
+            updateScoringConfig,
+            behaviouralSignals,
+            updateBehaviouralSignals,
+            dealFitSignals,
+            updateDealFitSignals,
+            financialSignals,
+            updateFinancialSignals,
+            decayRules,
+            updateDecayRules,
+            aiSignals,
+            updateAiSignals,
+            // New Final Model Exports
+            sourceQualityScores,
+            updateSourceQualityScores,
+            inventoryFitScores,
+            updateInventoryFitScores,
+            stageMultipliers,
+            updateStageMultipliers,
+            dealScoringRules,
+            updateDealScoringRules,
+            scoreBands,
+            updateScoreBands
         }}>
             {children}
         </PropertyConfigContext.Provider>

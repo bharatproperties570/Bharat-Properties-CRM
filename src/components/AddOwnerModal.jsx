@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { contactData } from '../data/mockData';
 import toast from 'react-hot-toast';
 
 const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
@@ -21,7 +22,43 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
     };
 
     const [owners, setOwners] = useState([]);
-    const [linkData, setLinkData] = useState({ mobile: '', role: 'Property Owner', name: '', relationship: '' });
+    const [searchTerm, setSearchTerm] = useState('');
+    const [filteredContacts, setFilteredContacts] = useState([]);
+    const [selectedContact, setSelectedContact] = useState(null);
+    const [linkData, setLinkData] = useState({ role: 'Property Owner', relationship: '' });
+    const searchRef = useRef(null);
+
+    // Search Logic
+    useEffect(() => {
+        if (searchTerm.trim()) {
+            const term = searchTerm.toLowerCase();
+            const results = contactData.filter(c => {
+                const nameMatch = (c.name || '').toLowerCase().includes(term) ||
+                    (c.firstName || '').toLowerCase().includes(term) ||
+                    (c.lastName || '').toLowerCase().includes(term);
+
+                const phoneMatch = (c.mobile || '').includes(searchTerm) ||
+                    (c.phones || []).some(p => (p.number || '').includes(searchTerm)) ||
+                    (c.contacts || []).some(p => (p.number || '').includes(searchTerm));
+
+                return nameMatch || phoneMatch;
+            });
+            setFilteredContacts(results);
+        } else {
+            setFilteredContacts([]);
+        }
+    }, [searchTerm]);
+
+    // Close search results on outside click
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (searchRef.current && !searchRef.current.contains(event.target)) {
+                setFilteredContacts([]);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
 
     useEffect(() => {
         if (isOpen) {
@@ -36,8 +73,8 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
 
     // Handle Owner Link
     const handleLinkOwner = () => {
-        if (!linkData.mobile || linkData.mobile.length !== 10) {
-            toast.error('Valid 10-digit mobile number required');
+        if (!selectedContact) {
+            toast.error('Please select a contact first');
             return;
         }
         if (linkData.role === 'Associate' && !linkData.relationship) {
@@ -45,17 +82,18 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
             return;
         }
 
-        // Simulate Name Fetch (In real app, fetch from API)
-        const dummyName = "Unknown User";
-
         const newOwner = {
-            ...linkData,
-            name: linkData.name || dummyName // Use entered name or dummy
+            name: selectedContact.name || `${selectedContact.firstName || ''} ${selectedContact.lastName || ''}`.trim() || 'Unknown',
+            mobile: selectedContact.mobile || selectedContact.phones?.[0]?.number || selectedContact.contacts?.[0]?.number || '',
+            role: linkData.role,
+            relationship: linkData.relationship,
+            id: selectedContact.id || Date.now().toString()
         };
 
         const updatedOwners = [...owners, newOwner];
         setOwners(updatedOwners);
-        setLinkData({ mobile: '', role: 'Property Owner', name: '', relationship: '' });
+        setLinkData({ role: 'Property Owner', relationship: '' });
+        setSelectedContact(null);
         toast.success('Owner/Associate Added');
     };
 
@@ -82,75 +120,113 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
                 {/* Body */}
                 <div style={{ padding: '24px', overflowY: 'auto', maxHeight: '60vh' }}>
 
-                    {/* Input Form */}
+                    {/* Input Form Refactored for Search */}
                     <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
-                        <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Add New Person</h4>
+                        <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Select Person</h4>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-                            <div>
-                                <label style={labelStyle}>Start with Mobile Number</label>
-                                <input
-                                    type="text"
-                                    maxLength="10"
-                                    placeholder="Enter 10-digit mobile"
-                                    value={linkData.mobile}
-                                    onChange={(e) => {
-                                        const val = e.target.value.replace(/\D/g, '');
-                                        setLinkData({ ...linkData, mobile: val });
-                                    }}
-                                    style={inputStyle}
-                                />
+                        {!selectedContact ? (
+                            <div style={{ position: 'relative' }} ref={searchRef}>
+                                <label style={labelStyle}>Search Contact</label>
+                                <div style={{ display: 'flex', alignItems: 'center', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0 12px' }}>
+                                    <i className="fas fa-search" style={{ color: '#94a3b8' }}></i>
+                                    <input
+                                        type="text"
+                                        style={{ ...inputStyle, border: 'none', background: 'transparent' }}
+                                        placeholder="Search by name or mobile..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
+                                {filteredContacts.length > 0 && (
+                                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', zIndex: 10, maxHeight: '200px', overflowY: 'auto' }}>
+                                        {filteredContacts.map(contact => (
+                                            <div
+                                                key={contact.id}
+                                                onClick={() => {
+                                                    setSelectedContact(contact);
+                                                    setSearchTerm('');
+                                                    setFilteredContacts([]);
+                                                }}
+                                                style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between' }}
+                                                className="hover:bg-slate-50"
+                                            >
+                                                <div>
+                                                    <div style={{ fontWeight: 600, color: '#334155', fontSize: '0.9rem' }}>
+                                                        {contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim()}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                                        {contact.mobile || contact.phones?.[0]?.number || contact.contacts?.[0]?.number}
+                                                    </div>
+                                                </div>
+                                                <i className="fas fa-plus" style={{ color: '#3b82f6' }}></i>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
-                            <div>
-                                <label style={labelStyle}>Role</label>
-                                <select
-                                    value={linkData.role}
-                                    onChange={(e) => setLinkData({ ...linkData, role: e.target.value })}
-                                    style={customSelectStyle}
-                                >
-                                    <option value="Property Owner">Property Owner</option>
-                                    <option value="Associate">Associate (Family/Partner)</option>
-                                </select>
+                        ) : (
+                            <div style={{ background: '#fff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '12px', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{ width: '40px', height: '40px', background: '#eff6ff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', fontWeight: 700 }}>
+                                        {(selectedContact.name || selectedContact.firstName || 'U').charAt(0)}
+                                    </div>
+                                    <div>
+                                        <div style={{ fontWeight: 600, color: '#1e293b' }}>
+                                            {selectedContact.name || `${selectedContact.firstName || ''} ${selectedContact.lastName || ''}`.trim()}
+                                        </div>
+                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                            {selectedContact.mobile || selectedContact.phones?.[0]?.number || selectedContact.contacts?.[0]?.number}
+                                        </div>
+                                    </div>
+                                </div>
+                                <button onClick={() => setSelectedContact(null)} style={{ color: '#ef4444', background: '#fef2f2', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}>Change</button>
                             </div>
-                        </div>
+                        )}
 
-                        {/* Name Input (Simulated) */}
-                        <div style={{ marginBottom: '16px' }}>
-                            <label style={labelStyle}>Name</label>
-                            <input
-                                value={linkData.name}
-                                onChange={(e) => setLinkData({ ...linkData, name: e.target.value })}
-                                style={inputStyle}
-                                placeholder="Enter Name"
-                            />
-                        </div>
-
-                        {linkData.role === 'Associate' && (
-                            <div>
-                                <label style={labelStyle}>Relationship</label>
-                                <select
-                                    value={linkData.relationship}
-                                    onChange={(e) => setLinkData({ ...linkData, relationship: e.target.value })}
-                                    style={customSelectStyle}
-                                >
-                                    <option value="">Select Relationship</option>
-                                    <option>Father</option>
-                                    <option>Mother</option>
-                                    <option>Brother</option>
-                                    <option>Sister</option>
-                                    <option>Spouse</option>
-                                    <option>Partner</option>
-                                    <option>Other</option>
-                                </select>
+                        {selectedContact && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '16px' }}>
+                                <div>
+                                    <label style={labelStyle}>Assign Role</label>
+                                    <select
+                                        style={customSelectStyle}
+                                        value={linkData.role}
+                                        onChange={(e) => setLinkData({ ...linkData, role: e.target.value })}
+                                    >
+                                        <option value="Property Owner">Property Owner</option>
+                                        <option value="Associate">Associate</option>
+                                    </select>
+                                </div>
+                                {linkData.role === 'Associate' && (
+                                    <div>
+                                        <label style={labelStyle}>Relationship</label>
+                                        <select
+                                            style={customSelectStyle}
+                                            value={linkData.relationship}
+                                            onChange={(e) => setLinkData({ ...linkData, relationship: e.target.value })}
+                                        >
+                                            <option value="">Select Relationship</option>
+                                            <option value="Spouse">Spouse</option>
+                                            <option value="Child">Child</option>
+                                            <option value="Parent">Parent</option>
+                                            <option value="Sibling">Sibling</option>
+                                            <option value="Partner">Partner</option>
+                                        </select>
+                                    </div>
+                                )}
                             </div>
                         )}
 
                         <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
                             <button
                                 onClick={handleLinkOwner}
-                                style={buttonStyle.primary}
+                                disabled={!selectedContact || (linkData.role === 'Associate' && !linkData.relationship)}
+                                style={{
+                                    ...buttonStyle.primary,
+                                    opacity: (!selectedContact || (linkData.role === 'Associate' && !linkData.relationship)) ? 0.6 : 1,
+                                    cursor: (!selectedContact || (linkData.role === 'Associate' && !linkData.relationship)) ? 'not-allowed' : 'pointer'
+                                }}
                             >
-                                <i className="fas fa-plus" style={{ marginRight: '8px' }}></i> Add Person
+                                Confirm & Add
                             </button>
                         </div>
                     </div>

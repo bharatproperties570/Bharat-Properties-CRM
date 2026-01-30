@@ -131,7 +131,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                 (propEmail && contactEmail && propEmail === contactEmail);
 
             let matchType = 'Previous Owner';
-            if (isCurrentMatch) {
+            if (isCurrentMatch && p.status !== 'Sold Out') {
                 const contactParts = contact?.name?.toLowerCase()?.split(' ') || [];
                 const propParts = p.ownerName?.toLowerCase()?.split(' ') || [];
                 const contactLast = contactParts[contactParts.length - 1] || '';

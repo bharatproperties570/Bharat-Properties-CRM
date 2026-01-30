@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
+import { useActivities } from '../../context/ActivityContext';
+import CreateActivityModal from '../../components/CreateActivityModal';
 
 function ActivitiesPage() {
+    const { activities } = useActivities(); // Use global state
     const [activeTab, setActiveTab] = useState('Today');
     const [activeFilter, setActiveFilter] = useState('All');
     const [selectedIds, setSelectedIds] = useState([]);
@@ -8,123 +11,28 @@ function ActivitiesPage() {
     const [calendarView, setCalendarView] = useState('month'); // 'month', 'week', 'day'
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedActivity, setSelectedActivity] = useState(null);
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const { addActivity } = useActivities();
 
-    // Sample activities data based on reference images
-    const activitiesData = [
-        {
-            id: 'C1',
-            type: 'Meeting',
-            contactName: 'Mr. Pale Ram',
-            contactPhone: '9988675732',
-            contactEmail: '',
-            scheduledDate: '2025-12-10T17:18',
-            agenda: 'MEETING with Mr. Pale Ram undefined For Requirement Meeting of at Office @ 2025-12-10T17:18.',
-            activityType: 'Meeting',
-            scheduledBy: 'Suresh',
-            scheduledFor: 'Prospect',
-            stage: 'Prospect',
-            status: 'complete',
-            feedback: ''
-        },
-        {
-            id: 'C2',
-            type: 'Call',
-            contactName: 'Mr. Rajesh kumar Singhal',
-            contactPhone: '7988275300/9410535300',
-            contactEmail: '5481050305448/5@gmail.com',
-            scheduledDate: '2025-12-14T12:31',
-            agenda: 'Call Mr. Rajesh kumar Singhal undefined for Site Visit @ 2025-12-14T12:31.',
-            activityType: 'Call',
-            scheduledBy: 'Suresh',
-            scheduledFor: '',
-            stage: '',
-            status: 'complete',
-            feedback: ''
-        },
-        {
-            id: 'C3',
-            type: 'Call',
-            contactName: 'Mr. Pale Ram',
-            contactPhone: '9988675732',
-            contactEmail: '',
-            scheduledDate: '2025-12-10T17:19',
-            agenda: 'Call Mr. Pale Ram undefined for Inventory Availability @ 2025-12-10T17:19.',
-            activityType: 'Call',
-            scheduledBy: 'Suresh',
-            scheduledFor: 'Prospect',
-            stage: '',
-            status: 'overdue',
-            feedback: ''
-        },
-        {
-            id: '1',
-            type: 'Site Visit',
-            contactName: 'Mr. Rajesh kumar Singhal',
-            contactPhone: '7988275300/9410535300',
-            contactEmail: '5481050305448/5@gmail.com',
-            lead: 'Sector 4 Kurukshetra',
-            project: 'Sector 4 Kurukshetra',
-            date: '2025-10-07T11:13',
-            scheduled: 'Suresh',
-            refreshed: '',
-            agenda: 'Site Visit with Mr. Rajesh kumar Singhal undefined For 1550-Second Block-Sector 4-Kurukshetra @ 2025-10-07T11:13',
-            source: '',
-            feedback: 'postponed for low budget',
-            stage: '',
-            status: 'complete'
-        },
-        {
-            id: '2',
-            type: 'Site Visit',
-            contactName: 'Mr. Karan Singh Arni',
-            contactPhone: '9457200442/9',
-            contactEmail: '',
-            lead: 'Sector 3 Kurukshetra',
-            project: 'Sector 4 Kurukshetra',
-            date: '2025-11-26T11:03',
-            scheduled: 'Suresh',
-            refreshed: '',
-            agenda: 'Site Visit with Mr. Karan Singh Arni undefined For 1550-Second Block-Sector 4 Kurukshetra @ 2025-11-26T11:03',
-            source: '',
-            feedback: 'interested in 800 and want 800, 850 1832, 1835 in sec 0',
-            stage: '',
-            status: 'complete'
-        },
-        {
-            id: '3',
-            type: 'Site Visit',
-            contactName: 'Mrs. Sapna JASSI',
-            contactPhone: '9992461080',
-            contactEmail: '',
-            lead: 'Sector 3 Kurukshetra',
-            project: '',
-            date: '2025-10-24T12:05',
-            scheduled: 'Vivek',
-            refreshed: '',
-            agenda: 'Site Visit with Mrs. Sapna JASSI undefined For @ 2025-10-24T12:05',
-            source: '',
-            feedback: 'Visit done sector 3 booth interested in 25 (10,17).',
-            stage: '',
-            status: 'complete'
-        },
-        {
-            id: '5',
-            type: 'Site Visit',
-            contactName: 'Mr. Satish Kumar',
-            contactPhone: '9830645455',
-            contactEmail: '',
-            lead: 'Sector 4 Kurukshetra',
-            project: 'Sector 8 Kurukshetra Sector 3 Kurukshetra',
-            date: '2025-10-30T09:00',
-            scheduled: 'Vivek',
-            refreshed: '',
-            agenda: 'Site Visit with Mr. Satish Kumar undefined For @ 2025-10-30T09:00',
-            source: '',
-            feedback: 'Come for visit 6m south in sector 4,8,3 budget 1,30cr Call for confirm.',
-            stage: '',
-            status: 'overdue'
-        }
-    ];
+    const handleSaveActivity = (activityData) => {
+        const newActivity = {
+            id: Date.now().toString(),
+            type: activityData.activityType,
+            contactName: activityData.relatedTo?.[0]?.name || 'Unknown Client',
+            contactPhone: activityData.participants?.[0]?.mobile || '',
+            scheduledDate: `${activityData.dueDate}T${activityData.dueTime}`,
+            agenda: activityData.subject,
+            activityType: activityData.activityType,
+            scheduledBy: 'Current User',
+            scheduledFor: 'Follow Up',
+            stage: 'Pending',
+            status: 'pending',
+            feedback: activityData.description || '',
+            project: activityData.visitedProperties?.[0]?.project || ''
+        };
+        addActivity(newActivity);
+        setIsCreateModalOpen(false);
+    };
 
     const toggleSelect = (id) => {
         setSelectedIds(prev =>
@@ -140,8 +48,8 @@ function ActivitiesPage() {
 
     // Filter activities based on activeFilter
     const filteredActivities = activeFilter === 'All'
-        ? activitiesData
-        : activitiesData.filter(a => a.type === activeFilter);
+        ? activities
+        : activities.filter(a => a.type === activeFilter);
 
     // Calendar logic
     const getDaysInMonth = (date) => new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
@@ -505,7 +413,7 @@ function ActivitiesPage() {
                     </div>
 
                     <div className="calendar-main-grid" style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
-                        {calendarView === 'month' ? renderMonthView() : renderTimeGridView(calendarView)}
+                        {calendarView === 'month' ? renderMonthPage() : renderTimeGridPage(calendarView)}
                     </div>
                 </div>
             </div>
@@ -525,8 +433,12 @@ function ActivitiesPage() {
                         </div>
                     </div>
                     <div className="header-actions" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <button className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <i className="fas fa-plus"></i> Play Task
+                        <button
+                            className="btn-primary"
+                            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                            onClick={() => setIsCreateModalOpen(true)}
+                        >
+                            <i className="fas fa-plus"></i> Create Activity
                         </button>
 
                         <div className="view-toggle-group">
@@ -894,6 +806,11 @@ function ActivitiesPage() {
                     </div>
                 </div>
             </div>
+            <CreateActivityModal
+                isOpen={isCreateModalOpen}
+                onClose={() => setIsCreateModalOpen(false)}
+                onSave={handleSaveActivity}
+            />
         </section >
     );
 }

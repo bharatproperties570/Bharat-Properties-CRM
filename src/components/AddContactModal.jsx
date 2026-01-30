@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useContactConfig } from '../context/ContactConfigContext';
+import { useFieldRules } from '../context/FieldRulesContext';
 
 import { INDIAN_LOCATION_HIERARCHY } from '../data/detailedLocationData';
 import AddressDetailsForm from './common/AddressDetailsForm';
@@ -617,10 +618,37 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
     const hasMultipleOffices = selectedCompanyData?.offices?.length > 1;
     const officeOptions = selectedCompanyData?.offices?.map(o => ({ label: o.name, value: o.name })) || [];
 
+    // --- Field Rules Integration ---
+    const { validate, validateAsync } = useFieldRules();
+    const [hiddenFields, setHiddenFields] = useState([]);
+    const [readOnlyFields, setReadOnlyFields] = useState([]);
+    const [isSaving, setIsSaving] = useState(false);
+
+    // Passive Validation (Visibility Check)
+    useEffect(() => {
+        if (validate) {
+            const result = validate('contact', formData, { context: 'view' });
+            setHiddenFields(result.hiddenFields || []);
+            setReadOnlyFields(result.readonlyFields || []);
+        }
+    }, [formData, validate]);
+
     const handleSave = async () => {
+        setIsSaving(true);
         const toastId = toast.loading('Adding contact...');
         try {
-            console.log("API BASE URL:", api.defaults.baseURL);
+            // --- FIELD RULES ENGINE VALIDATION (ASYNC) ---
+            if (validateAsync) {
+                const validationResult = await validateAsync('contact', formData);
+
+                if (!validationResult.isValid) {
+                    const errorMessages = Object.values(validationResult.errors).join(', ');
+                    toast.error(`Validation Failed: ${errorMessages}`, { id: toastId });
+                    setIsSaving(false);
+                    return;
+                }
+            }
+
             const response = await api.post("add-contact", formData);
 
 
@@ -676,7 +704,8 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
         padding: '8px 20px', borderRadius: '9999px', fontSize: '0.9rem', fontWeight: 600,
         cursor: 'pointer', transition: 'all 0.2s', border: 'none', outline: 'none',
         backgroundColor: active ? '#fff' : 'transparent', color: active ? '#0f172a' : '#64748b',
-        boxShadow: active ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+        boxShadow: active ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+        display: 'flex', alignItems: 'center', gap: '8px'
     });
 
     const buttonStyle = {
@@ -749,9 +778,15 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                     {!showOnlyRequired && (
                         <div style={{ padding: '16px 32px 0 32px', background: '#fff' }}>
                             <div style={{ display: 'flex', gap: '8px', padding: '4px', background: '#f1f5f9', borderRadius: '9999px', width: 'fit-content' }}>
-                                <button onClick={() => setCurrentTab('basic')} style={tabStyle(currentTab === 'basic')}>Basic Details</button>
-                                <button onClick={() => setCurrentTab('personal')} style={tabStyle(currentTab === 'personal')}>Personal</button>
-                                <button onClick={() => setCurrentTab('other')} style={tabStyle(currentTab === 'other')}>Other</button>
+                                <button onClick={() => setCurrentTab('basic')} style={tabStyle(currentTab === 'basic')}>
+                                    <i className="fas fa-info-circle"></i> Basic Details
+                                </button>
+                                <button onClick={() => setCurrentTab('personal')} style={tabStyle(currentTab === 'personal')}>
+                                    <i className="fas fa-user"></i> Personal
+                                </button>
+                                <button onClick={() => setCurrentTab('other')} style={tabStyle(currentTab === 'other')}>
+                                    <i className="fas fa-file-alt"></i> Other
+                                </button>
                             </div>
                         </div>
                     )}
@@ -767,17 +802,19 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                                         <i className="fas fa-user-circle" style={{ color: '#3b82f6' }}></i> Identity Details
                                     </h3>
                                     <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr 1fr', gap: '20px' }}>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Title</label>
-                                            <select
-                                                value={formData.title}
-                                                onChange={(e) => handleInputChange('title', e.target.value)}
-                                                style={customSelectStyle}
-                                            >
-                                                <option value="">Title</option>
-                                                {titleOptions.map(t => <option key={t} value={t}>{t}</option>)}
-                                            </select>
-                                        </div>
+                                        {!hiddenFields.includes('title') && (
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Title</label>
+                                                <select
+                                                    value={formData.title}
+                                                    onChange={(e) => handleInputChange('title', e.target.value)}
+                                                    style={customSelectStyle}
+                                                >
+                                                    <option value="">Title</option>
+                                                    {titleOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                                                </select>
+                                            </div>
+                                        )}
                                         <div>
                                             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>First Name <span style={{ color: '#ef4444' }}>*</span></label>
                                             <input
@@ -915,28 +952,123 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
                                                 <i className="fas fa-bullhorn" style={{ color: '#f59e0b' }}></i> Campaign & Source
                                             </h3>
                                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+                                                {/* Company Name */}
+                                                {!hiddenFields.includes('company') && (
+                                                    <div>
+                                                        {/* Hidden check applied */}
+                                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Company Name</label>
+                                                        <div style={{ position: 'relative' }}>
+                                                            <input
+                                                                type="text"
+                                                                placeholder="Select Company"
+                                                                value={formData.company}
+                                                                onChange={(e) => {
+                                                                    handleInputChange('company', e.target.value);
+                                                                    setCompanySearch(e.target.value);
+                                                                    setShowCompanyDropdown(true);
+                                                                }}
+                                                                onFocus={() => setShowCompanyDropdown(true)}
+                                                                style={inputStyle}
+                                                            />
+                                                            {formData.company && (
+                                                                <i
+                                                                    className="fas fa-times"
+                                                                    onClick={() => handleInputChange('company', '')}
+                                                                    style={{
+                                                                        position: 'absolute',
+                                                                        right: '35px',
+                                                                        top: '50%',
+                                                                        transform: 'translateY(-50%)',
+                                                                        color: '#94a3b8',
+                                                                        cursor: 'pointer'
+                                                                    }}
+                                                                ></i>
+                                                            )}
+                                                            <i
+                                                                className={`fas fa-chevron-down ${showCompanyDropdown ? 'fa-rotate-180' : ''}`}
+                                                                style={{
+                                                                    position: 'absolute',
+                                                                    right: '12px',
+                                                                    top: '50%',
+                                                                    transform: 'translateY(-50%)',
+                                                                    color: '#94a3b8',
+                                                                    cursor: 'pointer',
+                                                                    transition: 'transform 0.2s'
+                                                                }}
+                                                                onClick={() => setShowCompanyDropdown(!showCompanyDropdown)}
+                                                            ></i>
+
+                                                            {showCompanyDropdown && (
+                                                                <div style={{
+                                                                    position: 'absolute',
+                                                                    top: '100%',
+                                                                    left: 0,
+                                                                    right: 0,
+                                                                    background: '#fff',
+                                                                    border: '1px solid #e2e8f0',
+                                                                    borderRadius: '6px',
+                                                                    marginTop: '4px',
+                                                                    zIndex: 10,
+                                                                    maxHeight: '200px',
+                                                                    overflowY: 'auto',
+                                                                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                                                                }}>
+                                                                    {companyList
+                                                                        .filter(c => c.toLowerCase().includes(companySearch.toLowerCase()))
+                                                                        .map((company, index) => (
+                                                                            <div
+                                                                                key={index}
+                                                                                onClick={() => {
+                                                                                    handleInputChange('company', company);
+                                                                                    setShowCompanyDropdown(false);
+                                                                                }}
+                                                                                style={{
+                                                                                    padding: '10px 12px',
+                                                                                    cursor: 'pointer',
+                                                                                    borderBottom: '1px solid #f1f5f9',
+                                                                                    fontSize: '0.9rem',
+                                                                                    color: '#334155'
+                                                                                }}
+                                                                                onMouseEnter={(e) => e.target.style.background = '#f8fafc'}
+                                                                                onMouseLeave={(e) => e.target.style.background = '#fff'}
+                                                                            >
+                                                                                {company}
+                                                                            </div>
+                                                                        ))}
+                                                                    {companyList.filter(c => c.toLowerCase().includes(companySearch.toLowerCase())).length === 0 && (
+                                                                        <div style={{ padding: '12px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
+                                                                            No companies found
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
                                                 {/* Source */}
-                                                <div>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
-                                                    <select
-                                                        value={formData.source}
-                                                        onChange={(e) => handleInputChange('source', e.target.value)}
-                                                        style={customSelectStyle}
-                                                    >
-                                                        <option value="">Select Source</option>
-                                                        {(() => {
-                                                            const allSources = [];
-                                                            (leadMasterFields?.campaigns || []).forEach(c => {
-                                                                (c.sources || []).forEach(s => {
-                                                                    if (!allSources.includes(s.name)) {
-                                                                        allSources.push(s.name);
-                                                                    }
+                                                {!hiddenFields.includes('source') && (
+                                                    <div>
+                                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
+                                                        <select
+                                                            value={formData.source}
+                                                            onChange={(e) => handleInputChange('source', e.target.value)}
+                                                            style={customSelectStyle}
+                                                        >
+                                                            <option value="">Select Source</option>
+                                                            {(() => {
+                                                                const allSources = [];
+                                                                (leadMasterFields?.campaigns || []).forEach(c => {
+                                                                    (c.sources || []).forEach(s => {
+                                                                        if (!allSources.includes(s.name)) {
+                                                                            allSources.push(s.name);
+                                                                        }
+                                                                    });
                                                                 });
-                                                            });
-                                                            return allSources.map(s => <option key={s} value={s}>{s}</option>);
-                                                        })()}
-                                                    </select>
-                                                </div>
+                                                                return allSources.map(s => <option key={s} value={s}>{s}</option>);
+                                                            })()}
+                                                        </select>
+                                                    </div>
+                                                )}
                                             </div>
                                             <div>
                                                 <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Tags</label>

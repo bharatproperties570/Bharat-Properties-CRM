@@ -1,127 +1,147 @@
 /**
- * Lead Scoring Engine
- * Uses Dynamic Configuration from PropertyConfigContext
+ * Lead Scoring Engine - Final Formula Implementation
+ * Formula: (Attribute + Activity + Source + Fit - Decay) * Multiplier
+ * Max Cap: 100 (soft cap, can go higher but UI treats >80 as Super Hot)
  */
 
-/**
- * Calculates Total Lead Score
- * @param {Object} lead - The lead object
- * @param {Array} activities - List of activities for this lead
- * @param {Object} config - { scoringAttributes, activityMasterFields }
- */
 export const calculateLeadScore = (lead, activities = [], config = {}) => {
-    const { scoringAttributes = {}, activityMasterFields = {} } = config;
+    // Destructure all new config sections
+    const {
+        scoringAttributes = {},
+        activityMasterFields = {},
+        sourceQualityScores = {},
+        inventoryFitScores = {},
+        decayRules = {},
+        stageMultipliers = {}
+    } = config;
 
-    // Helper to get attribute point safely
-    const getAttrPoint = (key) => scoringAttributes[key]?.points || 0;
+    // Helper: Safely get points
+    const getAttr = (obj, key) => obj?.[key]?.points || 0;
+    const getMult = (obj, key) => obj?.[key]?.value || 1.0;
 
-    // 1. Lead Form Score
-    let formScore = 0;
-    const reqBreakdown = {};
+    let debugLog = {}; // For Explainability
 
-    // A. Requirement (Mapped to 'requirement' attribute)
-    // For mock env, simple check if detailedReq has keys
-    if (lead.detailedReq) {
-        const reqKeys = Object.keys(lead.detailedReq).length;
-        // Simple logic: If > 3 fields filled, give full requirement points, else partial?
-        // Let's keep it simple: if detailedReq exists and has meaningful data
-        if (reqKeys > 0) {
-            const pts = getAttrPoint('requirement');
-            formScore += pts;
-            reqBreakdown['requirement'] = pts;
-        }
-    }
+    // --- A. ATTRIBUTE SCORE (Static Intent) ---
+    let attributeScore = 0;
 
-    // B. Budget Match
-    const budgetPts = getAttrPoint('budget'); // Max points for perfect
-    let budgetScore = 2; // Default low
-    if (lead.budgetMatch === 'perfect') budgetScore = budgetPts;
-    else if (lead.budgetMatch === 'slightly_lower') budgetScore = Math.floor(budgetPts * 0.6);
-    formScore += budgetScore;
+    // 1. Detailed Requirement (Max 32)
+    const hasReq = lead.detailedReq && Object.keys(lead.detailedReq).length > 2;
+    if (hasReq) attributeScore += getAttr(scoringAttributes, 'requirement');
 
-    // C. Location Preference
-    const locPts = getAttrPoint('location');
-    let locScore = 2;
-    if (lead.locationPref === 'level1') locScore = locPts;
-    else if (lead.locationPref === 'level2') locScore = Math.floor(locPts * 0.8);
-    // ... simplifications for other levels
-    formScore += locScore;
+    // 2. Budget Match (Max 10)
+    if (lead.budgetMatch === 'perfect') attributeScore += getAttr(scoringAttributes, 'budget');
 
-    // D. Timeline
-    const timePts = getAttrPoint('timeline');
-    let timeScore = 0;
-    if (lead.timeline === 'urgent') timeScore = timePts;
-    else if (lead.timeline === '15days') timeScore = Math.floor(timePts * 0.7);
-    formScore += timeScore;
+    // 3. Location Match (Max 10)
+    if (lead.locationPref === 'level1') attributeScore += getAttr(scoringAttributes, 'location');
 
-    // E. Payment
-    const payPts = getAttrPoint('payment');
-    let payScore = 0;
-    if (Array.isArray(lead.payment) && lead.payment.length > 0) {
-        payScore = payPts; // Simplified: Any clean payment plan = points
-    }
-    formScore += payScore;
+    // 4. Timeline (Max 10)
+    if (lead.timeline === 'urgent') attributeScore += getAttr(scoringAttributes, 'timeline');
 
-    // F. Source
-    const srcPts = getAttrPoint('source');
-    let srcScore = 0;
-    // Assume specific high quality sources get points
-    const highIntentSources = ['walk-in', 'old client', 'referral', 'channel partner'];
-    if (highIntentSources.includes(lead.source?.toLowerCase())) {
-        srcScore = srcPts;
-    }
-    formScore += srcScore;
+    // 5. Payment (Max 10)
+    if (lead.payment && lead.payment.length > 0) attributeScore += getAttr(scoringAttributes, 'payment');
 
-    // 2. Activity Score (Deep Search in Hierarchy)
+    debugLog.attribute = attributeScore;
+
+    // --- B. ACTIVITY SCORE (Dynamic Behaviour) ---
     let activityScore = 0;
     activities.forEach(act => {
-        // Find activity in master fields
-        const actDef = activityMasterFields?.activities?.find(a => a.name === act.type || a.name === act.activityType);
+        // Find matching activity definition
+        const actDef = activityMasterFields?.activities?.find(a => a.name === act.type);
         if (actDef) {
-            // Find purpose
-            const purposeName = act.purpose || act.callPurpose || act.meetingPurpose || act.emailPurpose || act.visitType || act.agenda;
-            const purpDef = actDef.purposes?.find(p => p.name === purposeName);
-
+            const purpDef = actDef.purposes?.find(p => p.name === act.purpose);
             if (purpDef) {
-                // Find outcome
-                const outcomeLabel = act.outcome || act.result || act.callOutcome || act.completionResult || act.meetingOutcomeStatus;
-
-                // Special handling: outcome might be just "Connected" (Status) or "Thinking" (Result)
-                // We sum points for BOTH Status and Result if they exist and have scores
-
-                // Check Status/Outcome first
-                const outcomeObj = purpDef.outcomes.find(o => o.label === outcomeLabel);
-                if (outcomeObj) activityScore += (outcomeObj.score || 0);
-
-                // Check Completion Result if separate (e.g. Call Result after Status connected)
-                if (act.completionResult && act.completionResult !== outcomeLabel) {
-                    const resObj = purpDef.outcomes.find(o => o.label === act.completionResult);
-                    if (resObj) activityScore += (resObj.score || 0);
-                }
+                // Check mapped outcome
+                const outcome = purpDef.outcomes?.find(o => o.label === act.outcome);
+                if (outcome) activityScore += (outcome.score || 0);
             }
         }
     });
+    debugLog.activity = activityScore;
 
-    const total = formScore + activityScore;
+    // --- C. SOURCE QUALITY SCORE ---
+    let sourceScore = 0;
+    const srcMap = {
+        'Referral': 'referral',
+        'Direct': 'walkIn', // Example mapping
+        'Google': 'google',
+        'Facebook': 'socialMedia',
+        'Instagram': 'socialMedia',
+        '99Acres': 'portal',
+        'MagicBricks': 'portal',
+        'Housing': 'portal',
+        'Cold Call': 'coldCall'
+    };
+    const srcKey = srcMap[lead.source] || 'coldCall'; // Default to lowest if unknown
+    sourceScore += getAttr(sourceQualityScores, srcKey);
+    debugLog.source = sourceScore;
+
+    // --- D. INVENTORY FIT SCORE ---
+    let fitScore = 0;
+    // Mock logic: assume 'matched' count is on lead object
+    const matchCount = parseInt(lead.matched || 0);
+    if (matchCount >= 5) fitScore += getAttr(inventoryFitScores, 'match5Plus');
+    else if (matchCount === 0) fitScore += getAttr(inventoryFitScores, 'none');
+
+    // Price deviation (Mock: checking a flag)
+    if (lead.priceFit === 'good') fitScore += getAttr(inventoryFitScores, 'priceDev5');
+
+    debugLog.fit = fitScore;
+
+    // --- E. TIME DECAY PENALTY ---
+    let decayPenalty = 0;
+    // Calculate days since last activity
+    const lastActDate = new Date(lead.lastActivityDate || new Date());
+    const now = new Date();
+    const diffTime = Math.abs(now - lastActDate);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays >= 30) decayPenalty += getAttr(decayRules, 'inactive30');
+    else if (diffDays >= 14) decayPenalty += getAttr(decayRules, 'inactive14'); // Note: logic might needed to be non-cumulative or cumulative depending on user intent. Usually non-cumulative thresholds.
+    else if (diffDays >= 7) decayPenalty += getAttr(decayRules, 'inactive7');
+
+    // Ensure penalty is negative (config usually has negative points, but we add them)
+    // If config has positive numbers for penalty, subtract. Here config has negative usually.
+    // Let's assume config points are negative like -5. So we add.
+
+    debugLog.decay = decayPenalty; // This will Likely be negative
+
+    // --- F. STAGE MULTIPLIER ---
+    let multiplier = 1.0;
+    const stageKeyMap = {
+        'New': 'incoming',
+        'Prospect': 'prospect',
+        'Opportunity': 'opportunity',
+        'Negotiation': 'negotiation'
+    };
+    const stageKey = stageKeyMap[lead.stage] || 'prospect';
+    multiplier = getMult(stageMultipliers, stageKey);
+
+    // --- FINAL CALCULATION ---
+    let rawScore = (attributeScore + activityScore + sourceScore + fitScore + decayPenalty) * multiplier;
+
+    // Round and Cap
+    let finalScore = Math.round(rawScore);
+    if (finalScore > 100) finalScore = 100;
+    if (finalScore < 0) finalScore = 0;
 
     return {
-        total,
-        formScore,
-        activityScore,
-        temperature: getLeadTemperature(total),
-        intent: getAIIntent(total)
+        total: finalScore,
+        breakdown: debugLog,
+        temperature: getLeadTemperature(finalScore),
+        intent: getAIIntent(finalScore)
     };
 };
 
 export const getLeadTemperature = (score) => {
-    if (score >= 80) return { label: 'HOT', class: 'hot', color: '#ef4444' };
-    if (score >= 60) return { label: 'WARM', class: 'warm', color: '#f59e0b' };
-    if (score >= 40) return { label: 'COOL', class: 'cool', color: '#3b82f6' };
+    if (score >= 81) return { label: 'SUPER HOT', class: 'super-hot', color: '#7c3aed' };
+    if (score >= 61) return { label: 'HOT', class: 'hot', color: '#ef4444' };
+    if (score >= 31) return { label: 'WARM', class: 'warm', color: '#f59e0b' };
     return { label: 'COLD', class: 'cold', color: '#64748b' };
 };
 
 export const getAIIntent = (score) => {
-    if (score >= 75) return 'High Intent';
-    if (score >= 50) return 'Medium Intent';
+    if (score >= 80) return 'Closing Soon';
+    if (score >= 60) return 'High Intent';
+    if (score >= 30) return 'Nurture';
     return 'Low Intent';
 };

@@ -15,6 +15,11 @@ import CustomizeLeadPage from './views/CustomizeLeadPage';
 
 import CustomizeCompanyPage from './views/CustomizeCompanyPage';
 import ActivitySettingsPage from './views/ActivitySettingsPage';
+import CustomizeFeedbackPage from './views/CustomizeFeedbackPage';
+import FeedbackTemplatePage from './views/FeedbackTemplatePage';
+import TriggersSettingsPage from './views/TriggersSettingsPage';
+import FieldRulesSettingsPage from './views/FieldRulesSettingsPage';
+import DistributionRulesPage from './views/DistributionRulesPage';
 
 
 
@@ -338,7 +343,7 @@ const SettingsHubPage = () => {
     const sidebarSections = [
         { title: 'Manage', items: [{ id: 'users', label: 'Users' }, { id: 'notifications', label: 'Notifications' }, { id: 'sales-goals', label: 'Sales goals' }] },
         { title: 'Data', items: [{ id: 'import', label: 'Import' }, { id: 'bulk-update', label: 'Bulk update' }, { id: 'export', label: 'Export' }, { id: 'lead-capture', label: 'Lead capture' }, { id: 'duplicate-mgt', label: 'Duplicate management' }, { id: 'enrichment', label: 'Prospecting and enrichment' }] },
-        { title: 'Communication channels', items: [{ id: 'email', label: 'Email' }, { id: 'calls', label: 'Calls' }, { id: 'messaging', label: 'Messaging' }] },
+        { title: 'Communication channels', items: [{ id: 'email', label: 'Email' }, { id: 'calls', label: 'Calls' }, { id: 'messaging', label: 'Messaging' }, { id: 'feedback-templates', label: 'Message Templates' }] },
         { title: 'Customize', items: [{ id: 'company-c', label: 'Company' }, { id: 'project-c', label: 'Project' }, { id: 'leads-c', label: 'Leads' }, { id: 'contacts-c', label: 'Contacts' }, { id: 'properties-c', label: 'Properties' }, { id: 'deals-c', label: 'Deals' }, { id: 'task-c', label: 'Activities' }] },
         { title: 'Notes', items: [{ id: 'post-sales', label: 'Post Sales' }, { id: 'layouts', label: 'Layouts' }] },
         { title: 'Integrations', items: [{ id: 'integrations', label: 'Integrations' }, { id: 'api', label: 'API' }] },
@@ -416,6 +421,14 @@ const SettingsHubPage = () => {
                         <ContactSettingsPage />
                     ) : activeTab === 'task-c' ? (
                         <ActivitySettingsPage />
+                    ) : activeTab === 'feedback-templates' ? (
+                        <FeedbackTemplatePage />
+                    ) : activeTab === 'triggers' ? (
+                        <TriggersSettingsPage />
+                    ) : activeTab === 'field-rules' ? (
+                        <FieldRulesSettingsPage />
+                    ) : activeTab === 'distributions' ? (
+                        <DistributionRulesPage />
                     ) : (
                         <EmptyState title={currentLabel} />
                     )}

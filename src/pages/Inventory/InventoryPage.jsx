@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import toast from 'react-hot-toast';
 import { inventoryData } from '../../data/mockData';
 import UploadModal from '../../components/UploadModal';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
@@ -7,6 +8,7 @@ import AddOwnerModal from '../../components/AddOwnerModal';
 import SendMailModal from '../Contacts/components/SendMailModal';
 import SendMessageModal from '../../components/SendMessageModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
+import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
 
 function InventoryPage() {
     const [searchTerm, setSearchTerm] = useState('');
@@ -22,6 +24,7 @@ function InventoryPage() {
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
     const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
+    const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
 
     // Data placeholders for modals
     const [modalData, setModalData] = useState([]);
@@ -144,6 +147,80 @@ function InventoryPage() {
         }
     };
 
+    const handleFeedbackClick = () => {
+        const property = getSelectedProperty();
+        if (property) {
+            setSelectedProperty(property);
+            setIsFeedbackModalOpen(true);
+        }
+    };
+
+    const handleSaveFeedback = (data) => {
+        if (!selectedProperty) return;
+
+        const updatedItems = inventoryItems.map(item => {
+            if (item.id === selectedProperty.id) {
+                const now = new Date();
+                const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+                const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+                // Construct useful remark string
+                let newRemark = `${data.result}`;
+                if (data.reason) newRemark += ` (${data.reason})`; // Add sub-reason
+                if (data.feedback) newRemark += `: ${data.feedback}`;
+                if (data.nextActionDate) {
+                    newRemark += ` | Next: ${data.nextActionType} on ${data.nextActionDate} @ ${data.nextActionTime}`;
+                }
+
+                // Automation: Mark as Sold/Rented/Inactive
+                let newStatus = item.status;
+                if (data.markAsSold && data.reason) {
+                    if (data.reason.includes('Sold Out')) {
+                        newStatus = 'Sold Out';
+                    } else if (data.reason.includes('Rented Out')) {
+                        newStatus = 'Rented Out';
+                    } else {
+                        newStatus = 'Inactive';
+                    }
+                }
+
+                // Create History Entry
+                const newInteraction = {
+                    id: Date.now(),
+                    date: dateStr,
+                    time: timeStr,
+                    user: 'You',
+                    action: data.nextActionType || 'Call',
+                    result: data.result,
+                    note: newRemark
+                };
+
+                const currentHistory = item.history || [];
+                // If no history exists but we have old data, maybe we should preserve it? 
+                // For now, we just start appending new history.
+
+                return {
+                    ...item,
+                    lastContactDate: dateStr,
+                    lastContactTime: timeStr,
+                    lastContactUser: 'You',
+                    remarks: newRemark, // Keep showing latest remark in main view
+                    status: newStatus,
+                    history: [newInteraction, ...currentHistory] // Add new at top
+                };
+            }
+
+            return item;
+        });
+
+        setInventoryItems(updatedItems);
+        // Update selected property to reflect changes immediately
+        const newSelected = updatedItems.find(i => i.id === selectedProperty.id);
+        setSelectedProperty(newSelected);
+
+        toast.success("Feedback recorded successfully");
+    };
+
     const toggleSelect = (id) => {
         if (selectedIds.includes(id)) {
             setSelectedIds(selectedIds.filter(itemId => itemId !== id));
@@ -241,7 +318,7 @@ function InventoryPage() {
                                         <>
                                             <button className="action-btn" title="Upload Files" style={{ flexShrink: 0 }} onClick={handleUploadClick}><i className="fas fa-cloud-upload-alt"></i> Upload</button>
                                             <button className="action-btn" title="Manage Documents" style={{ flexShrink: 0 }} onClick={handleDocumentClick}><i className="fas fa-file-alt"></i> Document</button>
-                                            <button className="action-btn" title="Feedback" style={{ flexShrink: 0 }}><i className="fas fa-comment-dots"></i> Feedback</button>
+                                            <button className="action-btn" title="Feedback" style={{ flexShrink: 0 }} onClick={handleFeedbackClick}><i className="fas fa-comment-dots"></i> Feedback</button>
                                         </>
                                     )}
 
@@ -283,7 +360,7 @@ function InventoryPage() {
                             <div>Owner Profile</div>
                             <div>Associate Contact</div>
                             <div>Status</div>
-                            <div>Last History</div>
+                            <div style={{ textAlign: 'right' }}>Last History</div>
                         </div>
 
                         <div className="list-content">
@@ -324,7 +401,7 @@ function InventoryPage() {
                                         <div className="cell-value-main text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, lineHeight: 1.2, color: '#0f172a' }}>{item.area}</div>
                                         <div className="cell-value-sub text-ellipsis" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>{item.location}</div>
                                         <div style={{ marginTop: '6px' }}>
-                                            <span className="verified-badge text-ellipsis" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800, display: 'inline-block', maxWidth: '100%' }}>BLOCK: {item.location.split(' ')[0]}</span>
+                                            <span className="verified-badge text-ellipsis" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800, display: 'inline-block', maxWidth: '100%' }}>BLOCK: {item.location?.split(' ')[0] || 'N/A'}</span>
                                         </div>
                                     </div>
 
@@ -341,7 +418,11 @@ function InventoryPage() {
                                         {item.ownerName ? (
                                             <>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-                                                    <div className="text-ellipsis" style={{ fontWeight: 800, color: 'var(--primary-color)', fontSize: '0.85rem' }}>{item.ownerName}</div>
+                                                    <div className="text-ellipsis" style={{
+                                                        fontWeight: 800,
+                                                        color: item.status === 'Sold Out' ? '#94a3b8' : 'var(--primary-color)',
+                                                        fontSize: '0.85rem'
+                                                    }}>{item.ownerName}</div>
                                                 </div>
                                                 <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px' }}>{item.ownerPhone}</div>
                                                 <div className="address-clamp" style={{ fontSize: '0.68rem', lineHeight: '1.2' }} title={item.ownerAddress}>
@@ -376,23 +457,21 @@ function InventoryPage() {
                                         )}
                                     </div>
 
-                                    <div className="super-cell">
+                                    <div className="super-cell" style={{ alignItems: 'flex-end', textAlign: 'right' }}>
                                         {item.lastContactDate !== '-' ? (
                                             <>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', justifyContent: 'flex-end' }}>
+                                                    <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#334155' }}>{item.lastContactUser || 'System'}</div>
                                                     <div className="avatar-circle" style={{ width: '24px', height: '24px', fontSize: '0.65rem', background: '#f1f5f9', color: '#64748b' }}>
-                                                        {item.lastContactUser.charAt(0)}
+                                                        {item.lastContactUser?.charAt(0) || 'S'}
                                                     </div>
-                                                    <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#334155' }}>{item.lastContactUser}</div>
                                                 </div>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                                                     <div style={{ fontSize: '0.7rem', color: 'var(--primary-color)', fontWeight: 800 }}>
-                                                        <i className="fas fa-calendar-alt" style={{ marginRight: '6px' }}></i>
-                                                        {item.lastContactDate}
+                                                        {item.lastContactDate} <i className="fas fa-calendar-alt" style={{ marginLeft: '6px' }}></i>
                                                     </div>
                                                     <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, marginLeft: '2px' }}>
-                                                        <i className="fas fa-clock" style={{ marginRight: '6px', fontSize: '0.6rem' }}></i>
-                                                        {item.lastContactTime}
+                                                        {item.lastContactTime} <i className="fas fa-clock" style={{ marginLeft: '6px', fontSize: '0.6rem' }}></i>
                                                     </div>
                                                 </div>
                                             </>
@@ -667,6 +746,13 @@ function InventoryPage() {
                 onClose={() => setIsTagsModalOpen(false)}
                 selectedContacts={modalData}
                 onUpdateTags={(tags) => console.log('Tags Updated:', tags)}
+            />
+
+            <InventoryFeedbackModal
+                isOpen={isFeedbackModalOpen}
+                onClose={() => setIsFeedbackModalOpen(false)}
+                inventory={selectedProperty}
+                onSave={handleSaveFeedback}
             />
         </section>
     );

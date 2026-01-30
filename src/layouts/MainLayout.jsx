@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useActivities } from '../context/ActivityContext';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 
@@ -25,6 +26,29 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
     const [editingCompany, setEditingCompany] = useState(null);
     const [activityInitialData, setActivityInitialData] = useState(null);
     const [showActivityModal, setShowActivityModal] = useState(false);
+
+    // Global Context
+    const { addActivity } = useActivities();
+
+    const handleSaveGlobalActivity = (activityData) => {
+        const newActivity = {
+            id: Date.now().toString(),
+            type: activityData.activityType,
+            contactName: activityData.relatedTo?.[0]?.name || 'Unknown Client',
+            contactPhone: activityData.participants?.[0]?.mobile || '',
+            scheduledDate: `${activityData.dueDate}T${activityData.dueTime}`,
+            agenda: activityData.subject,
+            activityType: activityData.activityType,
+            scheduledBy: 'Current User',
+            scheduledFor: 'Follow Up',
+            stage: 'Pending',
+            status: 'pending',
+            feedback: activityData.description || '',
+            project: activityData.visitedProperties?.[0]?.project || ''
+        };
+        addActivity(newActivity);
+        setShowActivityModal(false);
+    };
 
     // Deep Linking for Project Modal
     useEffect(() => {
@@ -145,7 +169,7 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                     isOpen={showActivityModal}
                     onClose={() => setShowActivityModal(false)}
                     initialData={activityInitialData}
-                    onSave={() => setShowActivityModal(false)}
+                    onSave={handleSaveGlobalActivity}
                 />
 
                 <AddProjectModal

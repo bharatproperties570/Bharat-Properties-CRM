@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useContactConfig } from '../context/ContactConfigContext';
+import { useFieldRules } from '../context/FieldRulesContext';
 import { PROJECTS_LIST } from '../data/projectData';
 import { INDIAN_ADDRESS_DATA } from '../data/locationData';
 import AddressDetailsForm from './common/AddressDetailsForm';
@@ -21,9 +22,11 @@ const getYouTubeThumbnail = (url) => {
 const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
     const { masterFields, propertyConfig } = usePropertyConfig();
     const { profileConfig = {} } = useContactConfig();
+    const { validateAsync } = useFieldRules();
     const [activeTab, setActiveTab] = useState('Unit');
     const [isLoading, setIsLoading] = useState(true);
     const [currentTime, setCurrentTime] = useState(new Date());
+    const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -59,6 +62,17 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
     const [showOwnerResults, setShowOwnerResults] = useState(false);
     const [selectedContactToLink, setSelectedContactToLink] = useState(null);
     const [linkData, setLinkData] = useState({ role: 'Property Owner', relationship: '' }); // role: 'Property Owner' | 'Associate'
+
+    // Additional state for Owner tab
+    const [showProjectDropdown, setShowProjectDropdown] = useState(false);
+
+    // Hidden fields configuration (empty array means no fields are hidden)
+    const hiddenFields = [];
+
+    // Helper function to update form data
+    const handleInputChange = (field, value) => {
+        setFormData(prev => ({ ...prev, [field]: value }));
+    };
 
     // --- Furnished Items Chip Logic ---
     const [currentFurnishedItem, setCurrentFurnishedItem] = useState('');
@@ -381,7 +395,13 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
         setFormData(prev => ({ ...prev, builtupDetails: newRows }));
     };
 
-    const TABS = ['Unit', 'Location', 'Owner', 'Upload'];
+    const TABS = ['Unit', 'Location', 'Owner'];
+
+    const TAB_ICONS = {
+        'Unit': 'fa-home',
+        'Location': 'fa-map-marker-alt',
+        'Owner': 'fa-user-tag'
+    };
     const handleNext = () => {
         const currentIndex = TABS.indexOf(activeTab);
         if (currentIndex < TABS.length - 1) setActiveTab(TABS[currentIndex + 1]);
@@ -789,6 +809,52 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
 
                     <div style={{ position: 'relative' }}>
                         <div style={{ display: 'flex', gap: '12px' }}>
+                            {!hiddenFields.includes('projectName') && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151' }}>Project Name <span style={{ color: 'red' }}>*</span></label>
+                                    <div style={{ position: 'relative' }}>
+                                        <input
+                                            type="text"
+                                            value={formData.projectName}
+                                            onChange={(e) => {
+                                                handleInputChange('projectName', e.target.value);
+                                                setShowProjectDropdown(true);
+                                            }}
+                                            onFocus={() => setShowProjectDropdown(true)}
+                                            placeholder="Select Project or Type Name"
+                                            style={inputStyle}
+                                        />
+                                        {showProjectDropdown && (
+                                            <div style={{
+                                                position: 'absolute', top: '100%', left: 0, right: 0,
+                                                background: 'white', border: '1px solid #ddd', zIndex: 10,
+                                                maxHeight: '200px', overflowY: 'auto', borderRadius: '4px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                                            }}>
+                                                {allProjects.filter(p => p.name.toLowerCase().includes(formData.projectName.toLowerCase())).map((proj, i) => (
+                                                    <div
+                                                        key={i}
+                                                        onClick={() => {
+                                                            handleInputChange('projectName', proj.name);
+                                                            setShowProjectDropdown(false);
+                                                            // Auto-fill not fully implemented yet for hardcoded data
+                                                        }}
+                                                        style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #eee' }}
+                                                        onMouseEnter={(e) => e.target.style.background = '#f3f4f6'}
+                                                        onMouseLeave={(e) => e.target.style.background = 'white'}
+                                                    >
+                                                        {proj.name}
+                                                    </div>
+                                                ))}
+                                                {allProjects.filter(p => p.name.toLowerCase().includes(formData.projectName.toLowerCase())).length === 0 && (
+                                                    <div style={{ padding: '8px 12px', color: '#999', fontSize: '12px' }}>
+                                                        New Project Name
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                             <div style={{ flex: 1, position: 'relative' }}>
                                 <i className="fas fa-search" style={{ position: 'absolute', left: '14px', top: '13px', color: '#94a3b8', fontSize: '0.9rem' }}></i>
                                 <input
@@ -880,6 +946,22 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                                 </select>
                             </div>
                         )}
+                        {!hiddenFields.includes('category') && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151' }}>Category</label>
+                                <select
+                                    value={formData.category}
+                                    onChange={(e) => handleInputChange('category', e.target.value)}
+                                    style={inputStyle}
+                                >
+                                    <option value="Residential">Residential</option>
+                                    <option value="Commercial">Commercial</option>
+                                    <option value="Plot">Plot</option>
+                                    <option value="Industrial">Industrial</option>
+                                    <option value="Agricultural">Agricultural</option>
+                                </select>
+                            </div>
+                        )}
                     </div>
 
                     <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
@@ -928,281 +1010,39 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
         </div>
     );
 
-    const renderUploadTab = () => (
-        <div className="tab-content fade-in">
-            {/* Documents */}
-            <div style={sectionStyle}>
-                <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <i className="fas fa-file-contract" style={{ color: '#6366f1' }}></i> Inventory Documents
-                </h4>
 
-                {/* Helper for Document Types */}
-                {(() => {
-                    const docCategories = profileConfig?.Documents?.subCategories || [];
-                    const getDocTypes = (catName) => {
-                        const cat = docCategories.find(c => c.name === catName);
-                        return cat?.types || [];
-                    };
+    const handleSave = async () => {
+        setIsSaving(true);
+        const toastId = toast.loading('Saving inventory...');
 
-                    return formData.inventoryDocuments.map((doc, idx) => {
-                        const availableDocTypes = getDocTypes(doc.documentName);
-                        return (
-                            <div key={idx} style={{
-                                background: '#fff',
-                                border: '1px solid #e2e8f0',
-                                borderRadius: '8px',
-                                padding: '12px',
-                                marginBottom: '12px',
-                                boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
-                            }}>
-                                {/* Row 1: Identity */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 32px', gap: '8px', marginBottom: '12px' }}>
-                                    <div>
-                                        <label style={labelStyle}>Category</label>
-                                        <select
-                                            style={{ ...customSelectStyle, fontSize: '0.85rem', padding: '8px' }}
-                                            value={doc.documentName}
-                                            onChange={e => {
-                                                const newDocs = [...formData.inventoryDocuments];
-                                                newDocs[idx].documentName = e.target.value;
-                                                newDocs[idx].documentType = '';
-                                                setFormData({ ...formData, inventoryDocuments: newDocs });
-                                            }}
-                                        >
-                                            <option value="">Select Category</option>
-                                            {docCategories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label style={labelStyle}>Document Type</label>
-                                        <select
-                                            style={{ ...(!doc.documentName ? customSelectStyleDisabled : customSelectStyle), fontSize: '0.85rem', padding: '8px' }}
-                                            value={doc.documentType}
-                                            disabled={!doc.documentName}
-                                            onChange={e => {
-                                                const newDocs = [...formData.inventoryDocuments];
-                                                newDocs[idx].documentType = e.target.value;
-                                                setFormData({ ...formData, inventoryDocuments: newDocs });
-                                            }}
-                                        >
-                                            <option value="">Select Type</option>
-                                            {availableDocTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                                        </select>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'end' }}>
-                                        <button
-                                            onClick={() => {
-                                                if (idx === 0) {
-                                                    setFormData({ ...formData, inventoryDocuments: [...formData.inventoryDocuments, { documentName: '', documentType: '', registrationNo: '', linkedContactMobile: '', file: null }] });
-                                                } else {
-                                                    const newDocs = formData.inventoryDocuments.filter((_, i) => i !== idx);
-                                                    setFormData({ ...formData, inventoryDocuments: newDocs });
-                                                }
-                                            }}
-                                            style={{ height: '36px', width: '100%', borderRadius: '6px', border: 'none', background: idx === 0 ? '#eff6ff' : '#fef2f2', color: idx === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                        >
-                                            <i className={`fas ${idx === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
-                                        </button>
-                                    </div>
-                                </div>
+        try {
+            // --- FIELD RULES ENGINE VALIDATION (ASYNC) ---
+            if (validateAsync) {
+                const validationResult = await validateAsync('inventory', formData);
 
-                                {/* Row 2: Contact Context */}
-                                <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '6px', border: '1px solid #f1f5f9', marginBottom: '12px' }}>
-                                    <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '6px', display: 'block' }}>
-                                        Link to Contact (Optional)
-                                    </label>
-                                    <select
-                                        style={{ ...customSelectStyle, background: '#fff', fontSize: '0.85rem', padding: '8px' }}
-                                        value={doc.linkedContactMobile}
-                                        onChange={e => {
-                                            const newDocs = [...formData.inventoryDocuments];
-                                            newDocs[idx].linkedContactMobile = e.target.value;
-                                            setFormData({ ...formData, inventoryDocuments: newDocs });
-                                        }}
-                                    >
-                                        <option value="">Select Owner/Associate</option>
-                                        {formData.owners && formData.owners.map(owner => (
-                                            <option key={owner.mobile} value={owner.mobile}>
-                                                {owner.name} ({owner.role})
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
+                if (!validationResult.isValid) {
+                    const errorMessages = Object.values(validationResult.errors).join(', ');
+                    toast.error(`Validation Failed: ${errorMessages}`, { id: toastId });
+                    setIsSaving(false);
+                    return;
+                }
+            }
 
-                                {/* Row 3: Evidence */}
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <div style={{ flex: 1 }}>
-                                        <label style={{
-                                            display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: '#fff',
-                                            border: '1px dashed #cbd5e1', borderRadius: '6px', cursor: 'pointer', color: '#64748b', fontSize: '0.85rem',
-                                            transition: 'all 0.2s', ':hover': { borderColor: '#3b82f6', background: '#eff6ff' }
-                                        }}>
-                                            <div style={{ width: '28px', height: '28px', background: '#ecfdf5', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                <i className="fas fa-file-upload" style={{ color: '#10b981', fontSize: '0.9rem' }}></i>
-                                            </div>
-                                            <div style={{ flex: 1 }}>
-                                                <span style={{ fontWeight: 600, color: '#334155' }}>
-                                                    {doc.file ? doc.file.name : "Upload Document File"}
-                                                </span>
-                                                {!doc.file && <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: '6px' }}>PDF or Image</span>}
-                                            </div>
-                                            <input type="file" style={{ display: 'none' }} onChange={e => {
-                                                const newDocs = [...formData.inventoryDocuments];
-                                                newDocs[idx].file = e.target.files[0];
-                                                setFormData({ ...formData, inventoryDocuments: newDocs });
-                                            }} />
-                                            {doc.file ? (
-                                                <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 600 }}>File Selected</span>
-                                            ) : (
-                                                <span style={{ padding: '4px 10px', background: '#f1f5f9', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>Browse</span>
-                                            )}
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    });
-                })()}
+            // Simulate API call or real save
+            await new Promise(resolve => setTimeout(resolve, 800));
 
+            toast.success('Inventory Saved!', { id: toastId });
+            onSave && onSave(formData);
+            onClose();
 
-            </div>
+        } catch (error) {
+            console.error("Save Error:", error);
+            toast.error("Failed to save inventory", { id: toastId });
+        } finally {
+            setIsSaving(false);
+        }
+    };
 
-            {/* Images */}
-            <div style={sectionStyle}>
-                <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <i className="fas fa-images" style={{ color: '#3b82f6' }}></i> Inventory Images
-                </h4>
-                {formData.inventoryImages.map((img, index) => (
-                    <div key={index} style={{ display: 'grid', gridTemplateColumns: '80px 2fr 1.5fr minmax(120px, 1fr) 40px', gap: '16px', marginBottom: '16px', alignItems: 'end' }}>
-                        <div style={{ width: '80px', height: '60px', background: '#f1f5f9', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {img.previewUrl ? <img src={img.previewUrl} alt="Prev" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <i className="fas fa-image" style={{ color: '#cbd5e1', fontSize: '1.2rem' }}></i>}
-                        </div>
-                        <div>
-                            <label style={labelStyle}>Title</label>
-                            <input value={img.title} onChange={(e) => {
-                                const newImgs = [...formData.inventoryImages];
-                                newImgs[index].title = e.target.value;
-                                setFormData({ ...formData, inventoryImages: newImgs });
-                            }} style={inputStyle} placeholder="e.g. Interior" />
-                        </div>
-                        <div>
-                            <label style={labelStyle}>Category</label>
-                            <select value={img.category} onChange={(e) => {
-                                const newImgs = [...formData.inventoryImages];
-                                newImgs[index].category = e.target.value;
-                                setFormData({ ...formData, inventoryImages: newImgs });
-                            }} style={customSelectStyle}>
-                                <option>Main</option>
-                                <option>Bedroom</option>
-                                <option>Kitchen</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label style={labelStyle}>File</label>
-                            <label style={{ width: '100%', height: '42px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '8px', fontSize: '0.8rem', color: '#64748b', textAlign: 'center', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap', overflow: 'hidden', padding: '0 8px' }}>
-                                {img.file ? (img.file.name || 'Selected') : 'Upload'}
-                                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => {
-                                    const file = e.target.files[0];
-                                    if (file) {
-                                        const newImgs = [...formData.inventoryImages];
-                                        newImgs[index].file = file;
-                                        newImgs[index].previewUrl = URL.createObjectURL(file);
-                                        setFormData({ ...formData, inventoryImages: newImgs });
-                                    }
-                                }} />
-                            </label>
-                        </div>
-                        <button onClick={() => {
-                            if (index === 0) setFormData({ ...formData, inventoryImages: [...formData.inventoryImages, { title: '', category: 'Main', file: null }] });
-                            else {
-                                const newImgs = formData.inventoryImages.filter((_, i) => i !== index);
-                                setFormData({ ...formData, inventoryImages: newImgs });
-                            }
-                        }} style={{ height: '42px', width: '40px', borderRadius: '8px', border: 'none', background: index === 0 ? '#eff6ff' : '#fef2f2', color: index === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <i className={`fas ${index === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
-                        </button>
-                    </div>
-                ))}
-            </div>
-
-            {/* Videos */}
-            <div style={sectionStyle}>
-                <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <i className="fas fa-video" style={{ color: '#ef4444' }}></i> Inventory Videos & 360
-                </h4>
-                {formData.inventoryVideos.map((vid, index) => (
-                    <div key={index} style={{ display: 'grid', gridTemplateColumns: '80px 1.5fr 1fr 2fr 40px', gap: '16px', marginBottom: '16px', alignItems: 'end' }}>
-                        <div style={{ width: '80px', height: '60px', background: '#f1f5f9', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            {vid.type === 'YouTube' && getYouTubeThumbnail(vid.url) ? (
-                                <img src={getYouTubeThumbnail(vid.url)} alt="Thumbnail" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                            ) : vid.file ? (
-                                <div style={{ fontSize: '0.6rem', color: '#64748b', textAlign: 'center' }}>Video File</div>
-                            ) : (
-                                <i className="fas fa-video" style={{ color: '#cbd5e1', fontSize: '1.2rem' }}></i>
-                            )}
-                        </div>
-                        <div>
-                            <label style={labelStyle}>Title</label>
-                            <input value={vid.title} onChange={(e) => {
-                                const newVids = [...formData.inventoryVideos];
-                                newVids[index].title = e.target.value;
-                                setFormData({ ...formData, inventoryVideos: newVids });
-                            }} style={inputStyle} placeholder="e.g. Walkthrough" />
-                        </div>
-                        <div>
-                            <label style={labelStyle}>Type</label>
-                            <select value={vid.type} onChange={(e) => {
-                                const newVids = [...formData.inventoryVideos];
-                                newVids[index].type = e.target.value;
-                                newVids[index].url = '';
-                                newVids[index].file = null;
-                                setFormData({ ...formData, inventoryVideos: newVids });
-                            }} style={customSelectStyle}>
-                                <option value="YouTube">YouTube Link</option>
-                                <option value="Upload">File Upload</option>
-                            </select>
-                        </div>
-                        <div>
-                            {vid.type === 'YouTube' ? (
-                                <>
-                                    <label style={labelStyle}>YouTube URL</label>
-                                    <input value={vid.url} onChange={(e) => {
-                                        const newVids = [...formData.inventoryVideos];
-                                        newVids[index].url = e.target.value;
-                                        setFormData({ ...formData, inventoryVideos: newVids });
-                                    }} style={inputStyle} placeholder="https://youtube.com/..." />
-                                </>
-                            ) : (
-                                <>
-                                    <label style={labelStyle}>Video File</label>
-                                    <label style={{ width: '100%', height: '42px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '8px', fontSize: '0.8rem', color: '#64748b', textAlign: 'center', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', whiteSpace: 'nowrap', overflow: 'hidden', padding: '0 8px' }}>
-                                        {vid.file ? (vid.file.name || 'Selected') : 'Upload Video'}
-                                        <input type="file" accept="video/*" style={{ display: 'none' }} onChange={(e) => {
-                                            const file = e.target.files[0];
-                                            if (file) {
-                                                const newVids = [...formData.inventoryVideos];
-                                                newVids[index].file = file;
-                                                setFormData({ ...formData, inventoryVideos: newVids });
-                                            }
-                                        }} />
-                                    </label>
-                                </>
-                            )}
-                        </div>
-                        <button onClick={() => {
-                            if (index === 0) setFormData({ ...formData, inventoryVideos: [...formData.inventoryVideos, { title: '', type: 'YouTube', url: '', file: null }] });
-                            else {
-                                const newVids = formData.inventoryVideos.filter((_, i) => i !== index);
-                                setFormData({ ...formData, inventoryVideos: newVids });
-                            }
-                        }} style={{ height: '42px', width: '40px', borderRadius: '8px', border: 'none', background: index === 0 ? '#eff6ff' : '#fef2f2', color: index === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <i className={`fas ${index === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
-                        </button>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
     if (!isOpen) return null;
 
     return (
@@ -1231,10 +1071,11 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                             onClick={() => setActiveTab(tab)}
                             style={{
                                 padding: '16px 0', fontSize: '0.9rem', fontWeight: 600, color: activeTab === tab ? '#2563eb' : '#64748b',
-                                border: 'none', background: 'transparent', cursor: 'pointer', borderBottom: `2px solid ${activeTab === tab ? '#2563eb' : 'transparent'}`, transition: 'all 0.2s'
+                                border: 'none', background: 'transparent', cursor: 'pointer', borderBottom: `2px solid ${activeTab === tab ? '#2563eb' : 'transparent'}`, transition: 'all 0.2s',
+                                display: 'flex', alignItems: 'center', gap: '8px'
                             }}
                         >
-                            {tab}
+                            <i className={`fas ${TAB_ICONS[tab]}`}></i> {tab}
                         </button>
                     ))}
                 </div>
@@ -1250,7 +1091,6 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                             {activeTab === 'Unit' && renderUnitTab()}
                             {activeTab === 'Location' && renderLocationTab()}
                             {activeTab === 'Owner' && renderOwnerTab()}
-                            {activeTab === 'Upload' && renderUploadTab()}
                         </div>
                     )}
                 </div>
@@ -1268,10 +1108,12 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                         {activeTab !== 'Unit' && (
                             <button onClick={handlePrev} style={buttonStyle.secondary}>Back</button>
                         )}
-                        {activeTab !== 'Upload' ? (
+                        {activeTab !== 'Owner' ? (
                             <button onClick={handleNext} style={buttonStyle.primary}>Next</button>
                         ) : (
-                            <button onClick={() => { onSave?.(formData); onClose(); }} style={buttonStyle.success}>{property ? 'Update Inventory' : 'Save Inventory'}</button>
+                            <button onClick={handleSave} disabled={isSaving} style={{ ...buttonStyle.success, opacity: isSaving ? 0.7 : 1 }}>
+                                {isSaving ? 'Saving...' : (property ? 'Update Inventory' : 'Save Inventory')}
+                            </button>
                         )}
                     </div>
                 </div>
