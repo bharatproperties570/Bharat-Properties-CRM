@@ -31,85 +31,65 @@ function PipelineItem({ label, value, percent }) {
 function ClosedPipelineItem() {
     const [isOpen, setIsOpen] = useState(false);
     const itemRef = useRef(null);
-    const menuRef = useRef(null);
-    const [menuStyle, setMenuStyle] = useState({});
-
-    // Open on Hover
-    const handleMouseEnter = () => {
-        if (itemRef.current) {
-            const rect = itemRef.current.getBoundingClientRect();
-            setMenuStyle({
-                position: 'fixed',
-                top: `${rect.bottom}px`,
-                left: `${rect.left}px`,
-                width: `${rect.width}px`,
-                display: 'block',
-                zIndex: 1000
-            });
-            setIsOpen(true);
-        }
-    };
-
-    // Close on Leave
-    const handleMouseLeave = () => {
-        setIsOpen(false);
-    };
-
-    // Scroll Safety (Close if user scrolls to prevent detached floating menu)
-    useEffect(() => {
-        const handleScroll = () => {
-            if (isOpen) setIsOpen(false);
-        };
-        if (isOpen) {
-            window.addEventListener('scroll', handleScroll, { passive: true });
-        }
-        return () => {
-            window.removeEventListener('scroll', handleScroll);
-        };
-    }, [isOpen]);
 
     return (
         <div
             className="pipeline-item"
-            id="pipelineClosedItem"
+            style={{
+                cursor: 'pointer',
+                position: 'relative' // Ensure relative positioning for absolute child
+            }}
+            onClick={() => setIsOpen(!isOpen)}
             ref={itemRef}
-            onMouseEnter={handleMouseEnter}
-            onMouseLeave={handleMouseLeave}
-            style={{ cursor: 'pointer' }}
         >
             <div className="pipeline-content-wrapper">
                 <div>
-                    <div className="pipeline-label">CLOSED</div>
-                    <div className="pipeline-value"><i className="fas fa-chevron-down"></i></div>
+                    <div className="pipeline-label">CLOSED <i className={`fas fa-chevron-${isOpen ? 'up' : 'down'}`} style={{ fontSize: '0.7em', marginLeft: '5px' }}></i></div>
+                    <div className="pipeline-value">2</div>
                 </div>
+                {/* Total Percent */}
+                <div className="pipeline-percent">100%</div>
             </div>
-            {/* Sub-stages Dropdown */}
+
+            {/* Sub-stages Dropdown - Positioned Absolutely relative to this item */}
             {isOpen && (
                 <div
                     className="pipeline-sub-stages show"
-                    ref={menuRef}
-                    style={menuStyle}
-                    onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside menu
+                    style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0, // Stretch to width of parent
+                        zIndex: 1000,
+                        background: '#fff',
+                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                        border: '1px solid #e2e8f0',
+                        borderTop: 'none',
+                        borderRadius: '0 0 8px 8px',
+                        overflow: 'hidden',
+                        marginTop: '4px'
+                    }}
+                    onClick={(e) => e.stopPropagation()}
                 >
-                    <div className="sub-stage-item success">
-                        <div className="sub-label">Won</div>
-                        <div className="sub-stats">
-                            <span className="sub-val">1</span>
-                            <span className="sub-percent">50%</span>
+                    <div className="sub-stage-item success" style={{ padding: '8px 12px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div className="sub-label" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#166534' }}>Won</div>
+                        <div className="sub-stats" style={{ display: 'flex', gap: '8px', fontSize: '0.75rem' }}>
+                            <span className="sub-val" style={{ fontWeight: 700 }}>1</span>
+                            <span className="sub-percent" style={{ color: '#64748b' }}>50%</span>
                         </div>
                     </div>
-                    <div className="sub-stage-item danger">
-                        <div className="sub-label">Lost</div>
-                        <div className="sub-stats">
-                            <span className="sub-val">0</span>
-                            <span className="sub-percent">0%</span>
+                    <div className="sub-stage-item neutral" style={{ padding: '8px 12px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div className="sub-label" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}>Unqualified</div>
+                        <div className="sub-stats" style={{ display: 'flex', gap: '8px', fontSize: '0.75rem' }}>
+                            <span className="sub-val" style={{ fontWeight: 700 }}>1</span>
+                            <span className="sub-percent" style={{ color: '#64748b' }}>50%</span>
                         </div>
                     </div>
-                    <div className="sub-stage-item neutral">
-                        <div className="sub-label">Unqualified</div>
-                        <div className="sub-stats">
-                            <span className="sub-val">1</span>
-                            <span className="sub-percent">50%</span>
+                    <div className="sub-stage-item danger" style={{ padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div className="sub-label" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#991b1b' }}>Lost</div>
+                        <div className="sub-stats" style={{ display: 'flex', gap: '8px', fontSize: '0.75rem' }}>
+                            <span className="sub-val" style={{ fontWeight: 700 }}>0</span>
+                            <span className="sub-percent" style={{ color: '#64748b' }}>0%</span>
                         </div>
                     </div>
                 </div>
