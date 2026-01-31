@@ -6,12 +6,12 @@ function MarketingPage({ onNavigate }) {
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const [showAIInsights, setShowAIInsights] = useState(true);
 
-    const globalKPIs = useMemo(() =>
+    const globalKPIs = useMemo(() => 
         calculateGlobalKPIs(marketingData.online, marketingData.offline, marketingData.organic),
         []
     );
 
-    const aiInsights = useMemo(() =>
+    const aiInsights = useMemo(() => 
         generateAIInsights(marketingData.online, marketingData.offline),
         []
     );
@@ -195,10 +195,11 @@ function MarketingPage({ onNavigate }) {
                                     borderRadius: '8px',
                                     padding: '14px 16px',
                                     border: '1px solid #e2e8f0',
-                                    borderLeft: `4px solid ${insight.type === 'warning' ? '#f59e0b' :
-                                            insight.type === 'critical' ? '#ef4444' :
-                                                insight.type === 'success' ? '#10b981' : '#3b82f6'
-                                        }`
+                                    borderLeft: `4px solid ${
+                                        insight.type === 'warning' ? '#f59e0b' :
+                                        insight.type === 'critical' ? '#ef4444' :
+                                        insight.type === 'success' ? '#10b981' : '#3b82f6'
+                                    }`
                                 }}>
                                     <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>
                                         {insight.campaign}
@@ -224,7 +225,7 @@ function MarketingPage({ onNavigate }) {
                         </span>
                     </div>
 
-                    {/* Simple Campaign Cards */}
+                    {/* Simple Campaign List */}
                     <div style={{ padding: '0 2rem 2rem' }}>
                         {filteredCampaigns.map((c, idx) => (
                             <div key={c.id} style={{
@@ -235,8 +236,8 @@ function MarketingPage({ onNavigate }) {
                                 marginTop: '12px',
                                 transition: 'all 0.2s'
                             }}
-                                onMouseOver={(e) => e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'}
-                                onMouseOut={(e) => e.currentTarget.style.boxShadow = 'none'}
+                            onMouseOver={(e) => e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'}
+                            onMouseOut={(e) => e.currentTarget.style.boxShadow = 'none'}
                             >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                                     <div style={{ flex: 1 }}>
@@ -252,9 +253,9 @@ function MarketingPage({ onNavigate }) {
                                                     <span style={{ fontSize: '0.85rem', color: '#64748b' }}>👥 Leads: <strong>{c.leadsGenerated}</strong></span>
                                                     <span style={{ fontSize: '0.85rem', color: '#64748b' }}>🤝 Deals: <strong>{c.dealsClosed}</strong></span>
                                                     <span style={{ fontSize: '0.85rem' }}>
-                                                        ROI: <strong style={{
-                                                            padding: '2px 8px',
-                                                            borderRadius: '4px',
+                                                        ROI: <strong style={{ 
+                                                            padding: '2px 8px', 
+                                                            borderRadius: '4px', 
                                                             background: getROIColor(c.roi).bg,
                                                             color: getROIColor(c.roi).color
                                                         }}>{c.roi}%</strong>
@@ -269,9 +270,9 @@ function MarketingPage({ onNavigate }) {
                                                     <span style={{ fontSize: '0.85rem', color: '#64748b' }}>👥 Walk-ins: <strong>{c.walkIns}</strong></span>
                                                     <span style={{ fontSize: '0.85rem', color: '#64748b' }}>🤝 Deals: <strong>{c.dealsClosed}</strong></span>
                                                     <span style={{ fontSize: '0.85rem' }}>
-                                                        ROI: <strong style={{
-                                                            padding: '2px 8px',
-                                                            borderRadius: '4px',
+                                                        ROI: <strong style={{ 
+                                                            padding: '2px 8px', 
+                                                            borderRadius: '4px', 
                                                             background: getROIColor(c.roi()).bg,
                                                             color: getROIColor(c.roi()).color
                                                         }}>{c.roi()}%</strong>
