@@ -31,15 +31,56 @@ function PipelineItem({ label, value, percent }) {
 function ClosedPipelineItem() {
     const [isOpen, setIsOpen] = useState(false);
     const itemRef = useRef(null);
+    const [menuStyle, setMenuStyle] = useState({});
+
+    const toggleMenu = (e) => {
+        e.stopPropagation();
+        if (!isOpen && itemRef.current) {
+            const rect = itemRef.current.getBoundingClientRect();
+            setMenuStyle({
+                position: 'fixed',
+                top: `${rect.bottom + 4}px`, // Slight gap
+                left: `${rect.left}px`,
+                width: `${rect.width}px`,
+                zIndex: 9999, // High z-index to ensure visibility
+                background: '#fff',
+                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                overflow: 'hidden'
+            });
+            setIsOpen(true);
+        } else {
+            setIsOpen(false);
+        }
+    };
+
+    // Close on window scroll/resize to prevent detached menu
+    useEffect(() => {
+        const handleGlobalClick = () => setIsOpen(false);
+        const handleScroll = () => { if (isOpen) setIsOpen(false); };
+
+        if (isOpen) {
+            window.addEventListener('click', handleGlobalClick);
+            window.addEventListener('scroll', handleScroll, { capture: true }); // Capture to detect any scroll
+            window.addEventListener('resize', handleScroll);
+        }
+
+        return () => {
+            window.removeEventListener('click', handleGlobalClick);
+            window.removeEventListener('scroll', handleScroll, { capture: true });
+            window.removeEventListener('resize', handleScroll);
+        };
+    }, [isOpen]);
 
     return (
         <div
             className="pipeline-item"
             style={{
                 cursor: 'pointer',
-                position: 'relative' // Ensure relative positioning for absolute child
+                background: isOpen ? '#f8fafc' : undefined
             }}
-            onClick={() => setIsOpen(!isOpen)}
+            onClick={toggleMenu}
             ref={itemRef}
         >
             <div className="pipeline-content-wrapper">
@@ -51,41 +92,28 @@ function ClosedPipelineItem() {
                 <div className="pipeline-percent">100%</div>
             </div>
 
-            {/* Sub-stages Dropdown - Positioned Absolutely relative to this item */}
+            {/* Sub-stages Dropdown - Fixed Position */}
             {isOpen && (
                 <div
-                    className="pipeline-sub-stages show"
-                    style={{
-                        position: 'absolute',
-                        top: '100%',
-                        left: 0,
-                        right: 0, // Stretch to width of parent
-                        zIndex: 1000,
-                        background: '#fff',
-                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-                        border: '1px solid #e2e8f0',
-                        borderTop: 'none',
-                        borderRadius: '0 0 8px 8px',
-                        overflow: 'hidden',
-                        marginTop: '4px'
-                    }}
+                    className="pipeline-sub-stages show" // Keep class for existing styles if any
+                    style={menuStyle}
                     onClick={(e) => e.stopPropagation()}
                 >
-                    <div className="sub-stage-item success" style={{ padding: '8px 12px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="sub-stage-item success" style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div className="sub-label" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#166534' }}>Won</div>
                         <div className="sub-stats" style={{ display: 'flex', gap: '8px', fontSize: '0.75rem' }}>
                             <span className="sub-val" style={{ fontWeight: 700 }}>1</span>
                             <span className="sub-percent" style={{ color: '#64748b' }}>50%</span>
                         </div>
                     </div>
-                    <div className="sub-stage-item neutral" style={{ padding: '8px 12px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="sub-stage-item neutral" style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div className="sub-label" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}>Unqualified</div>
                         <div className="sub-stats" style={{ display: 'flex', gap: '8px', fontSize: '0.75rem' }}>
                             <span className="sub-val" style={{ fontWeight: 700 }}>1</span>
                             <span className="sub-percent" style={{ color: '#64748b' }}>50%</span>
                         </div>
                     </div>
-                    <div className="sub-stage-item danger" style={{ padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="sub-stage-item danger" style={{ padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div className="sub-label" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#991b1b' }}>Lost</div>
                         <div className="sub-stats" style={{ display: 'flex', gap: '8px', fontSize: '0.75rem' }}>
                             <span className="sub-val" style={{ fontWeight: 700 }}>0</span>
