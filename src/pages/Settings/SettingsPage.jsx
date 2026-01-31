@@ -22,6 +22,9 @@ import FieldRulesSettingsPage from './views/FieldRulesSettingsPage';
 import DistributionRulesPage from './views/DistributionRulesPage';
 import SequencesSettingsPage from './views/SequencesSettingsPage';
 import AutomatedActionsSettingsPage from './views/AutomatedActionsSettingsPage';
+import ImportDataPage from './views/ImportDataPage';
+import BulkUpdatePage from './views/BulkUpdatePage';
+import ExportDataPage from './views/ExportDataPage';
 
 
 
@@ -435,6 +438,12 @@ const SettingsHubPage = () => {
                         <SequencesSettingsPage />
                     ) : activeTab === 'automated-actions' ? (
                         <AutomatedActionsSettingsPage />
+                    ) : activeTab === 'import' ? (
+                        <ImportDataPage />
+                    ) : activeTab === 'bulk-update' ? (
+                        <BulkUpdatePage />
+                    ) : activeTab === 'export' ? (
+                        <ExportDataPage />
                     ) : (
                         <EmptyState title={currentLabel} />
                     )}
