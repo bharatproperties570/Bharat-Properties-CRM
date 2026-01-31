@@ -4,6 +4,7 @@ import SendMailModal from '../Contacts/components/SendMailModal';
 import CreateActivityModal from '../../components/CreateActivityModal';
 import SendMessageModal from '../../components/SendMessageModal';
 import CallModal from '../../components/CallModal';
+import CreateCampaignModal from '../../components/CreateCampaignModal';
 
 const FormsPage = () => {
     const [isAddContactModalOpen, setIsAddContactModalOpen] = useState(false);
@@ -11,6 +12,9 @@ const FormsPage = () => {
     const [isCreateActivityModalOpen, setIsCreateActivityModalOpen] = useState(false);
     const [isSendMessageOpen, setIsSendMessageOpen] = useState(false);
     const [isCallModalOpen, setIsCallModalOpen] = useState(false);
+    const [isCreateOnlineCampaignOpen, setIsCreateOnlineCampaignOpen] = useState(false);
+    const [isCreateOfflineCampaignOpen, setIsCreateOfflineCampaignOpen] = useState(false);
+    const [isCreateOrganicCampaignOpen, setIsCreateOrganicCampaignOpen] = useState(false);
 
     const handleAddContact = (contactData) => {
         console.log('New contact:', contactData);
@@ -19,15 +23,23 @@ const FormsPage = () => {
     };
 
     const formsList = [
-        { id: 'add-contact', label: 'Add Contact', icon: 'fa-user-plus', description: 'Create a new contact with detailed information' },
-        { id: 'create-activity', label: 'Create Activity', icon: 'fa-calendar-plus', description: 'Schedule a call, meeting, or task' },
-        { id: 'call-contact', label: 'Call Contact', icon: 'fa-phone-alt', description: 'Initiate GSM or IVR call' },
-        { id: 'send-message', label: 'Send Message', icon: 'fa-comment-alt', description: 'Send SMS, WhatsApp, or RCS to contacts' },
-        { id: 'add-user', label: 'Add User', icon: 'fa-user-shield', description: 'Add a new user to the system' },
-        { id: 'add-lead', label: 'Add Lead', icon: 'fa-filter', description: 'Create a new lead entry' },
-        { id: 'add-deal', label: 'Add Deal', icon: 'fa-handshake', description: 'Create a new deal' },
-        { id: 'add-property', label: 'Add Property', icon: 'fa-building', description: 'Add a new property to inventory' },
-        { id: 'send-email', label: 'Send Email', icon: 'fa-envelope', description: 'Compose and send emails to contacts' }
+        // Contact & Communication Forms
+        { id: 'add-contact', label: 'Add Contact', icon: 'fa-user-plus', description: 'Create a new contact with detailed information', category: 'Contact Management' },
+        { id: 'create-activity', label: 'Create Activity', icon: 'fa-calendar-plus', description: 'Schedule a call, meeting, or task', category: 'Contact Management' },
+        { id: 'call-contact', label: 'Call Contact', icon: 'fa-phone-alt', description: 'Initiate GSM or IVR call', category: 'Contact Management' },
+        { id: 'send-message', label: 'Send Message', icon: 'fa-comment-alt', description: 'Send SMS, WhatsApp, or RCS to contacts', category: 'Contact Management' },
+        { id: 'send-email', label: 'Send Email', icon: 'fa-envelope', description: 'Compose and send emails to contacts', category: 'Contact Management' },
+
+        // Marketing Campaign Forms
+        { id: 'create-online-campaign', label: 'Create Online Campaign', icon: 'fa-globe', description: 'Launch Google Ads, Facebook, Instagram, LinkedIn campaigns', category: 'Marketing Campaigns' },
+        { id: 'create-offline-campaign', label: 'Create Offline Campaign', icon: 'fa-bullhorn', description: 'Setup exhibitions, hoardings, print ads, TV/Radio campaigns', category: 'Marketing Campaigns' },
+        { id: 'create-organic-campaign', label: 'Create Organic Campaign', icon: 'fa-seedling', description: 'Track SEO, content marketing, social media organic reach', category: 'Marketing Campaigns' },
+
+        // Data Entry Forms
+        { id: 'add-user', label: 'Add User', icon: 'fa-user-shield', description: 'Add a new user to the system', category: 'System Management' },
+        { id: 'add-lead', label: 'Add Lead', icon: 'fa-filter', description: 'Create a new lead entry', category: 'Sales Pipeline' },
+        { id: 'add-deal', label: 'Add Deal', icon: 'fa-handshake', description: 'Create a new deal', category: 'Sales Pipeline' },
+        { id: 'add-property', label: 'Add Property', icon: 'fa-building', description: 'Add a new property to inventory', category: 'Inventory' }
     ];
     return (
         <>
@@ -46,6 +58,9 @@ const FormsPage = () => {
                                         else if (form.id === 'create-activity') setIsCreateActivityModalOpen(true);
                                         else if (form.id === 'call-contact') setIsCallModalOpen(true);
                                         else if (form.id === 'send-message') setIsSendMessageOpen(true);
+                                        else if (form.id === 'create-online-campaign') setIsCreateOnlineCampaignOpen(true);
+                                        else if (form.id === 'create-offline-campaign') setIsCreateOfflineCampaignOpen(true);
+                                        else if (form.id === 'create-organic-campaign') setIsCreateOrganicCampaignOpen(true);
                                     }}
                                     style={{
                                         padding: '8px 24px',
@@ -53,10 +68,10 @@ const FormsPage = () => {
                                         fontWeight: 500,
                                         color: '#64748b',
                                         background: 'transparent',
-                                        cursor: ['add-contact', 'send-email', 'create-activity', 'call-contact', 'send-message'].includes(form.id) ? 'pointer' : 'default',
+                                        cursor: ['add-contact', 'send-email', 'create-activity', 'call-contact', 'send-message', 'create-online-campaign', 'create-offline-campaign', 'create-organic-campaign'].includes(form.id) ? 'pointer' : 'default',
                                         borderLeft: '4px solid transparent',
                                         transition: 'all 0.2s',
-                                        opacity: ['add-contact', 'send-email', 'create-activity', 'call-contact', 'send-message'].includes(form.id) ? 1 : 0.6
+                                        opacity: ['add-contact', 'send-email', 'create-activity', 'call-contact', 'send-message', 'create-online-campaign', 'create-offline-campaign', 'create-organic-campaign'].includes(form.id) ? 1 : 0.6
                                     }}
                                 >
                                     {form.label}
@@ -84,7 +99,7 @@ const FormsPage = () => {
                             gap: '24px'
                         }}>
                             {formsList.map(form => {
-                                const isClickable = ['add-contact', 'send-email', 'create-activity', 'call-contact', 'send-message'].includes(form.id);
+                                const isClickable = ['add-contact', 'send-email', 'create-activity', 'call-contact', 'send-message', 'create-online-campaign', 'create-offline-campaign', 'create-organic-campaign'].includes(form.id);
                                 return (
                                     <div
                                         key={form.id}
@@ -94,6 +109,9 @@ const FormsPage = () => {
                                             else if (form.id === 'create-activity') setIsCreateActivityModalOpen(true);
                                             else if (form.id === 'call-contact') setIsCallModalOpen(true);
                                             else if (form.id === 'send-message') setIsSendMessageOpen(true);
+                                            else if (form.id === 'create-online-campaign') setIsCreateOnlineCampaignOpen(true);
+                                            else if (form.id === 'create-offline-campaign') setIsCreateOfflineCampaignOpen(true);
+                                            else if (form.id === 'create-organic-campaign') setIsCreateOrganicCampaignOpen(true);
                                         }}
                                         style={{
                                             background: '#fff',
@@ -228,6 +246,42 @@ const FormsPage = () => {
                 onCallEnd={(data) => {
                     console.log('Call Ended:', data);
                     // In a real app, this would refresh the activity list
+                }}
+            />
+
+            {/* Create Online Campaign Modal */}
+            <CreateCampaignModal
+                isOpen={isCreateOnlineCampaignOpen}
+                onClose={() => setIsCreateOnlineCampaignOpen(false)}
+                campaignType="online"
+                onSave={(data) => {
+                    console.log('Online Campaign Created:', data);
+                    alert(`${data.platform} campaign "${data.name}" created successfully! Budget: ₹${parseInt(data.budgetPlanned).toLocaleString('en-IN')}`);
+                    setIsCreateOnlineCampaignOpen(false);
+                }}
+            />
+
+            {/* Create Offline Campaign Modal */}
+            <CreateCampaignModal
+                isOpen={isCreateOfflineCampaignOpen}
+                onClose={() => setIsCreateOfflineCampaignOpen(false)}
+                campaignType="offline"
+                onSave={(data) => {
+                    console.log('Offline Campaign Created:', data);
+                    alert(`${data.platform} campaign "${data.name}" created successfully! Budget: ₹${parseInt(data.budgetPlanned).toLocaleString('en-IN')}`);
+                    setIsCreateOfflineCampaignOpen(false);
+                }}
+            />
+
+            {/* Create Organic Campaign Modal */}
+            <CreateCampaignModal
+                isOpen={isCreateOrganicCampaignOpen}
+                onClose={() => setIsCreateOrganicCampaignOpen(false)}
+                campaignType="organic"
+                onSave={(data) => {
+                    console.log('Organic Campaign Created:', data);
+                    alert(`${data.platform} campaign "${data.name}" created successfully! Goal: ${data.goalLeads} leads`);
+                    setIsCreateOrganicCampaignOpen(false);
                 }}
             />
         </>

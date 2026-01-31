@@ -398,9 +398,9 @@ function MarketingPage({ onNavigate }) {
                                                         ROI: <strong style={{
                                                             padding: '2px 8px',
                                                             borderRadius: '4px',
-                                                            background: getROIColor(c.roi()).bg,
-                                                            color: getROIColor(c.roi()).color
-                                                        }}>{c.roi()}%</strong>
+                                                            background: getROIColor(c.roi).bg,
+                                                            color: getROIColor(c.roi).color
+                                                        }}>{c.roi}%</strong>
                                                     </span>
                                                 </>
                                             )}
