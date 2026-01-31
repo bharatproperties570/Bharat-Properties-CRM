@@ -280,25 +280,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     </div>
                 </div>
 
-                {/* KPI Metrics - Only show in Deals view */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
-                    {[
-                        { label: 'Active Pipeline Value', value: formatCurrency(stats.totalValue), icon: 'fa-coins', color: '#0ea5e9', bg: '#e0f2fe' },
-                        { label: 'Pending Commission', value: formatCurrency(stats.pendingComm), icon: 'fa-hand-holding-usd', color: '#f59e0b', bg: '#fef3c7' },
-                        { label: 'Bookings At Risk', value: stats.atRiskDeals, icon: 'fa-exclamation-triangle', color: '#ef4444', bg: '#fee2e2' },
-                        { label: 'Total Active Bookings', value: stats.totalDeals, icon: 'fa-file-signature', color: '#10b981', bg: '#dcfce7' },
-                    ].map((stat, i) => (
-                        <div key={i} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', display: 'flex', alignItems: 'center', gap: '16px', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
-                            <div style={{ width: '48px', height: '48px', borderRadius: '10px', background: stat.bg, color: stat.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>
-                                <i className={`fas ${stat.icon}`}></i>
-                            </div>
-                            <div>
-                                <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>{stat.label}</div>
-                                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a' }}>{stat.value}</div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
+                {/* KPI Metrics Removed from Header as per request */}
             </div>
 
             {/* Controls / Bulk Actions Toolbar */}
@@ -581,8 +563,32 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     )}
                 </div>
             </div>
-        </section>
+
+            {/* Footer Summary */}
+            <SummaryFooter stats={stats} formatCurrency={formatCurrency} />
+        </section >
     );
 };
+
+// --- Footer Summary Component (Replacing Header Stats) ---
+const SummaryFooter = ({ stats, formatCurrency }) => (
+    <div style={{
+        background: '#fff', borderTop: '1px solid #e2e8f0', padding: '16px 32px',
+        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px',
+        position: 'sticky', bottom: 0, zIndex: 10
+    }}>
+        {[
+            { label: 'Total Active Bookings', value: stats.totalDeals, color: '#10b981' },
+            { label: 'Active Pipeline Value', value: formatCurrency(stats.totalValue), color: '#0ea5e9' },
+            { label: 'Pending Commission', value: formatCurrency(stats.pendingComm), color: '#f59e0b' },
+            { label: 'Deals At Risk', value: stats.atRiskDeals, color: '#ef4444' }
+        ].map((stat, i) => (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>{stat.label}</span>
+                <span style={{ fontSize: '1.1rem', fontWeight: 800, color: stat.color }}>{stat.value}</span>
+            </div>
+        ))}
+    </div>
+);
 
 export default BookingPage;

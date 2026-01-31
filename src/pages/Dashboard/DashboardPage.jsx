@@ -7,7 +7,7 @@ import { accountData } from '../../data/accountData';
 const DashboardPage = () => {
     const [role, setRole] = useState('owner'); // owner | agent | investor
     const [selectedTeam, setSelectedTeam] = useState('Select Team');
-    const [selectedExecutive, setSelectedExecutive] = useState('Select Executive');
+
     const data = reportsData;
 
     // --- Live Data Integration ---

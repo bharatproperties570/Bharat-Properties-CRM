@@ -86,7 +86,7 @@ const ExportDataPage = () => {
                         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
                             <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>2. Export Format</h3>
                             <div style={{ display: 'flex', gap: '12px' }}>
-                                {['csv'].map(fmt => (
+                                {['csv', 'excel'].map(fmt => (
                                     <div
                                         key={fmt}
                                         onClick={() => setFormat(fmt)}
@@ -104,7 +104,6 @@ const ExportDataPage = () => {
                                         {fmt}
                                     </div>
                                 ))}
-                                <div style={{ flex: 1, padding: '12px', textAlign: 'center', borderRadius: '6px', border: '1px solid #e2e8f0', color: '#94a3b8', fontSize: '0.85rem', cursor: 'not-allowed' }} title="Coming soon">Excel</div>
                             </div>
                         </div>
                     </div>

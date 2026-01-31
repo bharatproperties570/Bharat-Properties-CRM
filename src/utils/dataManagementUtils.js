@@ -17,6 +17,8 @@ export const MODULE_CONFIG = {
             { key: 'address', label: 'Address' },
             { key: 'designation', label: 'Designation' },
             { key: 'company', label: 'Company' },
+            { key: 'project', label: 'Project Interest' },
+            { key: 'budget', label: 'Budget/Size' },
             { key: 'source', label: 'Source' }
         ]
     },
