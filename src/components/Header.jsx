@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompany, onAddProject, onAddInventory }) {
+function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompany, onAddProject, onAddInventory, onAddDeal }) {
     const [showNotifications, setShowNotifications] = useState(false);
     const [unreadCount, setUnreadCount] = useState(3);
     const [profilePicture, setProfilePicture] = useState('');
@@ -52,7 +52,7 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
                         <a href="#" onClick={(e) => { e.preventDefault(); onAddContact(); }}><i className="fas fa-user-plus"></i> Add Contact</a>
                         <a href="#" onClick={(e) => { e.preventDefault(); onAddCompany(); }}><i className="fas fa-building"></i> Add Company</a>
                         <a href="#" onClick={(e) => { e.preventDefault(); onAddLead(); }}><i className="fas fa-filter"></i> Add Lead</a>
-                        <a href="#"><i className="fas fa-handshake"></i> Add Deal</a>
+                        <a href="#" onClick={(e) => { e.preventDefault(); onAddDeal(); }}><i className="fas fa-handshake"></i> Add Deal</a>
                         <a href="#" onClick={(e) => { e.preventDefault(); onAddProject(); }}><i className="fas fa-building"></i> Add Project</a>
                         <a href="#" onClick={(e) => { e.preventDefault(); onAddInventory(); }}><i className="fas fa-boxes"></i> Add Inventory</a>
                         <a href="#" onClick={(e) => { e.preventDefault(); onAddActivity(); }}><i className="fas fa-tasks"></i> Add Activities</a>

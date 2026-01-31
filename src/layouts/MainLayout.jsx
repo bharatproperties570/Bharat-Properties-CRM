@@ -11,6 +11,7 @@ import CreateActivityModal from '../components/CreateActivityModal';
 import AddProjectModal from '../components/AddProjectModal';
 import AddInventoryModal from '../components/AddInventoryModal';
 import AddLeadModal from '../components/AddLeadModal';
+import AddDealModal from '../components/AddDealModal';
 
 const MainLayout = ({ children, currentView, onNavigate }) => {
     // Global Modal State
@@ -19,6 +20,7 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
     const [showAddCompanyModal, setShowAddCompanyModal] = useState(false);
     const [showAddProjectModal, setShowAddProjectModal] = useState(false);
     const [showAddInventoryModal, setShowAddInventoryModal] = useState(false);
+    const [showAddDealModal, setShowAddDealModal] = useState(false);
 
     // Modal Data State
     const [modalEntityType, setModalEntityType] = useState('contact'); // 'contact' or 'lead'
@@ -107,7 +109,8 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
             setShowActivityModal(true);
         },
         onAddProject: handleAddProject,
-        onAddInventory: () => setShowAddInventoryModal(true)
+        onAddInventory: () => setShowAddInventoryModal(true),
+        onAddDeal: () => setShowAddDealModal(true)
     };
 
     return (
@@ -134,6 +137,7 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                         setActivityInitialData({ relatedTo: [] });
                         setShowActivityModal(true);
                     }}
+                    onAddDeal={() => setShowAddDealModal(true)}
                     onAddProject={handleAddProject}
                     onAddInventory={() => setShowAddInventoryModal(true)}
                 />
@@ -182,6 +186,12 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                     isOpen={showAddInventoryModal}
                     onClose={() => setShowAddInventoryModal(false)}
                     onSave={() => setShowAddInventoryModal(false)}
+                />
+
+                <AddDealModal
+                    isOpen={showAddDealModal}
+                    onClose={() => setShowAddDealModal(false)}
+                    onSave={() => setShowAddDealModal(false)}
                 />
             </main>
         </div>
