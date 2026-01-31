@@ -1408,13 +1408,15 @@ body {
 
 .lead-list-grid {
     display: grid;
-    /* Grid: Check | Profile | Match | Req | Loc | Status | Interaction | Assignment */
-    grid-template-columns: 40px 260px 130px 190px 160px 140px 240px 180px;
-    gap: 15px;
+    /* Grid: Check | Profile | Match | Req | Budget | Loc | Interaction/Meta | Assignment */
+    /* Check(40px) Name(2.5fr) Match(1fr) Req(1.5fr) Budget(1fr) Loc(2fr) Source(2fr) Status(1fr) */
+    grid-template-columns: 40px 2.5fr 1fr 1.5fr 1fr 2fr 2fr 1fr;
+    gap: 12px;
     align-items: center;
     padding: 12px 20px;
     border-bottom: 1px solid #f1f5f9;
-    min-width: 1350px;
+    width: 100%;
+    /* eliminated min-width to prevent scroll */
 }
 
 .lead-list-grid:hover {
