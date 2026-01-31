@@ -1408,9 +1408,9 @@ body {
 
 .lead-list-grid {
     display: grid;
-    /* Grid: Check | Profile | Match | Req | Budget | Loc | Interaction/Meta | Assignment */
-    /* Check(40px) Name(2.5fr) Match(1fr) Req(1.5fr) Budget(1fr) Loc(2fr) Source(2fr) Status(1fr) */
-    grid-template-columns: 40px 2.5fr 1fr 1.5fr 1fr 2fr 2fr 1fr;
+    /* Grid: Check | Profile | Match | Req+Budget | Loc | Status+Source | Interaction | Assignment */
+    /* Check(40px) Profile(2.2fr) Match(0.8fr) Req(1.2fr) Loc(3fr) Status(1.5fr) Interaction(1.5fr) Assignment(1fr) */
+    grid-template-columns: 40px 2.2fr 0.8fr 1.2fr 3fr 1.5fr 1.5fr 1fr;
     gap: 12px;
     align-items: center;
     padding: 12px 20px;
