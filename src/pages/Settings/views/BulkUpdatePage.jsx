@@ -1,41 +1,68 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { MODULE_CONFIG } from '../../../../utils/dataManagementUtils';
+import toast from 'react-hot-toast';
 
 const BulkUpdatePage = () => {
     const [module, setModule] = useState('contacts');
-    const [filters, setFilters] = useState([{ field: 'status', operator: 'is', value: '' }]);
+    const [filters, setFilters] = useState([{ field: '', operator: 'is', value: '' }]);
     const [updateField, setUpdateField] = useState('');
     const [newValue, setNewValue] = useState('');
     const [isSimulating, setIsSimulating] = useState(false);
     const [simulationComplete, setSimulationComplete] = useState(false);
+    const [affectedCount, setAffectedCount] = useState(0);
 
-    const modules = [
-        { id: 'contacts', label: 'Contacts' },
-        { id: 'leads', label: 'Leads' },
-        { id: 'projects', label: 'Projects' },
-        { id: 'inventory', label: 'Inventory' },
-        { id: 'companies', label: 'Companies' },
-        { id: 'property-sizes', label: 'Property Sizes' }
-    ];
+    const activeConfig = MODULE_CONFIG[module];
+    const availableFields = activeConfig ? activeConfig.fields : [];
 
-    const fields = {
-        contacts: ['Status', 'Lead Source', 'City', 'Owner'],
-        leads: ['Stage', 'Budget Range', 'Preferred Location', 'Agent'],
-        projects: ['Construction Status', 'Launch Date', 'Builder'],
-        inventory: ['Availability Status', 'Price Per SqFt', 'Floor Rise'],
-        companies: ['Industry', 'City', 'Account Manager'],
-        'property-sizes': ['Category', 'Metric', 'Project']
-    };
+    // Reset when module changes
+    useEffect(() => {
+        setFilters([{ field: availableFields[0]?.key || '', operator: 'is', value: '' }]);
+        setUpdateField(availableFields[0]?.key || '');
+        setAffectedCount(activeConfig ? activeConfig.data.length : 0);
+    }, [module]);
+
+    // Calculate affected records whenever filters change
+    useEffect(() => {
+        if (!activeConfig) return;
+
+        const count = activeConfig.data.filter(item => {
+            return filters.every(filter => {
+                if (!filter.field || !filter.value) return true; // Ignore incomplete filters
+
+                const itemValue = String(item[filter.field] || '').toLowerCase();
+                const filterValue = filter.value.toLowerCase();
+
+                switch (filter.operator) {
+                    case 'is': return itemValue === filterValue;
+                    case 'is not': return itemValue !== filterValue;
+                    case 'contains': return itemValue.includes(filterValue);
+                    case 'starts with': return itemValue.startsWith(filterValue);
+                    default: return true;
+                }
+            });
+        }).length;
+
+        setAffectedCount(count);
+    }, [filters, activeConfig]);
 
     const handleAddFilter = () => {
-        setFilters([...filters, { field: 'status', operator: 'is', value: '' }]);
+        setFilters([...filters, { field: availableFields[0]?.key || '', operator: 'is', value: '' }]);
     };
 
     const handleRemoveFilter = (idx) => {
         setFilters(filters.filter((_, i) => i !== idx));
     };
 
+    const handleFilterChange = (idx, key, val) => {
+        const newFilters = [...filters];
+        newFilters[idx][key] = val;
+        setFilters(newFilters);
+    };
+
     const handleReview = () => {
-        if (!updateField || !newValue) return alert('Please select a field to update and a new value.');
+        if (!updateField || !newValue) return toast.error('Please select a field to update and a new value.');
+        if (affectedCount === 0) return toast.error('No records match your filters.');
+
         setIsSimulating(true);
         setTimeout(() => {
             setIsSimulating(false);
@@ -51,7 +78,7 @@ const BulkUpdatePage = () => {
                 </div>
                 <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b', marginBottom: '12px' }}>Update Scheduled!</h2>
                 <p style={{ color: '#64748b', textAlign: 'center', maxWidth: '400px', marginBottom: '32px' }}>
-                    Bulk update job #BU-202601 has been queued. 142 {modules.find(m => m.id === module)?.label} records will be updated to <strong>{updateField} = {newValue}</strong>.
+                    Bulk update job has been queued. <strong>{affectedCount}</strong> {activeConfig.label} records will be updated to <strong>{availableFields.find(f => f.key === updateField)?.label} = {newValue}</strong>.
                 </p>
                 <div style={{ display: 'flex', gap: '12px' }}>
                     <button
@@ -83,7 +110,7 @@ const BulkUpdatePage = () => {
                             Select Module
                         </h3>
                         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                            {modules.map(mod => (
+                            {Object.values(MODULE_CONFIG).map(mod => (
                                 <button
                                     key={mod.id}
                                     onClick={() => setModule(mod.id)}
@@ -111,16 +138,30 @@ const BulkUpdatePage = () => {
                         </h3>
                         {filters.map((filter, idx) => (
                             <div key={idx} style={{ display: 'flex', gap: '12px', marginBottom: '12px', alignItems: 'center' }}>
-                                <select style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
-                                    {fields[module].map(f => <option key={f}>{f}</option>)}
+                                <select
+                                    value={filter.field}
+                                    onChange={(e) => handleFilterChange(idx, 'field', e.target.value)}
+                                    style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                                >
+                                    {availableFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
                                 </select>
-                                <select style={{ width: '120px', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
-                                    <option>is</option>
-                                    <option>is not</option>
-                                    <option>contains</option>
-                                    <option>starts with</option>
+                                <select
+                                    value={filter.operator}
+                                    onChange={(e) => handleFilterChange(idx, 'operator', e.target.value)}
+                                    style={{ width: '120px', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                                >
+                                    <option value="is">is</option>
+                                    <option value="is not">is not</option>
+                                    <option value="contains">contains</option>
+                                    <option value="starts with">starts with</option>
                                 </select>
-                                <input type="text" placeholder="Value..." style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+                                <input
+                                    type="text"
+                                    value={filter.value}
+                                    onChange={(e) => handleFilterChange(idx, 'value', e.target.value)}
+                                    placeholder="Value..."
+                                    style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                                />
                                 {filters.length > 1 && (
                                     <button onClick={() => handleRemoveFilter(idx)} style={{ color: '#ef4444', background: 'transparent', border: 'none', cursor: 'pointer' }}>
                                         <i className="fas fa-trash"></i>
@@ -147,8 +188,7 @@ const BulkUpdatePage = () => {
                                     onChange={(e) => setUpdateField(e.target.value)}
                                     style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
                                 >
-                                    <option value="">Select Field</option>
-                                    {fields[module].map(f => <option key={f} value={f}>{f}</option>)}
+                                    {availableFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
                                 </select>
                             </div>
                             <div style={{ fontSize: '1.2rem', color: '#94a3b8', textAlign: 'center', paddingTop: '24px' }}>
@@ -172,7 +212,7 @@ const BulkUpdatePage = () => {
                         <div>
                             <div style={{ fontWeight: 700, color: '#166534', marginBottom: '4px' }}>Ready to Update</div>
                             <div style={{ fontSize: '0.9rem', color: '#15803d' }}>
-                                Based on your filters, approximately <strong>142 records</strong> will be updated.
+                                Based on your filters, <strong>{affectedCount} records</strong> will be updated.
                             </div>
                         </div>
                         <button
