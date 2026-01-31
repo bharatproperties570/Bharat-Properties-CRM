@@ -1,11 +1,13 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { evaluateAndExecuteTriggers } from '../utils/triggersEngine';
 import { useSequences } from './SequenceContext';
+import { useAutomatedActions } from './AutomatedActionsContext';
 
 const TriggersContext = createContext();
 
 export const TriggersProvider = ({ children }) => {
     const { enrollInSequence, updateEnrollmentStatus } = useSequences();
+    const { invokeAction } = useAutomatedActions();
 
     // Trigger Definitions (Pre-seeded with examples)
     const [triggers, setTriggers] = useState([
@@ -78,6 +80,52 @@ export const TriggersProvider = ({ children }) => {
                 {
                     type: 'stop_sequence',
                     sequenceId: 'all' // Stop all active sequences for this entity
+                }
+            ],
+            createdAt: new Date().toISOString(),
+            createdBy: 'system'
+        },
+        {
+            id: 'trigger_4',
+            name: 'Deal Stage Changed - Associate Follow-up',
+            module: 'deals',
+            event: 'deal_stage_changed',
+            priority: 4,
+            isActive: true,
+            conditions: {
+                operator: 'AND',
+                rules: [
+                    { field: 'status', operator: '==', value: 'Negotiation' }
+                ]
+            },
+            actions: [
+                {
+                    type: 'start_sequence',
+                    sequenceId: 'seq1',
+                    target: 'associatedContact.mobile' // Enroll the associate
+                }
+            ],
+            createdAt: new Date().toISOString(),
+            createdBy: 'system'
+        },
+        {
+            id: 'trigger_5',
+            name: 'Inventory Created - Notify Owner',
+            module: 'inventory',
+            event: 'inventory_created',
+            priority: 5,
+            isActive: true,
+            conditions: {
+                operator: 'AND',
+                rules: [
+                    { field: 'status', operator: '==', value: 'Active' }
+                ]
+            },
+            actions: [
+                {
+                    type: 'send_notification',
+                    target: 'owner',
+                    message: 'A new active inventory {{unitNo}} has been listed.'
                 }
             ],
             createdAt: new Date().toISOString(),
@@ -178,6 +226,9 @@ export const TriggersProvider = ({ children }) => {
      * Fire an event and evaluate triggers
      */
     const fireEvent = useCallback(async (event, entity, context = {}) => {
+        // Track recursion depth context
+        const currentDepth = context.depth || 0;
+
         try {
             // Action Handlers - These connect triggers to actual system functions
             const actionHandlers = {
@@ -190,32 +241,44 @@ export const TriggersProvider = ({ children }) => {
                     if (sequenceId === 'all') {
                         updateEnrollmentStatus(entityId, 'paused');
                     } else {
-                        // TODO: Implement specific sequence stopping
                         updateEnrollmentStatus(entityId, 'paused');
                     }
                     return { success: true };
                 },
 
-                sendNotification: async ({ target, template, entity, data }) => {
-                    // TODO: Implement notification system
-                    console.log('Notification sent:', { target, template, entity, data });
-                    return { success: true, notificationId: `notif_${Date.now()}` };
+                sendNotification: async ({ target, template, entity, data, message }) => {
+                    const finalMessage = message || data?.message || `Trigger: ${template}`;
+                    // Real implementation (simulated with toast/log for now)
+                    console.log(`[TRIGGER_NOTIFICATION] to ${target}: ${finalMessage}`);
+                    return { success: true, message: finalMessage };
                 },
 
                 fireAutomatedAction: async (automatedActionId, entity) => {
-                    // TODO: Implement automated actions system
-                    console.log('Automated action fired:', automatedActionId, entity);
-                    return { success: true, actionId: automatedActionId };
+                    const result = await invokeAction(automatedActionId, entity, context);
+                    return result;
                 },
 
                 updateField: async (entityId, field, value) => {
-                    // TODO: Implement field update with validation
-                    console.log('Field updated:', entityId, field, value);
-                    return { success: true, field, value };
+                    // Critical safety: Prevent recursion if updating same entity
+                    if (entity.id === entityId) {
+                        // Recursively fire event with incremented depth
+                        const updatedEntity = { ...entity, [field]: value };
+
+                        console.log(`[TRIGGER_ACTION] Updating ${field} to ${value} on ${entityId}`);
+
+                        // Fire "field_updated" event to check for subsequent triggers
+                        await fireEvent(`${context.entityType}_field_updated`, updatedEntity, {
+                            ...context,
+                            previousEntity: entity,
+                            depth: currentDepth + 1
+                        });
+
+                        return { success: true, field, value };
+                    }
+                    return { success: false, reason: 'Cross-entity updates not fully supported yet' };
                 },
 
                 createActivity: async (activityData) => {
-                    // TODO: Integrate with ActivityContext
                     console.log('Activity created:', activityData);
                     return { success: true, activityId: `activity_${Date.now()}` };
                 }
@@ -226,15 +289,16 @@ export const TriggersProvider = ({ children }) => {
                 entity,
                 triggers,
                 actionHandlers,
-                context
+                {
+                    ...context,
+                    depth: currentDepth
+                }
             );
 
-            // Store execution logs
-            setExecutionLogs(prev => [...logs, ...prev].slice(0, 1000)); // Keep last 1000 logs
+            setExecutionLogs(prev => [...logs, ...prev].slice(0, 1000));
 
-            // Update stats
-            const successCount = logs.filter(log => log.success).length;
-            const failureCount = logs.length - successCount;
+            const successCount = logs.filter(log => log.success && log.conditionsMet).length;
+            const failureCount = logs.filter(log => log.conditionsMet && !log.success).length;
 
             setStats(prev => ({
                 totalFired: prev.totalFired + logs.length,

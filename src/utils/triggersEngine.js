@@ -10,52 +10,48 @@
 
 /**
  * Evaluate if a trigger's conditions are met
- * @param {Object} entity - The entity being evaluated (lead, activity, etc.)
- * @param {Object} conditions - Trigger conditions with operator and rules
+ * @param {Object} entity - The current entity state
+ * @param {Object} conditions - Trigger conditions
+ * @param {Object} previousEntity - The previous entity state (optional)
  * @returns {boolean} - Whether conditions are met
  */
-export const evaluateTriggerConditions = (entity, conditions) => {
+export const evaluateTriggerConditions = (entity, conditions, previousEntity = null) => {
     if (!conditions || !conditions.rules || conditions.rules.length === 0) {
-        return true; // No conditions = always true
+        return true;
     }
 
     const { operator = 'AND', rules } = conditions;
 
     const evaluateRule = (rule) => {
         const { field, operator: ruleOp, value } = rule;
-        const entityValue = getNestedValue(entity, field);
+        const currentVal = getNestedValue(entity, field);
+        const prevVal = previousEntity ? getNestedValue(previousEntity, field) : undefined;
 
         switch (ruleOp) {
             case '==':
             case 'equals':
-                return entityValue == value;
+                return currentVal == value;
             case '!=':
             case 'not_equals':
-                return entityValue != value;
+                return currentVal != value;
             case '>':
             case 'greater_than':
-                return Number(entityValue) > Number(value);
-            case '>=':
-            case 'greater_than_or_equal':
-                return Number(entityValue) >= Number(value);
+                return Number(currentVal) > Number(value);
             case '<':
             case 'less_than':
-                return Number(entityValue) < Number(value);
-            case '<=':
-            case 'less_than_or_equal':
-                return Number(entityValue) <= Number(value);
+                return Number(currentVal) < Number(value);
             case 'contains':
-                return String(entityValue).toLowerCase().includes(String(value).toLowerCase());
-            case 'not_contains':
-                return !String(entityValue).toLowerCase().includes(String(value).toLowerCase());
-            case 'in':
-                return Array.isArray(value) && value.includes(entityValue);
-            case 'not_in':
-                return Array.isArray(value) && !value.includes(entityValue);
+                return String(currentVal || '').toLowerCase().includes(String(value).toLowerCase());
             case 'is_empty':
-                return !entityValue || entityValue === '' || (Array.isArray(entityValue) && entityValue.length === 0);
-            case 'is_not_empty':
-                return entityValue && entityValue !== '' && (!Array.isArray(entityValue) || entityValue.length > 0);
+                return !currentVal || currentVal === '';
+            case 'was_changed':
+                return previousEntity !== null && currentVal !== prevVal;
+            case 'changed_from':
+                return previousEntity !== null && prevVal == value && currentVal !== prevVal;
+            case 'changed_to':
+                return previousEntity !== null && currentVal == value && currentVal !== prevVal;
+            case 'in':
+                return Array.isArray(value) && value.includes(currentVal);
             default:
                 console.warn(`Unknown operator: ${ruleOp}`);
                 return false;
@@ -63,21 +59,25 @@ export const evaluateTriggerConditions = (entity, conditions) => {
     };
 
     const results = rules.map(evaluateRule);
+    return operator === 'AND' ? results.every(r => r) : results.some(r => r);
+};
 
-    if (operator === 'AND') {
-        return results.every(r => r === true);
-    } else if (operator === 'OR') {
-        return results.some(r => r === true);
-    }
-
-    return false;
+/**
+ * Render a string template with entity data
+ * @param {string} template - String with {{field}} placeholders
+ * @param {Object} entity - Data source
+ * @returns {string} - Rendered string
+ */
+export const renderTemplate = (template, entity) => {
+    if (!template) return '';
+    return template.replace(/\{\{([\w.]+)\}\}/g, (match, path) => {
+        const val = getNestedValue(entity, path);
+        return val !== undefined ? val : match;
+    });
 };
 
 /**
  * Get nested value from object using dot notation
- * @param {Object} obj - Object to get value from
- * @param {string} path - Dot notation path (e.g., 'contact.name')
- * @returns {*} - Value at path
  */
 const getNestedValue = (obj, path) => {
     if (!path) return undefined;
@@ -86,27 +86,13 @@ const getNestedValue = (obj, path) => {
 
 /**
  * Check if trigger event matches the fired event
- * @param {string} triggerEvent - Event defined in trigger
- * @param {string} firedEvent - Event that was fired
- * @param {Object} eventData - Additional event data
- * @returns {boolean} - Whether events match
  */
 export const matchesEvent = (triggerEvent, firedEvent, eventData = {}) => {
-    // Direct match
     if (triggerEvent === firedEvent) return true;
-
-    // Wildcard matching
     if (triggerEvent.includes('*')) {
-        const regex = new RegExp('^' + triggerEvent.replace('*', '.*') + '$');
+        const regex = new RegExp('^' + triggerEvent.replace(/\*/g, '.*') + '$');
         return regex.test(firedEvent);
     }
-
-    // Field-specific matching (e.g., lead_field_updated with specific field)
-    if (firedEvent === 'lead_field_updated' && triggerEvent.startsWith('lead_field_updated:')) {
-        const fieldName = triggerEvent.split(':')[1];
-        return eventData.field === fieldName;
-    }
-
     return false;
 };
 
@@ -179,13 +165,15 @@ export const executeTriggerActions = async (trigger, entity, actionHandlers = {}
             switch (action.type) {
                 case 'start_sequence':
                     if (actionHandlers.startSequence) {
-                        result = await actionHandlers.startSequence(entity.id, action.sequenceId);
+                        const targetId = action.target ? getNestedValue(entity, action.target) : entity.id;
+                        result = await actionHandlers.startSequence(targetId, action.sequenceId);
                     }
                     break;
 
                 case 'stop_sequence':
                     if (actionHandlers.stopSequence) {
-                        result = await actionHandlers.stopSequence(entity.id, action.sequenceId);
+                        const targetId = action.target ? getNestedValue(entity, action.target) : entity.id;
+                        result = await actionHandlers.stopSequence(targetId, action.sequenceId);
                     }
                     break;
 
@@ -328,28 +316,38 @@ export const createExecutionLog = (trigger, entity, event, conditionsMet, action
 /**
  * Main trigger evaluation and execution function
  * @param {string} event - Event that was fired
- * @param {Object} entity - Entity that triggered the event
- * @param {Array} triggers - All active triggers
- * @param {Object} actionHandlers - Action handler functions
- * @param {Object} context - Additional context
- * @returns {Promise<Array>} - Array of execution logs
+ * @param {Object} entity - Current entity state
+ * @param {Array} triggers - All triggers
+ * @param {Object} actionHandlers - Action handlers
+ * @param {Object} context - { entityType, previousEntity, depth }
+ * @returns {Promise<Array>} - Execution logs
  */
 export const evaluateAndExecuteTriggers = async (event, entity, triggers, actionHandlers, context = {}) => {
+    const { entityType, previousEntity = null, depth = 0 } = context;
     const logs = [];
 
-    // Filter triggers for this event and module
+    // Safety: Infinite Loop Protection
+    if (depth > 5) {
+        console.error('Trigger execution depth limit reached (Circular reference suspected)');
+        return [{
+            triggerName: 'SYSTEM_PROTECTION',
+            event,
+            success: false,
+            error: 'Infinite loop detected'
+        }];
+    }
+
+    // Filter relevant triggers
     const relevantTriggers = triggers.filter(trigger =>
         trigger.isActive &&
-        trigger.module === context.entityType &&
+        trigger.module === entityType &&
         matchesEvent(trigger.event, event, context.eventData)
     );
 
-    // Sort by priority
     const sortedTriggers = sortTriggersByPriority(relevantTriggers);
 
-    // Execute each trigger
     for (const trigger of sortedTriggers) {
-        // Validate safety
+        // Safety Check
         const safetyCheck = validateTriggerSafety(trigger, entity, context);
         if (!safetyCheck.valid) {
             logs.push(createExecutionLog(trigger, entity, event, false, [{
@@ -360,13 +358,23 @@ export const evaluateAndExecuteTriggers = async (event, entity, triggers, action
             continue;
         }
 
-        // Evaluate conditions
-        const conditionsMet = evaluateTriggerConditions(entity, trigger.conditions);
+        // Evaluate Conditions (with previousEntity context)
+        const conditionsMet = evaluateTriggerConditions(entity, trigger.conditions, previousEntity);
 
         if (conditionsMet) {
+            // Pre-process actions (template rendering)
+            const processedTrigger = {
+                ...trigger,
+                actions: trigger.actions?.map(action => ({
+                    ...action,
+                    data: action.data ? JSON.parse(renderTemplate(JSON.stringify(action.data), entity)) : action.data,
+                    message: action.message ? renderTemplate(action.message, entity) : action.message
+                }))
+            };
+
             // Execute actions
-            const actionResults = await executeTriggerActions(trigger, entity, actionHandlers);
-            logs.push(createExecutionLog(trigger, entity, event, true, actionResults));
+            const actionResults = await executeTriggerActions(processedTrigger, entity, actionHandlers);
+            logs.push(createExecutionLog(processedTrigger, entity, event, true, actionResults));
         } else {
             logs.push(createExecutionLog(trigger, entity, event, false, []));
         }

@@ -2011,7 +2011,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                             </button>
                         </div>
                         <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            {enrollments.filter(e => e.entityId === contactId && e.status === 'active').map(enrollment => {
+                            {enrollments.filter(e => e.entityId === (contact?._id || contact?.mobile) && e.status === 'active').map(enrollment => {
                                 const seq = sequences.find(s => s.id === enrollment.sequenceId);
                                 if (!seq) return null;
                                 return (
@@ -2034,13 +2034,13 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                         </div>
                                         <div style={{ display: 'flex', gap: '8px' }}>
                                             <button
-                                                onClick={() => updateEnrollmentStatus(contactId, 'paused')}
+                                                onClick={() => updateEnrollmentStatus(contact?._id || contact?.mobile, 'paused')}
                                                 style={{ flex: 1, padding: '6px', fontSize: '0.65rem', fontWeight: 800, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: '6px', cursor: 'pointer' }}
                                             >
                                                 Pause
                                             </button>
                                             <button
-                                                onClick={() => updateEnrollmentStatus(contactId, 'stopped')}
+                                                onClick={() => updateEnrollmentStatus(contact?._id || contact?.mobile, 'stopped')}
                                                 style={{ flex: 1, padding: '6px', fontSize: '0.65rem', fontWeight: 800, background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer' }}
                                             >
                                                 Stop
@@ -2053,7 +2053,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                             <div style={{ marginTop: '4px' }}>
                                 <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px' }}>Recent Logs</div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    {enrollments.filter(e => e.entityId === contactId).flatMap(e => e.logs || []).slice(-3).reverse().map((log, i) => (
+                                    {enrollments.filter(e => e.entityId === (contact?._id || contact?.mobile)).flatMap(e => e.logs || []).slice(-3).reverse().map((log, i) => (
                                         <div key={i} style={{ display: 'flex', gap: '10px', fontSize: '0.7rem' }}>
                                             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#3b82f6', marginTop: '4px' }}></div>
                                             <div style={{ flex: 1 }}>
@@ -2072,7 +2072,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
             <EnrollSequenceModal
                 isOpen={isEnrollModalOpen}
                 onClose={() => setIsEnrollModalOpen(false)}
-                entityId={contactId}
+                entityId={contact?._id || contact?.mobile}
                 entityName={contact.name}
             />
 

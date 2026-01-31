@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import toast from 'react-hot-toast';
+import { useTriggers } from '../../context/TriggersContext';
 import { inventoryData } from '../../data/mockData';
 import UploadModal from '../../components/UploadModal';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
@@ -11,6 +12,7 @@ import ManageTagsModal from '../../components/ManageTagsModal';
 import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
 
 function InventoryPage() {
+    const { fireEvent } = useTriggers();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
@@ -300,7 +302,23 @@ function InventoryPage() {
                                         <>
                                             <button className="action-btn" title="Edit Property" style={{ flexShrink: 0 }} onClick={handleEditClick}><i className="fas fa-edit"></i> Edit</button>
                                             <button className="action-btn" title="Create Deal" style={{ flexShrink: 0 }}><i className="fas fa-plus-circle"></i> Deal</button>
-                                            <button className="action-btn" title="Match Lead" style={{ flexShrink: 0 }}><i className="fas fa-handshake"></i> Match</button>
+                                            <button
+                                                className="action-btn"
+                                                title="Match Lead"
+                                                style={{ flexShrink: 0 }}
+                                                onClick={() => {
+                                                    const property = getSelectedProperty();
+                                                    if (property) {
+                                                        fireEvent('inventory_matching_requested', property, {
+                                                            entityType: 'inventory',
+                                                            recommendationDepth: 'high'
+                                                        });
+                                                        toast.success(`Searching for leads matching ${property.unitNo}...`);
+                                                    }
+                                                }}
+                                            >
+                                                <i className="fas fa-handshake"></i> Match
+                                            </button>
                                             <button className="action-btn" title="Add Owner" style={{ flexShrink: 0 }} onClick={handleOwnerClick}><i className="fas fa-user-plus"></i> Owner</button>
                                             <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px', flexShrink: 0 }}></div>
                                             <button className="action-btn" title="Call Owner" style={{ flexShrink: 0 }}><i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call</button>

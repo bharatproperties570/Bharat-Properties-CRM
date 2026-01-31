@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
+import AddDealModal from '../../components/AddDealModal';
 
 function DealsPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
     const [currentView, setCurrentView] = useState('list'); // 'list' or 'map'
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
     const dealsData = [
         {
@@ -138,7 +140,9 @@ function DealsPage() {
         }
     ];
 
-    const filteredDeals = dealsData.filter(deal => {
+    const [deals, setDeals] = useState(dealsData);
+
+    const filteredDeals = deals.filter(deal => {
         const search = searchTerm.toLowerCase();
         return (
             (deal.id && deal.id.toLowerCase().includes(search)) ||
@@ -185,6 +189,13 @@ function DealsPage() {
                         </div>
                         <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <i className="fas fa-filter"></i> Filters
+                        </button>
+                        <button
+                            className="btn-primary"
+                            style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', padding: '10px 18px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}
+                            onClick={() => setIsAddModalOpen(true)}
+                        >
+                            <i className="fas fa-plus"></i> Add Deal
                         </button>
                     </div>
                 </div>
@@ -574,6 +585,20 @@ function DealsPage() {
                     </div>
                 </div>
             </div >
+
+            <AddDealModal
+                isOpen={isAddModalOpen}
+                onClose={() => setIsAddModalOpen(false)}
+                onSave={(newDeal) => {
+                    const formattedDeal = {
+                        ...newDeal,
+                        id: `D${Math.floor(Math.random() * 10000)}`,
+                        score: { val: 60, class: 'warm' } // Mock initial score
+                    };
+                    setDeals(prev => [formattedDeal, ...prev]);
+                    setIsAddModalOpen(false);
+                }}
+            />
         </section >
     );
 }
@@ -667,4 +692,11 @@ function ClosedPipelineItem() {
         </div>
     );
 }
+
+const DealsPageWrapper = () => (
+    <>
+        <DealsPage />
+    </>
+);
+
 export default DealsPage;

@@ -239,14 +239,18 @@ export const distributeScoreBased = (assignmentTarget, entityData, scoreBands) =
 /**
  * Calculate agent workload
  */
-export const calculateWorkload = (agentId, leads, activities) => {
-    const activeLeads = leads.filter(l => l.owner === agentId && l.stage !== 'Closed').length;
+export const calculateWorkload = (agentId, leads = [], activities = [], deals = [], inventory = []) => {
+    const activeLeads = leads.filter(l => (l.owner === agentId || l.assignedTo === agentId) && l.stage !== 'Closed').length;
     const activeActivities = activities.filter(a => a.assignedTo === agentId && a.status !== 'Completed').length;
+    const activeDeals = deals.filter(d => (d.assigned === agentId || d.owner === agentId) && d.status !== 'Closed').length;
+    const activeInventory = inventory.filter(i => (i.assignedTo === agentId || i.owner === agentId) && i.status === 'Active').length;
 
     return {
         activeLeads,
         activeActivities,
-        totalLoad: activeLeads + activeActivities
+        activeDeals,
+        activeInventory,
+        totalLoad: activeLeads + activeActivities + activeDeals + activeInventory
     };
 };
 

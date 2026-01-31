@@ -809,19 +809,26 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 if (mode === 'add') {
                     fireEvent('lead_created', leadPayload, { entityType: 'leads' });
                 } else {
-                    fireEvent('lead_updated', leadPayload, { entityType: 'leads' });
-                    if (leadPayload.stage !== (contactData?.stage || initialData?.stage)) {
+                    const previousEntity = contactData || initialData || {};
+                    fireEvent('lead_updated', leadPayload, {
+                        entityType: 'leads',
+                        previousEntity
+                    });
+
+                    if (leadPayload.stage !== previousEntity.stage) {
                         fireEvent('lead_stage_changed', leadPayload, {
                             entityType: 'leads',
-                            previousValue: contactData?.stage || initialData?.stage,
-                            currentValue: leadPayload.stage
+                            previousValue: previousEntity.stage,
+                            currentValue: leadPayload.stage,
+                            previousEntity
                         });
                     }
-                    if (leadPayload.status !== (contactData?.status || initialData?.status)) {
+                    if (leadPayload.status !== previousEntity.status) {
                         fireEvent('lead_status_changed', leadPayload, {
                             entityType: 'leads',
-                            previousValue: contactData?.status || initialData?.status,
-                            currentValue: leadPayload.status
+                            previousValue: previousEntity.status,
+                            currentValue: leadPayload.status,
+                            previousEntity
                         });
                     }
                 }

@@ -698,5 +698,34 @@ export const inventoryData = [
         lastContactUser: 'Admin',
         lat: 29.9655,
         lng: 76.8370
+    },
+    {
+        id: 16,
+        unitNo: '101',
+        type: 'Plot',
+        size: '10 Marla',
+        location: 'North Block',
+        area: 'Sector 3 Chandigarh',
+        status: 'Active',
+        ownerName: 'Mr. Naveen Kumar',
+        ownerPhone: '9468081966',
+        ownerEmail: 'naveen.k@gmail.com',
+        associatedContact: 'Suraj Keshwar',
+        associatedPhone: '9878299954',
+        remarks: 'Premium Unit'
+    },
+    {
+        id: 17,
+        unitNo: 'Plot 55',
+        type: 'Residential Plot',
+        size: '1 Kanal',
+        location: '',
+        area: 'Sector 13 Kurukshetra',
+        status: 'Active',
+        ownerName: 'Mrs. Manpreet Kaur',
+        ownerPhone: '7009550400',
+        ownerEmail: 'manpreetsaini75@gmail.com',
+        associatedContact: 'Deepak Gupta',
+        associatedPhone: '9416012345'
     }
 ];

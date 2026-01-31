@@ -21,6 +21,7 @@ import TriggersSettingsPage from './views/TriggersSettingsPage';
 import FieldRulesSettingsPage from './views/FieldRulesSettingsPage';
 import DistributionRulesPage from './views/DistributionRulesPage';
 import SequencesSettingsPage from './views/SequencesSettingsPage';
+import AutomatedActionsSettingsPage from './views/AutomatedActionsSettingsPage';
 
 
 
@@ -432,6 +433,8 @@ const SettingsHubPage = () => {
                         <DistributionRulesPage />
                     ) : activeTab === 'sequences' ? (
                         <SequencesSettingsPage />
+                    ) : activeTab === 'automated-actions' ? (
+                        <AutomatedActionsSettingsPage />
                     ) : (
                         <EmptyState title={currentLabel} />
                     )}

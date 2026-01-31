@@ -10,6 +10,9 @@ import AssignContactModal from "../../components/AssignContactModal";
 import ManageTagsModal from "../../components/ManageTagsModal";
 import CallModal from "../../components/CallModal";
 import { confirmToast } from "../../utils/toast_message";
+import { useTriggers } from "../../context/TriggersContext";
+import { useDistribution } from "../../context/DistributionContext";
+import EnrollSequenceModal from "../../components/EnrollSequenceModal";
 
 // Debounce Utility
 const useDebounce = (value, delay) => {
@@ -24,6 +27,8 @@ const useDebounce = (value, delay) => {
 };
 
 function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
+  const { fireEvent } = useTriggers();
+  const { executeDistribution } = useDistribution();
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [totalRecords, setTotalRecords] = useState(0);
@@ -119,6 +124,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const [isCallModalOpen, setIsCallModalOpen] = useState(false);
   const [selectedContactForCall, setSelectedContactForCall] = useState(null);
 
+  // Sequence Enrollment State
+  const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
+  const [selectedContactForSequence, setSelectedContactForSequence] = useState(null);
+
   const handleAssignClick = () => {
     const selected = getSelectedContacts();
     if (selected.length === 0) return;
@@ -139,7 +148,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   // Selection Handling
   const toggleSelect = (id) => {
     setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((id) => id !== id) : [...prev, id],
+      prev.includes(id) ? prev.filter((itemId) => itemId !== id) : [...prev, id],
     );
   };
 
@@ -148,7 +157,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
     if (selectedIds.length === contacts.length && contacts.length > 0) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(contacts.map((c) => c._id));
+      setSelectedIds(contacts.map((c) => c._id || c.mobile));
     }
   };
 
@@ -194,14 +203,14 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   // Handle Edit Click
   const handleEditClick = () => {
     // Find the selected contact object
-    const selectedContact = contacts.find((c) => c.mobile === selectedIds[0]);
+    const selectedContact = contacts.find((c) => (c._id || c.mobile) === selectedIds[0]);
     if (selectedContact && onEdit) {
       onEdit(selectedContact);
     }
   };
 
   const getSelectedContacts = () => {
-    return contacts.filter((c) => selectedIds.includes(c.mobile));
+    return contacts.filter((c) => selectedIds.includes(c._id || c.mobile));
   };
 
   const handleSendMail = () => {
@@ -369,7 +378,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                       title="Create Lead"
                       onClick={() => {
                         const selectedContact = contacts.find(
-                          (c) => c.mobile === selectedIds[0],
+                          (c) => (c._id || c.mobile) === selectedIds[0],
                         );
                         if (selectedContact) {
                           setContactForLead(selectedContact);
@@ -388,10 +397,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                   title="Activities"
                   onClick={() => {
                     const selectedContacts = contacts.filter((c) =>
-                      selectedIds.includes(c.mobile),
+                      selectedIds.includes(c._id || c.mobile),
                     );
                     const relatedTo = selectedContacts.map((c) => ({
-                      id: c.id || c.mobile,
+                      id: c._id || c.mobile,
                       name: c.name,
                       mobile: c.mobile,
                     }));
@@ -414,8 +423,39 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                 >
                   <i className="fas fa-tag"></i> Tag
                 </button>
-                <button className="action-btn" title="Sequence">
+                <button
+                  className="action-btn"
+                  title="Sequence"
+                  onClick={() => {
+                    const selected = getSelectedContacts();
+                    if (selected.length === 1) {
+                      setSelectedContactForSequence({
+                        id: selected[0]._id || selected[0].mobile,
+                        name: selected[0].name
+                      });
+                      setIsEnrollModalOpen(true);
+                    } else {
+                      toast.error("Please select a single contact to enroll in sequence");
+                    }
+                  }}
+                >
                   <i className="fas fa-stream"></i> Sequence
+                </button>
+                <button
+                  className="action-btn"
+                  style={{ background: '#fff7ed', color: '#9a3412', borderColor: '#fed7aa' }}
+                  onClick={() => {
+                    const selected = getSelectedContacts();
+                    let count = 0;
+                    selected.forEach(contact => {
+                      const res = executeDistribution('contacts', contact, { users: [], teams: [] });
+                      if (res.success) count++;
+                    });
+                    toast.success(`Distributed ${count} contacts using active rules.`);
+                    setSelectedIds([]);
+                  }}
+                >
+                  <i className="fas fa-random"></i> Distribute
                 </button>
                 <button
                   className="action-btn"
@@ -660,27 +700,17 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                         className="list-item contact-list-grid"
                         style={{
                           padding: "15px 2rem",
-                          background: isSelected(
-                            item?.phones?.[0]?.number || item.mobile,
-                          )
+                          background: isSelected(item?._id || item?.mobile)
                             ? "#f0f9ff"
                             : "#fff",
                           transition: "all 0.2s",
                         }}
                         onMouseOver={(e) => {
-                          if (
-                            !isSelected(
-                              item?.phones?.[0]?.number || item.mobile,
-                            )
-                          )
+                          if (!isSelected(item?._id || item?.mobile))
                             e.currentTarget.style.background = "#fafbfc";
                         }}
                         onMouseOut={(e) => {
-                          if (
-                            !isSelected(
-                              item?.phones?.[0]?.number || item.mobile,
-                            )
-                          )
+                          if (!isSelected(item?._id || item?.mobile))
                             e.currentTarget.style.background = "#fff";
                           else e.currentTarget.style.background = "#f0f9ff";
                         }}
@@ -688,8 +718,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                         <input
                           type="checkbox"
                           className="item-check"
-                          checked={isSelected(item?._id)}
-                          onChange={() => toggleSelect(item?._id)}
+                          checked={isSelected(item?._id || item?.mobile)}
+                          onChange={() => toggleSelect(item?._id || item?.mobile)}
                         />
                         <div className="col-identity">
                           <div
@@ -786,9 +816,14 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 lineHeight: 1.4,
                               }}
                             >
-                              {item?.personalAddress?.city
-                                ? `${item.personalAddress.city}, ${item.personalAddress.state}`
-                                : item?.address || "Address not listed"}
+                              {item?.personalAddress ? (
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                  <div>{`${item.personalAddress.hNo || ""}, ${item.personalAddress.street || ""}, ${item.personalAddress.location || ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}</div>
+                                  <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                                    {`${item.personalAddress.area || ""}, ${item.personalAddress.city || ""}, ${item.personalAddress.state || ""} ${item.personalAddress.pinCode || ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}
+                                  </div>
+                                </div>
+                              ) : item?.address || "Address not listed"}
                             </div>
                           </div>
                         </div>
@@ -893,7 +928,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                         {/* CRM Linkage Column */}
                         <div className="col-crm-linkage">
                           {item?.crmLinks &&
-                          Object.keys(item.crmLinks).length > 0 ? (
+                            Object.keys(item.crmLinks).length > 0 ? (
                             <div
                               style={{
                                 display: "flex",
@@ -1044,8 +1079,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 Added{" "}
                                 {item?.addOnDate
                                   ? new Date(
-                                      item.addOnDate,
-                                    ).toLocaleDateString()
+                                    item.addOnDate,
+                                  ).toLocaleDateString()
                                   : "-"}
                               </div>
                             </div>
@@ -1831,6 +1866,14 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
           // But prompt implies flow is done. Let's clear to be consistent.
           setSelectedIds([]);
         }}
+      />
+
+      {/* Enroll Sequence Modal */}
+      <EnrollSequenceModal
+        isOpen={isEnrollModalOpen}
+        onClose={() => setIsEnrollModalOpen(false)}
+        entityId={selectedContactForSequence?.id}
+        entityName={selectedContactForSequence?.name}
       />
     </section>
   );

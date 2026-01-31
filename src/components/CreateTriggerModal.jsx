@@ -275,10 +275,11 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
                                         <option value="==">Equals</option>
                                         <option value="!=">Not Equals</option>
                                         <option value=">">Greater Than</option>
-                                        <option value=">=">Greater or Equal</option>
                                         <option value="<">Less Than</option>
-                                        <option value="<=">Less or Equal</option>
                                         <option value="contains">Contains</option>
+                                        <option value="was_changed">Value Changed</option>
+                                        <option value="changed_from">Changed From</option>
+                                        <option value="changed_to">Changed To</option>
                                     </select>
                                     <input
                                         type="text"
@@ -331,6 +332,25 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
                                         />
                                     )}
 
+                                    {action.type === 'update_field' && (
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <input
+                                                type="text"
+                                                value={action.field}
+                                                onChange={(e) => updateAction(index, 'field', e.target.value)}
+                                                placeholder="Field (e.g., status)"
+                                                style={{ flex: 1, padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                                            />
+                                            <input
+                                                type="text"
+                                                value={action.value}
+                                                onChange={(e) => updateAction(index, 'value', e.target.value)}
+                                                placeholder="New Value"
+                                                style={{ flex: 1, padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                                            />
+                                        </div>
+                                    )}
+
                                     {action.type === 'send_notification' && (
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                             <select
@@ -342,19 +362,18 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
                                                 <option value="owner">Owner</option>
                                                 <option value="team">Team</option>
                                             </select>
-                                            <input
-                                                type="text"
-                                                value={action.template}
-                                                onChange={(e) => updateAction(index, 'template', e.target.value)}
-                                                placeholder="Template name"
-                                                style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                                            <textarea
+                                                value={action.message}
+                                                onChange={(e) => updateAction(index, 'message', e.target.value)}
+                                                placeholder="Message (use {{name}} for placeholders)"
+                                                style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', minHeight: '60px', width: '100%', boxSizing: 'border-box' }}
                                             />
                                         </div>
                                     )}
                                 </div>
                             ))}
 
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
                                 <button
                                     onClick={() => addAction('start_sequence')}
                                     style={{ padding: '10px', background: '#eff6ff', border: '1px solid #3b82f6', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', color: '#3b82f6' }}
@@ -366,6 +385,12 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
                                     style={{ padding: '10px', background: '#f0fdf4', border: '1px solid #10b981', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', color: '#10b981' }}
                                 >
                                     + Send Notification
+                                </button>
+                                <button
+                                    onClick={() => addAction('update_field')}
+                                    style={{ padding: '10px', background: '#fff7ed', border: '1px solid #f97316', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', color: '#f97316' }}
+                                >
+                                    + Update Field
                                 </button>
                                 <button
                                     onClick={() => addAction('fire_automated_action')}

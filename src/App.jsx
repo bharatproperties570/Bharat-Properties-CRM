@@ -10,6 +10,7 @@ import { FieldRulesProvider } from './context/FieldRulesContext';
 import { DistributionProvider } from './context/DistributionContext';
 import { SequenceProvider } from './context/SequenceContext';
 import { TriggersProvider } from './context/TriggersContext';
+import { AutomatedActionsProvider } from './context/AutomatedActionsContext';
 
 function App() {
     // Global Navigation State (Routing Logic Only)
@@ -79,19 +80,21 @@ function App() {
                     <ActivityProvider>
                         <DistributionProvider>
                             <SequenceProvider>
-                                <TriggersProvider>
-                                    <Toaster position="top-right" />
-                                    <MainLayout currentView={currentView} onNavigate={handleNavigate}>
-                                        {(modalHandlers) => (
-                                            <AppRouter
-                                                currentView={currentView}
-                                                currentContactId={currentContactId}
-                                                onNavigate={handleNavigate}
-                                                {...modalHandlers}
-                                            />
-                                        )}
-                                    </MainLayout>
-                                </TriggersProvider>
+                                <AutomatedActionsProvider>
+                                    <TriggersProvider>
+                                        <Toaster position="top-right" />
+                                        <MainLayout currentView={currentView} onNavigate={handleNavigate}>
+                                            {(modalHandlers) => (
+                                                <AppRouter
+                                                    currentView={currentView}
+                                                    currentContactId={currentContactId}
+                                                    onNavigate={handleNavigate}
+                                                    {...modalHandlers}
+                                                />
+                                            )}
+                                        </MainLayout>
+                                    </TriggersProvider>
+                                </AutomatedActionsProvider>
                             </SequenceProvider>
                         </DistributionProvider>
                     </ActivityProvider>
@@ -102,4 +105,3 @@ function App() {
 }
 
 export default App;
-

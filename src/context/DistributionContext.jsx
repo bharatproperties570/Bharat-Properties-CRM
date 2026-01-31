@@ -87,7 +87,7 @@ export const DistributionProvider = ({ children }) => {
      * @returns {object} - Assignment result
      */
     const executeDistribution = (entityType, entityData, context = {}) => {
-        const { users = [], teams = [], leads = [], activities = [] } = context;
+        const { users = [], teams = [], leads = [], activities = [], deals = [], inventory = [] } = context;
 
         // Find applicable rules
         const applicableRules = distributionRules
@@ -105,7 +105,7 @@ export const DistributionProvider = ({ children }) => {
         // Calculate current workload
         const workload = {};
         rule.assignmentTarget.ids.forEach(agentId => {
-            workload[agentId] = calculateWorkload(agentId, leads, activities);
+            workload[agentId] = calculateWorkload(agentId, leads, activities, deals, inventory);
         });
 
         // Execute distribution based on type

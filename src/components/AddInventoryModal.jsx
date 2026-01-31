@@ -5,6 +5,10 @@ import { useFieldRules } from '../context/FieldRulesContext';
 import { PROJECTS_LIST } from '../data/projectData';
 import { INDIAN_ADDRESS_DATA } from '../data/locationData';
 import AddressDetailsForm from './common/AddressDetailsForm';
+import { useTriggers } from '../context/TriggersContext';
+import { useDistribution } from '../context/DistributionContext';
+import { useSequences } from '../context/SequenceContext';
+import toast from 'react-hot-toast';
 
 import { contactData } from '../data/mockData';
 
@@ -23,6 +27,9 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
     const { masterFields, propertyConfig } = usePropertyConfig();
     const { profileConfig = {} } = useContactConfig();
     const { validateAsync } = useFieldRules();
+    const { fireEvent } = useTriggers();
+    const { executeDistribution } = useDistribution();
+    const { evaluateAndEnroll } = useSequences();
     const [activeTab, setActiveTab] = useState('Unit');
     const [isLoading, setIsLoading] = useState(true);
     const [currentTime, setCurrentTime] = useState(new Date());
@@ -149,6 +156,11 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
 
         // Owner Details (List of Linked Contacts)
         owners: [], // { ...contact, role, relationship }
+
+        // System Assignment
+        assignedTo: '',
+        team: '',
+        visibleTo: 'Public',
 
         // Uploads
         inventoryDocuments: [{ documentName: '', documentType: '', linkedContactMobile: '', file: null }],
@@ -493,7 +505,22 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                         <select
                             style={customSelectStyle}
                             value={formData.projectName}
-                            onChange={e => setFormData({ ...formData, projectName: e.target.value })}
+                            onChange={e => {
+                                const name = e.target.value;
+                                setFormData(prev => ({ ...prev, projectName: name }));
+
+                                // Auto-assign agent based on distribution rules
+                                const result = executeDistribution('inventory', { ...formData, projectName: name });
+                                if (result && result.success) {
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        projectName: name,
+                                        assignedTo: result.assignedTo,
+                                        team: result.team || prev.team
+                                    }));
+                                    toast.success(`Inventory automatically assigned to ${result.assignedTo}`);
+                                }
+                            }}
                         >
                             <option value="">Select Project</option>
                             {allProjects.map(proj => (
@@ -809,52 +836,6 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
 
                     <div style={{ position: 'relative' }}>
                         <div style={{ display: 'flex', gap: '12px' }}>
-                            {!hiddenFields.includes('projectName') && (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151' }}>Project Name <span style={{ color: 'red' }}>*</span></label>
-                                    <div style={{ position: 'relative' }}>
-                                        <input
-                                            type="text"
-                                            value={formData.projectName}
-                                            onChange={(e) => {
-                                                handleInputChange('projectName', e.target.value);
-                                                setShowProjectDropdown(true);
-                                            }}
-                                            onFocus={() => setShowProjectDropdown(true)}
-                                            placeholder="Select Project or Type Name"
-                                            style={inputStyle}
-                                        />
-                                        {showProjectDropdown && (
-                                            <div style={{
-                                                position: 'absolute', top: '100%', left: 0, right: 0,
-                                                background: 'white', border: '1px solid #ddd', zIndex: 10,
-                                                maxHeight: '200px', overflowY: 'auto', borderRadius: '4px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
-                                            }}>
-                                                {allProjects.filter(p => p.name.toLowerCase().includes(formData.projectName.toLowerCase())).map((proj, i) => (
-                                                    <div
-                                                        key={i}
-                                                        onClick={() => {
-                                                            handleInputChange('projectName', proj.name);
-                                                            setShowProjectDropdown(false);
-                                                            // Auto-fill not fully implemented yet for hardcoded data
-                                                        }}
-                                                        style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #eee' }}
-                                                        onMouseEnter={(e) => e.target.style.background = '#f3f4f6'}
-                                                        onMouseLeave={(e) => e.target.style.background = 'white'}
-                                                    >
-                                                        {proj.name}
-                                                    </div>
-                                                ))}
-                                                {allProjects.filter(p => p.name.toLowerCase().includes(formData.projectName.toLowerCase())).length === 0 && (
-                                                    <div style={{ padding: '8px 12px', color: '#999', fontSize: '12px' }}>
-                                                        New Project Name
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
                             <div style={{ flex: 1, position: 'relative' }}>
                                 <i className="fas fa-search" style={{ position: 'absolute', left: '14px', top: '13px', color: '#94a3b8', fontSize: '0.9rem' }}></i>
                                 <input
@@ -1007,6 +988,56 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                     ))}
                 </div>
             )}
+
+            {/* System Assignment & Visibility */}
+            <div style={{ ...sectionStyle, marginTop: '32px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <i className="fas fa-user-check" style={{ color: '#6366f1' }}></i> System Assignment & Visibility
+                </h4>
+                <div className="grid-3-col">
+                    <div>
+                        <label style={labelStyle}>Assign Team</label>
+                        <select
+                            style={customSelectStyle}
+                            value={formData.team}
+                            onChange={e => handleInputChange('team', e.target.value)}
+                        >
+                            <option value="">Select Team</option>
+                            <option value="Sales">Sales</option>
+                            <option value="Marketing">Marketing</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style={labelStyle}>Assigned To</label>
+                        <select
+                            style={customSelectStyle}
+                            value={formData.assignedTo}
+                            onChange={e => handleInputChange('assignedTo', e.target.value)}
+                        >
+                            <option value="">Select Salesperson</option>
+                            <option value="Self">Self (Admin)</option>
+                            <option value="Agent 1">Agent 1</option>
+                            <option value="Agent 2">Agent 2</option>
+                            <option value="Agent 3">Agent 3</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style={labelStyle}>Inventory Visibility</label>
+                        <select
+                            style={customSelectStyle}
+                            value={formData.visibleTo}
+                            onChange={e => handleInputChange('visibleTo', e.target.value)}
+                        >
+                            <option value="Public">Public (Global)</option>
+                            <option value="Team">Team Only</option>
+                            <option value="Private">Private (Self Only)</option>
+                        </select>
+                    </div>
+                </div>
+                <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '12px', fontStyle: 'italic' }}>
+                    <i className="fas fa-info-circle mr-1"></i> Assignment is derived automatically based on Project selection but can be manually overridden.
+                </p>
+            </div>
         </div>
     );
 
@@ -1032,6 +1063,33 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
             await new Promise(resolve => setTimeout(resolve, 800));
 
             toast.success('Inventory Saved!', { id: toastId });
+
+            // Fire Global Triggers
+            if (property) {
+                // Update
+                fireEvent('inventory_updated', formData, {
+                    entityType: 'inventory',
+                    previousEntity: property
+                });
+            } else {
+                // New
+                fireEvent('inventory_created', formData, { entityType: 'inventory' });
+
+                // Trigger lead matching search
+                fireEvent('inventory_matching_requested', formData, {
+                    entityType: 'inventory',
+                    recommendationDepth: 'high'
+                });
+
+                // Enroll linked Owners/Associates into Sequences
+                if (formData.owners && formData.owners.length > 0) {
+                    formData.owners.forEach(owner => {
+                        // Use mobile as entityId for enrollment
+                        evaluateAndEnroll(owner, 'contacts');
+                    });
+                }
+            }
+
             onSave && onSave(formData);
             onClose();
 

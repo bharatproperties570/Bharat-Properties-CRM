@@ -11,9 +11,12 @@ import SendMailModal from '../Contacts/components/SendMailModal';
 import AddLeadModal from '../../components/AddLeadModal';
 import LeadConversionService from '../../services/LeadConversionService';
 import { calculateLeadScore } from '../../utils/leadScoring';
+import AIExpertService from '../../services/AIExpertService';
 
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { useSequences } from '../../context/SequenceContext';
+import { useTriggers } from '../../context/TriggersContext';
+import { useDistribution } from '../../context/DistributionContext';
 import EnrollSequenceModal from '../../components/EnrollSequenceModal';
 
 function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
@@ -26,6 +29,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         decayRules,
         stageMultipliers
     } = usePropertyConfig();
+
+    const { fireEvent } = useTriggers();
+    const { executeDistribution } = useDistribution();
 
     // Bundle config for scoring engine
     const scoringConfig = {
@@ -292,7 +298,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             className="action-btn"
                                             title="Start Sequence"
                                             onClick={() => {
-                                                const selectedLead = leadData.find(l => l.name === selectedIds[0]);
+                                                const selectedLead = leads.find(l => l.name === selectedIds[0]);
                                                 if (selectedLead) {
                                                     setSelectedLeadForSequence({ ...selectedLead, id: selectedLead.mobile });
                                                     setIsEnrollModalOpen(true);
@@ -360,16 +366,39 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             className="action-btn"
                                             style={{ background: '#f0f9ff', color: '#0369a1', borderColor: '#bae6fd' }}
                                             title="Convert to Contact"
-                                            onClick={() => {
-                                                const leads = getSelectedLeads();
-                                                leads.forEach(lead => {
+                                            onClick={async () => {
+                                                const selectedLeads = getSelectedLeads();
+                                                for (const lead of selectedLeads) {
                                                     const res = LeadConversionService.convertLead(lead, 'Manual - Bulk Action', scoringConfig);
-                                                    showToast(res.message);
-                                                });
+                                                    if (res.success) {
+                                                        showToast(res.message);
+                                                        // Fire Global Trigger
+                                                        await fireEvent('lead_converted', res.contact, { entityType: 'leads' });
+                                                    } else {
+                                                        showToast(res.message);
+                                                    }
+                                                }
                                                 setSelectedIds([]);
                                             }}
                                         >
                                             <i className="fas fa-user-check"></i> Convert
+                                        </button>
+                                        <button
+                                            className="action-btn"
+                                            style={{ background: '#fff7ed', color: '#9a3412', borderColor: '#fed7aa' }}
+                                            title="Auto Distribute"
+                                            onClick={() => {
+                                                const selectedLeads = getSelectedLeads();
+                                                let count = 0;
+                                                selectedLeads.forEach(lead => {
+                                                    const res = executeDistribution('leads', lead, { users: [], teams: [] });
+                                                    if (res.success) count++;
+                                                });
+                                                showToast(`Distributed ${count} leads using active rules.`);
+                                                setSelectedIds([]);
+                                            }}
+                                        >
+                                            <i className="fas fa-random"></i> Distribute
                                         </button>
                                     </>
                                 )}
@@ -508,7 +537,22 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             const propertyType = typeStr.replace(intent, '').replace(/^[\s,]+/, '');
 
                             return (
-                                <div key={c.name} className="lead-list-grid" style={{ transition: 'all 0.2s ease' }}>
+                                <div
+                                    key={c.name}
+                                    className="list-item lead-list-grid"
+                                    style={{
+                                        padding: "15px 2rem",
+                                        background: isSelected(c.name) ? '#f0f9ff' : '#fff',
+                                        transition: 'all 0.2s',
+                                    }}
+                                    onMouseOver={(e) => {
+                                        if (!isSelected(c.name)) e.currentTarget.style.background = '#fafbfc';
+                                    }}
+                                    onMouseOut={(e) => {
+                                        if (!isSelected(c.name)) e.currentTarget.style.background = '#fff';
+                                        else e.currentTarget.style.background = '#f0f9ff';
+                                    }}
+                                >
                                     <div>
                                         <input
                                             type="checkbox"
@@ -543,11 +587,13 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                         }}
                                                         onClick={(e) => {
                                                             const rect = e.currentTarget.getBoundingClientRect();
+                                                            const aiExplanation = AIExpertService.explainLeadScore(c, scoringConfig);
                                                             setActiveScorePopover({
                                                                 name: c.name,
                                                                 x: rect.left,
                                                                 y: rect.bottom + 10,
-                                                                scoring
+                                                                scoring,
+                                                                ai: aiExplanation
                                                             });
                                                         }}
                                                     >
@@ -721,7 +767,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 isOpen={isCallModalOpen}
                 onClose={() => setIsCallModalOpen(false)}
                 contact={selectedLeadForCall}
-                onCallEnd={(callData) => {
+                onCallEnd={async (callData) => {
                     if (selectedLeadForCall) {
                         const res = LeadConversionService.evaluateAutoConversion(
                             selectedLeadForCall,
@@ -731,7 +777,15 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         );
                         if (res.success) {
                             showToast(res.message);
+                            // Fire conversion event
+                            await fireEvent('lead_converted', res.contact, { entityType: 'leads' });
                         }
+
+                        // Always fire call event for other triggers
+                        await fireEvent('call_logged', selectedLeadForCall, {
+                            entityType: 'leads',
+                            eventData: { status: 'connected', ...callData }
+                        });
                     }
                 }}
             />
@@ -796,10 +850,25 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                     <span style={{ color: item.val < 0 ? '#ef4444' : '#fff', fontWeight: 800 }}>{item.val}</span>
                                 </div>
                                 <div style={{ width: '100%', height: '3px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
-                                    <div style={{ width: `${Math.min(Math.abs(item.val / item.max) * 100, 100)}%`, height: '100%', background: item.val < 0 ? '#ef4444' : '#3b82f6' }}></div>
+                                    <div style={{ width: `${Math.min(Math.abs(item.val / (item.max || 1)) * 100, 100)}%`, height: '100%', background: item.val < 0 ? '#ef4444' : '#3b82f6' }}></div>
                                 </div>
                             </div>
                         ))}
+
+                        {activeScorePopover.ai && (
+                            <div style={{ marginTop: '15px', background: 'rgba(255,255,255,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                <div style={{ fontSize: '0.65rem', fontWeight: 900, color: '#10b981', textTransform: 'uppercase', marginBottom: '5px' }}>AI Insight</div>
+                                <p style={{ fontSize: '0.7rem', color: '#e2e8f0', margin: 0, lineHeight: 1.4 }}>{activeScorePopover.ai.summary}</p>
+                                <div style={{ marginTop: '8px' }}>
+                                    {activeScorePopover.ai.fullExplanation.map((exp, idx) => (
+                                        <div key={idx} style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'flex', gap: '5px', marginBottom: '3px' }}>
+                                            <i className="fas fa-check" style={{ color: '#10b981', marginTop: '2px' }}></i>
+                                            <span>{exp}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontStyle: 'italic', marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
                             AI Intent: <span style={{ color: '#10b981', fontWeight: 900 }}>{activeScorePopover.scoring.intent.toUpperCase()}</span>
