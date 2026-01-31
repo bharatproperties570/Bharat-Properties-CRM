@@ -5,6 +5,7 @@ function MarketingPage({ onNavigate }) {
     const [activeTab, setActiveTab] = useState('online');
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const [showAIInsights, setShowAIInsights] = useState(true);
+    const [expandedCampaign, setExpandedCampaign] = useState(null);
 
     const globalKPIs = useMemo(() =>
         calculateGlobalKPIs(marketingData.online, marketingData.offline, marketingData.organic),
@@ -416,6 +417,96 @@ function MarketingPage({ onNavigate }) {
                                     </div>
                                     <ActionMenu />
                                 </div>
+
+                                {/* Property Performance Section - Expandable */}
+                                {activeTab === 'online' && c.propertyPerformance && c.propertyPerformance.length > 0 && (
+                                    <div style={{ marginTop: '16px', borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
+                                        <button
+                                            onClick={() => setExpandedCampaign(expandedCampaign === c.id ? null : c.id)}
+                                            style={{
+                                                background: 'none',
+                                                border: 'none',
+                                                color: '#1273eb',
+                                                fontSize: '0.85rem',
+                                                fontWeight: 600,
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '6px',
+                                                padding: 0
+                                            }}>
+                                            <i className={`fas fa-chevron-${expandedCampaign === c.id ? 'up' : 'down'}`}></i>
+                                            🏢 Property Performance ({c.propertyPerformance.length} properties)
+                                        </button>
+
+                                        {expandedCampaign === c.id && (
+                                            <div style={{ marginTop: '12px' }}>
+                                                <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
+                                                    <thead>
+                                                        <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                                                            <th style={{ padding: '8px', textAlign: 'left', fontWeight: 600, color: '#64748b' }}>Property</th>
+                                                            <th style={{ padding: '8px', textAlign: 'right', fontWeight: 600, color: '#64748b' }}>Leads</th>
+                                                            <th style={{ padding: '8px', textAlign: 'right', fontWeight: 600, color: '#64748b' }}>Visits</th>
+                                                            <th style={{ padding: '8px', textAlign: 'right', fontWeight: 600, color: '#64748b' }}>Deals</th>
+                                                            <th style={{ padding: '8px', textAlign: 'right', fontWeight: 600, color: '#64748b' }}>Revenue</th>
+                                                            <th style={{ padding: '8px', textAlign: 'right', fontWeight: 600, color: '#64748b' }}>Conv %</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {c.propertyPerformance.map((prop, pidx) => (
+                                                            <tr key={pidx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                                <td style={{ padding: '10px 8px', color: '#1e293b', fontWeight: 500 }}>
+                                                                    {prop.propertyName}
+                                                                </td>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'right', color: '#64748b' }}>
+                                                                    {prop.leadsGenerated}
+                                                                </td>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'right', color: '#64748b' }}>
+                                                                    {prop.siteVisits}
+                                                                </td>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: '#10b981' }}>
+                                                                    {prop.dealsClosed}
+                                                                </td>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: '#3b82f6' }}>
+                                                                    {formatINR(prop.revenue)}
+                                                                </td>
+                                                                <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: prop.dealsClosed > 0 ? '#10b981' : '#94a3b8' }}>
+                                                                    {((prop.dealsClosed / prop.leadsGenerated) * 100).toFixed(1)}%
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+
+                                                {/* Real Estate Insights */}
+                                                {(c.topPerformingSector || c.competitorActivity || c.seasonalTrend) && (
+                                                    <div style={{ marginTop: '12px', display: 'flex', gap: '16px', fontSize: '0.75rem' }}>
+                                                        {c.topPerformingSector && (
+                                                            <div style={{ background: '#f0fdf4', padding: '6px 12px', borderRadius: '6px', color: '#166534' }}>
+                                                                📍 Sector: <strong>{c.topPerformingSector}</strong>
+                                                            </div>
+                                                        )}
+                                                        {c.competitorActivity && (
+                                                            <div style={{
+                                                                background: c.competitorActivity === 'High' ? '#fef2f2' : c.competitorActivity === 'Medium' ? '#fffbeb' : '#f0f9ff',
+                                                                padding: '6px 12px',
+                                                                borderRadius: '6px',
+                                                                color: c.competitorActivity === 'High' ? '#991b1b' : c.competitorActivity === 'Medium' ? '#92400e' : '#1e40af'
+                                                            }}>
+                                                                🏁 Competition: <strong>{c.competitorActivity}</strong>
+                                                            </div>
+                                                        )}
+                                                        {c.seasonalTrend && (
+                                                            <div style={{ background: '#f5f3ff', padding: '6px 12px', borderRadius: '6px', color: '#5b21b6' }}>
+                                                                📈 Trend: <strong>{c.seasonalTrend}</strong>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>

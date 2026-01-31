@@ -56,7 +56,18 @@ export const marketingData = {
             createdDate: "2025-12-15",
             benchmarkCPL: 600,
             goalLeads: 90,
-            goalRevenue: 2500000
+            goalRevenue: 2500000,
+            // Property-level performance tracking
+            propertyPerformance: [
+                { propertyId: "PLOT-S17-045", propertyName: "Sector 17, Plot #45 (500 sq yd)", leadsGenerated: 28, siteVisits: 87, dealsClosed: 3, revenue: 900000 },
+                { propertyId: "PLOT-S17-046", propertyName: "Sector 17, Plot #46 (300 sq yd)", leadsGenerated: 22, siteVisits: 68, dealsClosed: 2, revenue: 600000 },
+                { propertyId: "PLOT-S17-047", propertyName: "Sector 17, Plot #47 (400 sq yd)", leadsGenerated: 19, siteVisits: 45, dealsClosed: 2, revenue: 700000 },
+                { propertyId: "PLOT-S17-048", propertyName: "Sector 17, Plot #48 (250 sq yd)", leadsGenerated: 18, siteVisits: 34, dealsClosed: 1, revenue: 200000 }
+            ],
+            // Sector-wise insights
+            topPerformingSector: "Sector 17",
+            competitorActivity: "Medium",
+            seasonalTrend: "Peak season (Jan-Mar)"
         }),
         addOnlineCampaignMetrics({
             id: 2,
@@ -82,7 +93,16 @@ export const marketingData = {
             createdDate: "2025-12-20",
             benchmarkCPL: 300,
             goalLeads: 130,
-            goalRevenue: 5000000
+            goalRevenue: 5000000,
+            propertyPerformance: [
+                { propertyId: "FLAT-UE-12A", propertyName: "Urban Estate Tower A, 2BHK #12A", leadsGenerated: 31, siteVisits: 112, dealsClosed: 3, revenue: 1200000 },
+                { propertyId: "FLAT-UE-15B", propertyName: "Urban Estate Tower B, 3BHK #15B", leadsGenerated: 28, siteVisits: 98, dealsClosed: 3, revenue: 1500000 },
+                { propertyId: "FLAT-UE-18C", propertyName: "Urban Estate Tower C, 2BHK #18C", leadsGenerated: 35, siteVisits: 134, dealsClosed: 4, revenue: 1600000 },
+                { propertyId: "FLAT-UE-22D", propertyName: "Urban Estate Tower D, 3BHK #22D", leadsGenerated: 30, siteVisits: 112, dealsClosed: 2, revenue: 500000 }
+            ],
+            topPerformingSector: "Urban Estate",
+            competitorActivity: "High",
+            seasonalTrend: "Steady demand"
         }),
         addOnlineCampaignMetrics({
             id: 3,
