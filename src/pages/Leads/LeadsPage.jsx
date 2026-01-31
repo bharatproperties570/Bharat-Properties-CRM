@@ -125,11 +125,19 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                 : "—",
 
                             // ===== LOCATION =====
+                            // ===== LOCATION =====
                             location: [
+                                Array.isArray(lead.projectName) ? lead.projectName.join(", ") : lead.projectName,
+                                Array.isArray(lead.projectTowers) ? lead.projectTowers.join(", ") : lead.projectTowers,
+                                lead.propertyNo ? `Unit ${lead.propertyNo}` : null,
+                                Array.isArray(lead.locBlock) ? lead.locBlock.join(", ") : lead.locBlock,
+                                lead.locArea,
                                 lead.projectCity,
                                 lead.locCity,
-                                lead.locArea,
-                            ].filter(Boolean).join(", "),
+                                lead.locPinCode,
+                                lead.searchLocation,
+                                lead.streetAddress
+                            ].filter(Boolean).map(s => s.trim()).filter(s => s.length > 0).join(", "),
 
                             // ===== SOURCE & ASSIGNMENT =====
                             source: lead.subSource || contact.source || "Direct",
