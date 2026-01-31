@@ -50,10 +50,95 @@ const AccountPage = ({ onNavigate, initialContextId, isEmbedded }) => {
 
     const getLiabilityBadge = (type) => {
         switch (type) {
-            case 'Deal Amount': return { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' }; // Blue
+            case 'Booking Amount': return { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' }; // Blue
             case 'Commission': return { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' }; // Green
             case 'Government Charges': return { bg: '#faf5ff', color: '#7e22ce', border: '#e9d5ff' }; // Purple
             default: return { bg: '#f8fafc', color: '#64748b', border: '#e2e8f0' };
+        }
+    };
+
+    const handlePrintReceipt = () => {
+        if (selectedIds.length !== 1) return;
+        const receipt = filteredData.find(d => d.receiptId === selectedIds[0]);
+        if (!receipt) return;
+
+        const printWindow = window.open('', '_blank', 'width=800,height=600');
+        if (printWindow) {
+            printWindow.document.write(`
+                <html>
+                    <head>
+                        <title>Receipt - ${receipt.receiptId}</title>
+                        <style>
+                            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap');
+                            body { font-family: 'Inter', sans-serif; padding: 40px; color: #1e293b; -webkit-print-color-adjust: exact; }
+                            .header { text-align: center; margin-bottom: 40px; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; }
+                            .logo { font-size: 24px; font-weight: 800; color: #0f172a; margin-bottom: 8px; letter-spacing: -0.5px; }
+                            .sub-text { font-size: 14px; color: #64748b; }
+                            .receipt-box { border: 1px solid #e2e8f0; border-radius: 12px; padding: 40px; max-width: 600px; margin: 0 auto; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+                            .title { text-align: center; margin-bottom: 32px; font-size: 18px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 1px; }
+                            .row { display: flex; justify-content: space-between; margin-bottom: 16px; font-size: 14px; align-items: center; }
+                            .label { color: #64748b; font-weight: 500; }
+                            .value { font-weight: 600; color: #0f172a; text-align: right; }
+                            .total-row { margin-top: 32px; padding-top: 24px; border-top: 2px dashed #e2e8f0; font-size: 18px; }
+                            .total-row .value { color: #10b981; font-weight: 800; }
+                            .footer { margin-top: 60px; text-align: center; font-size: 12px; color: #94a3b8; line-height: 1.5; }
+                            .stamp { margin-top: 40px; text-align: right; font-size: 12px; color: #cbd5e1; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="header">
+                            <div class="logo">BHARAT PROPERTIES</div>
+                            <div class="sub-text">Premium Real Estate Consultancy</div>
+                        </div>
+                        <div class="receipt-box">
+                            <div class="title">Payment Receipt</div>
+                            <div class="row">
+                                <span class="label">Receipt No</span>
+                                <span class="value" style="font-family: monospace; background: #f1f5f9; padding: 4px 8px; border-radius: 4px;">${receipt.receiptId}</span>
+                            </div>
+                            <div class="row">
+                                <span class="label">Date</span>
+                                <span class="value">${receipt.paymentDate}</span>
+                            </div>
+                            <div style="height: 1px; background: #f1f5f9; margin: 16px 0;"></div>
+                            <div class="row">
+                                <span class="label">Received From</span>
+                                <span class="value">${receipt.bookingSnapshot.customer}</span>
+                            </div>
+                            <div class="row">
+                                <span class="label">Booking Reference</span>
+                                <span class="value">${receipt.bookingSnapshot.id}</span>
+                            </div>
+                            <div class="row">
+                                <span class="label">Property Detail</span>
+                                <span class="value">${receipt.bookingSnapshot.property}</span>
+                            </div>
+                            <div style="height: 1px; background: #f1f5f9; margin: 16px 0;"></div>
+                            <div class="row">
+                                <span class="label">Payment Mode</span>
+                                <span class="value">${receipt.paymentMode} (${receipt.paymentCategory})</span>
+                            </div>
+                            <div class="row">
+                                <span class="label">Payment Towards</span>
+                                <span class="value">${receipt.liabilityType}</span>
+                            </div>
+                            <div class="row total-row">
+                                <span class="label">Amount Paid</span>
+                                <span class="value">${new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(receipt.amount)}</span>
+                            </div>
+                        </div>
+                        <div class="stamp">Authorized Signatory</div>
+                        <div class="footer">
+                            <p>This receipt is computer generated and valid without signature.</p>
+                            <p>Thank you for choosing Bharat Properties.</p>
+                        </div>
+                        <script>
+                            window.onload = function() { window.print(); }
+                        </script>
+                    </body>
+                </html>
+            `);
+            printWindow.document.close();
         }
     };
 
@@ -96,10 +181,15 @@ const AccountPage = ({ onNavigate, initialContextId, isEmbedded }) => {
                                 className="action-btn"
                                 style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.85rem', cursor: 'pointer' }}
                             >
-                                <i className="fas fa-external-link-alt"></i> View Deal
+                                <i className="fas fa-external-link-alt"></i> View Booking
                             </button>
                         )}
-                        <button title="Receipt" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.85rem', cursor: 'pointer' }}>
+                        <button
+                            onClick={handlePrintReceipt}
+                            title="Print Receipt"
+                            className="action-btn"
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.85rem', cursor: 'pointer' }}
+                        >
                             <i className="fas fa-print"></i> Receipt
                         </button>
                         <button title="Reminder" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.85rem', cursor: 'pointer' }}>

@@ -5,7 +5,7 @@ export const accountData = [
         paymentMode: 'Online',
         paymentCategory: 'Booking',
         amount: 500000,
-        liabilityType: 'Deal Amount',
+        liabilityType: 'Booking Amount',
 
         bookingSnapshot: {
             id: 'BK-2024-001',
@@ -49,7 +49,7 @@ export const accountData = [
         paymentMode: 'Cheque',
         paymentCategory: 'EMI',
         amount: 250000,
-        liabilityType: 'Deal Amount',
+        liabilityType: 'Booking Amount',
 
         bookingSnapshot: {
             id: 'BK-2024-002',

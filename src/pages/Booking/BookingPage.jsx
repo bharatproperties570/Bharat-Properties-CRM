@@ -10,6 +10,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
     const [activeTab, setActiveTab] = useState('All');
     const [searchTerm, setSearchTerm] = useState(initialContextId || '');
     const [selectedIds, setSelectedIds] = useState([]);
+    const [showDocOptions, setShowDocOptions] = useState(false); // Dropdown toggle
 
     // Logic to handle specific deal navigation (Drill-down)
     const handleViewLedger = (dealId) => {
@@ -20,6 +21,137 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
     const handleViewDeal = (dealId) => {
         setSearchTerm(dealId);
         setCurrentView('deals');
+    };
+
+    const printSaleAgreement = (booking) => {
+        const printWindow = window.open('', '_blank', 'width=900,height=800');
+        if (printWindow) {
+            printWindow.document.write(`
+                <html>
+                    <head>
+                        <title>Sale Agreement - ${booking.id}</title>
+                        <style>
+                            body { font-family: 'Times New Roman', serif; padding: 60px; line-height: 1.6; color: #000; }
+                            .header { text-align: center; margin-bottom: 40px; }
+                            .title { font-size: 24px; font-weight: bold; text-decoration: underline; margin-bottom: 20px; text-transform: uppercase; }
+                            .section { margin-bottom: 20px; text-align: justify; }
+                            .bold { font-weight: bold; }
+                            .signature-box { margin-top: 80px; display: flex; justify-content: space-between; }
+                            .sign { border-top: 1px solid #000; width: 200px; text-align: center; padding-top: 10px; }
+                            .footer { margin-top: 50px; font-size: 0.8rem; text-align: center; color: #666; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="header">
+                            <h2>AGREEMENT TO SELL</h2>
+                        </div>
+                        <div class="section">
+                            This Agreement to Sell is made on this <span class="bold">${new Date().toLocaleDateString()}</span> between:
+                        </div>
+                        <div class="section">
+                            <span class="bold">SELLER:</span> ${booking.customer.seller.name}, R/o [Seller Address Placeholder] (hereinafter called the "FIRST PARTY").
+                        </div>
+                        <div class="section">
+                            AND
+                        </div>
+                        <div class="section">
+                            <span class="bold">BUYER:</span> ${booking.customer.buyer.name}, R/o [Buyer Address Placeholder] (hereinafter called the "SECOND PARTY").
+                        </div>
+                        <div class="section">
+                            WHEREAS the First Party is the absolute owner and in possession of the property bearing Unit <span class="bold">${booking.property.unit}</span> in Project <span class="bold">${booking.property.project}</span> located at ${booking.property.location} (hereinafter called the "SAID PROPERTY").
+                        </div>
+                        <div class="section">
+                            NOW THIS AGREEMENT WITNESSETH AS UNDER:
+                            <ol>
+                                <li>The First Party has agreed to sell the said property to the Second Party for a total consideration of <span class="bold">${formatCurrency(booking.financials.dealValue)}</span>.</li>
+                                <li>The Second Party has paid an amount of <span class="bold">${formatCurrency(booking.financials.dealPaid)}</span> as advance/earnest money.</li>
+                                <li>The balance amount shall be paid by the Second Party at the time of registration of the Sale Deed.</li>
+                                <li>The First Party assures that the said property is free from all sorts of encumbrances.</li>
+                            </ol>
+                        </div>
+                         <div class="signature-box">
+                            <div class="sign">FIRST PARTY (Seller)</div>
+                            <div class="sign">SECOND PARTY (Buyer)</div>
+                        </div>
+                         <div class="signature-box">
+                            <div class="sign">WITNESS 1</div>
+                            <div class="sign">WITNESS 2</div>
+                        </div>
+                        <script>window.onload = function() { window.print(); }</script>
+                    </body>
+                </html>
+            `);
+            printWindow.document.close();
+        }
+    };
+
+    const printTokenReceipt = (booking) => {
+        const printWindow = window.open('', '_blank', 'width=800,height=600');
+        if (printWindow) {
+            printWindow.document.write(`
+                <html>
+                    <head>
+                        <title>Token Receipt - ${booking.id}</title>
+                        <style>
+                            body { font-family: sans-serif; padding: 40px; border: 2px solid #333; margin: 20px; }
+                            .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+                            .row { display: flex; margin-bottom: 10px; }
+                            .label { width: 150px; font-weight: bold; }
+                            .value { flex: 1; border-bottom: 1px dotted #999; }
+                            .amount { font-size: 24px; font-weight: bold; text-align: center; margin: 20px 0; border: 1px solid #333; padding: 10px; background: #f9f9f9; }
+                            .footer { margin-top: 40px; text-align: right; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="header">
+                            <h1>TOKEN RECEIPT</h1>
+                            <h3>BHARAT PROPERTIES</h3>
+                        </div>
+                        <div class="row">
+                            <span class="label">Date:</span>
+                            <span class="value">${new Date().toLocaleDateString()}</span>
+                        </div>
+                        <div class="row">
+                            <span class="label">Received with thanks from:</span>
+                            <span class="value">${booking.customer.buyer.name}</span>
+                        </div>
+                         <div class="row">
+                            <span class="label">Project/Unit:</span>
+                            <span class="value">${booking.property.project} - ${booking.property.unit}</span>
+                        </div>
+                        <div class="amount">
+                            Amount: ${formatCurrency(booking.financials.dealPaid)}
+                        </div>
+                        <div class="row">
+                            <span class="label">Against:</span>
+                            <span class="value">Booking Token / Advance for Property Purchase</span>
+                        </div>
+                        <div class="footer">
+                            <br/><br/>
+                            Authorised Signatory
+                        </div>
+                        <script>window.onload = function() { window.print(); }</script>
+                    </body>
+                </html>
+            `);
+            printWindow.document.close();
+        }
+    };
+
+    const handleGenerateDoc = (docType) => {
+        if (selectedIds.length !== 1) {
+            alert("Please select exactly one booking to generate documents.");
+            return;
+        }
+        const booking = filteredData.find(b => b.id === selectedIds[0]);
+        if (!booking) return;
+
+        if (docType === 'Sale Agreement') {
+            printSaleAgreement(booking);
+        } else if (docType === 'Token Receipt') {
+            printTokenReceipt(booking);
+        }
+        setShowDocOptions(false);
     };
 
     // --- Stats Calculation ---
@@ -89,13 +221,13 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                 <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '10px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                         <button onClick={() => setCurrentView('deals')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}>
-                            <i className="fas fa-arrow-left"></i> Back to Deals
+                            <i className="fas fa-arrow-left"></i> Back to Bookings
                         </button>
                         <h2 style={{ fontSize: '1.1rem', margin: 0, fontWeight: 700, color: '#0f172a' }}>Financial Control Center</h2>
                     </div>
                     {/* View Switcher Controls */}
                     <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '8px', display: 'flex', gap: '4px' }}>
-                        <button onClick={() => setCurrentView('deals')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'transparent', color: '#64748b', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Deals</button>
+                        <button onClick={() => setCurrentView('deals')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'transparent', color: '#64748b', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Bookings</button>
                         <button onClick={() => setCurrentView('ledger')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: '#fff', color: '#0f172a', fontWeight: 600, fontSize: '0.85rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'default' }}>Ledger</button>
                     </div>
                 </div>
@@ -133,7 +265,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
                         {/* Switcher */}
                         <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '8px', display: 'flex', gap: '4px' }}>
-                            <button onClick={() => setCurrentView('deals')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#fff', color: '#0f172a', fontWeight: 700, fontSize: '0.85rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'default' }}>Deals</button>
+                            <button onClick={() => setCurrentView('deals')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#fff', color: '#0f172a', fontWeight: 700, fontSize: '0.85rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'default' }}>Bookings</button>
                             <button onClick={() => setCurrentView('ledger')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: 'transparent', color: '#64748b', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Ledger</button>
                         </div>
 
@@ -142,7 +274,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                 <i className="fas fa-file-export"></i> Reports
                             </button>
                             <button className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 6px -1px rgba(99,102,241, 0.2)' }}>
-                                <i className="fas fa-plus"></i> New Deal
+                                <i className="fas fa-plus"></i> New Booking
                             </button>
                         </div>
                     </div>
@@ -153,8 +285,8 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     {[
                         { label: 'Active Pipeline Value', value: formatCurrency(stats.totalValue), icon: 'fa-coins', color: '#0ea5e9', bg: '#e0f2fe' },
                         { label: 'Pending Commission', value: formatCurrency(stats.pendingComm), icon: 'fa-hand-holding-usd', color: '#f59e0b', bg: '#fef3c7' },
-                        { label: 'Deals At Risk', value: stats.atRiskDeals, icon: 'fa-exclamation-triangle', color: '#ef4444', bg: '#fee2e2' },
-                        { label: 'Total Active Deals', value: stats.totalDeals, icon: 'fa-file-signature', color: '#10b981', bg: '#dcfce7' },
+                        { label: 'Bookings At Risk', value: stats.atRiskDeals, icon: 'fa-exclamation-triangle', color: '#ef4444', bg: '#fee2e2' },
+                        { label: 'Total Active Bookings', value: stats.totalDeals, icon: 'fa-file-signature', color: '#10b981', bg: '#dcfce7' },
                     ].map((stat, i) => (
                         <div key={i} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', display: 'flex', alignItems: 'center', gap: '16px', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
                             <div style={{ width: '48px', height: '48px', borderRadius: '10px', background: stat.bg, color: stat.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>
@@ -205,6 +337,43 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             <i className="fas fa-calendar-check"></i> Activities
                         </button>
 
+                        {/* Documents Dropdown */}
+                        <div style={{ position: 'relative' }}>
+                            <button
+                                onClick={() => setShowDocOptions(!showDocOptions)}
+                                className="action-btn"
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.85rem', cursor: 'pointer' }}
+                            >
+                                <i className="fas fa-file-contract"></i> Documents
+                                <i className={`fas fa-chevron-${showDocOptions ? 'up' : 'down'}`} style={{ fontSize: '0.7rem', marginLeft: '4px' }}></i>
+                            </button>
+                            {/* Dropdown Menu */}
+                            {showDocOptions && (
+                                <div style={{
+                                    position: 'absolute', top: '100%', left: 0, marginTop: '4px', background: '#fff',
+                                    border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                                    zIndex: 50, minWidth: '160px', overflow: 'hidden'
+                                }}>
+                                    <button
+                                        onClick={() => handleGenerateDoc('Sale Agreement')}
+                                        style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: '#fff', cursor: 'pointer', fontSize: '0.85rem', color: '#334155', borderBottom: '1px solid #f1f5f9' }}
+                                        onMouseEnter={(e) => e.target.style.background = '#f8fafc'}
+                                        onMouseLeave={(e) => e.target.style.background = '#fff'}
+                                    >
+                                        <i className="fas fa-file-signature" style={{ marginRight: '8px', color: '#6366f1' }}></i> Sale Agreement
+                                    </button>
+                                    <button
+                                        onClick={() => handleGenerateDoc('Token Receipt')}
+                                        style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: '#fff', cursor: 'pointer', fontSize: '0.85rem', color: '#334155' }}
+                                        onMouseEnter={(e) => e.target.style.background = '#f8fafc'}
+                                        onMouseLeave={(e) => e.target.style.background = '#fff'}
+                                    >
+                                        <i className="fas fa-receipt" style={{ marginRight: '8px', color: '#10b981' }}></i> Token Receipt
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
                         <div style={{ marginLeft: 'auto' }}>
                             <button style={{ color: '#ef4444', background: '#fee2e2', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>
                                 <i className="fas fa-trash-alt" style={{ marginRight: '6px' }}></i> Delete
@@ -240,7 +409,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
                             <input
                                 type="text"
-                                placeholder="Search deals, clients, properties..."
+                                placeholder="Search bookings, clients, properties..."
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 style={{ width: '100%', padding: '10px 10px 10px 36px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
@@ -256,7 +425,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     {/* Table Header - ACTIONS COLUMN REMOVED */}
                     <div style={{ display: 'grid', gridTemplateColumns: '40px 1.5fr 1.2fr 2fr 1.5fr 2fr 1.2fr', background: '#f8fafc', padding: '16px 20px', borderBottom: '1px solid #e2e8f0', fontWeight: 600, color: '#475569', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                         <div><input type="checkbox" onChange={toggleSelectAll} checked={selectedIds.length === filteredData.length && filteredData.length > 0} /></div>
-                        <div>Deal & Status</div>
+                        <div>Booking & Status</div>
                         <div>Health</div>
                         <div>Stakeholders (Buyer/Seller)</div>
                         <div>Property</div>
@@ -363,7 +532,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                     {/* Deal Payment */}
                                     <div style={{ marginBottom: '8px' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748b', marginBottom: '2px' }}>
-                                            <span>Deal: {formatCurrency(item.financials.dealValue)}</span>
+                                            <span>Booking: {formatCurrency(item.financials.dealValue)}</span>
                                             <span>{Math.round(dealPaidPercent)}%</span>
                                         </div>
                                         <div style={{ width: '100%', height: '6px', background: '#e2e8f0', borderRadius: '3px' }}>
@@ -407,7 +576,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     {filteredData.length === 0 && (
                         <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
                             <i className="fas fa-inbox" style={{ fontSize: '2rem', marginBottom: '10px' }}></i>
-                            <p>No deals found matching your criteria.</p>
+                            <p>No bookings found matching your criteria.</p>
                         </div>
                     )}
                 </div>
