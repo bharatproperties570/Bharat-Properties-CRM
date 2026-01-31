@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MODULE_CONFIG, generateCSV, downloadFile } from '../../../../utils/dataManagementUtils';
+import { MODULE_CONFIG, generateCSV, downloadFile } from '../../../utils/dataManagementUtils';
 import toast from 'react-hot-toast';
 
 const ExportDataPage = () => {

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { MODULE_CONFIG, parseCSV } from '../../../../utils/dataManagementUtils';
+import { MODULE_CONFIG, parseCSV } from '../../../utils/dataManagementUtils';
 import toast from 'react-hot-toast';
 
 const ImportDataPage = () => {

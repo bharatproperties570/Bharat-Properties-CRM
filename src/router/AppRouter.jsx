@@ -63,9 +63,9 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
         case 'activities':
             return <ActivitiesPage />;
         case 'booking':
-            return <BookingPage onNavigate={onNavigate} />;
+            return <BookingPage onNavigate={onNavigate} initialContextId={currentContactId} />;
         case 'account':
-            return <AccountPage onNavigate={onNavigate} />;
+            return <AccountPage onNavigate={onNavigate} initialContextId={currentContactId} />;
         case 'communication':
             return <CommunicationPage />;
         case 'reports':

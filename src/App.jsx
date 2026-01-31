@@ -22,6 +22,7 @@ function App() {
         if (path === '/deals') return 'deals';
         if (path === '/activities') return 'activities';
         if (path === '/projects') return 'projects';
+        if (path === '/account') return 'account';
         return 'dashboard';
     });
 

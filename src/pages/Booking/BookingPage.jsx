@@ -1,782 +1,419 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import { bookingData } from '../../data/bookingData';
+import AccountPage from '../Account/AccountPage'; // Import AccountPage as a sub-view
 
-function BookingPage({ onNavigate }) {
+const BookingPage = ({ onNavigate, initialContextId }) => {
+    // View State: 'deals' (Command Center) or 'ledger' (Financial Control)
+    const [currentView, setCurrentView] = useState('deals');
+
+    // --- Deals State ---
+    const [activeTab, setActiveTab] = useState('All');
+    const [searchTerm, setSearchTerm] = useState(initialContextId || '');
     const [selectedIds, setSelectedIds] = useState([]);
-    const [activeTab, setActiveTab] = useState('All Booking');
-    const [isViewModalOpen, setIsViewModalOpen] = useState(false);
-    const [viewedBooking, setViewedBooking] = useState(null);
-    const [searchTerm, setSearchTerm] = useState('');
 
-    // Sample booking/deals data based on the EXACT image structure
-    const bookingData = [
-        {
-            id: 1,
-            sno: 1,
-            date: '01-11-2024',
-            time: '10:30 AM',
-            dealType: 'Sell',
-            formNumber: 'Form 1',
-            stage: 'Pending',
-            seller: {
-                name: 'Rajiv Kumar Singhal',
-                mobile: '7988275300'
-            },
-            buyer: {
-                name: 'Amit Sharma',
-                mobile: '9410535300'
-            },
-            project: 'Sector 4 Kurukshetra',
-            propertyNumber: 'Plot-1550',
-            block: 'Second Block',
-            executive: 'Rajesh Kumar',
-            agentName: 'Amit Sharma',
-            agentCompany: 'Amit Realty',
-            agreementAmount: '₹ 5,00,000',
-            finalDate: '01-12-2024',
-            price: '₹ 1,03,50,000',
-            brokerage: '₹ 2,07,000',
-            brokeragePercent: '1+1',
-            paymentReceived: '₹ 5,00,000',
-            paymentPending: '₹ 98,50,000',
-            paymentPlan: 'Construction Linked Payment Plan (CLPP)',
-            followup: '15-11-2024',
-            remarks: 'Booking Done, Documents Pending'
-        },
-        {
-            id: 2,
-            sno: 2,
-            date: '15-10-2024',
-            time: '02:15 PM',
-            dealType: 'Rent',
-            formNumber: 'Form 2',
-            stage: 'Booked',
-            seller: {
-                name: 'Priya Verma',
-                mobile: '9876543210'
-            },
-            buyer: {
-                name: 'Rajiv Kumar',
-                mobile: '8765432109'
-            },
-            project: 'Sector 3 Kurukshetra',
-            propertyNumber: '1 BHK-10 Marla',
-            block: 'Main Block',
-            executive: 'Priya Sharma',
-            agentName: 'Suresh Verma',
-            agentCompany: 'City Properties',
-            agreementAmount: '₹ 2,00,000',
-            finalDate: '6 Month',
-            price: '₹ 45,00,000',
-            brokerage: '₹ 90,000',
-            brokeragePercent: '1+1',
-            paymentReceived: '₹ 2,00,000',
-            paymentPending: '₹ 43,00,000',
-            paymentPlan: 'Down Payment Plan',
-            followup: '20-10-2024',
-            remarks: 'Payment Pending, Follow up required'
-        },
-        {
-            id: 3,
-            sno: 3,
-            date: '20-09-2024',
-            time: '11:00 AM',
-            dealType: 'Sell',
-            formNumber: 'Form 3',
-            stage: 'Registry',
-            seller: {
-                name: 'Sunita Gupta',
-                mobile: '9988776655'
-            },
-            buyer: {
-                name: 'Vikram Singh',
-                mobile: '8877665544'
-            },
-            project: 'Sector 8 Kurukshetra',
-            propertyNumber: 'Plot-800',
-            block: 'First Block',
-            executive: 'Vikram Singh',
-            agentName: 'Deepak Gupta',
-            agentCompany: 'Metro Homes',
-            agreementAmount: '₹ 3,50,000',
-            finalDate: '20-10-2024',
-            price: '₹ 72,00,000',
-            brokerage: '₹ 1,44,000',
-            brokeragePercent: '1+1',
-            paymentReceived: '₹ 3,50,000',
-            paymentPending: '₹ 68,50,000',
-            paymentPlan: 'Flexi Payment Plan',
-            followup: '25-09-2024',
-            remarks: 'Documents Verified, Registry in progress'
-        },
-        {
-            id: 4,
-            sno: 4,
-            date: '05-09-2024',
-            time: '04:30 PM',
-            dealType: 'Lease',
-            formNumber: 'Form 4',
-            stage: 'Cancelled',
-            seller: {
-                name: 'Neha Jain',
-                mobile: '7766554433'
-            },
-            buyer: {
-                name: 'Rahul Mehta',
-                mobile: '6655443322'
-            },
-            project: 'Sector 4 Kurukshetra',
-            propertyNumber: '2 BHK-15 Marla',
-            block: 'East Block',
-            executive: 'Neha Gupta',
-            agentName: 'Rahul Jain',
-            agentCompany: 'Prime Estates',
-            agreementAmount: '₹ 0',
-            finalDate: 'N/A',
-            price: '₹ 85,00,000',
-            brokerage: '₹ 0',
-            brokeragePercent: 'N/A',
-            paymentReceived: '₹ 0',
-            paymentPending: '₹ 0',
-            paymentPlan: 'N/A',
-            followup: 'N/A',
-            remarks: 'Cancelled by Customer, Refund Processed'
-        },
-        {
-            id: 5,
-            sno: 5,
-            date: '12-08-2024',
-            time: '09:45 AM',
-            dealType: 'Sell',
-            formNumber: 'Form 5',
-            stage: 'Agreement',
-            seller: {
-                name: 'Kavita Reddy',
-                mobile: '5544332211'
-            },
-            buyer: {
-                name: 'Arun Kumar',
-                mobile: '4433221100'
-            },
-            project: 'Sector 3 Kurukshetra',
-            propertyNumber: 'Plot-1200',
-            block: 'Third Block',
-            executive: 'Arun Mehta',
-            agentName: 'Kavita Singh',
-            agentCompany: 'Royal Builders',
-            agreementAmount: '₹ 4,80,000',
-            finalDate: 'Lock in: 12 months',
-            price: '₹ 96,00,000',
-            brokerage: '₹ 1,92,000',
-            brokeragePercent: '1+1',
-            paymentReceived: '₹ 4,80,000',
-            paymentPending: '₹ 91,20,000',
-            paymentPlan: 'Construction Linked Payment Plan (CLPP)',
-            followup: '20-08-2024',
-            remarks: 'Agreement signed, Registry pending'
-        },
-        {
-            id: 6,
-            sno: 6,
-            date: '28-07-2024',
-            time: '03:00 PM',
-            dealType: 'Rent',
-            formNumber: 'Form 6',
-            stage: 'Pending',
-            seller: {
-                name: 'Deepak Sharma',
-                mobile: '9988112233'
-            },
-            buyer: {
-                name: 'Pooja Singh',
-                mobile: '8877001122'
-            },
-            project: 'Sector 8 Kurukshetra',
-            propertyNumber: '3 BHK-20 Marla',
-            block: 'West Block',
-            executive: 'Kavita Reddy',
-            agentName: 'Manoj Kumar',
-            agentCompany: 'Dream Homes',
-            agreementAmount: '₹ 6,00,000',
-            finalDate: '28-08-2024',
-            price: '₹ 1,20,00,000',
-            brokerage: '₹ 2,40,000',
-            brokeragePercent: '1+1',
-            paymentReceived: '₹ 6,00,000',
-            paymentPending: '₹ 1,14,00,000',
-            paymentPlan: 'Subvention Scheme',
-            followup: '05-08-2024',
-            remarks: 'Awaiting Approval from Bank'
-        }
-    ];
+    // Logic to handle specific deal navigation (Drill-down)
+    const handleViewLedger = (dealId) => {
+        setSearchTerm(dealId);
+        setCurrentView('ledger');
+    };
+
+    const handleViewDeal = (dealId) => {
+        setSearchTerm(dealId);
+        setCurrentView('deals');
+    };
+
+    // --- Stats Calculation ---
+    const stats = useMemo(() => {
+        const totalDeals = bookingData.length;
+        const totalValue = bookingData.reduce((sum, b) => b.stage !== 'Cancelled' ? sum + b.financials.dealValue : sum, 0);
+        const pendingComm = bookingData.reduce((sum, b) => b.stage !== 'Cancelled' ? sum + b.financials.commissionPending : sum, 0);
+        const atRiskDeals = bookingData.filter(b => b.health === 'At Risk' || b.health === 'Delayed').length;
+        return { totalDeals, totalValue, pendingComm, atRiskDeals };
+    }, []);
+
+    // --- Filtering ---
+    const filteredData = useMemo(() => {
+        return bookingData.filter(item => {
+            const matchesTab = activeTab === 'All' || item.stage === activeTab;
+            const searchLower = searchTerm.toLowerCase();
+            const matchesSearch =
+                item.customer.buyer.name.toLowerCase().includes(searchLower) ||
+                item.customer.seller.name.toLowerCase().includes(searchLower) ||
+                item.property.project.toLowerCase().includes(searchLower) ||
+                item.id.toLowerCase().includes(searchLower);
+            return matchesTab && matchesSearch;
+        });
+    }, [activeTab, searchTerm]);
 
     const toggleSelect = (id) => {
-        setSelectedIds(prev =>
-            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-        );
+        setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
     };
 
     const toggleSelectAll = () => {
-        setSelectedIds(prev =>
-            prev.length === bookingData.length ? [] : bookingData.map(b => b.id)
-        );
+        if (selectedIds.length === filteredData.length) setSelectedIds([]);
+        else setSelectedIds(filteredData.map(d => d.id));
     };
 
-    // Calculate totals
-    const totalBookings = bookingData.length;
-    const totalPrice = bookingData.reduce((sum, booking) => {
-        const price = parseInt(booking.price.replace(/[₹,]/g, ''));
-        return sum + price;
-    }, 0);
-    const totalReceived = bookingData.reduce((sum, booking) => {
-        const received = parseInt(booking.paymentReceived.replace(/[₹,]/g, ''));
-        return sum + received;
-    }, 0);
-    const totalPending = bookingData.reduce((sum, booking) => {
-        const pending = parseInt(booking.paymentPending.replace(/[₹,]/g, ''));
-        return sum + pending;
-    }, 0);
+    const selectedCount = selectedIds.length;
 
-    const filteredBookings = bookingData.filter(booking => {
-        const search = searchTerm.toLowerCase();
+    // --- Helpers ---
+    const formatCurrency = (amount) => {
+        return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
+    };
+
+    const getHealthColor = (health) => {
+        switch (health) {
+            case 'On Track': return '#10b981'; // Green
+            case 'At Risk': return '#f59e0b'; // Yellow
+            case 'Delayed': return '#ef4444'; // Red
+            default: return '#cbd5e1';
+        }
+    };
+
+    const getStageColor = (stage) => {
+        switch (stage) {
+            case 'Pending': return { bg: '#fff7ed', text: '#c2410c', border: '#ffedd5' };
+            case 'Booked': return { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' };
+            case 'Agreement': return { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' };
+            case 'Registry': return { bg: '#faf5ff', text: '#7e22ce', border: '#e9d5ff' };
+            case 'Cancelled': return { bg: '#fef2f2', text: '#b91c1c', border: '#fecaca' };
+            default: return { bg: '#f8fafc', text: '#64748b', border: '#e2e8f0' };
+        }
+    };
+
+    // If currentView is ledger, render the AccountPage (wrapped or modified)
+    if (currentView === 'ledger') {
         return (
-            (booking.seller && booking.seller.name && booking.seller.name.toLowerCase().includes(search)) ||
-            (booking.buyer && booking.buyer.name && booking.buyer.name.toLowerCase().includes(search)) ||
-            (booking.project && booking.project.toLowerCase().includes(search)) ||
-            (booking.propertyNumber && booking.propertyNumber.toLowerCase().includes(search))
+            <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                {/* Unified Header for Switching Back */}
+                <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '10px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                        <button onClick={() => setCurrentView('deals')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}>
+                            <i className="fas fa-arrow-left"></i> Back to Deals
+                        </button>
+                        <h2 style={{ fontSize: '1.1rem', margin: 0, fontWeight: 700, color: '#0f172a' }}>Financial Control Center</h2>
+                    </div>
+                    {/* View Switcher Controls */}
+                    <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '8px', display: 'flex', gap: '4px' }}>
+                        <button onClick={() => setCurrentView('deals')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'transparent', color: '#64748b', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Deals</button>
+                        <button onClick={() => setCurrentView('ledger')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: '#fff', color: '#0f172a', fontWeight: 600, fontSize: '0.85rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'default' }}>Ledger</button>
+                    </div>
+                </div>
+                {/* Render AccountPage with embedded props */}
+                <div style={{ flex: 1, overflow: 'hidden' }}>
+                    <AccountPage
+                        onNavigate={(targetView, targetId) => {
+                            if (targetView === 'booking') {
+                                handleViewDeal(targetId);
+                            } else if (onNavigate) {
+                                onNavigate(targetView, targetId);
+                            }
+                        }}
+                        initialContextId={searchTerm}
+                        isEmbedded={true}
+                    />
+                </div>
+            </div>
         );
-    });
+    }
 
     return (
-        <section className="main-content">
-            <div className="page-container">
-                {/* Page Header */}
-                <div className="page-header" style={{ position: 'sticky', top: 0, zIndex: 100, background: '#fff', borderBottom: '1px solid #eef2f5', padding: '1rem 1.5rem' }}>
-                    <div className="page-title-group">
-                        <i className="fas fa-file-invoice-dollar" style={{ color: '#68737d' }}></i>
-                        <div>
-                            <span className="working-list-label">Post Sale</span>
-                            <h1>Post Sale</h1>
+        <section className="main-content" style={{ background: '#f8fafc', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            {/* Header: Command Center */}
+            <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '20px 32px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                    <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                            <i className="fas fa-chart-line" style={{ color: '#6366f1', fontSize: '1.2rem' }}></i>
+                            <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Post-Sale Command Center</h1>
                         </div>
+                        <p style={{ margin: 0, color: '#64748b', fontSize: '0.9rem' }}>Track deals, monitor risks, and ensure timely closings.</p>
                     </div>
-                    <div className="header-actions" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <button
-                            className="btn-primary"
-                            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-                        >
-                            <i className="fas fa-handshake"></i> Booking
-                        </button>
-                        <button
-                            className="btn-outline"
-                            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-                            onClick={() => onNavigate && onNavigate('account')}
-                        >
-                            <i className="fas fa-wallet"></i> Account
-                        </button>
-                        <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <i className="fas fa-plus"></i> Add Booking
-                        </button>
-                        <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <i className="fas fa-filter"></i> Filter
-                        </button>
-                    </div>
-                </div>
+                    {/* View Switcher & Global Actions */}
+                    <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+                        {/* Switcher */}
+                        <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '8px', display: 'flex', gap: '4px' }}>
+                            <button onClick={() => setCurrentView('deals')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#fff', color: '#0f172a', fontWeight: 700, fontSize: '0.85rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'default' }}>Deals</button>
+                            <button onClick={() => setCurrentView('ledger')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: 'transparent', color: '#64748b', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Ledger</button>
+                        </div>
 
-                {/* Filter Tabs */}
-                <div style={{ padding: '11px 2rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                    <div style={{ display: 'flex', gap: '20px', borderBottom: '2px solid #e2e8f0' }}>
-                        {['All Booking', 'Pending', 'Booked', 'Agreement', 'Registry', 'Cancelled'].map(tab => (
-                            <button
-                                key={tab}
-                                onClick={() => setActiveTab(tab)}
-                                style={{
-                                    padding: '7.5px 0',
-                                    border: 'none',
-                                    background: 'none',
-                                    fontSize: '0.85rem',
-                                    fontWeight: 600,
-                                    color: activeTab === tab ? '#10b981' : '#64748b',
-                                    borderBottom: activeTab === tab ? '2px solid #10b981' : '2px solid transparent',
-                                    cursor: 'pointer',
-                                    marginBottom: '-2px'
-                                }}
-                            >
-                                {tab}
+                        <div style={{ display: 'flex', gap: '12px' }}>
+                            <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-file-export"></i> Reports
                             </button>
-                        ))}
+                            <button className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 6px -1px rgba(99,102,241, 0.2)' }}>
+                                <i className="fas fa-plus"></i> New Deal
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0 }}>
-                    {/* Action Bar */}
-                    <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', borderBottom: '1px solid #eef2f5', minHeight: '45px', display: 'flex', alignItems: 'center', background: '#fff' }}>
-                        {selectedIds.length > 0 ? (
-                            <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%' }}>
-                                <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)' }}>
-                                    {selectedIds.length} Selected
-                                </div>
-                                {selectedIds.length === 1 && (
-                                    <>
-                                        <button className="action-btn" title="Edit"><i className="fas fa-edit" style={{ color: '#4b5563' }}></i> Edit</button>
-                                        <button className="action-btn" title="Receipt"><i className="fas fa-receipt" style={{ color: '#0891b2' }}></i> Receipt</button>
-                                        <button className="action-btn" title="Agreement"><i className="fas fa-file-contract" style={{ color: '#0891b2' }}></i> Agreement</button>
-                                        <button className="action-btn" title="Schedule"><i className="fas fa-calendar-alt" style={{ color: '#f59e0b' }}></i> Schedule</button>
-                                    </>
-                                )}
-                                <button className="action-btn" title="View"><i className="fas fa-eye" style={{ color: '#6366f1' }}></i> View</button>
-                                <div style={{ flex: 1 }}></div>
-                                <button className="action-btn delete-btn" title="Delete"><i className="fas fa-trash-alt" style={{ color: '#ef4444' }}></i> Delete</button>
+                {/* KPI Metrics - Only show in Deals view */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
+                    {[
+                        { label: 'Active Pipeline Value', value: formatCurrency(stats.totalValue), icon: 'fa-coins', color: '#0ea5e9', bg: '#e0f2fe' },
+                        { label: 'Pending Commission', value: formatCurrency(stats.pendingComm), icon: 'fa-hand-holding-usd', color: '#f59e0b', bg: '#fef3c7' },
+                        { label: 'Deals At Risk', value: stats.atRiskDeals, icon: 'fa-exclamation-triangle', color: '#ef4444', bg: '#fee2e2' },
+                        { label: 'Total Active Deals', value: stats.totalDeals, icon: 'fa-file-signature', color: '#10b981', bg: '#dcfce7' },
+                    ].map((stat, i) => (
+                        <div key={i} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', display: 'flex', alignItems: 'center', gap: '16px', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
+                            <div style={{ width: '48px', height: '48px', borderRadius: '10px', background: stat.bg, color: stat.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>
+                                <i className={`fas ${stat.icon}`}></i>
                             </div>
-                        ) : (
-                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', width: '100%' }}>
-                                <div style={{ position: 'relative', width: '400px' }}>
-                                    <input
-                                        type="text"
-                                        className="search-input-premium"
-                                        placeholder="Search name, project, or unit..."
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        style={{ width: '100%' }}
-                                    />
-                                    <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
-                                </div>
-                                <div style={{ flex: 1 }}></div>
-                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Items: {filteredBookings.length}</span>
+                            <div>
+                                <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>{stat.label}</div>
+                                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a' }}>{stat.value}</div>
                             </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Controls / Bulk Actions Toolbar */}
+            <div style={{ padding: '16px 32px', background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: '72px' }}>
+                {selectedCount > 0 ? (
+                    // Bulk Actions Toolbar
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%', animation: 'fadeIn 0.2s ease-in-out' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '8px' }}>
+                            <input type="checkbox" checked={selectedCount > 0} onChange={toggleSelectAll} style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
+                            <span style={{ fontWeight: 700, color: '#6366f1', fontSize: '0.9rem' }}>{selectedCount} Selected</span>
+                        </div>
+
+                        <div style={{ height: '24px', width: '1px', background: '#e2e8f0' }}></div>
+
+                        {/* Contextual Actions based on Selection Count */}
+                        {selectedCount === 1 && (
+                            <button
+                                onClick={() => handleViewLedger(selectedIds[0])}
+                                className="action-btn"
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.85rem', cursor: 'pointer' }}
+                            >
+                                <i className="fas fa-wallet" style={{ color: '#0ea5e9' }}></i> View Ledger
+                            </button>
                         )}
+
+                        <button
+                            className="action-btn"
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.85rem', cursor: 'pointer' }}
+                        >
+                            <i className="fas fa-edit"></i> Edit
+                        </button>
+                        <button
+                            className="action-btn"
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.85rem', cursor: 'pointer' }}
+                        >
+                            <i className="fas fa-calendar-check"></i> Activities
+                        </button>
+
+                        <div style={{ marginLeft: 'auto' }}>
+                            <button style={{ color: '#ef4444', background: '#fee2e2', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>
+                                <i className="fas fa-trash-alt" style={{ marginRight: '6px' }}></i> Delete
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    // Default Tab & Search Toolbar
+                    <>
+                        <div style={{ display: 'flex', gap: '2px', background: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
+                            {['All', 'Pending', 'Booked', 'Agreement', 'Registry', 'Cancelled'].map(tab => (
+                                <button
+                                    key={tab}
+                                    onClick={() => setActiveTab(tab)}
+                                    style={{
+                                        padding: '8px 16px',
+                                        border: 'none',
+                                        background: activeTab === tab ? '#fff' : 'transparent',
+                                        color: activeTab === tab ? '#0f172a' : '#64748b',
+                                        fontWeight: 700,
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.85rem',
+                                        boxShadow: activeTab === tab ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    {tab}
+                                </button>
+                            ))}
+                        </div>
+                        <div style={{ position: 'relative', width: '300px' }}>
+                            <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
+                            <input
+                                type="text"
+                                placeholder="Search deals, clients, properties..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                style={{ width: '100%', padding: '10px 10px 10px 36px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                            />
+                        </div>
+                    </>
+                )}
+            </div>
+
+            {/* Data Table */}
+            <div style={{ flex: 1, overflow: 'auto', padding: '20px 32px' }}>
+                <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+                    {/* Table Header - ACTIONS COLUMN REMOVED */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '40px 1.5fr 1.2fr 2fr 1.5fr 2fr 1.2fr', background: '#f8fafc', padding: '16px 20px', borderBottom: '1px solid #e2e8f0', fontWeight: 600, color: '#475569', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        <div><input type="checkbox" onChange={toggleSelectAll} checked={selectedIds.length === filteredData.length && filteredData.length > 0} /></div>
+                        <div>Deal & Status</div>
+                        <div>Health</div>
+                        <div>Stakeholders (Buyer/Seller)</div>
+                        <div>Property</div>
+                        <div>Financials</div>
+                        <div>Next Action</div>
                     </div>
 
-                    {/* Booking List Header */}
-                    <div className="list-header booking-list-grid" style={{ position: 'sticky', top: '45px', zIndex: 99, background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                        <div><input type="checkbox" onChange={toggleSelectAll} checked={selectedIds.length === bookingData.length} /></div>
-                        <div>S.No</div>
-                        <div>Date</div>
-                        <div>Status</div>
-                        <div>Customer</div>
-                        <div>Property Details</div>
-                        <div>Executive/Agent</div>
-                        <div>Terms</div>
-                        <div>Amount</div>
-                        <div>Commission</div>
-                        <div>Followup & Remarks</div>
-                        <div>Actions</div>
-                    </div>
+                    {/* Table Rows */}
+                    {filteredData.map(item => {
+                        const stageStyle = getStageColor(item.stage);
+                        const healthColor = getHealthColor(item.health);
+                        const isSelected = selectedIds.includes(item.id);
 
-                    {/* Booking List */}
-                    <div className="list-content" style={{ background: '#fafbfc', padding: '1rem 1rem' }}>
-                        {bookingData.map((booking) => (
-                            <div
-                                key={booking.id}
-                                className="list-item booking-list-grid"
-                                style={{
-                                    marginBottom: '10px',
-                                    borderRadius: '10px',
-                                    border: '1px solid #e2e8f0',
-                                    background: '#fff',
-                                    transition: 'all 0.2s',
-                                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-                                }}
-                                onMouseEnter={(e) => {
-                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-                                    e.currentTarget.style.transform = 'translateY(-2px)';
-                                    e.currentTarget.style.borderColor = '#cbd5e1';
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.04)';
-                                    e.currentTarget.style.transform = 'translateY(0)';
+                        // Progress calculation (mock)
+                        const dealPaidPercent = Math.min((item.financials.dealPaid / item.financials.dealValue) * 100, 100);
+                        const commPaidPercent = item.financials.commissionTotal > 0 ? Math.min((item.financials.commissionReceived / item.financials.commissionTotal) * 100, 100) : 0;
+
+                        return (
+                            <div key={item.id} style={{
+                                display: 'grid',
+                                gridTemplateColumns: '40px 1.5fr 1.2fr 2fr 1.5fr 2fr 1.2fr',
+                                padding: '20px',
+                                borderBottom: '1px solid #f1f5f9',
+                                alignItems: 'center',
+                                fontSize: '0.9rem',
+                                background: isSelected ? '#f0f9ff' : '#fff',
+                                transition: 'background 0.2s',
+                                cursor: 'pointer' // Indicate row is selectable
+                            }}
+                                onClick={(e) => {
+                                    // Toggle select on row click if not triggering other interactive elements
+                                    // For now, just relying on checkbox or explicit logic
+                                    if (e.target.type !== 'checkbox') toggleSelect(item.id);
                                 }}
                             >
-                                <input
-                                    type="checkbox"
-                                    checked={selectedIds.includes(booking.id)}
-                                    onChange={() => toggleSelect(booking.id)}
-                                />
-
-                                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155' }}>{booking.sno}</div>
-
-                                {/* Date: Deal Type + Date + Time - Aligned */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-start' }}>
-                                    <div style={{
-                                        fontSize: '0.75rem',
-                                        padding: '3px 8px',
-                                        borderRadius: '10px',
-                                        fontWeight: 800,
-                                        width: 'fit-content',
-                                        background: booking.dealType === 'Sell' ? '#dbeafe' :
-                                            booking.dealType === 'Rent' ? '#fef3c7' : '#e0e7ff',
-                                        color: booking.dealType === 'Sell' ? '#1e40af' :
-                                            booking.dealType === 'Rent' ? '#92400e' : '#4338ca',
-                                        border: booking.dealType === 'Sell' ? '1px solid #93c5fd' :
-                                            booking.dealType === 'Rent' ? '1px solid #fcd34d' : '1px solid #a5b4fc'
-                                    }}>
-                                        {booking.dealType}
-                                    </div>
-                                    <div style={{ fontSize: '0.65rem', color: '#64748b' }}>{booking.date}</div>
-                                    <div style={{ fontSize: '0.65rem', color: '#64748b' }}>{booking.time}</div>
+                                <div onClick={(e) => e.stopPropagation()}>
+                                    <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(item.id)} />
                                 </div>
 
-                                {/* Status: Form Number + Stage - Aligned */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', alignItems: 'flex-start' }}>
-                                    <div style={{
-                                        fontSize: '0.7rem',
-                                        fontWeight: 800,
-                                        color: '#fff',
-                                        background: '#0891b2',
-                                        padding: '3px 8px',
-                                        borderRadius: '4px',
-                                        textAlign: 'center',
-                                        width: 'fit-content'
-                                    }}>
-                                        {booking.formNumber}
-                                    </div>
-                                    <span style={{
-                                        fontSize: '0.7rem',
-                                        padding: '4px 10px',
-                                        borderRadius: '12px',
-                                        fontWeight: 700,
-                                        background: booking.stage === 'Pending' ? '#fef3c7' :
-                                            booking.stage === 'Booked' ? '#d1fae5' :
-                                                booking.stage === 'Agreement' ? '#dbeafe' :
-                                                    booking.stage === 'Registry' ? '#e0e7ff' : '#fee2e2',
-                                        color: booking.stage === 'Pending' ? '#92400e' :
-                                            booking.stage === 'Booked' ? '#065f46' :
-                                                booking.stage === 'Agreement' ? '#1e40af' :
-                                                    booking.stage === 'Registry' ? '#4338ca' : '#991b1b',
-                                        border: booking.stage === 'Pending' ? '1px solid #fcd34d' :
-                                            booking.stage === 'Booked' ? '1px solid #6ee7b7' :
-                                                booking.stage === 'Agreement' ? '1px solid #93c5fd' :
-                                                    booking.stage === 'Registry' ? '1px solid #a5b4fc' : '1px solid #fca5a5',
-                                        textAlign: 'center',
-                                        width: 'fit-content'
-                                    }}>
-                                        {booking.stage}
-                                    </span>
-                                </div>
-
-                                {/* Customer: Seller + Buyer - Compact with labels */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                                        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0f172a' }}>{booking.seller.name}</div>
-                                        <div style={{ fontSize: '0.65rem', color: '#8e44ad', fontWeight: 600 }}>
-                                            <i className="fas fa-phone" style={{ marginRight: '3px', fontSize: '0.6rem', transform: 'scaleX(-1) rotate(5deg)' }}></i>{booking.seller.mobile}
-                                        </div>
-                                    </div>
-                                    <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, marginTop: '-2px' }}>Seller</div>
-
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
-                                        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0f172a' }}>{booking.buyer.name}</div>
-                                        <div style={{ fontSize: '0.65rem', color: '#8e44ad', fontWeight: 600 }}>
-                                            <i className="fas fa-phone" style={{ marginRight: '3px', fontSize: '0.6rem', transform: 'scaleX(-1) rotate(5deg)' }}></i>{booking.buyer.mobile}
-                                        </div>
-                                    </div>
-                                    <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, marginTop: '-2px' }}>Buyer</div>
-                                </div>
-
-                                {/* Property Details: Property Number (large) + Block + Project (small) */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                    <div style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: 800 }}>
-                                        {booking.propertyNumber}
-                                    </div>
-                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                        {booking.block}
-                                    </div>
-                                    <div style={{ fontSize: '0.7rem', color: '#059669', fontWeight: 600 }}>
-                                        <i className="fas fa-building" style={{ marginRight: '4px' }}></i>{booking.project}
+                                {/* Deal & Status */}
+                                <div>
+                                    <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>{item.id}</div>
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                        <span style={{
+                                            background: item.dealType === 'Sell' ? '#dbeafe' : '#fef3c7',
+                                            color: item.dealType === 'Sell' ? '#1e40af' : '#92400e',
+                                            fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 700
+                                        }}>
+                                            {item.dealType}
+                                        </span>
+                                        <span style={{
+                                            background: stageStyle.bg, color: stageStyle.text, border: `1px solid ${stageStyle.border}`,
+                                            fontSize: '0.7rem', padding: '2px 8px', borderRadius: '12px', fontWeight: 600
+                                        }}>
+                                            {item.stage}
+                                        </span>
                                     </div>
                                 </div>
 
-                                {/* Executive & Agent */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    <div>
-                                        <div style={{ fontSize: '0.65rem', color: '#64748b', marginBottom: '2px' }}>
-                                            Executive
-                                        </div>
-                                        <div style={{ fontSize: '0.8rem', color: '#0f172a', fontWeight: 700 }}>
-                                            {booking.executive}
-                                        </div>
+                                {/* Health */}
+                                <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: healthColor }}></div>
+                                        <span style={{ fontWeight: 600, color: healthColor, fontSize: '0.85rem' }}>{item.health}</span>
                                     </div>
-                                    <div>
-                                        <div style={{ fontSize: '0.65rem', color: '#64748b', marginBottom: '2px' }}>
-                                            {booking.agentName}
+                                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                        {item.timeline.daysInStage} Days in Stage
+                                    </div>
+                                </div>
+
+                                {/* Stakeholders */}
+                                <div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <div style={{ width: '24px', height: '24px', background: '#e0e7ff', color: '#4338ca', borderRadius: '50%', fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+                                                {item.customer.buyer.avatar}
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>{item.customer.buyer.name}</div>
+                                                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Buyer</div>
+                                            </div>
                                         </div>
-                                        <div style={{ fontSize: '0.8rem', color: '#059669', fontWeight: 700 }}>
-                                            {booking.agentCompany}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <div style={{ width: '24px', height: '24px', background: '#fae8ff', color: '#86198f', borderRadius: '50%', fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+                                                {item.customer.seller.avatar}
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>{item.customer.seller.name}</div>
+                                                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Seller</div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* Terms: Agreement Amount + Final Date */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    <div>
-                                        <div style={{ fontSize: '0.8rem', color: '#0891b2', fontWeight: 700 }}>
-                                            {booking.agreementAmount}
+                                {/* Property */}
+                                <div>
+                                    <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: '2px' }}>{item.property.unit}</div>
+                                    <div style={{ fontSize: '0.8rem', color: '#475569', marginBottom: '2px' }}>{item.property.project}</div>
+                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}><i className="fas fa-map-marker-alt"></i> {item.property.location}</div>
+                                </div>
+
+                                {/* Financials */}
+                                <div style={{ paddingRight: '20px' }}>
+                                    {/* Deal Payment */}
+                                    <div style={{ marginBottom: '8px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748b', marginBottom: '2px' }}>
+                                            <span>Deal: {formatCurrency(item.financials.dealValue)}</span>
+                                            <span>{Math.round(dealPaidPercent)}%</span>
                                         </div>
-                                        <div style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '2px' }}>
-                                            {booking.dealType === 'Rent' || booking.dealType === 'Lease' ? 'Security Amount' : 'Agreement Amount'}
+                                        <div style={{ width: '100%', height: '6px', background: '#e2e8f0', borderRadius: '3px' }}>
+                                            <div style={{ width: `${dealPaidPercent}%`, height: '100%', background: '#0ea5e9', borderRadius: '3px' }}></div>
                                         </div>
                                     </div>
+                                    {/* Comm Payment */}
                                     <div>
-                                        <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 600 }}>
-                                            {booking.finalDate}
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748b', marginBottom: '2px' }}>
+                                            <span>Comm: {formatCurrency(item.financials.commissionTotal)}</span>
+                                            <span>{Math.round(commPaidPercent)}%</span>
                                         </div>
-                                        <div style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '2px' }}>
-                                            {booking.dealType === 'Rent' || booking.dealType === 'Lease' ? 'Lock in Period' : 'Full & Final Date'}
+                                        <div style={{ width: '100%', height: '6px', background: '#e2e8f0', borderRadius: '3px' }}>
+                                            <div style={{ width: `${commPaidPercent}%`, height: '100%', background: '#10b981', borderRadius: '3px' }}></div>
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* Amount: Deal Value + Brokerage */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    <div>
-                                        <div style={{ fontSize: '0.85rem', color: '#10b981', fontWeight: 800 }}>
-                                            {booking.price}
+                                {/* Next Action */}
+                                <div>
+                                    {item.timeline.nextAction ? (
+                                        <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '8px', padding: '8px 12px' }}>
+                                            <div style={{ fontWeight: 700, color: '#92400e', fontSize: '0.8rem', marginBottom: '2px' }}>
+                                                {item.timeline.nextAction.type}
+                                            </div>
+                                            <div style={{ fontSize: '0.75rem', color: '#b45309' }}>
+                                                Due: {item.timeline.nextAction.dueDate}
+                                            </div>
+                                            <div style={{ fontSize: '0.7rem', color: '#d97706', fontStyle: 'italic', marginTop: '2px' }}>
+                                                {item.timeline.nextAction.assignedTo}
+                                            </div>
                                         </div>
-                                        <div style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '2px' }}>
-                                            Deal Value
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div style={{ fontSize: '0.8rem', color: '#0891b2', fontWeight: 700 }}>
-                                            {booking.brokerage}
-                                        </div>
-                                        <div style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '2px' }}>
-                                            Brokerage % {booking.brokeragePercent}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Commission Details: Payment Received + Payment Pending */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    <div>
-                                        <div style={{ fontSize: '0.8rem', color: '#0891b2', fontWeight: 700 }}>
-                                            {booking.paymentReceived}
-                                        </div>
-                                        <div style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '2px' }}>
-                                            Payment Received
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div style={{ fontSize: '0.8rem', color: '#dc2626', fontWeight: 700 }}>
-                                            {booking.paymentPending}
-                                        </div>
-                                        <div style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '2px' }}>
-                                            Payment Pending
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Followup & Remarks */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    <div>
-                                        <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 600 }}>
-                                            {booking.followup}
-                                        </div>
-                                        <div style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '2px' }}>
-                                            Followup Date
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div style={{ fontSize: '0.7rem', color: '#475569', fontStyle: 'italic' }}>
-                                            {booking.remarks}
-                                        </div>
-                                        <div style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '2px' }}>
-                                            Remarks
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Actions Column */}
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px' }}>
-                                    <button className="action-btn" style={{ fontSize: '0.65rem', padding: '4px 8px', borderColor: '#0891b2', color: '#0891b2' }} title="Receipt">
-                                        <i className="fas fa-receipt" style={{ marginRight: '4px' }}></i>Receipt
-                                    </button>
-                                    <button className="action-btn" style={{ fontSize: '0.65rem', padding: '4px 8px', borderColor: '#0891b2', color: '#0891b2' }} title="Agreement">
-                                        <i className="fas fa-file-contract" style={{ marginRight: '4px' }}></i>Agreement
-                                    </button>
-                                    <button className="action-btn" style={{ fontSize: '0.65rem', padding: '4px 8px', borderColor: '#10b981', color: '#10b981' }} title="Add Payment">
-                                        <i className="fas fa-plus-circle" style={{ marginRight: '4px' }}></i>Add Payment
-                                    </button>
-                                    <button className="action-btn" style={{ fontSize: '0.65rem', padding: '4px 8px', borderColor: '#f59e0b', color: '#f59e0b' }} title="Payment Schedule">
-                                        <i className="fas fa-calendar-alt" style={{ marginRight: '4px' }}></i>Payment Schedule
-                                    </button>
-                                    <button className="action-btn" style={{ fontSize: '0.65rem', padding: '4px 8px', borderColor: '#4b5563', color: '#4b5563' }} title="Edit">
-                                        <i className="fas fa-edit" style={{ marginRight: '4px' }}></i>Edit
-                                    </button>
-                                    <button
-                                        className="action-btn"
-                                        style={{ fontSize: '0.65rem', padding: '4px 8px', borderColor: '#6366f1', color: '#6366f1' }}
-                                        title="View"
-                                        onClick={() => {
-                                            setViewedBooking(booking);
-                                            setIsViewModalOpen(true);
-                                        }}
-                                    >
-                                        <i className="fas fa-eye" style={{ marginRight: '4px' }}></i>View
-                                    </button>
+                                    ) : (
+                                        <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>No pending actions</span>
+                                    )}
                                 </div>
                             </div>
-                        ))}
-                    </div>
+                        );
+                    })}
 
-                    {/* Summary Footer */}
-                    <div className="list-footer" style={{
-                        padding: '15px 2rem',
-                        background: '#f8fafc',
-                        borderTop: '2px solid #e2e8f0',
-                        display: 'flex',
-                        gap: '30px',
-                        alignItems: 'center',
-                        boxShadow: '0 -2px 8px rgba(0,0,0,0.05)',
-                        position: 'sticky',
-                        bottom: 0,
-                        zIndex: 99
-                    }}>
-                        <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#475569' }}>Summary</div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Tot. Agent Incc.</div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0891b2' }}>₹1,76,950.2</div>
+                    {filteredData.length === 0 && (
+                        <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                            <i className="fas fa-inbox" style={{ fontSize: '2rem', marginBottom: '10px' }}></i>
+                            <p>No deals found matching your criteria.</p>
                         </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Tot. Brok.</div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0891b2' }}>₹{totalPrice.toLocaleString('en-IN')}</div>
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Tot. Recd. Amount</div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#10b981' }}>₹{totalReceived.toLocaleString('en-IN')}</div>
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Brok. Recd. (Net)</div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#10b981' }}>₹365,000</div>
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Tot. Tax</div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#64748b' }}>₹0</div>
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginLeft: 'auto' }}>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Balance</div>
-                            <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#dc2626' }}>₹{totalPending.toLocaleString('en-IN')}</div>
-                        </div>
-                    </div>
+                    )}
                 </div>
-
-                {/* View Details Modal */}
-                {isViewModalOpen && viewedBooking && (
-                    <div className="modal-overlay" style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        background: 'rgba(0, 0, 0, 0.5)',
-                        display: 'flex',
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        zIndex: 2000,
-                        backdropFilter: 'blur(4px)'
-                    }}>
-                        <div className="modal-content" style={{
-                            background: '#fff',
-                            borderRadius: '12px',
-                            width: '90%',
-                            maxWidth: '600px',
-                            maxHeight: '85vh',
-                            overflowY: 'auto',
-                            padding: '1.5rem',
-                            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-                            position: 'relative',
-                            animation: 'modalIn 0.3s ease-out'
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #f1f5f9', paddingBottom: '15px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <div style={{ width: '40px', height: '40px', background: '#eff6ff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                        <i className="fas fa-file-invoice-dollar" style={{ color: '#3b82f6' }}></i>
-                                    </div>
-                                    <div>
-                                        <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
-                                            Booking Overview
-                                        </h2>
-                                        <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '2px 0 0' }}>Ref: {viewedBooking.formNumber}</p>
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={() => setIsViewModalOpen(false)}
-                                    style={{ border: 'none', background: '#f1f5f9', width: '30px', height: '30px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', cursor: 'pointer', transition: 'all 0.2s' }}
-                                    onMouseEnter={(e) => { e.currentTarget.style.background = '#fee2e2'; e.currentTarget.style.color = '#ef4444'; }}
-                                    onMouseLeave={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#64748b'; }}
-                                >
-                                    <i className="fas fa-times"></i>
-                                </button>
-                            </div>
-
-                            <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
-                                <button className="btn-primary" style={{ flex: 1, padding: '12px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.85rem' }}>
-                                    <i className="fas fa-calendar-alt"></i>View Schedule
-                                </button>
-                                <button className="btn-primary" style={{ flex: 1, padding: '12px', borderRadius: '10px', background: '#0891b2', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.85rem' }}>
-                                    <i className="fas fa-money-check-alt"></i>View Payment
-                                </button>
-                            </div>
-
-                            <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                                <h3 style={{ fontSize: '0.8rem', fontWeight: 800, color: '#475569', marginBottom: '15px', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <div style={{ width: '4px', height: '14px', background: '#3b82f6', borderRadius: '2px' }}></div>
-                                    Transaction Details
-                                </h3>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' }}>
-                                    <div>
-                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, marginBottom: '4px' }}>BUYER DETAILS</div>
-                                        <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{viewedBooking.buyer.name}</div>
-                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{viewedBooking.buyer.mobile}</div>
-                                    </div>
-                                    <div>
-                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, marginBottom: '4px' }}>SELLER DETAILS</div>
-                                        <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{viewedBooking.seller.name}</div>
-                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{viewedBooking.seller.mobile}</div>
-                                    </div>
-                                    <div style={{ gridColumn: 'span 2' }}>
-                                        <div style={{ width: '100%', height: '1px', background: '#e2e8f0', margin: '5px 0' }}></div>
-                                    </div>
-                                    <div>
-                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, marginBottom: '4px' }}>PROPERTY & PROJECT</div>
-                                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{viewedBooking.project}</div>
-                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{viewedBooking.propertyNumber} ({viewedBooking.block})</div>
-                                    </div>
-                                    <div>
-                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, marginBottom: '4px' }}>DEAL VALUE</div>
-                                        <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#10b981' }}>{viewedBooking.price}</div>
-                                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Plan: {viewedBooking.paymentPlan}</div>
-                                    </div>
-                                    <div>
-                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, marginBottom: '4px' }}>AGENT/EXECUTIVE</div>
-                                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{viewedBooking.executive}</div>
-                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Agent: {viewedBooking.agentName}</div>
-                                    </div>
-                                    <div>
-                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, marginBottom: '4px' }}>FINANCIAL SUMMARY</div>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Received:</span>
-                                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0891b2' }}>{viewedBooking.paymentReceived}</span>
-                                            </div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Pending:</span>
-                                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#dc2626' }}>{viewedBooking.paymentPending}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
             </div>
         </section>
     );
-}
+};
 
 export default BookingPage;
