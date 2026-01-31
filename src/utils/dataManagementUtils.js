@@ -1,5 +1,8 @@
 
 import { leadData, contactData, inventoryData, users } from '../data/mockData';
+import { companyData } from '../data/companyData';
+import { PROJECTS_LIST } from '../data/projectData';
+import { sizeData } from '../data/sizeData';
 
 // --- Configuration ---
 
@@ -63,6 +66,52 @@ export const MODULE_CONFIG = {
             { key: 'name', label: 'Name', required: true },
             { key: 'role', label: 'Role', required: true },
             { key: 'email', label: 'Email' }
+        ]
+    },
+    companies: {
+        id: 'companies',
+        label: 'Companies',
+        icon: 'fa-building',
+        description: 'Import partner and client companies',
+        data: companyData,
+        fields: [
+            { key: 'name', label: 'Company Name', required: true },
+            { key: 'type', label: 'Type' },
+            { key: 'category', label: 'Category' },
+            { key: 'email', label: 'Email' },
+            { key: 'phone', label: 'Phone' },
+            { key: 'website', label: 'Website' },
+            { key: 'ownership', label: 'Owner' },
+            { key: 'status', label: 'Status' }
+        ]
+    },
+    projects: {
+        id: 'projects',
+        label: 'Projects',
+        icon: 'fa-project-diagram',
+        description: 'Import real estate projects',
+        data: PROJECTS_LIST,
+        fields: [
+            { key: 'name', label: 'Project Name', required: true },
+            { key: 'location', label: 'Location', required: true },
+            { key: 'date', label: 'Launch Date' },
+            { key: 'user', label: 'Manager' },
+            { key: 'lat', label: 'Latitude' },
+            { key: 'lng', label: 'Longitude' }
+        ]
+    },
+    sizes: {
+        id: 'sizes',
+        label: 'Sizes',
+        icon: 'fa-ruler-combined',
+        description: 'Manage standard property sizes',
+        data: sizeData,
+        fields: [
+            { key: 'label', label: 'Size Label', required: true },
+            { key: 'value', label: 'Area/Value' },
+            { key: 'category', label: 'Category' },
+            { key: 'dimension', label: 'Dimensions' },
+            { key: 'status', label: 'Status' }
         ]
     }
 };
