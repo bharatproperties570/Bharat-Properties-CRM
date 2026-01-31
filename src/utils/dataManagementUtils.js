@@ -53,7 +53,15 @@ export const MODULE_CONFIG = {
             { key: 'location', label: 'Location/Block' },
             { key: 'area', label: 'Area/City' },
             { key: 'price', label: 'Price' },
-            { key: 'status', label: 'Status' }
+            { key: 'status', label: 'Status' },
+            { key: 'ownerName', label: 'Owner Name' },
+            { key: 'ownerFatherName', label: 'Owner Father Name' },
+            { key: 'ownerPhone', label: 'Owner Mobile' },
+            { key: 'ownerEmail', label: 'Owner Email' },
+            { key: 'ownerAddress', label: 'Owner Address' },
+            { key: 'associatedContact', label: 'Associate Name' },
+            { key: 'associatedPhone', label: 'Associate Mobile' },
+            { key: 'associatedEmail', label: 'Associate Email' }
         ]
     },
     users: {
