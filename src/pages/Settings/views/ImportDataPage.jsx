@@ -26,14 +26,47 @@ const ImportDataPage = () => {
         'property-sizes': ['Project', 'Block', 'Category', 'Size Name', 'Total Area', 'Metric']
     };
 
+    const [isDragging, setIsDragging] = useState(false);
+
     const handleFileDrop = (e) => {
         e.preventDefault();
+        setIsDragging(false);
         const droppedFile = e.dataTransfer.files[0];
         if (droppedFile && (droppedFile.name.endsWith('.csv') || droppedFile.name.endsWith('.xlsx'))) {
             setFile(droppedFile);
         } else {
             alert('Please upload a valid CSV or Excel file.');
         }
+    };
+
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e) => {
+        e.preventDefault();
+        setIsDragging(false);
+    };
+
+    const generateSampleCSV = () => {
+        const headers = sampleFields[module];
+        // Create CSV content: Headers + 2 empty sample rows for user guidance
+        const csvContent = [
+            headers.join(','),
+            new Array(headers.length).fill('').join(','),
+            new Array(headers.length).fill('').join(',')
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `${module}_import_template.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     };
 
     const handleSimulation = () => {
@@ -126,17 +159,22 @@ const ImportDataPage = () => {
                         <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Upload File</h3>
                         <div
                             onDrop={handleFileDrop}
-                            onDragOver={(e) => e.preventDefault()}
+                            onDragOver={handleDragOver}
+                            onDragLeave={handleDragLeave}
                             style={{
-                                border: '2px dashed #cbd5e1', borderRadius: '12px', background: '#f8fafc',
-                                padding: '60px 40px', textAlign: 'center', cursor: 'pointer',
-                                transition: 'all 0.2s', marginBottom: '24px'
+                                border: isDragging ? '2px dashed var(--primary-color)' : '2px dashed #cbd5e1',
+                                borderRadius: '12px',
+                                background: isDragging ? '#eff6ff' : '#f8fafc',
+                                padding: '60px 40px',
+                                textAlign: 'center',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s',
+                                marginBottom: '24px',
+                                transform: isDragging ? 'scale(1.02)' : 'scale(1)'
                             }}
-                            onMouseOver={(e) => e.currentTarget.style.borderColor = 'var(--primary-color)'}
-                            onMouseOut={(e) => e.currentTarget.style.borderColor = '#cbd5e1'}
                         >
-                            <i className="fas fa-cloud-upload-alt" style={{ fontSize: '3rem', color: '#94a3b8', marginBottom: '16px' }}></i>
-                            <h4 style={{ margin: '0 0 8px', color: '#1e293b' }}>{file ? file.name : 'Drag & Drop file here'}</h4>
+                            <i className="fas fa-cloud-upload-alt" style={{ fontSize: '3rem', color: isDragging ? 'var(--primary-color)' : '#94a3b8', marginBottom: '16px' }}></i>
+                            <h4 style={{ margin: '0 0 8px', color: '#1e293b' }}>{file ? file.name : (isDragging ? 'Drop file to upload' : 'Drag & Drop file here')}</h4>
                             <p style={{ margin: 0, color: '#64748b', fontSize: '0.9rem' }}>or <span style={{ color: 'var(--primary-color)', fontWeight: 600 }}>browse files</span> from your computer</p>
                             <input type="file" onChange={(e) => setFile(e.target.files[0])} style={{ display: 'none' }} />
                         </div>
@@ -146,10 +184,13 @@ const ImportDataPage = () => {
                                 <i className="fas fa-file-csv" style={{ fontSize: '1.5rem', color: '#2563eb' }}></i>
                                 <div>
                                     <div style={{ fontWeight: 600, color: '#1e293b' }}>Need a sample?</div>
-                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Download the template for {modules.find(m => m.id === module)?.label}</div>
+                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Download template for {modules.find(m => m.id === module)?.label}</div>
                                 </div>
                             </div>
-                            <button style={{ background: '#fff', border: '1px solid #bfdbfe', color: '#2563eb', padding: '8px 16px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
+                            <button
+                                onClick={generateSampleCSV}
+                                style={{ background: '#fff', border: '1px solid #bfdbfe', color: '#2563eb', padding: '8px 16px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}
+                            >
                                 <i className="fas fa-download" style={{ marginRight: '8px' }}></i> Download
                             </button>
                         </div>
