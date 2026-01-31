@@ -61,49 +61,106 @@ function MarketingPage({ onNavigate }) {
                     top: 0,
                     zIndex: 1000,
                     background: 'linear-gradient(135deg, #1273eb 0%, #0d5bb9 100%)',
-                    padding: '20px 2rem',
+                    padding: '18px 2rem 20px',
                     boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
                 }}>
+                    {/* Row 1: Primary Financial Metrics */}
                     <div style={{
                         display: 'grid',
-                        gridTemplateColumns: 'repeat(7, 1fr)',
-                        gap: '20px'
+                        gridTemplateColumns: 'repeat(5, 1fr)',
+                        gap: '12px',
+                        marginBottom: '12px'
                     }}>
                         {[
-                            { label: 'Total Spend', value: formatINR(globalKPIs.totalSpend), icon: 'fas fa-rupee-sign', color: '#ef4444' },
-                            { label: 'Total Leads', value: globalKPIs.totalLeads, icon: 'fas fa-users', color: '#10b981' },
-                            { label: 'Avg CPL', value: formatINR(globalKPIs.avgCPL), icon: 'fas fa-chart-line', color: '#f59e0b' },
-                            { label: 'Site Visits', value: globalKPIs.totalSiteVisits, icon: 'fas fa-eye', color: '#8b5cf6' },
-                            { label: 'Deals Closed', value: globalKPIs.totalDeals, icon: 'fas fa-handshake', color: '#06b6d4' },
-                            { label: 'Revenue', value: formatINR(globalKPIs.totalRevenue), icon: 'fas fa-coins', color: '#10b981' },
-                            { label: 'ROI', value: `${globalKPIs.roi}%`, icon: 'fas fa-percentage', color: parseFloat(globalKPIs.roi) > 0 ? '#10b981' : '#ef4444' }
+                            { label: 'Total Spend', value: formatINR(globalKPIs.totalSpend), icon: 'fas fa-rupee-sign', color: '#ef4444', sub: `${globalKPIs.budgetUtilization}% of budget` },
+                            { label: 'Revenue', value: formatINR(globalKPIs.totalRevenue), icon: 'fas fa-coins', color: '#10b981', sub: `₹${(globalKPIs.avgDealSize || 0).toLocaleString('en-IN')} avg` },
+                            { label: 'ROI', value: `${globalKPIs.roi}%`, icon: 'fas fa-percentage', color: parseFloat(globalKPIs.roi) > 0 ? '#10b981' : '#ef4444', sub: globalKPIs.roi > 100 ? 'Excellent' : 'Good' },
+                            { label: 'CAC', value: formatINR(globalKPIs.globalCAC), icon: 'fas fa-user-tag', color: '#f59e0b', sub: 'Cost per customer' },
+                            { label: 'LTV:CAC', value: globalKPIs.ltvCacRatio, icon: 'fas fa-balance-scale', color: parseFloat(globalKPIs.ltvCacRatio) >= 3 ? '#10b981' : '#f59e0b', sub: parseFloat(globalKPIs.ltvCacRatio) >= 3 ? 'Healthy' : 'Needs work' }
                         ].map((kpi, idx) => (
                             <div key={idx} style={{
                                 background: 'rgba(255,255,255,0.15)',
                                 backdropFilter: 'blur(10px)',
-                                borderRadius: '12px',
-                                padding: '16px',
+                                borderRadius: '10px',
+                                padding: '12px 14px',
                                 border: '1px solid rgba(255,255,255,0.2)'
                             }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                                     <div style={{
-                                        width: '36px',
-                                        height: '36px',
+                                        width: '32px',
+                                        height: '32px',
                                         background: kpi.color,
-                                        borderRadius: '8px',
+                                        borderRadius: '7px',
                                         display: 'flex',
                                         alignItems: 'center',
-                                        justifyContent: 'center'
+                                        justifyContent: 'center',
+                                        flexShrink: 0
                                     }}>
-                                        <i className={kpi.icon} style={{ color: '#fff', fontSize: '0.9rem' }}></i>
+                                        <i className={kpi.icon} style={{ color: '#fff', fontSize: '0.85rem' }}></i>
                                     </div>
                                     <div style={{ flex: 1 }}>
-                                        <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.8)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                        <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.75)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                             {kpi.label}
                                         </div>
-                                        <div style={{ fontSize: '1.4rem', color: '#fff', fontWeight: 900, marginTop: '2px' }}>
+                                        <div style={{ fontSize: '1.3rem', color: '#fff', fontWeight: 900, marginTop: '1px', lineHeight: 1 }}>
                                             {kpi.value}
                                         </div>
+                                        {kpi.sub && (
+                                            <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.65)', marginTop: '2px' }}>
+                                                {kpi.sub}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Row 2: Lead & Conversion Metrics */}
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(5, 1fr)',
+                        gap: '12px'
+                    }}>
+                        {[
+                            { label: 'Total Leads', value: globalKPIs.totalLeads, icon: 'fas fa-users', color: '#10b981', sub: `${globalKPIs.totalMQL} MQL / ${globalKPIs.totalSQL} SQL` },
+                            { label: 'Avg CPL', value: formatINR(globalKPIs.avgCPL), icon: 'fas fa-chart-line', color: '#f59e0b', sub: 'Per lead cost' },
+                            { label: 'Site Visits', value: globalKPIs.totalSiteVisits, icon: 'fas fa-eye', color: '#8b5cf6', sub: 'Property visits' },
+                            { label: 'Deals Closed', value: globalKPIs.totalDeals, icon: 'fas fa-handshake', color: '#06b6d4', sub: `${globalKPIs.conversionRate}% conversion` },
+                            { label: 'Budget Status', value: `₹${(globalKPIs.budgetRemaining || 0).toLocaleString('en-IN')}`, icon: 'fas fa-wallet', color: globalKPIs.budgetRemaining > 0 ? '#10b981' : '#ef4444', sub: 'Remaining' }
+                        ].map((kpi, idx) => (
+                            <div key={idx} style={{
+                                background: 'rgba(255,255,255,0.15)',
+                                backdropFilter: 'blur(10px)',
+                                borderRadius: '10px',
+                                padding: '12px 14px',
+                                border: '1px solid rgba(255,255,255,0.2)'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                                    <div style={{
+                                        width: '32px',
+                                        height: '32px',
+                                        background: kpi.color,
+                                        borderRadius: '7px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        flexShrink: 0
+                                    }}>
+                                        <i className={kpi.icon} style={{ color: '#fff', fontSize: '0.85rem' }}></i>
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.75)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                            {kpi.label}
+                                        </div>
+                                        <div style={{ fontSize: '1.3rem', color: '#fff', fontWeight: 900, marginTop: '1px', lineHeight: 1 }}>
+                                            {kpi.value}
+                                        </div>
+                                        {kpi.sub && (
+                                            <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.65)', marginTop: '2px' }}>
+                                                {kpi.sub}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -196,8 +253,8 @@ function MarketingPage({ onNavigate }) {
                                     padding: '14px 16px',
                                     border: '1px solid #e2e8f0',
                                     borderLeft: `4px solid ${insight.type === 'warning' ? '#f59e0b' :
-                                            insight.type === 'critical' ? '#ef4444' :
-                                                insight.type === 'success' ? '#10b981' : '#3b82f6'
+                                        insight.type === 'critical' ? '#ef4444' :
+                                            insight.type === 'success' ? '#10b981' : '#3b82f6'
                                         }`
                                 }}>
                                     <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>
@@ -240,17 +297,85 @@ function MarketingPage({ onNavigate }) {
                             >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                                     <div style={{ flex: 1 }}>
-                                        <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>{c.name}</h3>
-                                        <div style={{ marginTop: '8px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                                            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>{c.name}</h3>
+                                            {/* Performance Score Badge */}
+                                            {activeTab === 'online' && c.performanceScore !== undefined && (
+                                                <div style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '6px',
+                                                    padding: '4px 12px',
+                                                    borderRadius: '20px',
+                                                    background: c.healthStatus.bg,
+                                                    border: `1px solid ${c.healthStatus.color}`
+                                                }}>
+                                                    <i className="fas fa-chart-line" style={{ fontSize: '0.75rem', color: c.healthStatus.color }}></i>
+                                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: c.healthStatus.color }}>
+                                                        {c.performanceScore}/100
+                                                    </span>
+                                                    <span style={{ fontSize: '0.7rem', fontWeight: 600, color: c.healthStatus.color }}>
+                                                        {c.healthStatus.label}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div style={{ marginTop: '12px', display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
                                             {activeTab === 'online' && (
                                                 <>
                                                     <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
                                                         <i className={getPlatformIcon(c.platform)} style={{ color: getPlatformColor(c.platform), marginRight: '6px' }}></i>
                                                         {c.platform}
                                                     </span>
-                                                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>💰 Spend: <strong>{formatINR(c.totalSpend)}</strong></span>
-                                                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>👥 Leads: <strong>{c.leadsGenerated}</strong></span>
-                                                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>🤝 Deals: <strong>{c.dealsClosed}</strong></span>
+                                                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                                                        💰 Spend: <strong>{formatINR(c.totalSpend)}</strong>
+                                                        <span style={{
+                                                            marginLeft: '6px',
+                                                            fontSize: '0.75rem',
+                                                            color: parseFloat(c.budgetUtilization) > 90 ? '#ef4444' : '#10b981'
+                                                        }}>
+                                                            ({c.budgetUtilization}%)
+                                                        </span>
+                                                    </span>
+                                                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                                                        👥 Leads: <strong>{c.leadsGenerated}</strong>
+                                                        <span style={{ marginLeft: '4px', fontSize: '0.75rem', color: '#8b5cf6' }}>
+                                                            ({c.qualificationRate}% qual)
+                                                        </span>
+                                                    </span>
+                                                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                                                        📊 MQL/SQL: <strong>{c.mqlCount}/{c.sqlCount}</strong>
+                                                    </span>
+                                                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                                                        💵 CPL: <strong>{formatINR(c.costPerLead)}</strong>
+                                                        <span style={{
+                                                            marginLeft: '4px',
+                                                            fontSize: '0.75rem',
+                                                            color: c.costPerLead > c.benchmarkCPL ? '#ef4444' : '#10b981'
+                                                        }}>
+                                                            (Benchmark: ₹{c.benchmarkCPL.toLocaleString('en-IN')})
+                                                        </span>
+                                                    </span>
+                                                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                                                        🎯 CAC: <strong>{formatINR(c.cac)}</strong>
+                                                    </span>
+                                                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                                                        💎 LTV: <strong>{formatINR(c.ltv)}</strong>
+                                                    </span>
+                                                    <span style={{ fontSize: '0.85rem' }}>
+                                                        LTV:CAC: <strong style={{
+                                                            padding: '2px 8px',
+                                                            borderRadius: '4px',
+                                                            background: parseFloat(c.ltvCacRatio) >= 3 ? '#dcfce7' : '#fef3c7',
+                                                            color: parseFloat(c.ltvCacRatio) >= 3 ? '#10b981' : '#f59e0b'
+                                                        }}>{c.ltvCacRatio}:1</strong>
+                                                    </span>
+                                                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                                                        🤝 Deals: <strong>{c.dealsClosed}</strong>
+                                                        <span style={{ marginLeft: '4px', fontSize: '0.75rem', color: '#06b6d4' }}>
+                                                            ({c.conversionRate}% conv)
+                                                        </span>
+                                                    </span>
                                                     <span style={{ fontSize: '0.85rem' }}>
                                                         ROI: <strong style={{
                                                             padding: '2px 8px',
