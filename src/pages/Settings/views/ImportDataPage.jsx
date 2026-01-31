@@ -26,10 +26,12 @@ const ImportDataPage = () => {
         'property-sizes': ['Project', 'Block', 'Category', 'Size Name', 'Total Area', 'Metric']
     };
 
+    const fileInputRef = React.useRef(null);
     const [isDragging, setIsDragging] = useState(false);
 
     const handleFileDrop = (e) => {
         e.preventDefault();
+        e.stopPropagation();
         setIsDragging(false);
         const droppedFile = e.dataTransfer.files[0];
         if (droppedFile && (droppedFile.name.endsWith('.csv') || droppedFile.name.endsWith('.xlsx'))) {
@@ -39,14 +41,33 @@ const ImportDataPage = () => {
         }
     };
 
+    const handleDragEnter = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+    };
+
     const handleDragOver = (e) => {
         e.preventDefault();
-        setIsDragging(true);
+        e.stopPropagation();
+        if (!isDragging) setIsDragging(true);
     };
 
     const handleDragLeave = (e) => {
         e.preventDefault();
+        e.stopPropagation();
         setIsDragging(false);
+    };
+
+    const handleBrowseClick = () => {
+        fileInputRef.current.click();
+    };
+
+    const handleFileInputChange = (e) => {
+        const selectedFile = e.target.files[0];
+        if (selectedFile) {
+            setFile(selectedFile);
+        }
     };
 
     const generateSampleCSV = () => {
@@ -159,8 +180,10 @@ const ImportDataPage = () => {
                         <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Upload File</h3>
                         <div
                             onDrop={handleFileDrop}
+                            onDragEnter={handleDragEnter}
                             onDragOver={handleDragOver}
                             onDragLeave={handleDragLeave}
+                            onClick={handleBrowseClick}
                             style={{
                                 border: isDragging ? '2px dashed var(--primary-color)' : '2px dashed #cbd5e1',
                                 borderRadius: '12px',
@@ -173,10 +196,16 @@ const ImportDataPage = () => {
                                 transform: isDragging ? 'scale(1.02)' : 'scale(1)'
                             }}
                         >
-                            <i className="fas fa-cloud-upload-alt" style={{ fontSize: '3rem', color: isDragging ? 'var(--primary-color)' : '#94a3b8', marginBottom: '16px' }}></i>
-                            <h4 style={{ margin: '0 0 8px', color: '#1e293b' }}>{file ? file.name : (isDragging ? 'Drop file to upload' : 'Drag & Drop file here')}</h4>
-                            <p style={{ margin: 0, color: '#64748b', fontSize: '0.9rem' }}>or <span style={{ color: 'var(--primary-color)', fontWeight: 600 }}>browse files</span> from your computer</p>
-                            <input type="file" onChange={(e) => setFile(e.target.files[0])} style={{ display: 'none' }} />
+                            <i className="fas fa-cloud-upload-alt" style={{ fontSize: '3rem', color: isDragging ? 'var(--primary-color)' : '#94a3b8', marginBottom: '16px', pointerEvents: 'none' }}></i>
+                            <h4 style={{ margin: '0 0 8px', color: '#1e293b', pointerEvents: 'none' }}>{file ? file.name : (isDragging ? 'Drop file to upload' : 'Drag & Drop file here')}</h4>
+                            <p style={{ margin: 0, color: '#64748b', fontSize: '0.9rem', pointerEvents: 'none' }}>or <span style={{ color: 'var(--primary-color)', fontWeight: 600 }}>browse files</span> from your computer</p>
+                            <input
+                                type="file"
+                                ref={fileInputRef}
+                                onChange={handleFileInputChange}
+                                style={{ display: 'none' }}
+                                accept=".csv, .xlsx"
+                            />
                         </div>
 
                         <div style={{ background: '#eff6ff', borderRadius: '8px', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
