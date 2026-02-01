@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useTriggers } from '../../context/TriggersContext';
+import { useCall } from '../../context/CallContext';
 import { inventoryData } from '../../data/mockData';
 import { dealIntakeData } from '../../data/dealIntakeData';
 
@@ -15,6 +16,7 @@ import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
 
 function InventoryPage({ onNavigate }) {
     const { fireEvent } = useTriggers();
+    const { startCall } = useCall();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
@@ -271,37 +273,42 @@ function InventoryPage({ onNavigate }) {
                             <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fas fa-filter"></i> Filters
                             </button>
-                            <div
-                                style={{ position: 'relative', cursor: 'pointer', marginLeft: '8px' }}
-                                onClick={() => onNavigate && onNavigate('deal-intake')}
-                                title="Deal Intake Inbox"
-                            >
-                                <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#fff', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-                                    <i className="fas fa-inbox" style={{ color: '#64748b', fontSize: '1.1rem' }}></i>
-                                </div>
-                                {dealIntakeData && dealIntakeData.length > 0 && (
-                                    <div style={{ position: 'absolute', top: '-6px', right: '-6px', background: '#ef4444', color: '#fff', fontSize: '0.7rem', fontWeight: 800, width: '20px', height: '20px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #fff' }}>
-                                        {dealIntakeData.length}
-                                    </div>
-                                )}
-                            </div>
+
                         </div>
                     </div>
 
-                    <div className="inventory-stats-row" style={{ padding: '12px 25px' }}>
-                        <div className="status-card" style={{ padding: '8px 15px', maxWidth: '180px' }}>
-                            <div className="stat-icon-dot dot-active"></div>
-                            <div className="stat-card-info">
-                                <h3 style={{ fontSize: '0.7rem' }}>Active</h3>
-                                <div className="stat-count" style={{ fontSize: '1.2rem', color: '#388E3C' }}>1,441</div>
+                    <div className="inventory-stats-row" style={{ padding: '12px 25px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', gap: '15px' }}>
+                            <div className="status-card" style={{ padding: '8px 15px', maxWidth: '180px' }}>
+                                <div className="stat-icon-dot dot-active"></div>
+                                <div className="stat-card-info">
+                                    <h3 style={{ fontSize: '0.7rem' }}>Active</h3>
+                                    <div className="stat-count" style={{ fontSize: '1.2rem', color: '#388E3C' }}>1,441</div>
+                                </div>
+                            </div>
+                            <div className="status-card" style={{ padding: '8px 15px', maxWidth: '180px' }}>
+                                <div className="stat-icon-dot dot-inactive"></div>
+                                <div className="stat-card-info">
+                                    <h3 style={{ fontSize: '0.7rem' }}>Inactive</h3>
+                                    <div className="stat-count" style={{ fontSize: '1.2rem', color: '#D32F2F' }}>29,218</div>
+                                </div>
                             </div>
                         </div>
-                        <div className="status-card" style={{ padding: '8px 15px', maxWidth: '180px' }}>
-                            <div className="stat-icon-dot dot-inactive"></div>
-                            <div className="stat-card-info">
-                                <h3 style={{ fontSize: '0.7rem' }}>Inactive</h3>
-                                <div className="stat-count" style={{ fontSize: '1.2rem', color: '#D32F2F' }}>29,218</div>
+
+                        {/* Deal Intake Icon moved here */}
+                        <div
+                            style={{ position: 'relative', cursor: 'pointer', marginLeft: 'auto' }}
+                            onClick={() => onNavigate && onNavigate('deal-intake')}
+                            title="Deal Intake Inbox"
+                        >
+                            <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#fff', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+                                <i className="fas fa-inbox" style={{ color: '#64748b', fontSize: '1.1rem' }}></i>
                             </div>
+                            {dealIntakeData && dealIntakeData.length > 0 && (
+                                <div style={{ position: 'absolute', top: '-6px', right: '-6px', background: '#ef4444', color: '#fff', fontSize: '0.7rem', fontWeight: 800, width: '20px', height: '20px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #fff' }}>
+                                    {dealIntakeData.length}
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -337,7 +344,26 @@ function InventoryPage({ onNavigate }) {
                                             </button>
                                             <button className="action-btn" title="Add Owner" style={{ flexShrink: 0 }} onClick={handleOwnerClick}><i className="fas fa-user-plus"></i> Owner</button>
                                             <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px', flexShrink: 0 }}></div>
-                                            <button className="action-btn" title="Call Owner" style={{ flexShrink: 0 }}><i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call</button>
+                                            <button
+                                                className="action-btn"
+                                                title="Call Owner"
+                                                style={{ flexShrink: 0 }}
+                                                onClick={() => {
+                                                    const property = getSelectedProperty();
+                                                    if (property) {
+                                                        startCall({
+                                                            name: property.ownerName || 'Unknown Owner',
+                                                            mobile: property.ownerPhone
+                                                        }, {
+                                                            purpose: 'Owner Update',
+                                                            entityId: property.id,
+                                                            entityType: 'inventory'
+                                                        });
+                                                    }
+                                                }}
+                                            >
+                                                <i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call
+                                            </button>
                                             <button className="action-btn" title="Message Owner" style={{ flexShrink: 0 }} onClick={handleMessageClick}><i className="fas fa-comment-alt"></i> Message</button>
                                             <button className="action-btn" title="Email Owner" style={{ flexShrink: 0 }} onClick={handleEmailClick}><i className="fas fa-envelope"></i> Email</button>
                                             <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px', flexShrink: 0 }}></div>
@@ -549,7 +575,7 @@ function InventoryPage({ onNavigate }) {
                             <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fas fa-filter"></i> Filters
                             </button>
-                            <i className="fas fa-sliders-h header-icon"></i>
+
                         </div>
                     </div>
                     <div className="content-body" style={{ paddingTop: 0 }}>

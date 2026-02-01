@@ -602,6 +602,18 @@ const AddContactModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', en
         documents: [{ documentName: '', documentType: '', documentNo: '', projectName: '', block: '', unitNumber: '', documentPicture: null }]
     });
 
+    // Populate Initial Data if provided
+    useEffect(() => {
+        if (initialData) {
+            setFormData(prev => ({
+                ...prev,
+                ...initialData,
+                // Ensure arrays are merged or overwritten correctly if needed
+                phones: initialData.phones || prev.phones
+            }));
+        }
+    }, [initialData, isOpen]);
+
 
 
     const handleInputChange = (field, value) => {

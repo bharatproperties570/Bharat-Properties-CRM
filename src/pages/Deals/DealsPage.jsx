@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import AddDealModal from '../../components/AddDealModal';
+import { useCall } from '../../context/CallContext';
 
 function DealsPage() {
+    const { startCall } = useCall();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
     const [currentView, setCurrentView] = useState('list'); // 'list' or 'map'
@@ -222,7 +224,25 @@ function DealsPage() {
                                     <>
                                         <button className="action-btn" title="Edit Deal"><i className="fas fa-edit"></i> Edit</button>
                                         <button className="action-btn" title="Move Stage"><i className="fas fa-step-forward"></i> Move</button>
-                                        <button className="action-btn" title="Call Owner"><i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call</button>
+                                        <button
+                                            className="action-btn"
+                                            title="Call Owner"
+                                            onClick={() => {
+                                                const selectedDeal = deals.find(d => d.id === selectedIds[0]);
+                                                if (selectedDeal && selectedDeal.owner) {
+                                                    startCall({
+                                                        name: selectedDeal.owner.name,
+                                                        mobile: selectedDeal.owner.phone
+                                                    }, {
+                                                        purpose: 'Deal Update',
+                                                        entityId: selectedDeal.id,
+                                                        entityType: 'deal'
+                                                    });
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call
+                                        </button>
                                         <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
                                         <button className="action-btn" title="View Quote"><i className="fas fa-file-invoice-dollar"></i> Quote</button>
                                     </>

@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import PipelineDashboard from '../../components/PipelineDashboard';
-// import { leadData } from '../../data/mockData';
+import { leadData } from '../../data/mockData';
 import api from '../../../api';
 import { getInitials } from '../../utils/helpers';
 import SendMessageModal from '../../components/SendMessageModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
 import AssignContactModal from '../../components/AssignContactModal';
-import CallModal from '../../components/CallModal';
+// CallModal removed - using global context
 import SendMailModal from '../Contacts/components/SendMailModal';
 import AddLeadModal from '../../components/AddLeadModal';
 import LeadConversionService from '../../services/LeadConversionService';
@@ -16,6 +16,7 @@ import AIExpertService from '../../services/AIExpertService';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { useSequences } from '../../context/SequenceContext';
 import { useTriggers } from '../../context/TriggersContext';
+import { useCall } from '../../context/CallContext';
 import { useDistribution } from '../../context/DistributionContext';
 import EnrollSequenceModal from '../../components/EnrollSequenceModal';
 
@@ -31,6 +32,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     } = usePropertyConfig();
 
     const { fireEvent } = useTriggers();
+    const { startCall } = useCall();
     const { executeDistribution } = useDistribution();
 
     // Bundle config for scoring engine
@@ -62,8 +64,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
     const [selectedLeadsForAssign, setSelectedLeadsForAssign] = useState([]);
 
-    const [isCallModalOpen, setIsCallModalOpen] = useState(false);
-    const [selectedLeadForCall, setSelectedLeadForCall] = useState(null);
+
+
+    // Call Modal State Removed - using Global CallContext
 
     const [isSendMailOpen, setIsSendMailOpen] = useState(false);
     const [selectedLeadsForMail, setSelectedLeadsForMail] = useState([]);
@@ -268,13 +271,20 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             onClick={() => {
                                                 const selectedLead = leads.find(l => l.name === selectedIds[0]);
                                                 if (selectedLead) {
-                                                    setSelectedLeadForCall({ ...selectedLead, id: selectedLead.mobile });
-                                                    setIsCallModalOpen(true);
+                                                    startCall({
+                                                        name: selectedLead.name,
+                                                        mobile: selectedLead.mobile
+                                                    }, {
+                                                        purpose: 'Follow-up',
+                                                        entityId: selectedLead._id,
+                                                        entityType: 'lead'
+                                                    });
                                                 }
                                             }}
                                         >
                                             <i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call
                                         </button>
+
                                         <button
                                             className="action-btn"
                                             title="Email Lead"
@@ -616,18 +626,20 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                     </div>
                                                 );
                                             })()}
-                                            <div>
-                                                <a
-                                                    href="#"
-                                                    className="primary-text text-ellipsis"
-                                                    onClick={(e) => {
-                                                        e.preventDefault();
-                                                        if (onNavigate) onNavigate('contact-detail', c.mobile);
-                                                    }}
-                                                    style={{ color: '#0f172a', fontWeight: 800, fontSize: '0.95rem', textDecoration: 'none', display: 'block' }}
-                                                >
-                                                    {c.name}
-                                                </a>
+                                            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                                                <div>
+                                                    <a
+                                                        href="#"
+                                                        className="primary-text text-ellipsis"
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            if (onNavigate) onNavigate('contact-detail', c.mobile);
+                                                        }}
+                                                        style={{ color: '#0f172a', fontWeight: 800, fontSize: '0.95rem', textDecoration: 'none', display: 'block' }}
+                                                    >
+                                                        {c.name}
+                                                    </a>
+                                                </div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
                                                     {c.isTemporary && c.expiryBadge ? (
                                                         <span
@@ -797,33 +809,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 }}
             />
 
-            {/* Call Modal */}
-            <CallModal
-                isOpen={isCallModalOpen}
-                onClose={() => setIsCallModalOpen(false)}
-                contact={selectedLeadForCall}
-                onCallEnd={async (callData) => {
-                    if (selectedLeadForCall) {
-                        const res = LeadConversionService.evaluateAutoConversion(
-                            selectedLeadForCall,
-                            'call_logged',
-                            { status: 'connected' },
-                            scoringConfig
-                        );
-                        if (res.success) {
-                            showToast(res.message);
-                            // Fire conversion event
-                            await fireEvent('lead_converted', res.contact, { entityType: 'leads' });
-                        }
 
-                        // Always fire call event for other triggers
-                        await fireEvent('call_logged', selectedLeadForCall, {
-                            entityType: 'leads',
-                            eventData: { status: 'connected', ...callData }
-                        });
-                    }
-                }}
-            />
 
             {/* Send Mail Modal */}
             <SendMailModal
@@ -958,7 +944,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     </div>
                 )
             }
-        </section>
+        </section >
     );
 }
 

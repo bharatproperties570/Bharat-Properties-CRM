@@ -11,6 +11,23 @@ import { DistributionProvider } from './context/DistributionContext';
 import { SequenceProvider } from './context/SequenceContext';
 import { TriggersProvider } from './context/TriggersContext';
 import { AutomatedActionsProvider } from './context/AutomatedActionsContext';
+import { CallProvider, useCall } from './context/CallContext'; // Import CallProvider and hook
+import { ParsingProvider } from './context/ParsingContext'; // Import ParsingProvider
+import CallModal from './components/CallModal'; // Import CallModal
+
+// Helper Wrapper to connect Context to Modal
+const CallModalWrapper = () => {
+    const { isCallModalOpen, activeContact, closeCall, endCall, callContext } = useCall();
+    return (
+        <CallModal
+            isOpen={isCallModalOpen}
+            onClose={closeCall}
+            contact={activeContact}
+            context={callContext} // Pass context
+            onCallEnd={endCall}
+        />
+    );
+};
 
 function App() {
     // Global Navigation State (Routing Logic Only)
@@ -81,27 +98,32 @@ function App() {
         <ContactConfigProvider>
             <FieldRulesProvider>
                 <PropertyConfigProvider>
-                    <ActivityProvider>
-                        <DistributionProvider>
-                            <SequenceProvider>
-                                <AutomatedActionsProvider>
-                                    <TriggersProvider>
-                                        <Toaster position="top-right" />
-                                        <MainLayout currentView={currentView} onNavigate={handleNavigate}>
-                                            {(modalHandlers) => (
-                                                <AppRouter
-                                                    currentView={currentView}
-                                                    currentContactId={currentContactId}
-                                                    onNavigate={handleNavigate}
-                                                    {...modalHandlers}
-                                                />
-                                            )}
-                                        </MainLayout>
-                                    </TriggersProvider>
-                                </AutomatedActionsProvider>
-                            </SequenceProvider>
-                        </DistributionProvider>
-                    </ActivityProvider>
+                    <ParsingProvider>
+                        <ActivityProvider>
+                            <DistributionProvider>
+                                <SequenceProvider>
+                                    <AutomatedActionsProvider>
+                                        <TriggersProvider>
+                                            <CallProvider>
+                                                <Toaster position="top-right" />
+                                                <MainLayout currentView={currentView} onNavigate={handleNavigate}>
+                                                    {(modalHandlers) => (
+                                                        <AppRouter
+                                                            currentView={currentView}
+                                                            currentContactId={currentContactId}
+                                                            onNavigate={handleNavigate}
+                                                            {...modalHandlers}
+                                                        />
+                                                    )}
+                                                </MainLayout>
+                                                <CallModalWrapper />
+                                            </CallProvider>
+                                        </TriggersProvider>
+                                    </AutomatedActionsProvider>
+                                </SequenceProvider>
+                            </DistributionProvider>
+                        </ActivityProvider>
+                    </ParsingProvider>
                 </PropertyConfigProvider>
             </FieldRulesProvider>
         </ContactConfigProvider>

@@ -7,6 +7,35 @@
  * @param {Object} entityData - The entity being evaluated
  * @returns {boolean} - Whether conditions are met
  */
+const getNestedValue = (obj, path) => {
+    if (!obj || !path) return undefined;
+    return path.split('.').reduce((acc, part) => acc && acc[part], obj);
+};
+
+const evaluateSingleCondition = (fieldValue, operator, value) => {
+    if (fieldValue === undefined || fieldValue === null) return false;
+
+    const strValue = String(fieldValue).toLowerCase();
+    const targetValue = String(value).toLowerCase();
+
+    switch (operator) {
+        case 'equals':
+            return strValue === targetValue;
+        case 'notEquals':
+            return strValue !== targetValue;
+        case 'contains':
+            return strValue.includes(targetValue);
+        case 'greaterThan':
+            return parseFloat(fieldValue) > parseFloat(value);
+        case 'lessThan':
+            return parseFloat(fieldValue) < parseFloat(value);
+        case 'in':
+            return value.split(',').map(v => v.trim().toLowerCase()).includes(strValue);
+        default:
+            return false;
+    }
+};
+
 export const evaluateConditions = (conditions, entityData) => {
     if (!conditions || conditions.length === 0) return true;
 

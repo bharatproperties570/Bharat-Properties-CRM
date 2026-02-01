@@ -2,10 +2,17 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { inventoryData, contactData, leadData, dealData } from '../../../data/mockData';
 import { dealIntakeData } from '../../../data/dealIntakeData';
 import { parseWhatsAppZip, parseTribunePdf } from '../../../utils/importParsers';
-import { parseDealContent } from '../../../utils/dealParser';
+import { parseDealContent, splitIntakeMessage } from '../../../utils/dealParser';
 import toast from 'react-hot-toast';
+import { useParsing } from '../../../context/ParsingContext'; // Dynamic Parser
 import { useTriggers } from '../../../context/TriggersContext';
+import { useCall } from '../../../context/CallContext';
 import { useDistribution } from '../../../context/DistributionContext';
+import QuickInventoryForm from '../../../components/common/QuickInventoryForm';
+import AddProjectModal from '../../../components/modals/AddProjectModal';
+import AddBlockModal from '../../../components/modals/AddBlockModal';
+import AddSizeModal from '../../../components/modals/AddSizeModal';
+import AddContactModal from '../../../components/AddContactModal'; // Imported AddContactModal
 
 const DealIntakePage = () => {
     // Shared State
@@ -14,6 +21,9 @@ const DealIntakePage = () => {
     const [intakeType, setIntakeType] = useState('SELLER'); // 'SELLER' | 'BUYER'
     const [stage, setStage] = useState(0); // 0=Source, 1=Classification, 2=Match, 3=Action, 4=Result
 
+    const { startCall } = useCall(); // Call Engine Hook
+    const { customPatterns } = useParsing(); // Dynamic Regex from Context
+
     // New Intake State
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -21,6 +31,9 @@ const DealIntakePage = () => {
     const [selectedFile, setSelectedFile] = useState(null); // New state for 2-step import
     const [newSourceContent, setNewSourceContent] = useState('');
     const [newSourceType, setNewSourceType] = useState('WhatsApp');
+
+    // Call Outcome State (Strict Gating)
+    const [ownerCallOutcome, setOwnerCallOutcome] = useState(null); // 'Confirmed' | 'Follow-up' etc.
 
     // ... (existing code) ...
 
@@ -84,12 +97,19 @@ const DealIntakePage = () => {
     const [manualSearchQuery, setManualSearchQuery] = useState('');
     const [manualSearchResults, setManualSearchResults] = useState([]);
 
+    // Quick Add Contact State
+    const [isAddContactModalOpen, setIsAddContactModalOpen] = useState(false);
+    const [prefilledContactData, setPrefilledContactData] = useState(null);
+
     // BUYER Flow State
     const [buyerContact, setBuyerContact] = useState(null);
     const [isTemporaryLead, setIsTemporaryLead] = useState(false);
     const [extractedReq, setExtractedReq] = useState({ type: '', location: '', budget: '', size: '' });
     const [leadId, setLeadId] = useState(null);
     const [matchedDeals, setMatchedDeals] = useState([]);
+    const [parsedDeals, setParsedDeals] = useState([]);
+    const [activeDealIndex, setActiveDealIndex] = useState(0);
+    const [duplicateStatus, setDuplicateStatus] = useState(null); // { isDuplicate: boolean, type: 'INVENTORY'|'DEAL'|'INTAKE', match: object }
 
     // Initialize with Expiry Logic (Mock: Filter > 30 days)
     useEffect(() => {
@@ -140,41 +160,74 @@ const DealIntakePage = () => {
         };
     };
 
-    const parseContacts = (text) => {
-        const phoneRegex = /[6-9]\d{9}/g;
-        const phones = [...new Set(text.match(phoneRegex) || [])]; // Deduplicate
-
-        return phones.map(phone => {
-            const existing = contactData.find(c => c.mobile.includes(phone) || (c.phones && c.phones.some(p => p.number.includes(phone))));
-            // Check if BROKER
-            const isBroker = existing && (existing.category === 'Broker' || existing.role === 'Broker' || existing.professionSubCategory === 'Real Estate Agent');
-
-            const stats = getContactUsageStats(phone, existing?.name);
-
-            return {
-                mobile: phone,
-                name: existing ? existing.name : 'Unknown',
-                role: existing ? existing.category || 'Contact' : 'New Contact',
-                id: existing ? existing.id : null,
-                isNew: !existing,
-                isBroker: isBroker,
-                stats: stats
-            };
-        });
-    };
+    // parseContacts Removed - Logic centralized in dealParser.js
 
     // --- LEGACY HELPERS REMOVED (Replaced by dealParser.js) ---
 
     const handleSelectIntake = (item) => {
         setCurrentItem(item);
 
-        // Use World-Class Parser
-        const parsedData = parseDealContent(item.content);
+        try {
+            // Use Multi-Deal Splitter (With dynamic patterns)
+            const deals = splitIntakeMessage(item.content, customPatterns);
+            console.log("Parsed Deals:", deals); // Debug Log
+            setParsedDeals(deals);
+            setActiveDealIndex(0);
 
+            if (deals && deals.length > 0) {
+                loadDealIntoWorkflow(deals[0]);
+            }
+        } catch (error) {
+            console.error("Critical Parsing Error:", error);
+            toast.error("Error parsing deal content");
+        }
+    };
+
+
+
+    const checkDuplicates = (parsedData) => {
+        if (!parsedData) return null;
+
+        // 1. Inventory Match (Strongest Signal: Unit Number + Project/Location)
+        if (parsedData.address?.unitNumber) {
+            const unit = parsedData.address.unitNumber.toLowerCase();
+            const loc = (parsedData.location || '').toLowerCase(); // "Sector 82" or similar
+
+            // Find in Inventory
+            const invMatch = inventoryData.find(inv => {
+                const invUnit = (inv.unitNo || '').toLowerCase();
+                if (invUnit !== unit) return false;
+
+                // If unit matches, check location context if available
+                if (inv.area && loc) {
+                    return inv.area.toLowerCase().includes(loc) || loc.includes(inv.area.toLowerCase());
+                }
+                return true; // Match on Unit Number alone if no location context (risky but acceptable for warning)
+            });
+
+            if (invMatch) {
+                return { isDuplicate: true, type: 'INVENTORY', match: invMatch, message: `Unit ${invMatch.unitNo} already exists in Inventory (${invMatch.category || 'Property'})` };
+            }
+        }
+
+        // 2. Existing Deal Match (Fuzzy)
+        // Check if we have an open deal for similar specs
+        // This is harder without strict IDs, but we can check if a deal exists with same unit
+        if (parsedData.address?.unitNumber) {
+            const dealMatch = dealData.find(d => d.title.includes(parsedData.address.unitNumber)); // simplistic check on title
+            if (dealMatch) {
+                return { isDuplicate: true, type: 'DEAL', match: dealMatch, message: `Active Deal found for Unit ${parsedData.address.unitNumber}` };
+            }
+        }
+
+        return null;
+    };
+
+    const loadDealIntoWorkflow = (parsedData) => {
         setDetectedContacts(parsedData.allContacts);
         setIntakeType(parsedData.intent);
 
-        // Reset States
+        // Reset Workflow
         setStage(1);
         setSelectedOwner(null);
         setSelectedInventory(null);
@@ -183,21 +236,26 @@ const DealIntakePage = () => {
         setBuyerContact(null);
         setIsTemporaryLead(false);
         setLeadId(null);
+        setOwnerCallOutcome(null);
+
+        // DUPLICATE CHECK
+        const dupCheck = checkDuplicates(parsedData);
+        setDuplicateStatus(dupCheck);
+
 
         // Store Full Parsed Data
-        // We map the new parser structure to the component's expected state
         setExtractedReq({
             type: parsedData.type,
             location: parsedData.location,
             budget: parsedData.specs.price,
             size: parsedData.specs.size,
-            // Store extra references
             unit: parsedData.address.unitNumber,
             category: parsedData.category,
+            remarks: parsedData.remarks, // New Field
             rawParsed: parsedData
         });
 
-        // Auto Select Contact if only one found & Valid Intent
+        // Auto Select Contact if found
         if (parsedData.allContacts.length > 0) {
             const contact = parsedData.allContacts[0];
             if (parsedData.intent === 'BUYER') {
@@ -205,6 +263,11 @@ const DealIntakePage = () => {
                 setIsTemporaryLead(contact.role === 'Broker');
             }
         }
+    };
+
+    const handleSwitchDeal = (index) => {
+        setActiveDealIndex(index);
+        loadDealIntoWorkflow(parsedDeals[index]);
     };
 
     const handleAddIntake = () => {
@@ -267,89 +330,143 @@ const DealIntakePage = () => {
 
     const matchInventory = (text, owner) => {
         // 1. Get Extracted Data (Already parsed in handleSelectIntake)
-        // detailedReq contains: unit, location (sector/project), city, type, size
         const parsed = extractedReq.rawParsed || {};
         const pAddr = parsed.address || {};
         const pSpecs = parsed.specs || {};
+        const rawTextLower = text.toLowerCase();
 
-        if (!pAddr.unitNumber && !pAddr.sector && !owner) {
-            setMatchedInventory([]);
-            return;
-        }
+        // REMOVED EARLY RETURN: Always attempt raw text fallback matching
 
         let matches = inventoryData.map(inv => {
             let score = 0;
             let reasons = [];
 
-            // A. Identity Match (Unit No included)
-            if (pAddr.unitNumber && inv.unitNo && inv.unitNo.toLowerCase() === pAddr.unitNumber.toLowerCase()) {
-                score += 50;
-                reasons.push('Unit Match');
-            } else if (pAddr.unitNumber && inv.unitNo && inv.unitNo.toLowerCase().includes(pAddr.unitNumber.toLowerCase())) {
-                score += 30;
-                reasons.push('Unit Partial');
+            const invUnit = (inv.unitNo || '').toLowerCase();
+            const invArea = (inv.area || '').toLowerCase(); // Found in Project/City field
+            const invLoc = (inv.location || '').toLowerCase(); // Found in Block/Location field
+
+            // A. UNIT NUMBER (Highest Priority)
+            if (invUnit) {
+                if (pAddr.unitNumber && invUnit === pAddr.unitNumber.toLowerCase()) {
+                    score += 50;
+                    reasons.push('Exact Unit Match (Parsed)');
+                } else {
+                    // Regex to find unit number as a whole word in raw text
+                    // Escaping special regex chars in unit number just in case
+                    const safeUnit = invUnit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const regex = new RegExp(`\\b${safeUnit}\\b`);
+
+                    if (regex.test(rawTextLower)) {
+                        score += 45; // Very strong signal
+                        reasons.push('Unit # Found in Text');
+                    } else if (rawTextLower.includes(invUnit) && invUnit.length > 2) {
+                        // Fallback for non-boundary matches (e.g. #7419)
+                        score += 30;
+                        reasons.push('Unit # Partial Match');
+                    }
+                }
             }
 
-            // B. Project/Location Match (Crucial)
-            // inv.area usually contains "Sector 66", "Mohali", etc.
-            if (pAddr.sector && inv.area && inv.area.toLowerCase().includes(pAddr.sector.toLowerCase())) {
-                score += 30;
-                reasons.push('Location/Project Match');
-            }
-            if (pAddr.city && inv.area && inv.area.toLowerCase().includes(pAddr.city.toLowerCase())) {
-                score += 10;
-                reasons.push('City Match');
+            // B. BLOCK MATCH
+            // Handles "Block H", "H Block", "North Block"
+            if (invLoc) {
+                // If text contains the full block string
+                if (rawTextLower.includes(invLoc)) {
+                    score += 25;
+                    reasons.push('Full Block Match');
+                } else {
+                    // Try to extract just the code (e.g. "H" from "Block H")
+                    const blockCode = invLoc.replace(/block/g, '').trim();
+                    if (blockCode.length > 0) {
+                        if (rawTextLower.includes(`block ${blockCode}`) || rawTextLower.includes(`${blockCode} block`)) {
+                            score += 25;
+                            reasons.push('Block Code Match');
+                        }
+                    }
+                }
             }
 
-            // C. Block Match
-            // inv.location usually contains "A Block", "First Block"
-            // We search for block patterns in the raw text if not explicitly parsed, or checks parsed text
-            // For now, assuming inv.location is Block
-            if (text.toLowerCase().includes(inv.location.toLowerCase())) {
-                score += 20;
-                reasons.push('Block Match');
+            // C. PROJECT / AREA / SECTOR MATCH
+            if (invArea) {
+                // 1. Prefer Parsed Sector Match
+                if (pAddr.sector && invArea.includes(pAddr.sector.toLowerCase())) {
+                    score += 30;
+                    reasons.push('Sector/Project Match');
+                }
+                // 2. Token Fallback for Raw Text
+                else {
+                    // Tokenize Inventory Area (e.g. "Sector 82, Aerocity") -> ["sector", "82", "aerocity"]
+                    const tokens = invArea.split(/[\s,()-]+/).filter(t => t.length > 2 && !['sector', 'phase', 'mohali', 'city'].includes(t));
+
+                    let tokenMatches = 0;
+                    tokens.forEach(token => {
+                        if (rawTextLower.includes(token)) tokenMatches++;
+                    });
+
+                    if (tokenMatches > 0) {
+                        score += (15 * tokenMatches);
+                        reasons.push(`Area Keywords (${tokenMatches})`);
+                    }
+                }
             }
 
-            // D. Owner Match (Verification)
+            // D. OWNER MATCH (Verification)
             if (owner && inv.ownerName && owner.name && inv.ownerName.toLowerCase().includes(owner.name.toLowerCase())) {
                 score += 40;
                 reasons.push('Owner Match');
             }
 
-            // E. Type/Category Helper
-            if (parsed.type && inv.type && inv.type.toLowerCase().includes(parsed.type.toLowerCase())) {
-                score += 10;
-            }
-            // F. Size Helper
-            if (pSpecs.size && inv.size && inv.size.toLowerCase().includes(pSpecs.size.toLowerCase())) {
-                score += 10;
+            // E. SIZE HELPER
+            if (pSpecs.size && inv.size) {
+                const targetSize = pSpecs.size.replace(/\D/g, '');
+                const invSizeDig = inv.size.replace(/\D/g, '');
+                if (targetSize && invSizeDig && targetSize === invSizeDig) {
+                    score += 15;
+                    reasons.push('Size Match');
+                }
             }
 
             return { inventory: inv, score: Math.min(score, 100), reasons };
         });
 
         // Filter and Sort
-        // Strict Threshold: Must have at least some relevance
-        matches = matches.filter(m => m.score > 20).sort((a, b) => b.score - a.score);
+        // Reduced threshold to capture more potential candidates
+        matches = matches.filter(m => m.score >= 15).sort((a, b) => b.score - a.score);
         setMatchedInventory(matches.slice(0, 5));
     };
 
     // New State for Quick Create
     const [quickAddForm, setQuickAddForm] = useState({
         city: '',
-        project: '',
+        projectName: '',
         block: '',
         unitNo: '',
         type: 'Residential',
         size: ''
     });
 
+    // Modal State for Quick Add
+    const [modalTriggers, setModalTriggers] = useState({
+        project: false,
+        block: false,
+        size: false
+    });
+
+    const handleTriggerModal = (type) => { // 'PROJECT', 'BLOCK', 'SIZE'
+        setModalTriggers(prev => ({ ...prev, [type.toLowerCase()]: true }));
+    };
+
     const handleQuickAddInventory = () => {
+        if (!quickAddForm.projectName || !quickAddForm.unitNo) {
+            toast.error("Project and Unit Number are required");
+            return;
+        }
+
         const newInv = {
             id: Date.now(),
             unitNo: quickAddForm.unitNo,
-            location: quickAddForm.block, // Mapping Block to 'location' in mock schema
-            area: `${quickAddForm.project} ${quickAddForm.city}`, // Mapping Project+City to 'area'
+            location: quickAddForm.block, // Mapping Block to 'location'
+            area: `${quickAddForm.projectName}, ${quickAddForm.city}`, // Mapping Project+City to 'area'
             type: quickAddForm.type,
             size: quickAddForm.size,
             status: 'Active',
@@ -358,12 +475,12 @@ const DealIntakePage = () => {
         };
 
         // In a real app, this would be an API call
-        // inventoryData.push(newInv); // Pushing to mock (if mutable) or just selecting it
+        // inventoryData.push(newInv); 
 
         setSelectedInventory(newInv);
         setStage(3);
         setIsManualLinkOpen(false);
-        toast.success(`New Unit Created: ${newInv.unitNo} @ ${quickAddForm.project}`);
+        toast.success(`New Unit Created: ${newInv.unitNo} @ ${quickAddForm.projectName}`);
     };
 
     // Pre-fill Quick Form when opening manual link
@@ -371,7 +488,7 @@ const DealIntakePage = () => {
         if (isManualLinkOpen && extractedReq.rawParsed) {
             setQuickAddForm({
                 city: extractedReq.rawParsed.address.city || '',
-                project: extractedReq.rawParsed.address.sector || '',
+                projectName: extractedReq.rawParsed.address.sector || '',
                 block: '', // Parser might need update to catch block explicitly
                 unitNo: extractedReq.rawParsed.address.unitNumber || '',
                 type: extractedReq.rawParsed.type || 'Residential',
@@ -440,6 +557,36 @@ const DealIntakePage = () => {
     };
 
 
+    const handleOpenAddContact = (mobile) => {
+        setPrefilledContactData({
+            phones: [{ number: mobile || '', type: 'Personal' }],
+            name: '',
+            title: 'Mr.'
+        });
+        setIsAddContactModalOpen(true);
+    };
+
+    const handleContactAdded = (newContact) => {
+        // 1. Update Mock Data (In-memory) - In real app, API update happens in Modal
+        // contactData.push(newContact); // Assuming import reference is mutable or we rely on re-fetch
+        // Since we deal with mockData, we might need to manually ensure it's "found" in next render
+        // For now, let's manually update the detectedContacts state
+
+        const newDetected = {
+            mobile: newContact.phones[0]?.number,
+            name: newContact.name + ' ' + (newContact.surname || ''),
+            role: 'New Contact', // Or whatever default
+            id: newContact.id,
+            isNew: false, // Now it exists
+            isBroker: false,
+            stats: { leads: 0, inventory: 0, deals: 0, activities: 0, total: 0 }
+        };
+
+        // Update detected contacts list if this was a blank add or specific
+        setDetectedContacts(prev => [newDetected, ...prev]);
+        toast.success("Contact Added & Linked");
+    };
+
     return (
         <div style={{ display: 'flex', height: '100vh', background: '#f8fafc' }}>
             {/* Left Panel: Workflow Steps / Inbox */}
@@ -480,6 +627,20 @@ const DealIntakePage = () => {
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                                 <span style={{ fontSize: '0.7rem', fontWeight: 800, color: item.source === 'WhatsApp' ? '#22c55e' : '#f59e0b', background: item.source === 'WhatsApp' ? '#dcfce7' : '#fef3c7', padding: '2px 8px', borderRadius: '4px' }}>{item.source}</span>
                                 <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{new Date(item.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (window.confirm("Remove this item from queue?")) {
+                                            setIntakeItems(prev => prev.filter(i => i.id !== item.id));
+                                            if (currentItem?.id === item.id) setCurrentItem(null);
+                                        }
+                                    }}
+                                    className="delete-btn-hover"
+                                    style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', marginLeft: '6px', fontSize: '0.75rem', opacity: 0.8 }}
+                                    title="Dismiss"
+                                >
+                                    <i className="fas fa-trash-alt"></i>
+                                </button>
                             </div>
                             <div style={{ fontSize: '0.8rem', color: '#334155', lineHeight: '1.4', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                                 {item.content}
@@ -526,52 +687,140 @@ const DealIntakePage = () => {
                                             title={`Stage ${s}`}
                                         ></div>
                                     ))}
+                                    {extractedReq.tags && extractedReq.tags.length > 0 && (
+                                        <div style={{ marginTop: '12px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                            {extractedReq.tags.map((tag, i) => (
+                                                <span key={i} style={{
+                                                    fontSize: '0.7rem',
+                                                    fontWeight: 700,
+                                                    padding: '2px 8px',
+                                                    borderRadius: '4px',
+                                                    color: tag === 'URGENT' ? '#b91c1c' : tag === 'DIRECT' ? '#15803d' : '#0369a1',
+                                                    background: tag === 'URGENT' ? '#fecaca' : tag === 'DIRECT' ? '#dcfce7' : '#e0f2fe',
+                                                    border: '1px solid currentColor'
+                                                }}>
+                                                    {tag}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
+                            {/* Multi-Deal Switcher */}
+                            {parsedDeals.length > 1 && (
+                                <div style={{ padding: '10px 40px', background: '#f0f9ff', borderBottom: '1px solid #bae6fd' }}>
+                                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0369a1', marginBottom: '8px' }}>
+                                        <i className="fas fa-layer-group"></i> Multiple Deals Detected ({parsedDeals.length})
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+                                        {parsedDeals.map((deal, idx) => (
+                                            <button
+                                                key={idx}
+                                                onClick={() => handleSwitchDeal(idx)}
+                                                style={{
+                                                    padding: '6px 12px',
+                                                    borderRadius: '6px',
+                                                    border: activeDealIndex === idx ? '2px solid #3b82f6' : '1px solid #cbd5e1',
+                                                    background: activeDealIndex === idx ? '#fff' : '#f1f5f9',
+                                                    color: activeDealIndex === idx ? '#1e293b' : '#64748b',
+                                                    fontSize: '0.75rem',
+                                                    fontWeight: 700,
+                                                    cursor: 'pointer',
+                                                    whiteSpace: 'nowrap'
+                                                }}
+                                            >
+                                                #{idx + 1}: {deal.address?.unitNumber ? `Unit ${deal.address.unitNumber}` : deal.location} ({deal.specs?.price || 'No Price'})
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Smart Structured ID Card */}
+                            {duplicateStatus && (
+                                <div className="animate-fade-in" style={{ marginBottom: '16px', padding: '12px 16px', background: '#fff7ed', border: '1px solid #fdba74', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '12px', color: '#9a3412' }}>
+                                    <div style={{ background: '#ffedd5', padding: '8px', borderRadius: '50%' }}>
+                                        <i className="fas fa-exclamation-triangle" style={{ color: '#f97316' }}></i>
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>Possible Duplicate Detected</div>
+                                        <div style={{ fontSize: '0.8rem', opacity: 0.9 }}>{duplicateStatus.message}</div>
+                                    </div>
+                                    <button style={{ padding: '6px 12px', background: '#fff', border: '1px solid #fed7aa', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, color: '#c2410c', cursor: 'pointer' }}>
+                                        View Existing
+                                    </button>
+                                </div>
+                            )}
+
                             <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', marginBottom: '16px' }}>
                                 {/* Header: Raw Text */}
                                 <div style={{ padding: '12px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontSize: '0.85rem', color: '#475569', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
                                     <i className="fas fa-quote-left" style={{ color: '#cbd5e1', marginTop: '2px' }}></i>
                                     <div style={{ lineHeight: '1.6' }}>
                                         {(() => {
-                                            let text = currentItem.content;
-                                            const phoneRegex = /[6-9]\d{9}/g;
-                                            const parts = text.split(/([6-9]\d{9})/g);
-                                            return parts.map((part, i) => {
-                                                if (part.match(phoneRegex)) {
-                                                    return <span key={i} style={{ background: '#fef08a', color: '#854d0e', padding: '0 4px', borderRadius: '4px', fontWeight: 700 }}>{part}</span>
-                                                }
-                                                return part;
-                                            });
+                                            try {
+                                                // Show the RAW content of the CURRENT SEGMENT, not the full message if split?
+                                                // Ideally yes, but currentItem.content is the full message.
+                                                // We should show the specific raw text for this deal if available used 'raw' from parser.
+                                                // If we use extractedReq.rawParsed.raw, that serves us better.
+                                                let text = extractedReq?.rawParsed?.raw || currentItem?.content || "";
+                                                if (!text) return null;
+
+                                                // Enhanced Regex for Highlight
+                                                const phoneRegex = /([6-9][0-9\s-]{8,12}[0-9])/g;
+                                                // Safety check for split
+                                                const parts = text.split(phoneRegex);
+                                                return parts.map((part, i) => {
+                                                    if (part && part.match(phoneRegex)) {
+                                                        return <span key={i} style={{ background: '#fef08a', color: '#854d0e', padding: '0 4px', borderRadius: '4px', fontWeight: 700 }}>{part}</span>
+                                                    }
+                                                    return part;
+                                                });
+                                            } catch (e) {
+                                                console.error("Render Error in ID Card:", e);
+                                                return <span>Error rendering text</span>;
+                                            }
                                         })()}
                                     </div>
                                 </div>
 
                                 {/* Body: Parsed Fields Grid */}
                                 {extractedReq.rawParsed && (
-                                    <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', background: '#ecfdf5' }}>
-                                        {[
-                                            { label: 'City', value: extractedReq.rawParsed.address.city, icon: 'fa-city' },
-                                            { label: 'Location', value: extractedReq.rawParsed.address.sector, icon: 'fa-map-marker-alt' },
-                                            { label: 'Unit', value: extractedReq.rawParsed.address.unitNumber, icon: 'fa-door-open' },
-                                            { label: 'Category', value: extractedReq.rawParsed.category, icon: 'fa-building' },
-                                            { label: 'Type', value: extractedReq.rawParsed.type, icon: 'fa-home' },
-                                            { label: 'Size', value: extractedReq.rawParsed.specs.size, icon: 'fa-ruler-combined' },
-                                            { label: 'Price', value: extractedReq.rawParsed.specs.price, icon: 'fa-tag' },
-                                            { label: 'Intent', value: extractedReq.rawParsed.intent, icon: 'fa-exchange-alt' },
-                                        ].map((field, i) => (
-                                            <div key={i} style={{ opacity: field.value ? 1 : 0.4 }}>
-                                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 700, marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                    <i className={`fas ${field.icon}`} style={{ fontSize: '0.6rem' }}></i> {field.label.toUpperCase()}
+                                    <>
+                                        <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', background: '#ecfdf5' }}>
+                                            {[
+                                                { label: 'City', value: extractedReq.rawParsed.address.city, icon: 'fa-city' },
+                                                { label: 'Location', value: extractedReq.rawParsed.address.sector, icon: 'fa-map-marker-alt' },
+                                                { label: 'Unit', value: extractedReq.rawParsed.address.unitNumber, icon: 'fa-door-open' },
+                                                { label: 'Category', value: extractedReq.rawParsed.category, icon: 'fa-building' },
+                                                { label: 'Type', value: extractedReq.rawParsed.type, icon: 'fa-home' },
+                                                { label: 'Size', value: extractedReq.rawParsed.specs.size, icon: 'fa-ruler-combined' },
+                                                { label: 'Price', value: extractedReq.rawParsed.specs.price, icon: 'fa-tag' },
+                                                { label: 'Intent', value: extractedReq.rawParsed.intent, icon: 'fa-exchange-alt' },
+                                            ].map((field, i) => (
+                                                <div key={i} style={{ opacity: field.value ? 1 : 0.4 }}>
+                                                    <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 700, marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                        <i className={`fas ${field.icon}`} style={{ fontSize: '0.6rem' }}></i> {field.label.toUpperCase()}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a' }}>
+                                                        {field.value || '-'}
+                                                    </div>
                                                 </div>
-                                                <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a' }}>
-                                                    {field.value || '-'}
+                                            ))}
+                                        </div>
+                                        {/* Remarks Section */}
+                                        {extractedReq.remarks && (
+                                            <div style={{ padding: '12px 16px', background: '#fffbeb', borderTop: '1px solid #fef3c7' }}>
+                                                <div style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: 700, marginBottom: '4px' }}>
+                                                    <i className="fas fa-sticky-note"></i> REMARKS / OTHER DETAILS
+                                                </div>
+                                                <div style={{ fontSize: '0.9rem', color: '#451a03', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+                                                    {extractedReq.remarks}
                                                 </div>
                                             </div>
-                                        ))}
-                                    </div>
+                                        )}
+                                    </>
                                 )}
                             </div>
 
@@ -579,8 +828,9 @@ const DealIntakePage = () => {
                             <div style={{ padding: '10px 40px', background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '10px' }}>
                                 <button
                                     onClick={() => {
-                                        const phones = currentItem.content.match(/[6-9]\d{9}/g);
-                                        if (phones && phones[0]) window.open(`https://wa.me/91${phones[0]}`, '_blank');
+                                        // Use Detected Contacts from Parser instead of raw regex
+                                        const phone = detectedContacts[0]?.mobile;
+                                        if (phone) window.open(`https://wa.me/91${phone.replace(/\D/g, '').slice(-10)}`, '_blank');
                                         else toast.error('No phone number found');
                                     }}
                                     style={{ padding: '6px 12px', background: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -607,17 +857,49 @@ const DealIntakePage = () => {
                                             <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b', marginBottom: '16px' }}>1. Confirm Property Owner</h3>
                                             {detectedContacts.length === 0 ? (
                                                 <div style={{ padding: '20px', background: '#fff1f2', color: '#be123c', borderRadius: '8px', border: '1px solid #fb7185', textAlign: 'center' }}>
-                                                    No phone numbers detected. <button style={{ border: 'none', background: 'none', textDecoration: 'underline', fontWeight: 700, cursor: 'pointer' }}>Add Manually</button>
+                                                    No phone numbers detected. <button onClick={() => handleOpenAddContact()} style={{ border: 'none', background: 'none', textDecoration: 'underline', fontWeight: 700, cursor: 'pointer', color: '#be123c' }}>Add Manually</button>
                                                 </div>
                                             ) : (
                                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
                                                     {detectedContacts.map((contact, idx) => (
-                                                        <div key={idx} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '16px' }}>
+                                                        <div key={idx} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '16px', position: 'relative' }}>
+
+                                                            {/* Call Context Action */}
+                                                            <button
+                                                                onClick={() => startCall(contact, {
+                                                                    purpose: 'Owner Verification',
+                                                                    entityId: currentItem.id,
+                                                                    entityType: 'deal_intake'
+                                                                }, (log) => {
+                                                                    if (log.outcome === 'Confirmed') setOwnerCallOutcome('Confirmed');
+                                                                })}
+                                                                style={{
+                                                                    position: 'absolute', top: '10px', right: '10px',
+                                                                    width: '32px', height: '32px', borderRadius: '50%',
+                                                                    background: '#eff6ff', color: '#3b82f6', border: 'none',
+                                                                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                                                }}
+                                                                title="Verify via Call"
+                                                            >
+                                                                <i className="fas fa-phone-alt"></i>
+                                                            </button>
+
                                                             <div style={{ fontWeight: 700 }}>{contact.name}</div>
-                                                            <div style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '12px' }}>{contact.mobile}</div>
+                                                            <div style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                {contact.mobile}
+                                                                {contact.isNew && (
+                                                                    <button
+                                                                        onClick={() => handleOpenAddContact(contact.mobile)}
+                                                                        style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0', borderRadius: '4px', cursor: 'pointer' }}
+                                                                    >
+                                                                        + Add to CRM
+                                                                    </button>
+                                                                )}
+                                                            </div>
 
                                                             {/* Role Selection */}
                                                             <div style={{ marginBottom: '12px', padding: '10px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+
                                                                 <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '6px' }}>Align Contact As:</label>
                                                                 <div style={{ display: 'flex', gap: '10px' }}>
                                                                     <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
@@ -731,47 +1013,15 @@ const DealIntakePage = () => {
                                                         <div style={{ marginTop: '12px', borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
                                                             {manualSearchQuery.length > 1 && <div style={{ fontSize: '0.8rem', color: '#dc2626', marginBottom: '8px', fontWeight: 600 }}>No match found. Create New?</div>}
 
-                                                            <div style={{ background: '#fff', padding: '12px', borderRadius: '8px', border: '1px dashed #cbd5e1' }}>
-                                                                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.85rem', color: '#475569' }}><i className="fas fa-plus-circle"></i> Quick Add Unit</h4>
+                                                            <div style={{ marginTop: '12px' }}>
+                                                                <QuickInventoryForm
+                                                                    formData={quickAddForm}
+                                                                    setFormData={setQuickAddForm}
+                                                                    onTriggerModal={handleTriggerModal}
+                                                                />
 
-                                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                                                                    <div>
-                                                                        <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b' }}>City</label>
-                                                                        <input type="text" value={quickAddForm.city} onChange={e => setQuickAddForm({ ...quickAddForm, city: e.target.value })} style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }} placeholder="e.g. Mohali" />
-                                                                    </div>
-                                                                    <div>
-                                                                        <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b' }}>Project Name</label>
-                                                                        <input type="text" value={quickAddForm.project} onChange={e => setQuickAddForm({ ...quickAddForm, project: e.target.value })} style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }} placeholder="e.g. IT City" />
-                                                                    </div>
-                                                                </div>
-                                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                                                                    <div>
-                                                                        <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b' }}>Block</label>
-                                                                        <input type="text" value={quickAddForm.block} onChange={e => setQuickAddForm({ ...quickAddForm, block: e.target.value })} style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }} placeholder="e.g. A" />
-                                                                    </div>
-                                                                    <div>
-                                                                        <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b' }}>Unit No (Crucial)</label>
-                                                                        <input type="text" value={quickAddForm.unitNo} onChange={e => setQuickAddForm({ ...quickAddForm, unitNo: e.target.value })} style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }} placeholder="e.g. 104" />
-                                                                    </div>
-                                                                </div>
-                                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                                                                    <div>
-                                                                        <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b' }}>Type</label>
-                                                                        <select value={quickAddForm.type} onChange={e => setQuickAddForm({ ...quickAddForm, type: e.target.value })} style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }}>
-                                                                            <option value="Residential">Residential</option>
-                                                                            <option value="Commercial">Commercial</option>
-                                                                            <option value="Industrial">Industrial</option>
-                                                                            <option value="Agricultural">Agricultural</option>
-                                                                        </select>
-                                                                    </div>
-                                                                    <div>
-                                                                        <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b' }}>Size w/ Unit</label>
-                                                                        <input type="text" value={quickAddForm.size} onChange={e => setQuickAddForm({ ...quickAddForm, size: e.target.value })} style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }} placeholder="e.g. 1 Kanal" />
-                                                                    </div>
-                                                                </div>
-
-                                                                <button onClick={handleQuickAddInventory} style={{ width: '100%', background: '#3b82f6', color: '#fff', padding: '8px', borderRadius: '6px', border: 'none', fontWeight: 700, cursor: 'pointer', marginTop: '4px' }}>
-                                                                    Create & Ensure Match
+                                                                <button onClick={handleQuickAddInventory} style={{ width: '100%', background: '#3b82f6', color: '#fff', padding: '10px', borderRadius: '8px', border: 'none', fontWeight: 600, cursor: 'pointer', marginTop: '12px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                                                    <i className="fas fa-magic"></i> Create & Ensure Match
                                                                 </button>
                                                             </div>
                                                         </div>
@@ -848,7 +1098,29 @@ const DealIntakePage = () => {
                                                         </div>
 
                                                         <div style={{ paddingTop: '10px', borderTop: '1px solid #e2e8f0' }}>
-                                                            <button onClick={handleCreateDeal} style={{ width: '100%', background: '#2563eb', color: '#fff', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer', boxShadow: '0 2px 4px rgba(37, 99, 235, 0.2)' }}>
+                                                            {ownerCallOutcome !== 'Confirmed' ? (
+                                                                <div style={{ marginBottom: '10px', padding: '10px', background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '6px', color: '#be123c', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                    <i className="fas fa-exclamation-triangle"></i>
+                                                                    <span><b>Action Required:</b> Verify Owner via Call first.</span>
+                                                                </div>
+                                                            ) : (
+                                                                <div style={{ marginBottom: '10px', padding: '8px', background: '#f0fdf4', borderRadius: '6px', color: '#166534', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                                    <i className="fas fa-check-circle"></i> Owner Verified
+                                                                </div>
+                                                            )}
+
+                                                            <button
+                                                                onClick={handleCreateDeal}
+                                                                disabled={ownerCallOutcome !== 'Confirmed'}
+                                                                style={{
+                                                                    width: '100%',
+                                                                    background: ownerCallOutcome === 'Confirmed' ? '#2563eb' : '#94a3b8',
+                                                                    color: '#fff', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 600,
+                                                                    cursor: ownerCallOutcome === 'Confirmed' ? 'pointer' : 'not-allowed',
+                                                                    boxShadow: ownerCallOutcome === 'Confirmed' ? '0 2px 4px rgba(37, 99, 235, 0.2)' : 'none',
+                                                                    opacity: ownerCallOutcome === 'Confirmed' ? 1 : 0.7
+                                                                }}
+                                                            >
                                                                 <i className="fas fa-check-circle" style={{ marginRight: '6px' }}></i> Create Deal
                                                             </button>
                                                         </div>
@@ -1142,6 +1414,40 @@ const DealIntakePage = () => {
                     </div>
                 </div>
             )}
+            {/* --- Modals for Quick Add --- */}
+            <AddProjectModal
+                isOpen={modalTriggers.project}
+                onClose={() => setModalTriggers(prev => ({ ...prev, project: false }))}
+                onSave={(newProj) => {
+                    setQuickAddForm(prev => ({ ...prev, projectName: newProj.name, city: newProj.city || prev.city }));
+                }}
+            />
+            <AddBlockModal
+                isOpen={modalTriggers.block}
+                projectName={quickAddForm.projectName}
+                onClose={() => setModalTriggers(prev => ({ ...prev, block: false }))}
+                onSave={(blockName) => {
+                    setQuickAddForm(prev => ({ ...prev, block: blockName }));
+                }}
+            />
+            <AddSizeModal
+                isOpen={modalTriggers.size}
+                projectName={quickAddForm.projectName}
+                block={quickAddForm.block}
+                category={quickAddForm.type}
+                onClose={() => setModalTriggers(prev => ({ ...prev, size: false }))}
+                onSave={(sizeName) => {
+                    setQuickAddForm(prev => ({ ...prev, size: sizeName }));
+                }}
+            />
+            {/* Add Contact Modal */}
+            <AddContactModal
+                isOpen={isAddContactModalOpen}
+                onClose={() => setIsAddContactModalOpen(false)}
+                onAdd={handleContactAdded}
+                initialData={prefilledContactData}
+                mode="add"
+            />
         </div>
     );
 };

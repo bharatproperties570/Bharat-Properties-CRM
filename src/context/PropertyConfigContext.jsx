@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext } from 'react';
 import { PROPERTY_CATEGORIES } from '../data/propertyData';
+import { PROJECTS_LIST } from '../data/projectData';
 
 const PropertyConfigContext = createContext();
 
@@ -14,6 +15,31 @@ export const usePropertyConfig = () => {
 export const PropertyConfigProvider = ({ children }) => {
     // Initialize state with the static data
     const [propertyConfig, setPropertyConfig] = useState(PROPERTY_CATEGORIES);
+
+    // Initialize Projects State (Dynamic)
+    const [projects, setProjects] = useState(PROJECTS_LIST);
+
+    const addProject = (newProject) => {
+        const project = {
+            id: Date.now(),
+            name: newProject.name,
+            location: newProject.location || '',
+            blocks: [],
+            units: [],
+            ...newProject
+        };
+        setProjects(prev => [...prev, project]);
+        return project;
+    };
+
+    const addBlock = (projectId, blockName) => {
+        setProjects(prev => prev.map(p => {
+            if (p.id === projectId || p.name === projectId) { // Handle both ID or Name lookup
+                return { ...p, blocks: [...(p.blocks || []), blockName] };
+            }
+            return p;
+        }));
+    };
 
     // Helper Hook for Persistence
     const useLocalStorage = (key, initialValue) => {
@@ -704,6 +730,9 @@ export const PropertyConfigProvider = ({ children }) => {
             addSize,
             updateSize,
             deleteSize,
+            projects, // Export dynamic projects
+            addProject,
+            addBlock,
             companyMasterFields,
             updateCompanyMasterFields,
             leadMasterFields,

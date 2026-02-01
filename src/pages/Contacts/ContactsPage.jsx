@@ -8,9 +8,8 @@ import AddLeadModal from "../../components/AddLeadModal";
 import SendMessageModal from "../../components/SendMessageModal";
 import AssignContactModal from "../../components/AssignContactModal";
 import ManageTagsModal from "../../components/ManageTagsModal";
-import CallModal from "../../components/CallModal";
-import { confirmToast } from "../../utils/toast_message";
 import { useTriggers } from "../../context/TriggersContext";
+import { useCall } from "../../context/CallContext";
 import { useDistribution } from "../../context/DistributionContext";
 import EnrollSequenceModal from "../../components/EnrollSequenceModal";
 
@@ -28,6 +27,7 @@ const useDebounce = (value, delay) => {
 
 function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const { fireEvent } = useTriggers();
+  const { startCall } = useCall();
   const { executeDistribution } = useDistribution();
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -120,9 +120,9 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
   const [selectedContactsForTags, setSelectedContactsForTags] = useState([]);
 
-  // Call Modal State
-  const [isCallModalOpen, setIsCallModalOpen] = useState(false);
-  const [selectedContactForCall, setSelectedContactForCall] = useState(null);
+
+
+  // Call Modal State Removed - Using Global CallContext
 
   // Sequence Enrollment State
   const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
@@ -332,8 +332,19 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                       onClick={() => {
                         const selected = getSelectedContacts()[0];
                         if (selected) {
-                          setSelectedContactForCall(selected);
-                          setIsCallModalOpen(true);
+                          const mobile = selected.mobile || selected.phones?.[0]?.number;
+                          if (!mobile) {
+                            toast.error('Invalid contact number');
+                            return;
+                          }
+                          startCall({
+                            name: selected.name,
+                            mobile: mobile
+                          }, {
+                            purpose: 'Contact Update',
+                            entityId: selected._id,
+                            entityType: 'contact'
+                          });
                         }
                       }}
                     >
@@ -1745,12 +1756,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
         </div>
       </footer>
 
-      {/* Call Modal */}
-      <CallModal
-        isOpen={isCallModalOpen}
-        onClose={() => setIsCallModalOpen(false)}
-        contact={selectedContactForCall}
-      />
+
 
       <SendMailModal
         isOpen={isSendMailOpen}
