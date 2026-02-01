@@ -109,7 +109,8 @@ const DealIntakePage = () => {
     const [matchedDeals, setMatchedDeals] = useState([]);
     const [parsedDeals, setParsedDeals] = useState([]);
     const [activeDealIndex, setActiveDealIndex] = useState(0);
-    const [duplicateStatus, setDuplicateStatus] = useState(null); // { isDuplicate: boolean, type: 'INVENTORY'|'DEAL'|'INTAKE', match: object }
+    const [duplicateStatus, setDuplicateStatus] = useState(null);
+    const [visibleCount, setVisibleCount] = useState(50); // Pagination Limit
 
     // Initialize with Expiry Logic (Mock: Filter > 30 days)
     useEffect(() => {
@@ -611,7 +612,7 @@ const DealIntakePage = () => {
 
                 <div style={{ flex: 1, overflowY: 'auto' }}>
                     {intakeItems.length === 0 && <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>queue is empty</div>}
-                    {intakeItems.map(item => (
+                    {intakeItems.slice(0, visibleCount).map(item => (
                         <div
                             key={item.id}
                             onClick={() => handleSelectIntake(item)}
@@ -646,7 +647,29 @@ const DealIntakePage = () => {
                                 {item.content}
                             </div>
                         </div>
+
                     ))}
+
+                    {visibleCount < intakeItems.length && (
+                        <div style={{ padding: '10px', textAlign: 'center' }}>
+                            <button
+                                onClick={() => setVisibleCount(prev => prev + 50)}
+                                style={{
+                                    background: '#f1f5f9',
+                                    border: '1px solid #e2e8f0',
+                                    padding: '8px 16px',
+                                    borderRadius: '20px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 600,
+                                    color: '#475569',
+                                    width: '100%'
+                                }}
+                            >
+                                Load More ({intakeItems.length - visibleCount} remaining)
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -1316,104 +1339,108 @@ const DealIntakePage = () => {
             </div>
 
             {/* Add Intake Modal */}
-            {isAddModalOpen && (
-                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
-                    <div style={{ background: '#fff', width: '500px', borderRadius: '12px', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
-                        <h3 style={{ marginTop: 0, fontSize: '1.2rem', fontWeight: 800 }}>Add New Intake</h3>
-                        <div style={{ marginBottom: '16px' }}>
-                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>Source</label>
-                            <div style={{ display: 'flex', gap: '10px' }}>
-                                <button onClick={() => setNewSourceType('WhatsApp')} style={{ flex: 1, padding: '10px', borderRadius: '6px', border: newSourceType === 'WhatsApp' ? '2px solid #22c55e' : '1px solid #e2e8f0', background: newSourceType === 'WhatsApp' ? '#dcfce7' : '#fff', fontWeight: 600, color: newSourceType === 'WhatsApp' ? '#14532d' : '#64748b', cursor: 'pointer' }}>WhatsApp</button>
-                                <button onClick={() => setNewSourceType('Tribune')} style={{ flex: 1, padding: '10px', borderRadius: '6px', border: newSourceType === 'Tribune' ? '2px solid #f59e0b' : '1px solid #e2e8f0', background: newSourceType === 'Tribune' ? '#fef3c7' : '#fff', fontWeight: 600, color: newSourceType === 'Tribune' ? '#78350f' : '#64748b', cursor: 'pointer' }}>Tribune / PDF</button>
+            {
+                isAddModalOpen && (
+                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+                        <div style={{ background: '#fff', width: '500px', borderRadius: '12px', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
+                            <h3 style={{ marginTop: 0, fontSize: '1.2rem', fontWeight: 800 }}>Add New Intake</h3>
+                            <div style={{ marginBottom: '16px' }}>
+                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>Source</label>
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    <button onClick={() => setNewSourceType('WhatsApp')} style={{ flex: 1, padding: '10px', borderRadius: '6px', border: newSourceType === 'WhatsApp' ? '2px solid #22c55e' : '1px solid #e2e8f0', background: newSourceType === 'WhatsApp' ? '#dcfce7' : '#fff', fontWeight: 600, color: newSourceType === 'WhatsApp' ? '#14532d' : '#64748b', cursor: 'pointer' }}>WhatsApp</button>
+                                    <button onClick={() => setNewSourceType('Tribune')} style={{ flex: 1, padding: '10px', borderRadius: '6px', border: newSourceType === 'Tribune' ? '2px solid #f59e0b' : '1px solid #e2e8f0', background: newSourceType === 'Tribune' ? '#fef3c7' : '#fff', fontWeight: 600, color: newSourceType === 'Tribune' ? '#78350f' : '#64748b', cursor: 'pointer' }}>Tribune / PDF</button>
+                                </div>
                             </div>
-                        </div>
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>Content / Paste Text</label>
-                            <textarea
-                                value={newSourceContent}
-                                onChange={e => setNewSourceContent(e.target.value)}
-                                rows={6}
-                                placeholder="Paste the message or extracted text here..."
-                                style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem', resize: 'vertical' }}
-                            ></textarea>
-                            <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#64748b' }}>
-                                <strong>Tip:</strong> Use keywords like "Need", "Buy" for Buyer Detection.
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>Content / Paste Text</label>
+                                <textarea
+                                    value={newSourceContent}
+                                    onChange={e => setNewSourceContent(e.target.value)}
+                                    rows={6}
+                                    placeholder="Paste the message or extracted text here..."
+                                    style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem', resize: 'vertical' }}
+                                ></textarea>
+                                <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#64748b' }}>
+                                    <strong>Tip:</strong> Use keywords like "Need", "Buy" for Buyer Detection.
+                                </div>
                             </div>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                            <button onClick={() => setIsAddModalOpen(false)} style={{ padding: '10px 20px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-                            <button onClick={handleAddIntake} style={{ padding: '10px 20px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Add to Queue</button>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                                <button onClick={() => setIsAddModalOpen(false)} style={{ padding: '10px 20px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                                <button onClick={handleAddIntake} style={{ padding: '10px 20px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Add to Queue</button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Import Modal */}
-            {isImportModalOpen && (
-                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
-                    <div style={{ background: '#fff', width: '450px', borderRadius: '16px', padding: '30px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)', textAlign: 'center' }}>
-                        <div style={{ width: '60px', height: '60px', background: '#eff6ff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
-                            <i className="fas fa-cloud-upload-alt" style={{ fontSize: '1.5rem', color: '#3b82f6' }}></i>
-                        </div>
-                        <h3 style={{ marginTop: 0, fontSize: '1.25rem', fontWeight: 800, color: '#1e293b' }}>Import Data</h3>
-                        <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '24px' }}>
-                            Upload <strong>WhatsApp Export (.zip)</strong> or <br /> <strong>Tribune Advertisement (.pdf)</strong>
-                        </p>
+            {
+                isImportModalOpen && (
+                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+                        <div style={{ background: '#fff', width: '450px', borderRadius: '16px', padding: '30px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)', textAlign: 'center' }}>
+                            <div style={{ width: '60px', height: '60px', background: '#eff6ff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+                                <i className="fas fa-cloud-upload-alt" style={{ fontSize: '1.5rem', color: '#3b82f6' }}></i>
+                            </div>
+                            <h3 style={{ marginTop: 0, fontSize: '1.25rem', fontWeight: 800, color: '#1e293b' }}>Import Data</h3>
+                            <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '24px' }}>
+                                Upload <strong>WhatsApp Export (.zip)</strong> or <br /> <strong>Tribune Advertisement (.pdf)</strong>
+                            </p>
 
-                        {!selectedFile ? (
-                            <label style={{
-                                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                                padding: '40px', border: '2px dashed #cbd5e1', borderRadius: '12px', cursor: 'pointer',
-                                background: '#fff', transition: 'all 0.2s'
-                            }}
-                                className="hover:bg-slate-50 hover:border-blue-400"
-                            >
-                                <span style={{ fontWeight: 700, color: '#3b82f6', marginBottom: '8px' }}>Click to Browse</span>
-                                <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Supports .zip and .pdf</span>
-                                <input
-                                    type="file"
-                                    accept=".zip,.pdf"
-                                    style={{ display: 'none' }}
-                                    onChange={handleFileSelect}
-                                />
-                            </label>
-                        ) : (
-                            <div style={{ padding: '20px', border: '1px solid #e2e8f0', borderRadius: '12px', background: '#f8fafc' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-                                    <i className="fas fa-file-alt" style={{ fontSize: '1.5rem', color: '#64748b' }}></i>
-                                    <div style={{ textAlign: 'left', flex: 1 }}>
-                                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>{selectedFile.name}</div>
-                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{(selectedFile.size / 1024).toFixed(1)} KB</div>
+                            {!selectedFile ? (
+                                <label style={{
+                                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                    padding: '40px', border: '2px dashed #cbd5e1', borderRadius: '12px', cursor: 'pointer',
+                                    background: '#fff', transition: 'all 0.2s'
+                                }}
+                                    className="hover:bg-slate-50 hover:border-blue-400"
+                                >
+                                    <span style={{ fontWeight: 700, color: '#3b82f6', marginBottom: '8px' }}>Click to Browse</span>
+                                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Supports .zip and .pdf</span>
+                                    <input
+                                        type="file"
+                                        accept=".zip,.pdf"
+                                        style={{ display: 'none' }}
+                                        onChange={handleFileSelect}
+                                    />
+                                </label>
+                            ) : (
+                                <div style={{ padding: '20px', border: '1px solid #e2e8f0', borderRadius: '12px', background: '#f8fafc' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+                                        <i className="fas fa-file-alt" style={{ fontSize: '1.5rem', color: '#64748b' }}></i>
+                                        <div style={{ textAlign: 'left', flex: 1 }}>
+                                            <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>{selectedFile.name}</div>
+                                            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{(selectedFile.size / 1024).toFixed(1)} KB</div>
+                                        </div>
+                                        <button onClick={() => setSelectedFile(null)} style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer' }}>
+                                            <i className="fas fa-times"></i>
+                                        </button>
                                     </div>
-                                    <button onClick={() => setSelectedFile(null)} style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer' }}>
-                                        <i className="fas fa-times"></i>
+
+                                    <button
+                                        onClick={handleImportProcess}
+                                        disabled={isImporting}
+                                        style={{
+                                            width: '100%', padding: '12px', borderRadius: '8px', border: 'none',
+                                            background: isImporting ? '#94a3b8' : '#3b82f6', color: '#fff', fontWeight: 700, cursor: isImporting ? 'default' : 'pointer',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+                                        }}
+                                    >
+                                        {isImporting ? (
+                                            <><i className="fas fa-spinner fa-spin"></i> Processing...</>
+                                        ) : (
+                                            <><i className="fas fa-check"></i> Start Import</>
+                                        )}
                                     </button>
                                 </div>
+                            )}
 
-                                <button
-                                    onClick={handleImportProcess}
-                                    disabled={isImporting}
-                                    style={{
-                                        width: '100%', padding: '12px', borderRadius: '8px', border: 'none',
-                                        background: isImporting ? '#94a3b8' : '#3b82f6', color: '#fff', fontWeight: 700, cursor: isImporting ? 'default' : 'pointer',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
-                                    }}
-                                >
-                                    {isImporting ? (
-                                        <><i className="fas fa-spinner fa-spin"></i> Processing...</>
-                                    ) : (
-                                        <><i className="fas fa-check"></i> Start Import</>
-                                    )}
-                                </button>
-                            </div>
-                        )}
-
-                        <button onClick={() => { setIsImportModalOpen(false); setSelectedFile(null); }} style={{ marginTop: '16px', background: 'transparent', border: 'none', color: '#64748b', fontWeight: 600, cursor: 'pointer' }}>
-                            Cancel
-                        </button>
+                            <button onClick={() => { setIsImportModalOpen(false); setSelectedFile(null); }} style={{ marginTop: '16px', background: 'transparent', border: 'none', color: '#64748b', fontWeight: 600, cursor: 'pointer' }}>
+                                Cancel
+                            </button>
+                        </div>
                     </div>
-                </div>
-            )}
+                )
+            }
             {/* --- Modals for Quick Add --- */}
             <AddProjectModal
                 isOpen={modalTriggers.project}
@@ -1448,7 +1475,7 @@ const DealIntakePage = () => {
                 initialData={prefilledContactData}
                 mode="add"
             />
-        </div>
+        </div >
     );
 };
 
