@@ -23,6 +23,7 @@ function App() {
         if (path === '/activities') return 'activities';
         if (path === '/projects') return 'projects';
         if (path === '/account') return 'account';
+        if (path === '/deal-intake') return 'deal-intake';
         return 'dashboard';
     });
 
@@ -64,6 +65,8 @@ function App() {
                     setCurrentContactId(path.split('/').pop());
                 } else if (path === '/contacts') {
                     setCurrentView('contacts');
+                } else if (path === '/deal-intake') {
+                    setCurrentView('deal-intake');
                 } else {
                     setCurrentView('dashboard');
                 }

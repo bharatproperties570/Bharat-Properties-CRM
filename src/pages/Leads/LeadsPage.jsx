@@ -84,82 +84,89 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         setTimeout(() => setToast(null), 3000);
     };
 
-    // Server-side Pagination & Search
+    // Server-side Pagination & Search (Mocked for Demo)
     useEffect(() => {
         const fetchLeads = async () => {
             setLoading(true);
             try {
-                const queryParams = new URLSearchParams({
-                    page: currentPage,
-                    limit: recordsPerPage,
-                    search: searchTerm,
+                // MOCK DATA OVERRIDE for Demo of Buyer Detection Engine
+                const sourceData = leadData;
+
+                const mappedLeads = sourceData.map((lead, index) => {
+                    // Handle both Mock Data shape and API shape
+                    const contact = lead.contactDetails || {};
+                    const name = lead.name || `${contact.name || ""} ${contact.surname || ""}`.trim();
+
+                    // EXPIRY LOGIC
+                    let expiryBadge = null;
+                    if (lead.isTemporary && lead.expiryDate) {
+                        const daysLeft = Math.ceil((new Date(lead.expiryDate) - new Date()) / (1000 * 60 * 60 * 24));
+                        expiryBadge = {
+                            daysLeft,
+                            label: daysLeft > 0 ? `Expires in ${daysLeft} days` : 'EXPIRED',
+                            class: daysLeft < 3 ? 'badge-danger' : 'badge-warning'
+                        };
+                    }
+
+                    return {
+                        _id: lead._id || `mock-${index}`,
+
+                        // ===== BASIC INFO =====
+                        name: name,
+                        mobile: lead.mobile || contact.phones?.[0]?.number || "",
+                        email: lead.email || contact.emails?.[0]?.address || "",
+
+                        // ===== REQUIREMENT =====
+                        req: lead.req || {
+                            type: `${lead.requirement || ""} ${lead.subType?.[0] || ""}`.trim(),
+                            size: `${lead.areaMin || ""}-${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
+                        },
+
+                        // ===== BUDGET =====
+                        budget: lead.budget || (lead.budgetMin || lead.budgetMax
+                            ? `₹${Number(lead.budgetMin || 0).toLocaleString()} - ₹${Number(lead.budgetMax || 0).toLocaleString()}`
+                            : "—"),
+
+                        // ===== LOCATION =====
+                        location: lead.location || [
+                            Array.isArray(lead.projectName) ? lead.projectName.join(", ") : lead.projectName,
+                            Array.isArray(lead.locBlock) ? lead.locBlock.join(", ") : lead.locBlock,
+                            lead.locArea,
+                            lead.locCity
+                        ].filter(Boolean).map(s => s.trim()).filter(s => s.length > 0).join(", "),
+
+                        // ===== SOURCE & ASSIGNMENT =====
+                        source: lead.source || contact.source || "Direct",
+                        owner: lead.owner || contact.owner || "Unassigned",
+                        team: contact.team || "",
+
+                        // ===== STATUS =====
+                        status: lead.status || { label: "New", class: "new" },
+
+                        // ===== META =====
+                        lastAct: lead.lastAct || "Today",
+                        activity: lead.activity || "None",
+                        remarks: lead.remarks || "",
+                        matched: lead.matched || 0,
+                        addOn: lead.addOn || `Added ${new Date().toLocaleDateString()}`,
+
+                        // ===== TEMPORARY LEAD META =====
+                        isTemporary: lead.isTemporary || false,
+                        expiryBadge
+                    };
                 });
 
-                const res = await api.get(
-                    `api/lead/get-lead?${queryParams.toString()}`
-                );
-
-                if (res.data.success) {
-                    const mappedLeads = (res.data.data || []).map((lead) => {
-                        const contact = lead.contactDetails || {};
-
-                        return {
-                            _id: lead._id,
-
-                            // ===== BASIC INFO =====
-                            name: `${contact.name || ""} ${contact.surname || ""}`.trim(),
-                            mobile: contact.phones?.[0]?.number || "",
-                            email: contact.emails?.[0]?.address || "",
-
-                            // ===== REQUIREMENT =====
-                            req: {
-                                type: `${lead.requirement || ""} ${lead.subType?.[0] || ""}`.trim(),
-                                size: `${lead.areaMin || ""}-${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
-                            },
-
-                            // ===== BUDGET =====
-                            budget: lead.budgetMin || lead.budgetMax
-                                ? `₹${Number(lead.budgetMin || 0).toLocaleString()} - ₹${Number(
-                                    lead.budgetMax || 0
-                                ).toLocaleString()}`
-                                : "—",
-
-                            // ===== LOCATION =====
-                            // ===== LOCATION =====
-                            location: [
-                                Array.isArray(lead.projectName) ? lead.projectName.join(", ") : lead.projectName,
-                                Array.isArray(lead.projectTowers) ? lead.projectTowers.join(", ") : lead.projectTowers,
-                                lead.propertyNo ? `Unit ${lead.propertyNo}` : null,
-                                Array.isArray(lead.locBlock) ? lead.locBlock.join(", ") : lead.locBlock,
-                                lead.locArea,
-                                lead.projectCity,
-                                lead.locCity,
-                                lead.locPinCode,
-                                lead.searchLocation,
-                                lead.streetAddress
-                            ].filter(Boolean).map(s => s.trim()).filter(s => s.length > 0).join(", "),
-
-                            // ===== SOURCE & ASSIGNMENT =====
-                            source: lead.subSource || contact.source || "Direct",
-                            owner: contact.owner || "Unassigned",
-                            team: contact.team || "",
-
-                            // ===== STATUS (UI EXPECTED SHAPE) =====
-                            status: {
-                                label: "New",
-                                class: "new",
-                            },
-
-                            // ===== META =====
-                            lastAct: "Today",
-                            addOn: `Added ${new Date(lead.createdAt).toLocaleDateString()}`,
-                        };
-                    });
-
-                    setLeads(mappedLeads);
-                    setTotalPages(res.data.totalPages || 1);
-                    setTotalCount(res.data.total || 0);
+                // Client-side Filter for Mock
+                let filtered = mappedLeads;
+                if (searchTerm) {
+                    const lower = searchTerm.toLowerCase();
+                    filtered = filtered.filter(l => l.name.toLowerCase().includes(lower) || l.mobile.includes(lower));
                 }
+
+                setLeads(filtered);
+                setTotalCount(filtered.length);
+                setTotalPages(1);
+
             } catch (error) {
                 console.error("Error fetching leads:", error);
             } finally {
@@ -167,7 +174,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
             }
         };
 
-        const timer = setTimeout(fetchLeads, 500); // debounce
+        const timer = setTimeout(fetchLeads, 500);
         return () => clearTimeout(timer);
     }, [currentPage, recordsPerPage, searchTerm]);
 
@@ -622,15 +629,35 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                     {c.name}
                                                 </a>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
-                                                    {LeadConversionService.isConverted(c.mobile) || c.isConverted ? (
+                                                    {c.isTemporary && c.expiryBadge ? (
                                                         <span
-                                                            onClick={() => onNavigate('contact-detail', c.mobile)}
-                                                            style={{ background: '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
+                                                            style={{
+                                                                background: c.expiryBadge.class === 'badge-danger' ? '#fee2e2' : '#fef3c7',
+                                                                color: c.expiryBadge.class === 'badge-danger' ? '#991b1b' : '#92400e',
+                                                                fontSize: '0.65rem',
+                                                                padding: '1px 6px',
+                                                                borderRadius: '4px',
+                                                                fontWeight: 800,
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '3px',
+                                                                border: c.expiryBadge.class === 'badge-danger' ? '1px solid #fca5a5' : '1px solid #fcd34d'
+                                                            }}
+                                                            title="Broker leads auto-expire in 15 days"
                                                         >
-                                                            <i className="fas fa-check-circle"></i> CONVERTED
+                                                            <i className="fas fa-clock"></i> {c.expiryBadge.label.toUpperCase()}
                                                         </span>
                                                     ) : (
-                                                        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}><i className="fas fa-mobile-alt" style={{ marginRight: '6px', width: '12px' }}></i>{c.mobile}</div>
+                                                        LeadConversionService.isConverted(c.mobile) || c.isConverted ? (
+                                                            <span
+                                                                onClick={() => onNavigate('contact-detail', c.mobile)}
+                                                                style={{ background: '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
+                                                            >
+                                                                <i className="fas fa-check-circle"></i> CONVERTED
+                                                            </span>
+                                                        ) : (
+                                                            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}><i className="fas fa-mobile-alt" style={{ marginRight: '6px', width: '12px' }}></i>{c.mobile}</div>
+                                                        )
                                                     )}
                                                 </div>
                                             </div>

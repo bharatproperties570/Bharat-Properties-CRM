@@ -52,6 +52,7 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                 block: property.block || '',
                 size: property.size || '',
                 locationSearch: property.location || '',
+                status: property.status || 'Active',
                 // Add more mappings based on actual data structure match
             }));
             // If project name exists, try to find matching project to set presets?
@@ -160,6 +161,7 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
         // System Assignment
         assignedTo: '',
         team: '',
+        status: 'Active',
         visibleTo: 'Public',
 
         // Uploads
