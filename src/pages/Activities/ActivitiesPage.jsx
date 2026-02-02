@@ -428,18 +428,12 @@ function ActivitiesPage() {
                     <div className="page-title-group">
                         <i className="fas fa-tasks" style={{ color: '#68737d' }}></i>
                         <div>
-                            <span className="working-list-label">Task Management</span>
+                            <span className="working-list-label" style={{ display: 'block', whiteSpace: 'nowrap' }}>Task Management</span>
                             <h1>Activities</h1>
                         </div>
                     </div>
                     <div className="header-actions" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <button
-                            className="btn-primary"
-                            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-                            onClick={() => setIsCreateModalOpen(true)}
-                        >
-                            <i className="fas fa-plus"></i> Create Activity
-                        </button>
+
 
                         <div className="view-toggle-group">
                             <button

@@ -170,7 +170,7 @@ function DealsPage() {
                     <div className="page-title-group">
                         <i className="fas fa-handshake" style={{ color: '#68737d' }}></i>
                         <div>
-                            <span className="working-list-label">Sales Operations</span>
+                            <span className="working-list-label" style={{ display: 'block', whiteSpace: 'nowrap' }}>Sales Operations</span>
                             <h1>Deals</h1>
                         </div>
                     </div>
@@ -192,13 +192,7 @@ function DealsPage() {
                         <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <i className="fas fa-filter"></i> Filters
                         </button>
-                        <button
-                            className="btn-primary"
-                            style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', padding: '10px 18px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}
-                            onClick={() => setIsAddModalOpen(true)}
-                        >
-                            <i className="fas fa-plus"></i> Add Deal
-                        </button>
+
                     </div>
                 </div>
 

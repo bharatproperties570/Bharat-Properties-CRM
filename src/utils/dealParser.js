@@ -40,10 +40,11 @@ const PATTERNS = {
     // 5. Structure / Type
     BHK: /(\d)\s?bhk/i,
     TYPE_KEYWORDS: {
-        'Plot': ['plot', 'land', 'gaz', 'sqyd', 'kanal', 'marla'],
-        'Flat': ['flat', 'apartment', 'bhk', 'penthouse', 'floor'],
-        'Commercial': ['shop', 'showroom', 'booth', 'sco', 'dss', 'office', 'bay', 'scf'],
-        'Villa': ['villa', 'kothi', 'independent house', 'bungalow', 'house']
+        'Residential': ['flat', 'apartment', 'bhk', 'penthouse', 'floor', 'builder floor', 'studio', 'duplex', 'simplex', 'villa', 'kothi', 'house', 'independent house', 'bungalow', 'mansion', 'residence', 'plot', 'land', 'gaz', 'sqyd', 'kanal', 'marla', 'bigha', 'acre'],
+        'Commercial': ['shop', 'showroom', 'booth', 'sco', 'scf', 'dss', 'bay shop', 'double storey', 'office', 'office space', 'retail', 'anchor store', 'food court', 'multiplex', 'hotel', 'restaurant', 'pub', 'bar', 'club', 'resort', 'commercial plot', 'commercial land', 'plaza', 'mall'],
+        'Industrial': ['factory', 'shed', 'warehouse', 'godown', 'storage', 'cold storage', 'industrial plot', 'industrial land', 'industrial shed', 'plant', 'manufacturing unit', 'industry'],
+        'Agricultural': ['farm', 'farm land', 'agricultural land', 'agriculture', 'khet', 'zameen', 'jameen', 'vadi', 'farmhouse', 'orchard', 'nursery'],
+        'Institutional': ['school', 'college', 'university', 'campus', 'institute', 'coaching centre', 'education', 'hospital', 'nursing home', 'clinic', 'dispensary', 'labs', 'pathology', 'institutional plot', 'religious', 'temple', 'mandir', 'gurudwara', 'church']
     }
 };
 
@@ -133,27 +134,25 @@ const determineCategoryType = (text, customPatterns = null) => {
         };
     }
 
-    // Check Keywords
-    // Use custom patterns if available, else fall back to default
-    const typeKeywords = (typeof PATTERNS === 'undefined' ? {} : PATTERNS.TYPE_KEYWORDS);
-    // Actually PATTERNS is in scope. But we need to check customPatterns from argument if passed?
-    // Wait, determineCategoryType doesn't take customPatterns arg yet.
-    // We need to pass it down.
-
-    // NOTE: This function needs to be refactored to accept patterns map.
-    // But since it's an internal helper, we might need to modify the call site in parseDealContent first.
-    // Let's assume we change call site to pass `patterns` object which is either customPatterns or PATTERNS.
-
     const keywordsMap = (customPatterns && customPatterns.TYPE_KEYWORDS) ? customPatterns.TYPE_KEYWORDS : PATTERNS.TYPE_KEYWORDS;
 
-    for (const [key, words] of Object.entries(keywordsMap)) {
-        const found = words.find(w => text.includes(w));
-        if (found) {
-            type = key;
-            if (key === 'Commercial') category = 'Commercial';
-            matchString = found;
-            break;
-        }
+    // Flatten all keywords with their category info
+    const allKeywords = [];
+    for (const [catName, words] of Object.entries(keywordsMap)) {
+        words.forEach(w => {
+            allKeywords.push({ word: normalizeText(w), category: catName });
+        });
+    }
+
+    // Sort by length descending to prioritize more specific terms (e.g. "industrial plot" over "plot")
+    const sortedKeywords = allKeywords.sort((a, b) => b.word.length - a.word.length);
+
+    const foundMatch = sortedKeywords.find(kw => text.includes(kw.word));
+
+    if (foundMatch) {
+        type = foundMatch.word.replace(/\b\w/g, c => c.toUpperCase());
+        category = foundMatch.category;
+        matchString = foundMatch.word;
     }
 
     return { category, type, match: matchString };

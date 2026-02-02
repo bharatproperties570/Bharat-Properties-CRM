@@ -93,9 +93,6 @@ function ProjectsPage() {
                     <span className="working-list-label">Luxury Portfolio</span>
                     <h1>Real Estate Projects</h1>
                 </div>
-                <div className="verified-badge" style={{ background: '#e3f2fd', color: '#1976d2', padding: '4px 10px', borderRadius: '20px', fontSize: '0.7rem', fontWeight: 800, marginLeft: '10px' }}>
-                    <i className="fas fa-check-circle"></i> VERIFIED LIST
-                </div>
             </div>
             <div className="header-actions" style={{ display: 'flex', gap: '12px' }}>
                 <div className="view-toggle-group">

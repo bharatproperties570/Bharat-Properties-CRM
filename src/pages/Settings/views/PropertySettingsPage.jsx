@@ -277,6 +277,14 @@ const PropertySettingsPage = () => {
 
     // Safe initialization using function to avoid object key access if config invalid
     const [configCategory, setConfigCategory] = useState(() => propertyConfig && Object.keys(propertyConfig).length > 0 ? Object.keys(propertyConfig)[0] : null);
+
+    // Safety effect: Re-initialize category if it's null but configuration becomes available
+    useEffect(() => {
+        if (!configCategory && propertyConfig && Object.keys(propertyConfig).length > 0) {
+            setConfigCategory(Object.keys(propertyConfig)[0]);
+        }
+    }, [propertyConfig, configCategory]);
+
     const [configSubCategory, setConfigSubCategory] = useState(null);
     const [configType, setConfigType] = useState(null);
     const [activeOrientationField, setActiveOrientationField] = useState('facings');
@@ -536,7 +544,7 @@ const PropertySettingsPage = () => {
                 </div>
 
                 <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid #e2e8f0', marginBottom: '32px' }}>
-                    {['Sizes', 'Configuration', 'Feedback Outcomes', 'Orientation'].map(tab => (
+                    {['Sizes', 'Configuration', 'Feedback Outcomes', 'Orientation', 'Parsing Rules'].map(tab => (
                         <div
                             key={tab}
                             onClick={() => setActiveTab(tab)}
@@ -653,6 +661,8 @@ const PropertySettingsPage = () => {
                     </div>
                 ) : activeTab === 'Feedback Outcomes' ? (
                     <CustomizeFeedbackPage isEmbedded={true} />
+                ) : activeTab === 'Parsing Rules' ? (
+                    <ParsingRulesPage isEmbedded={true} />
                 ) : (
                     <div style={{ height: 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.05)' }}>
                         <div style={{ background: '#fff', padding: '16px 24px', borderBottom: '1px solid #e2e8f0' }}><h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>Orientation & Fields</h2></div>

@@ -12,10 +12,30 @@ const DEFAULT_LOCATIONS = [
 ];
 
 const DEFAULT_TYPES = {
-    'Plot': ['plot', 'land', 'gaz', 'sqyd', 'kanal', 'marla'],
-    'Flat': ['flat', 'apartment', 'bhk', 'penthouse', 'floor'],
-    'Commercial': ['shop', 'showroom', 'booth', 'sco', 'dss', 'office', 'bay', 'scf'],
-    'Villa': ['villa', 'kothi', 'independent house', 'bungalow', 'house']
+    'Residential': [
+        'flat', 'apartment', 'bhk', 'penthouse', 'floor', 'builder floor', 'studio', 'duplex', 'simplex',
+        'villa', 'kothi', 'house', 'independent house', 'bungalow', 'mansion', 'residence',
+        'plot', 'land', 'gaz', 'sqyd', 'kanal', 'marla', 'bigha', 'acre'
+    ],
+    'Commercial': [
+        'shop', 'showroom', 'booth', 'sco', 'scf', 'dss', 'bay shop', 'double storey',
+        'office', 'office space', 'retail', 'anchor store', 'food court', 'multiplex',
+        'hotel', 'restaurant', 'pub', 'bar', 'club', 'resort',
+        'commercial plot', 'commercial land', 'plaza', 'mall'
+    ],
+    'Industrial': [
+        'factory', 'shed', 'warehouse', 'godown', 'storage', 'cold storage',
+        'industrial plot', 'industrial land', 'industrial shed', 'plant', 'manufacturing unit', 'industry'
+    ],
+    'Agricultural': [
+        'farm', 'farm land', 'agricultural land', 'agriculture', 'khet', 'zameen', 'jameen', 'vadi',
+        'farmhouse', 'orchard', 'nursery'
+    ],
+    'Institutional': [
+        'school', 'college', 'university', 'campus', 'institute', 'coaching centre', 'education',
+        'hospital', 'nursing home', 'clinic', 'dispensary', 'labs', 'pathology',
+        'institutional plot', 'religious', 'temple', 'mandir', 'gurudwara', 'church'
+    ]
 };
 
 export const ParsingProvider = ({ children }) => {

@@ -3,7 +3,7 @@ import { useParsing } from '../../../context/ParsingContext';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { parseDealContent } from '../../../utils/dealParser';
 
-const ParsingRulesPage = () => {
+const ParsingRulesPage = ({ isEmbedded = false }) => {
     const { cities, locations, types: parserTypes, addKeyword, removeKeyword } = useParsing();
     const { propertyTypes } = usePropertyConfig(); // Assuming we might want to sync later, but for now independent
 
@@ -38,14 +38,18 @@ const ParsingRulesPage = () => {
         }
     };
 
-    return (
-        <div className="animate-fade-in">
-            <div style={{ marginBottom: '24px' }}>
-                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b', marginBottom: '8px' }}>Parsing Intelligence</h2>
-                <p style={{ color: '#64748b' }}>Configure the keywords and patterns used by the AI Deal Parser.</p>
-            </div>
+    const categoryOrder = ['Residential', 'Commercial', 'Industrial', 'Agricultural', 'Institutional'];
 
-            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+    return (
+        <div className="animate-fade-in" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            {!isEmbedded && (
+                <div style={{ marginBottom: '24px' }}>
+                    <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b', marginBottom: '8px' }}>Parsing Intelligence</h2>
+                    <p style={{ color: '#64748b' }}>Configure the keywords and patterns used by the AI Deal Parser.</p>
+                </div>
+            )}
+
+            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column' }}>
                 {/* Tabs */}
                 <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
                     <button
@@ -94,7 +98,7 @@ const ParsingRulesPage = () => {
                     </button>
                 </div>
 
-                <div style={{ padding: '32px' }}>
+                <div style={{ padding: '32px', overflowY: 'auto', flex: 1 }}>
                     {activeTab === 'GEOGRAPHY' && (
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px' }}>
                             {/* Cities Column */}
@@ -175,46 +179,48 @@ const ParsingRulesPage = () => {
                             </p>
 
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px' }}>
-                                {Object.keys(parserTypes).map(category => (
-                                    <div key={category} style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                                        <h4 style={{ margin: '0 0 16px 0', fontSize: '1rem', fontWeight: 800, color: '#1e293b' }}>{category} Keywords</h4>
+                                {categoryOrder.map(category => (
+                                    parserTypes[category] && (
+                                        <div key={category} style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                            <h4 style={{ margin: '0 0 16px 0', fontSize: '1rem', fontWeight: 800, color: '#1e293b' }}>{category} Keywords</h4>
 
-                                        <form
-                                            onSubmit={(e) => {
-                                                e.preventDefault();
-                                                const val = e.target.elements.newKeyword.value.trim();
-                                                if (val) {
-                                                    addKeyword('TYPE', { category, word: val.toLowerCase() });
-                                                    e.target.elements.newKeyword.value = '';
-                                                }
-                                            }}
-                                            style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}
-                                        >
-                                            <input
-                                                name="newKeyword"
-                                                type="text"
-                                                placeholder={`Add ${category} keyword...`}
-                                                style={{ flex: 1, padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.85rem' }}
-                                            />
-                                            <button type="submit" style={{ padding: '0 12px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer', fontSize: '0.85rem' }}>
-                                                Add
-                                            </button>
-                                        </form>
+                                            <form
+                                                onSubmit={(e) => {
+                                                    e.preventDefault();
+                                                    const val = e.target.elements.newKeyword.value.trim();
+                                                    if (val) {
+                                                        addKeyword('TYPE', { category, word: val.toLowerCase() });
+                                                        e.target.elements.newKeyword.value = '';
+                                                    }
+                                                }}
+                                                style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}
+                                            >
+                                                <input
+                                                    name="newKeyword"
+                                                    type="text"
+                                                    placeholder={`Add ${category} keyword...`}
+                                                    style={{ flex: 1, padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.85rem' }}
+                                                />
+                                                <button type="submit" style={{ padding: '0 12px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer', fontSize: '0.85rem' }}>
+                                                    Add
+                                                </button>
+                                            </form>
 
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                            {parserTypes[category].map((word, idx) => (
-                                                <div key={idx} style={{ padding: '4px 10px', background: '#fff', border: '1px solid #cbd5e1', borderRadius: '16px', fontSize: '0.8rem', color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                    {word}
-                                                    <button
-                                                        onClick={() => removeKeyword('TYPE', { category, word })}
-                                                        style={{ border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer', padding: 0, fontSize: '0.7rem' }}
-                                                    >
-                                                        <i className="fas fa-times"></i>
-                                                    </button>
-                                                </div>
-                                            ))}
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                                {parserTypes[category].map((word, idx) => (
+                                                    <div key={idx} style={{ padding: '4px 10px', background: '#fff', border: '1px solid #cbd5e1', borderRadius: '16px', fontSize: '0.8rem', color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                        {word}
+                                                        <button
+                                                            onClick={() => removeKeyword('TYPE', { category, word })}
+                                                            style={{ border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer', padding: 0, fontSize: '0.7rem' }}
+                                                        >
+                                                            <i className="fas fa-times"></i>
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </div>
-                                    </div>
+                                    )
                                 ))}
                             </div>
                         </div>
@@ -230,12 +236,20 @@ const ParsingRulesPage = () => {
                                     placeholder="Paste a WhatsApp message here to test parsing..."
                                     style={{ width: '100%', height: '200px', padding: '16px', border: '1px solid #cbd5e1', borderRadius: '8px', fontFamily: 'monospace', fontSize: '0.9rem', resize: 'vertical' }}
                                 />
-                                <button
-                                    onClick={handleRunTest}
-                                    style={{ marginTop: '16px', padding: '10px 24px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer', width: '100%' }}
-                                >
-                                    Run Analysis
-                                </button>
+                                <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                                    <button
+                                        onClick={handleRunTest}
+                                        style={{ flex: 2, padding: '10px 24px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer' }}
+                                    >
+                                        Run Analysis
+                                    </button>
+                                    <button
+                                        onClick={() => { setTestText(''); setTestResult(null); }}
+                                        style={{ flex: 1, padding: '10px 16px', background: '#fff', color: '#64748b', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}
+                                    >
+                                        Clear
+                                    </button>
+                                </div>
                             </div>
 
                             <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
