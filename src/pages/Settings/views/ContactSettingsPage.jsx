@@ -5,7 +5,8 @@ import Toast from '../../../components/Toast';
 const HIERARCHY_LEVELS = {
     'Professional': ['Category', 'Sub Category', 'Designation'],
     'Address': ['Country', 'State', 'City', 'Location', 'Tehsil', 'Post Office', 'Pincode'],
-    'Profile': ['Section', 'Category', 'Item']
+    // 'Profile': ['Section', 'Category', 'Item']
+    'Profile': ['Section', 'Item']
 };
 
 const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onDelete }) => (
@@ -38,8 +39,8 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
                     >
                         {itemName}
                         <div className="item-actions" style={{ display: 'flex', gap: '8px', opacity: isSelected ? 1 : 0.5 }}>
-                            <i className="fas fa-edit" style={{ fontSize: '0.8rem', cursor: 'pointer', color: '#64748b' }} onClick={(e) => { e.stopPropagation(); onEdit(itemName); }}></i>
-                            <i className="fas fa-trash" style={{ fontSize: '0.8rem', cursor: 'pointer', color: '#ef4444' }} onClick={(e) => { e.stopPropagation(); onDelete(itemName); }}></i>
+                            <i className="fas fa-edit" style={{ fontSize: '0.8rem', cursor: 'pointer', color: '#64748b' }} onClick={(e) => { e.stopPropagation(); onEdit(item); }}></i>
+                            <i className="fas fa-trash" style={{ fontSize: '0.8rem', cursor: 'pointer', color: '#ef4444' }} onClick={(e) => { e.stopPropagation(); onDelete(item); }}></i>
                         </div>
                     </div>
                 );
@@ -51,8 +52,13 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
     </div>
 );
 
+
+
+
+
 const ContactSettingsPage = () => {
-    const { professionalConfig, updateProfessionalConfig, addressConfig, updateAddressConfig, profileConfig, updateProfileConfig } = useContactConfig();
+    // UPDATED: Destructure only what we need and the new methods
+    const { professionalConfig, addressConfig, profileConfig, addLookup, updateLookup, deleteLookup, loading } = useContactConfig();
     const [activeTab, setActiveTab] = useState('Professional');
     const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
 
@@ -64,12 +70,19 @@ const ContactSettingsPage = () => {
     };
 
     const currentConfig = activeTab === 'Professional' ? professionalConfig : activeTab === 'Address' ? addressConfig : profileConfig;
-    const updateCurrentConfig = activeTab === 'Professional' ? updateProfessionalConfig : activeTab === 'Address' ? updateAddressConfig : updateProfileConfig;
     const levelTitles = HIERARCHY_LEVELS[activeTab];
 
     // Helper to get Data at a specific level based on path
     const getLevelData = (levelIndex, path) => {
-        if (levelIndex === 0) return Object.keys(currentConfig);
+        if (!currentConfig) return [];
+
+        if (levelIndex === 0) {
+            // Include all properties (id, etc.) and ensure name is set
+            return Object.values(currentConfig).map(c => ({
+                ...c,
+                name: c.name || Object.keys(currentConfig).find(key => currentConfig[key] === c)
+            }));
+        }
 
         // Traverse to parent
         let currentNode = currentConfig[path[0]];
@@ -86,96 +99,118 @@ const ContactSettingsPage = () => {
         return [];
     };
 
-    // --- CRUD Logic (Generic) ---
 
-    const handleAdd = (levelIndex) => {
+    // --- CRUD Logic (Connected to API) ---
+
+    const handleAdd = async (levelIndex) => {
         const title = levelTitles[levelIndex];
         const name = prompt(`Enter new ${title}:`);
         if (!name) return;
 
-        const newConfig = { ...currentConfig };
-
-        // Root Level
-        if (levelIndex === 0) {
-            if (newConfig[name]) { alert('Already exists'); return; }
-            newConfig[name] = { subCategories: [] };
+        // Determine Parent Value
+        let parentValue = null;
+        if (levelIndex > 0) {
+            parentValue = selectedPath[levelIndex - 1];
         }
-        // Sub Levels
-        else {
-            // Traverse to parent
-            let parent = newConfig[selectedPath[0]];
-            for (let i = 1; i < levelIndex; i++) {
-                parent = parent.subCategories.find(item => item.name === selectedPath[i]);
-            }
 
-            // Determine if we are adding to 'types' (leaf) or 'subCategories'
-            // Logic: If current parent ALREADY has types, or if we are at the last defined level.
-            // Professional: Category -> Sub -> Designation (3 levels). Last index = 2.
-            const isLeafLevel = levelIndex === levelTitles.length - 1;
+        // Call API
+        const success = await addLookup(activeTab, name, parentValue);
 
-            if (isLeafLevel || (parent.types && Array.isArray(parent.types))) {
-                if (!parent.types) parent.types = [];
-                if (parent.types.includes(name)) { alert('Already exists'); return; }
-                parent.types.push(name);
-            } else {
-                if (!parent.subCategories) parent.subCategories = [];
-                if (parent.subCategories.some(s => s.name === name)) { alert('Already exists'); return; }
-
-                // If we are adding a subCategory, we need to know if IT should have subCategories or types.
-                // Look ahead: is the NEXT level the last level?
-                // LevelIndex is what we just added. Children are at LevelIndex + 1.
-                // If LevelIndex + 1 === MaxIndex, then children are leaves (types).
-                // So if LevelIndex < MaxIndex - 1, we init subCategories. 
-                // Else we might init types? Actually, we usually init subCategories=[] and decide later based on usage,
-                // BUT for now let's stick to subCategories default unless leaf.
-                const newItem = { name };
-
-                // If the next level is NOT a leaf, it definitely needs subCategories.
-                // If it IS a leaf, it will get 'types' when we add them.
-                if (levelIndex < levelTitles.length - 2) {
-                    newItem.subCategories = [];
-                } else {
-                    // Next level is leaf, so we can prep types or leave undefined
-                    newItem.types = [];
-                }
-                parent.subCategories.push(newItem);
-            }
-        }
-        updateCurrentConfig(newConfig);
-        showToast(`${title} added`);
-    };
-
-    const handleDelete = (levelIndex, itemName) => {
-        if (!confirm(`Delete '${itemName}'?`)) return;
-        const newConfig = { ...currentConfig };
-
-        if (levelIndex === 0) {
-            delete newConfig[itemName];
-            if (selectedPath[0] === itemName) setSelectedPath([]);
+        if (success) {
+            showToast(`${title} added`);
         } else {
-            let parent = newConfig[selectedPath[0]];
-            for (let i = 1; i < levelIndex; i++) {
-                parent = parent.subCategories.find(item => item.name === selectedPath[i]);
-            }
-
-            if (parent.types && parent.types.includes(itemName)) {
-                parent.types = parent.types.filter(t => t !== itemName);
-            } else if (parent.subCategories) {
-                parent.subCategories = parent.subCategories.filter(s => s.name !== itemName);
-            }
-
-            // Trim selection if needed
-            if (selectedPath[levelIndex] === itemName) {
-                setSelectedPath(selectedPath.slice(0, levelIndex));
-            }
+            showToast(`Failed to add ${title}`, 'error');
         }
-        updateCurrentConfig(newConfig);
-        showToast('Deleted');
     };
+
+    const handleDelete = async (levelIndex, item) => {
+        const itemName = typeof item === 'object' ? item.name : item;
+        const itemId = typeof item === 'object' ? item.id : null;
+
+        // Check if item has children
+        if (typeof item === 'object' && item.subCategories && item.subCategories.length > 0) {
+            alert(`Cannot delete '${itemName}' because it has sub-categories. Please delete them first.`);
+            return;
+        }
+
+        if (!confirm(`Delete '${itemName}'?`)) return;
+
+        if (itemId) {
+            const success = await deleteLookup(itemId);
+            if (success) {
+                // Trim selection if needed
+                if (selectedPath[levelIndex] === itemName) {
+                    setSelectedPath(selectedPath.slice(0, levelIndex));
+                }
+                showToast('Deleted');
+            } else {
+                showToast('Failed to delete', 'error');
+            }
+        } else {
+            alert("Cannot delete this item (ID not found). Refresh and try again.");
+        }
+    };
+
+    const handleEdit = async (item) => {
+        const itemName = typeof item === 'object' ? item.name : item;
+        const itemId = typeof item === 'object' ? item.id : null;
+
+        // We need type and parent to preserve them during update
+        // We added them to the object in buildHierarchy now.
+        const itemType = typeof item === 'object' ? item.lookup_type : activeTab;
+        const itemParent = typeof item === 'object' ? item.parent_lookup_value : null;
+
+        if (!itemId) {
+            alert("Cannot edit this item (ID not found). Refresh and try again.");
+            return;
+        }
+
+        const newName = prompt(`Rename '${itemName}' to:`, itemName);
+        if (!newName || newName === itemName) return;
+
+        const success = await updateLookup(itemId, newName, itemType, itemParent);
+        if (success) {
+            showToast('Updated');
+        } else {
+            showToast('Failed to update', 'error');
+        }
+    };
+
+    // ... (rest of code)
+
+    // Actually, I should replace the destructuring line as well.
+    // I can't do non-contiguous edits in one `replace_file_content`.
+    // I will use `multi_replace_file_content` if needed, but I should use `replace_file_content` per instructions. 
+    // "Do NOT make multiple parallel calls to this tool".
+    // I will simply replace the whole component body or use multi_replace.
+    // I will use `multi_replace_file_content` to fix destructuring AND implement handleEdit.
+
+    // Wait, the instruction says: "Use this tool ONLY when you are making MULTIPLE, NON-CONTIGUOUS edits". Yes.
+    // So I will abort this `replace_file_content` and use `multi_replace_file_content`.
+
+    /* 
+       ABORTING RETURNING TOOL CALL HERE TO SWAP TO MULTI_REPLACE 
+       But I am in the thought trace. I must output tool call.
+    */
+
+    /* 
+       Let's just use replace_file_content to update `handleDelete` and `handleEdit` block AND the `onEdit` prop.
+       But the destructuring is at line 61.
+       The handlers are at 158.
+       They are far apart.
+       
+       I will use `multi_replace_file_content`.
+    */
 
     // Calculate columns to render
     const columnsToRender = [];
-    columnsToRender.push({ index: 0, items: getLevelData(0, []) }); // Root
+
+    // ROOT LEVEL FIX needed in Context to get IDs.
+    // For now, I will map Object.keys, but `item` will be string, so `delete` won't work for Root.
+    // This is a known limitation until I fix Context.
+
+    const rootData = getLevelData(0, []);
+    columnsToRender.push({ index: 0, items: rootData });
 
     for (let i = 0; i < selectedPath.length; i++) {
         if (i < levelTitles.length - 1) {
@@ -183,6 +218,8 @@ const ContactSettingsPage = () => {
             columnsToRender.push({ index: i + 1, items });
         }
     }
+
+    if (loading) return <div style={{ padding: '20px' }}>Loading configuration...</div>;
 
     return (
         <div style={{ flex: 1, background: '#f8fafc', padding: '24px', overflowY: 'auto' }}>
@@ -238,7 +275,7 @@ const ContactSettingsPage = () => {
                                 setSelectedPath(newPath);
                             }}
                             onAdd={() => handleAdd(col.index)}
-                            onEdit={() => { }} // Placeholder
+                            onEdit={(item) => handleEdit(item)}
                             onDelete={(item) => handleDelete(col.index, item)}
                         />
                     ))}
@@ -252,3 +289,4 @@ const ContactSettingsPage = () => {
 };
 
 export default ContactSettingsPage;
+
