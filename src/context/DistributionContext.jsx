@@ -26,13 +26,23 @@ export const useDistribution = () => {
 export const DistributionProvider = ({ children }) => {
     // Load from localStorage
     const [distributionRules, setDistributionRules] = useState(() => {
-        const saved = localStorage.getItem('distributionRules');
-        return saved ? JSON.parse(saved) : [];
+        try {
+            const saved = localStorage.getItem('distributionRules');
+            return saved ? JSON.parse(saved) : [];
+        } catch (e) {
+            console.error('Error parsing distributionRules', e);
+            return [];
+        }
     });
 
     const [distributionLog, setDistributionLog] = useState(() => {
-        const saved = localStorage.getItem('distributionLog');
-        return saved ? JSON.parse(saved) : [];
+        try {
+            const saved = localStorage.getItem('distributionLog');
+            return saved ? JSON.parse(saved) : [];
+        } catch (e) {
+            console.error('Error parsing distributionLog', e);
+            return [];
+        }
     });
 
     const [agentWorkload, setAgentWorkload] = useState({});

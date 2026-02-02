@@ -542,6 +542,40 @@ export const inventoryData = [
         lastContactUser: 'Admin'
     },
     {
+        name: 'Suresh Kumar',
+        mobile: '9876543215',
+        email: 'suresh@broker.com',
+        req: { type: 'Residential Plot', size: '10 Marla' },
+        budget: '85 Lakh',
+        location: 'Sector 82 Mohali',
+        status: { label: 'Active', class: 'active' },
+        source: 'Broker',
+        owner: 'System',
+        activity: 'Called',
+        lastAct: '2 days ago',
+        remarks: 'Broker client looking for urgent deal',
+        matched: 2,
+        isTemporary: true,
+        expiryDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString() // Expires in 5 days
+    },
+    {
+        name: 'Amit Broker',
+        mobile: '9988776655',
+        email: 'amit@remax.com',
+        req: { type: 'Commercial SCO', size: '100 sqyd' },
+        budget: '3 Cr',
+        location: 'Airport Road',
+        status: { label: 'New', class: 'new' },
+        source: 'WhatsApp',
+        owner: 'System',
+        activity: 'Intake',
+        lastAct: '1 hour ago',
+        remarks: 'Client interested in pre-leased property',
+        matched: 0,
+        isTemporary: true,
+        expiryDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString() // Expires in 14 days
+    },
+    {
         id: 10,
         unitNo: '102',
         corner: 'Ordinary',
@@ -729,3 +763,41 @@ export const inventoryData = [
         associatedPhone: '9416012345'
     }
 ];
+
+export const dealData = [
+    {
+        id: 101,
+        title: 'Urgent Sale: 1 Kanal Plot in Sector 13',
+        inventoryId: 17,
+        location: 'Sector 13 Kurukshetra',
+        price: '2.5 Cr',
+        type: 'Residential Plot',
+        size: '1 Kanal',
+        status: 'Active',
+        stage: 'Proposing',
+        owner: 'Mrs. Manpreet Kaur',
+        description: 'Prime location plot near market. Urgent sale.',
+        requirements: ['Sector 13', 'Plot', '1 Kanal', '2.5 Cr']
+    },
+    {
+        id: 102,
+        title: '3BHK Flat in Royal Palms',
+        inventoryId: 13,
+        location: 'Zirakpur',
+        price: '75 Lac',
+        type: 'Apartment',
+        size: '3BHK',
+        status: 'Active',
+        stage: 'Negotiation',
+        owner: 'Mrs. Manpreet Kaur',
+        description: 'Ready to move in 3BHK with pool view.',
+        requirements: ['Zirakpur', 'Flat', '3BHK', '75 Lac']
+    }
+];
+
+// Update a contact to be a Broker for testing
+contactData[4] = {
+    ...contactData[4], // Raghbir Maan
+    category: 'Broker',
+    role: 'Broker'
+};

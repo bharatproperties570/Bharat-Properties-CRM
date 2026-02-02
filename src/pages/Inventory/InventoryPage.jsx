@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useTriggers } from '../../context/TriggersContext';
+import { useCall } from '../../context/CallContext';
 import { inventoryData } from '../../data/mockData';
+import { dealIntakeData } from '../../data/dealIntakeData';
+
 import UploadModal from '../../components/UploadModal';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
 import AddInventoryModal from '../../components/AddInventoryModal';
@@ -11,8 +14,9 @@ import SendMessageModal from '../../components/SendMessageModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
 import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
 
-function InventoryPage() {
+function InventoryPage({ onNavigate }) {
     const { fireEvent } = useTriggers();
+    const { startCall } = useCall();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
@@ -177,9 +181,9 @@ function InventoryPage() {
                 // Automation: Mark as Sold/Rented/Inactive
                 let newStatus = item.status;
                 if (data.markAsSold && data.reason) {
-                    if (data.reason.includes('Sold Out')) {
+                    if (String(data.reason).includes('Sold Out')) {
                         newStatus = 'Sold Out';
-                    } else if (data.reason.includes('Rented Out')) {
+                    } else if (String(data.reason).includes('Rented Out')) {
                         newStatus = 'Rented Out';
                     } else {
                         newStatus = 'Inactive';
@@ -269,23 +273,42 @@ function InventoryPage() {
                             <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fas fa-filter"></i> Filters
                             </button>
+
                         </div>
                     </div>
 
-                    <div className="inventory-stats-row" style={{ padding: '12px 25px' }}>
-                        <div className="status-card" style={{ padding: '8px 15px', maxWidth: '180px' }}>
-                            <div className="stat-icon-dot dot-active"></div>
-                            <div className="stat-card-info">
-                                <h3 style={{ fontSize: '0.7rem' }}>Active</h3>
-                                <div className="stat-count" style={{ fontSize: '1.2rem', color: '#388E3C' }}>1,441</div>
+                    <div className="inventory-stats-row" style={{ padding: '12px 25px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', gap: '15px' }}>
+                            <div className="status-card" style={{ padding: '8px 15px', maxWidth: '180px' }}>
+                                <div className="stat-icon-dot dot-active"></div>
+                                <div className="stat-card-info">
+                                    <h3 style={{ fontSize: '0.7rem' }}>Active</h3>
+                                    <div className="stat-count" style={{ fontSize: '1.2rem', color: '#388E3C' }}>1,441</div>
+                                </div>
+                            </div>
+                            <div className="status-card" style={{ padding: '8px 15px', maxWidth: '180px' }}>
+                                <div className="stat-icon-dot dot-inactive"></div>
+                                <div className="stat-card-info">
+                                    <h3 style={{ fontSize: '0.7rem' }}>Inactive</h3>
+                                    <div className="stat-count" style={{ fontSize: '1.2rem', color: '#D32F2F' }}>29,218</div>
+                                </div>
                             </div>
                         </div>
-                        <div className="status-card" style={{ padding: '8px 15px', maxWidth: '180px' }}>
-                            <div className="stat-icon-dot dot-inactive"></div>
-                            <div className="stat-card-info">
-                                <h3 style={{ fontSize: '0.7rem' }}>Inactive</h3>
-                                <div className="stat-count" style={{ fontSize: '1.2rem', color: '#D32F2F' }}>29,218</div>
+
+                        {/* Deal Intake Icon moved here */}
+                        <div
+                            style={{ position: 'relative', cursor: 'pointer', marginLeft: 'auto' }}
+                            onClick={() => onNavigate && onNavigate('deal-intake')}
+                            title="Deal Intake Inbox"
+                        >
+                            <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#fff', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+                                <i className="fas fa-inbox" style={{ color: '#64748b', fontSize: '1.1rem' }}></i>
                             </div>
+                            {dealIntakeData && dealIntakeData.length > 0 && (
+                                <div style={{ position: 'absolute', top: '-6px', right: '-6px', background: '#ef4444', color: '#fff', fontSize: '0.7rem', fontWeight: 800, width: '20px', height: '20px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #fff' }}>
+                                    {dealIntakeData.length}
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -321,7 +344,26 @@ function InventoryPage() {
                                             </button>
                                             <button className="action-btn" title="Add Owner" style={{ flexShrink: 0 }} onClick={handleOwnerClick}><i className="fas fa-user-plus"></i> Owner</button>
                                             <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px', flexShrink: 0 }}></div>
-                                            <button className="action-btn" title="Call Owner" style={{ flexShrink: 0 }}><i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call</button>
+                                            <button
+                                                className="action-btn"
+                                                title="Call Owner"
+                                                style={{ flexShrink: 0 }}
+                                                onClick={() => {
+                                                    const property = getSelectedProperty();
+                                                    if (property) {
+                                                        startCall({
+                                                            name: property.ownerName || 'Unknown Owner',
+                                                            mobile: property.ownerPhone
+                                                        }, {
+                                                            purpose: 'Owner Update',
+                                                            entityId: property.id,
+                                                            entityType: 'inventory'
+                                                        });
+                                                    }
+                                                }}
+                                            >
+                                                <i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call
+                                            </button>
                                             <button className="action-btn" title="Message Owner" style={{ flexShrink: 0 }} onClick={handleMessageClick}><i className="fas fa-comment-alt"></i> Message</button>
                                             <button className="action-btn" title="Email Owner" style={{ flexShrink: 0 }} onClick={handleEmailClick}><i className="fas fa-envelope"></i> Email</button>
                                             <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px', flexShrink: 0 }}></div>
@@ -382,121 +424,126 @@ function InventoryPage() {
                         </div>
 
                         <div className="list-content">
-                            {inventoryItems.map((item) => (
-                                <div key={item.id} className="list-item inventory-list-grid" style={{ padding: '10px 1.5rem', alignItems: 'flex-start' }}>
-                                    <input
-                                        type="checkbox"
-                                        className="item-check"
-                                        checked={selectedIds.includes(item.id)}
-                                        onChange={() => toggleSelect(item.id)}
-                                        style={{ marginTop: '8px' }}
-                                    />
+                            {(inventoryItems || []).map((item) => {
+                                if (!item) return null;
+                                return (
+                                    <div key={item.id} className="list-item inventory-list-grid" style={{ padding: '10px 1.5rem', alignItems: 'flex-start' }}>
+                                        <input
+                                            type="checkbox"
+                                            className="item-check"
+                                            checked={selectedIds.includes(item.id)}
+                                            onChange={() => toggleSelect(item.id)}
+                                            style={{ marginTop: '8px' }}
+                                        />
 
-                                    <div className="super-cell">
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                                            <div
-                                                className={`project-thumbnail ${item.status === 'Active' ? 'thumb-active' : 'thumb-inactive'}`}
-                                                style={{
-                                                    width: 'auto',
-                                                    minWidth: '60px',
-                                                    height: '28px',
-                                                    borderRadius: '6px',
-                                                    padding: '0 10px',
-                                                    aspectRatio: 'auto'
-                                                }}
-                                            >
-                                                {item.unitNo}
+                                        <div className="super-cell">
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                                                <div
+                                                    className={`project-thumbnail ${item.status === 'Active' ? 'thumb-active' : 'thumb-inactive'}`}
+                                                    style={{
+                                                        width: 'auto',
+                                                        minWidth: '60px',
+                                                        height: '28px',
+                                                        borderRadius: '6px',
+                                                        padding: '0 10px',
+                                                        aspectRatio: 'auto'
+                                                    }}
+                                                >
+                                                    {item.unitNo}
+                                                </div>
+                                                <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{item.corner}</div>
                                             </div>
-                                            <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{item.corner}</div>
-                                        </div>
-                                        <div style={{ paddingLeft: '2px' }}>
-                                            <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>{item.type}</div>
-                                            <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>{item.size}</div>
-                                        </div>
-                                    </div>
-
-                                    <div className="super-cell">
-                                        <div className="cell-value-main text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, lineHeight: 1.2, color: '#0f172a' }}>{item.area}</div>
-                                        <div className="cell-value-sub text-ellipsis" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>{item.location}</div>
-                                        <div style={{ marginTop: '6px' }}>
-                                            <span className="verified-badge text-ellipsis" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800, display: 'inline-block', maxWidth: '100%' }}>BLOCK: {item.location?.split(' ')[0] || 'N/A'}</span>
-                                        </div>
-                                    </div>
-
-                                    <div className="super-cell">
-                                        <div className="cell-label" style={{ marginTop: 0, color: '#94a3b8' }}>Facing & Directions</div>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                            {item.direction !== '-' && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-compass" style={{ color: '#3b82f6', width: '14px' }}></i> {item.direction}</div>}
-                                            {item.facing !== '-' && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-map-signs" style={{ color: '#f59e0b', width: '14px' }}></i> {item.facing}</div>}
-                                            {item.road !== '-' && <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}><i className="fas fa-road" style={{ width: '14px' }}></i> {item.road}</div>}
-                                        </div>
-                                    </div>
-
-                                    <div className="super-cell">
-                                        {item.ownerName ? (
-                                            <>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-                                                    <div className="text-ellipsis" style={{
-                                                        fontWeight: 800,
-                                                        color: item.status === 'Sold Out' ? '#94a3b8' : 'var(--primary-color)',
-                                                        fontSize: '0.85rem'
-                                                    }}>{item.ownerName}</div>
-                                                </div>
-                                                <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px' }}>{item.ownerPhone}</div>
-                                                <div className="address-clamp" style={{ fontSize: '0.68rem', lineHeight: '1.2' }} title={item.ownerAddress}>
-                                                    {item.ownerAddress}
-                                                </div>
-                                            </>
-                                        ) : <div style={{ color: '#cbd5e1', fontStyle: 'italic', fontSize: '0.75rem' }}>No owner data</div>}
-                                    </div>
-
-                                    <div className="super-cell">
-                                        {item.associatedContact ? (
-                                            <>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-                                                    <div style={{ fontWeight: 800, color: '#6366f1', fontSize: '0.85rem' }}>{item.associatedContact}</div>
-                                                </div>
-                                                <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px' }}>{item.associatedPhone}</div>
-                                                <div className="address-clamp" style={{ fontSize: '0.68rem', lineHeight: '1.2', color: '#94a3b8' }}>
-                                                    Verified Associate Representative for Project {item.area}
-                                                </div>
-                                            </>
-                                        ) : <div style={{ color: '#cbd5e1', fontStyle: 'italic', fontSize: '0.75rem' }}>No associate</div>}
-                                    </div>
-
-                                    <div className="super-cell">
-                                        <div style={{ marginBottom: '6px' }}>
-                                            <span style={{ fontSize: '0.65rem', background: item.status === 'Active' ? 'rgba(56, 142, 60, 0.1)' : 'rgba(211, 47, 47, 0.1)', color: item.status === 'Active' ? '#388E3C' : '#D32F2F', padding: '2px 8px', borderRadius: '4px', fontWeight: 800 }}>{item.status.toUpperCase()}</span>
-                                        </div>
-                                        {item.remarks && (
-                                            <div style={{ background: '#fffbeb', padding: '4px 8px', borderRadius: '6px', border: '1px solid #fde68a', maxWidth: '100px' }}>
-                                                <div style={{ fontSize: '0.65rem', color: '#92400e', lineHeight: '1.2' }}>{item.remarks}</div>
+                                            <div style={{ paddingLeft: '2px' }}>
+                                                <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>{item.type}</div>
+                                                <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>{item.size}</div>
                                             </div>
-                                        )}
-                                    </div>
+                                        </div>
 
-                                    <div className="super-cell" style={{ alignItems: 'flex-end', textAlign: 'right' }}>
-                                        {item.lastContactDate !== '-' ? (
-                                            <>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', justifyContent: 'flex-end' }}>
-                                                    <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#334155' }}>{item.lastContactUser || 'System'}</div>
-                                                    <div className="avatar-circle" style={{ width: '24px', height: '24px', fontSize: '0.65rem', background: '#f1f5f9', color: '#64748b' }}>
-                                                        {item.lastContactUser?.charAt(0) || 'S'}
+                                        <div className="super-cell">
+                                            <div className="cell-value-main text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, lineHeight: 1.2, color: '#0f172a' }}>{item.area}</div>
+                                            <div className="cell-value-sub text-ellipsis" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>{item.location}</div>
+                                            <div style={{ marginTop: '6px' }}>
+                                                <span className="verified-badge text-ellipsis" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800, display: 'inline-block', maxWidth: '100%' }}>BLOCK: {String(item.location || '').split(' ')[0] || 'N/A'}</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="super-cell">
+                                            <div className="cell-label" style={{ marginTop: 0, color: '#94a3b8' }}>Facing & Directions</div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                                {item.direction !== '-' && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-compass" style={{ color: '#3b82f6', width: '14px' }}></i> {item.direction}</div>}
+                                                {item.facing !== '-' && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-map-signs" style={{ color: '#f59e0b', width: '14px' }}></i> {item.facing}</div>}
+                                                {item.road !== '-' && <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}><i className="fas fa-road" style={{ width: '14px' }}></i> {item.road}</div>}
+                                            </div>
+                                        </div>
+
+                                        <div className="super-cell">
+                                            {item.ownerName ? (
+                                                <>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                                                        <div className="text-ellipsis" style={{
+                                                            fontWeight: 800,
+                                                            color: item.status === 'Sold Out' ? '#94a3b8' : 'var(--primary-color)',
+                                                            fontSize: '0.85rem'
+                                                        }}>{item.ownerName}</div>
                                                     </div>
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px' }}>{item.ownerPhone}</div>
+                                                    <div className="address-clamp" style={{ fontSize: '0.68rem', lineHeight: '1.2' }} title={item.ownerAddress}>
+                                                        {item.ownerAddress}
+                                                    </div>
+                                                </>
+                                            ) : <div style={{ color: '#cbd5e1', fontStyle: 'italic', fontSize: '0.75rem' }}>No owner data</div>}
+                                        </div>
+
+                                        <div className="super-cell">
+                                            {item.associatedContact ? (
+                                                <>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                                                        <div style={{ fontWeight: 800, color: '#6366f1', fontSize: '0.85rem' }}>{item.associatedContact}</div>
+                                                    </div>
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px' }}>{item.associatedPhone}</div>
+                                                    <div className="address-clamp" style={{ fontSize: '0.68rem', lineHeight: '1.2', color: '#94a3b8' }}>
+                                                        Verified Associate Representative for Project {item.area}
+                                                    </div>
+                                                </>
+                                            ) : <div style={{ color: '#cbd5e1', fontStyle: 'italic', fontSize: '0.75rem' }}>No associate</div>}
+                                        </div>
+
+                                        <div className="super-cell">
+                                            <div style={{ marginBottom: '6px' }}>
+                                                <span style={{ fontSize: '0.65rem', background: ((item.status?.label || item.status) === 'Active' ? 'rgba(56, 142, 60, 0.1)' : 'rgba(211, 47, 47, 0.1)'), color: ((item.status?.label || item.status) === 'Active' ? '#388E3C' : '#D32F2F'), padding: '2px 8px', borderRadius: '4px', fontWeight: 800 }}>
+                                                    {String(item.status?.label || item.status || 'Unknown').toUpperCase()}
+                                                </span>
+                                            </div>
+                                            {item.remarks && (
+                                                <div style={{ background: '#fffbeb', padding: '4px 8px', borderRadius: '6px', border: '1px solid #fde68a', maxWidth: '100px' }}>
+                                                    <div style={{ fontSize: '0.65rem', color: '#92400e', lineHeight: '1.2' }}>{item.remarks}</div>
                                                 </div>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                                    <div style={{ fontSize: '0.7rem', color: 'var(--primary-color)', fontWeight: 800 }}>
-                                                        {item.lastContactDate} <i className="fas fa-calendar-alt" style={{ marginLeft: '6px' }}></i>
+                                            )}
+                                        </div>
+
+                                        <div className="super-cell" style={{ alignItems: 'flex-end', textAlign: 'right' }}>
+                                            {item.lastContactDate !== '-' ? (
+                                                <>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', justifyContent: 'flex-end' }}>
+                                                        <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#334155' }}>{item.lastContactUser || 'System'}</div>
+                                                        <div className="avatar-circle" style={{ width: '24px', height: '24px', fontSize: '0.65rem', background: '#f1f5f9', color: '#64748b' }}>
+                                                            {String(item.lastContactUser || 'S').charAt(0)}
+                                                        </div>
                                                     </div>
-                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, marginLeft: '2px' }}>
-                                                        {item.lastContactTime} <i className="fas fa-clock" style={{ marginLeft: '6px', fontSize: '0.6rem' }}></i>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                                        <div style={{ fontSize: '0.7rem', color: 'var(--primary-color)', fontWeight: 800 }}>
+                                                            {item.lastContactDate} <i className="fas fa-calendar-alt" style={{ marginLeft: '6px' }}></i>
+                                                        </div>
+                                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, marginLeft: '2px' }}>
+                                                            {item.lastContactTime} <i className="fas fa-clock" style={{ marginLeft: '6px', fontSize: '0.6rem' }}></i>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            </>
-                                        ) : <div style={{ color: '#cbd5e1', fontStyle: 'italic', fontSize: '0.75rem' }}>No record</div>}
+                                                </>
+                                            ) : <div style={{ color: '#cbd5e1', fontStyle: 'italic', fontSize: '0.75rem' }}>No record</div>}
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
                 </div>
@@ -528,7 +575,7 @@ function InventoryPage() {
                             <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fas fa-filter"></i> Filters
                             </button>
-                            <i className="fas fa-sliders-h header-icon"></i>
+
                         </div>
                     </div>
                     <div className="content-body" style={{ paddingTop: 0 }}>
@@ -554,48 +601,51 @@ function InventoryPage() {
                                     />
                                 </div>
                                 <div style={{ flex: 1, overflowY: 'auto' }}>
-                                    {inventoryItems.map((item, idx) => (
-                                        <div
-                                            key={idx}
-                                            style={{
-                                                padding: '12px 15px',
-                                                borderBottom: '1px solid #f1f5f9',
-                                                cursor: 'pointer',
-                                                transition: 'all 0.2s',
-                                                background: '#fff'
-                                            }}
-                                            onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-                                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
-                                        >
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                                                <div style={{
-                                                    width: '24px',
-                                                    height: '24px',
-                                                    background: item.status === 'Active' ? '#10b981' : '#ef4444',
-                                                    borderRadius: '50%',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    color: '#fff',
-                                                    fontSize: '0.7rem',
-                                                    fontWeight: 700
-                                                }}>
-                                                    {idx + 1}
+                                    {(inventoryItems || []).map((item, idx) => {
+                                        if (!item) return null;
+                                        return (
+                                            <div
+                                                key={idx}
+                                                style={{
+                                                    padding: '12px 15px',
+                                                    borderBottom: '1px solid #f1f5f9',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s',
+                                                    background: '#fff'
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                                                onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                                            >
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                                                    <div style={{
+                                                        width: '24px',
+                                                        height: '24px',
+                                                        background: item.status === 'Active' ? '#10b981' : '#ef4444',
+                                                        borderRadius: '50%',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        color: '#fff',
+                                                        fontSize: '0.7rem',
+                                                        fontWeight: 700
+                                                    }}>
+                                                        {idx + 1}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-color)' }}>Unit #{item.unitNo}</div>
                                                 </div>
-                                                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-color)' }}>Unit #{item.unitNo}</div>
+                                                <div style={{ fontSize: '0.75rem', color: '#0f172a', fontWeight: 600, marginBottom: '4px' }}>
+                                                    {item.area}
+                                                </div>
+                                                <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>
+                                                    {item.type} - {item.size}
+                                                </div>
+                                                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                                                    <i className="fas fa-user" style={{ marginRight: '4px' }}></i>
+                                                    {item.ownerName}
+                                                </div>
                                             </div>
-                                            <div style={{ fontSize: '0.75rem', color: '#0f172a', fontWeight: 600, marginBottom: '4px' }}>
-                                                {item.area}
-                                            </div>
-                                            <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>
-                                                {item.type} - {item.size}
-                                            </div>
-                                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                                <i className="fas fa-user" style={{ marginRight: '4px' }}></i>
-                                                {item.ownerName}
-                                            </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
 
@@ -611,7 +661,8 @@ function InventoryPage() {
                                 ></iframe>
 
                                 {/* Property Pin Markers Overlay */}
-                                {inventoryItems.map((item, idx) => {
+                                {(inventoryItems || []).map((item, idx) => {
+                                    if (!item) return null;
                                     // Convert lat/lng to approximate pixel position
                                     const centerLat = 30.6985;
                                     const centerLng = 76.7112;

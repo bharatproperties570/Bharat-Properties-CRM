@@ -108,12 +108,13 @@ function Sidebar({ currentView, onNavigate }) {
                 </a>
                 <a
                     href="#"
-                    className={`sidebar-icon ${currentView === 'booking' || currentView === 'account' ? 'active' : ''}`}
+                    className={`sidebar-icon ${currentView === 'booking' ? 'active' : ''}`}
                     onClick={(e) => { e.preventDefault(); onNavigate('booking'); }}
                     title="Post Sale"
                 >
                     <i className="fas fa-file-invoice-dollar"></i>
                 </a>
+
                 <a
                     href="#"
                     className={`sidebar-icon ${currentView === 'reports' ? 'active' : ''}`}

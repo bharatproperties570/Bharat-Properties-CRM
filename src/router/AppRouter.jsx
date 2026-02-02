@@ -18,6 +18,7 @@ import ReportsPage from '../pages/Reports/ReportsPage';
 import WizardPage from '../pages/Wizard/WizardPage';
 import SettingsPage from '../pages/Settings/SettingsPage';
 import CommunicationPage from '../pages/Communication/CommunicationPage';
+import DealIntakePage from '../pages/Deals/views/DealIntakePage';
 
 // Settings Sub-Pages
 import EmailSettingsPage from '../pages/Settings/views/EmailSettingsPage';
@@ -59,19 +60,23 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
         case 'projects':
             return <ProjectsPage />;
         case 'inventory':
-            return <InventoryPage />;
+            return <InventoryPage onNavigate={onNavigate} />;
         case 'activities':
             return <ActivitiesPage />;
         case 'booking':
-            return <BookingPage onNavigate={onNavigate} />;
+            return <BookingPage onNavigate={onNavigate} initialContextId={currentContactId} />;
         case 'account':
-            return <AccountPage onNavigate={onNavigate} />;
+            return <AccountPage onNavigate={onNavigate} initialContextId={currentContactId} />;
         case 'communication':
             return <CommunicationPage />;
+
+
         case 'reports':
             return <ReportsPage />;
         case 'profile':
             return <ProfilePage />;
+        case 'deal-intake':
+            return <DealIntakePage />;
 
         // Settings Routes
         case 'settings':

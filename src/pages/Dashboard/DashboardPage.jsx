@@ -1,12 +1,31 @@
 import React, { useState } from 'react';
 import Chart from 'react-apexcharts';
 import { reportsData } from '../../data/reportsData';
+import { bookingData } from '../../data/bookingData';
+import { accountData } from '../../data/accountData';
 
 const DashboardPage = () => {
     const [role, setRole] = useState('owner'); // owner | agent | investor
     const [selectedTeam, setSelectedTeam] = useState('Select Team');
-    const [selectedExecutive, setSelectedExecutive] = useState('Select Executive');
+
     const data = reportsData;
+
+    // --- Live Data Integration ---
+    // 1. Pipeline Liquidity (Total Deal Value)
+    const pipelineValue = bookingData.reduce((sum, b) => b.stage !== 'Cancelled' ? sum + b.financials.dealValue : sum, 0);
+
+    // 2. Active Deals (Count)
+    const activeDealsCount = bookingData.filter(b => b.stage !== 'Cancelled' && b.stage !== 'Registry').length;
+
+    // 3. Outstanding Collections (From Account Data)
+    const totalOutstanding = accountData ? accountData.reduce((sum, a) => sum + (a.financials.pending || 0), 0) : 0;
+
+    // 4. Commission Pending
+    const totalCommPending = bookingData.reduce((sum, b) => b.stage !== 'Cancelled' ? sum + b.financials.commissionPending : sum, 0);
+
+    const formatCurrency = (amount) => {
+        return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
+    };
 
     // Filter Logic for Role-Based View
     const getFilteredAlerts = () => {
@@ -97,12 +116,22 @@ const DashboardPage = () => {
                                     <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--primary-color)', background: 'rgba(0,82,255,0.05)', padding: '4px 10px', borderRadius: '20px' }}>LIVE MATRIX</span>
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
-                                    {(data.pipelineMoney?.kpis || []).map((kpi, i) => (
-                                        <div key={i} style={{ padding: '12px', background: 'var(--bg-gray)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                                            <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{kpi.label}</div>
-                                            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: kpi.color === 'red' ? 'var(--danger-color)' : kpi.color === 'green' ? 'var(--success-color)' : 'var(--text-main)' }}>{kpi.value}</div>
-                                        </div>
-                                    ))}
+                                    <div style={{ padding: '12px', background: 'var(--bg-gray)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                                        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Pipeline Value</div>
+                                        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-main)' }}>{formatCurrency(pipelineValue)}</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: 'var(--bg-gray)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                                        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Active Deals</div>
+                                        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--success-color)' }}>{activeDealsCount}</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: 'var(--bg-gray)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                                        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Collections Pending</div>
+                                        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--danger-color)' }}>{formatCurrency(totalOutstanding)}</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: 'var(--bg-gray)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                                        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Commission Due</div>
+                                        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--marketing-orange)' }}>{formatCurrency(totalCommPending)}</div>
+                                    </div>
                                 </div>
                                 <Chart
                                     options={{

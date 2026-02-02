@@ -1,430 +1,354 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import { accountData, accountStats } from '../../data/accountData';
 
-function AccountPage({ onNavigate }) {
+const AccountPage = ({ onNavigate, initialContextId, isEmbedded }) => {
+    const [activeTab, setActiveTab] = useState('All Payments');
+    const [searchTerm, setSearchTerm] = useState(initialContextId || '');
     const [selectedIds, setSelectedIds] = useState([]);
-    const [activeTab, setActiveTab] = useState('All Payment');
 
-    // Sample payment data based on the image
-    const paymentData = [
-        {
-            id: 1,
-            date: '01-11-2024',
-            receiptId: 'RECEIPT#1-000001',
-            paymentDate: '01-11-2024',
-            customerName: 'Rajesh Mehta',
-            contact: '9876543210',
-            paymentFor: 'CASH',
-            currentEmi: '',
-            balance: '₹ 98,50,000',
-            emiAmount: '',
-            emiDate: '',
-            emiPaidDate: '',
-            type: 'Booking',
-            remarks: 'Initial booking payment received'
-        },
-        {
-            id: 2,
-            date: '05-11-2024',
-            receiptId: 'RECEIPT#1-000002',
-            paymentDate: '05-11-2024',
-            customerName: 'Priya Sharma',
-            contact: '8765432109',
-            paymentFor: 'CHEQUE',
-            currentEmi: '1',
-            balance: '₹ 42,00,000',
-            emiAmount: '₹ 3,00,000',
-            emiDate: '05-11-2024',
-            emiPaidDate: '05-11-2024',
-            type: 'EMI',
-            remarks: 'First EMI cleared'
-        },
-        {
-            id: 3,
-            date: '10-11-2024',
-            receiptId: 'RECEIPT#1-000003',
-            paymentDate: '10-11-2024',
-            customerName: 'Amit Kumar',
-            contact: '7654321098',
-            paymentFor: 'ONLINE',
-            currentEmi: '2',
-            balance: '₹ 65,00,000',
-            emiAmount: '₹ 5,00,000',
-            emiDate: '10-11-2024',
-            emiPaidDate: '10-11-2024',
-            type: 'EMI',
-            remarks: 'Second EMI payment done'
-        },
-        {
-            id: 4,
-            date: '15-11-2024',
-            receiptId: 'RECEIPT#1-000004',
-            paymentDate: '15-11-2024',
-            customerName: 'Sunita Verma',
-            contact: '6543210987',
-            paymentFor: 'CASH',
-            currentEmi: '',
-            balance: '₹ 1,15,00,000',
-            emiAmount: '',
-            emiDate: '',
-            emiPaidDate: '',
-            type: 'Booking',
-            remarks: 'Booking amount paid in cash'
-        },
-        {
-            id: 5,
-            date: '20-11-2024',
-            receiptId: 'RECEIPT#1-000005',
-            paymentDate: '20-11-2024',
-            customerName: 'Vikram Singh',
-            contact: '5432109876',
-            paymentFor: 'CHEQUE',
-            currentEmi: '3',
-            balance: '₹ 78,00,000',
-            emiAmount: '₹ 4,00,000',
-            emiDate: '20-11-2024',
-            emiPaidDate: '20-11-2024',
-            type: 'EMI',
-            remarks: 'Third EMI received via cheque'
-        },
-        {
-            id: 6,
-            date: '25-11-2024',
-            receiptId: 'RECEIPT#1-000006',
-            paymentDate: '25-11-2024',
-            customerName: 'Neha Gupta',
-            contact: '4321098765',
-            paymentFor: 'ONLINE',
-            currentEmi: '1',
-            balance: '₹ 52,00,000',
-            emiAmount: '₹ 2,50,000',
-            emiDate: '25-11-2024',
-            emiPaidDate: '25-11-2024',
-            type: 'EMI',
-            remarks: 'Online payment successful'
-        },
-        {
-            id: 7,
-            date: '28-11-2024',
-            receiptId: 'RECEIPT#1-000007',
-            paymentDate: '28-11-2024',
-            customerName: 'Rahul Jain',
-            contact: '3210987654',
-            paymentFor: 'CASH',
-            currentEmi: '4',
-            balance: '₹ 35,00,000',
-            emiAmount: '₹ 3,50,000',
-            emiDate: '28-11-2024',
-            emiPaidDate: '28-11-2024',
-            type: 'EMI',
-            remarks: 'Fourth installment paid'
-        },
-        {
-            id: 8,
-            date: '30-11-2024',
-            receiptId: 'RECEIPT#1-000008',
-            paymentDate: '30-11-2024',
-            customerName: 'Kavita Reddy',
-            contact: '2109876543',
-            paymentFor: 'ONLINE',
-            currentEmi: '',
-            balance: '₹ 88,00,000',
-            emiAmount: '',
-            emiDate: '',
-            emiPaidDate: '',
-            type: 'Booking',
-            remarks: 'Booking confirmed online'
-        }
-    ];
+    // --- Filtering ---
+    const filteredData = useMemo(() => {
+        if (!accountData) return [];
+        return accountData.filter(item => {
+            const matchesSearch =
+                item.bookingSnapshot.customer.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                item.receiptId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                item.bookingSnapshot.id.toLowerCase().includes(searchTerm.toLowerCase());
+
+            if (activeTab === 'Overdue') return item.health.status !== 'On Track' && matchesSearch;
+            if (activeTab === 'Commission Pending') return item.liabilityType === 'Commission' && item.health.status !== 'On Track' && matchesSearch;
+            if (activeTab === 'High Value Pending') return item.financials.pending > 1000000 && matchesSearch;
+
+            return matchesSearch;
+        });
+    }, [activeTab, searchTerm]);
 
     const toggleSelect = (id) => {
-        setSelectedIds(prev =>
-            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-        );
+        setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
     };
 
     const toggleSelectAll = () => {
-        setSelectedIds(prev =>
-            prev.length === paymentData.length ? [] : paymentData.map(p => p.id)
-        );
+        if (selectedIds.length === filteredData.length) setSelectedIds([]);
+        else setSelectedIds(filteredData.map(d => d.receiptId));
     };
 
-    // Calculate totals
-    const totalPayments = paymentData.length;
-    const totalBalance = paymentData.reduce((sum, payment) => {
-        const balance = parseInt(payment.balance.replace(/[₹,]/g, ''));
-        return sum + balance;
-    }, 0);
+    const selectedCount = selectedIds.length;
+
+    // --- Helpers ---
+    const formatCurrency = (amount) => {
+        return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
+    };
+
+    const getHealthColor = (status) => {
+        switch (status) {
+            case 'On Track': return '#10b981'; // Green
+            case 'Warning': return '#f59e0b'; // Yellow
+            case 'Critical': return '#ef4444'; // Red
+            default: return '#cbd5e1';
+        }
+    };
+
+    const getLiabilityBadge = (type) => {
+        switch (type) {
+            case 'Booking Amount': return { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' }; // Blue
+            case 'Commission': return { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' }; // Green
+            case 'Government Charges': return { bg: '#faf5ff', color: '#7e22ce', border: '#e9d5ff' }; // Purple
+            default: return { bg: '#f8fafc', color: '#64748b', border: '#e2e8f0' };
+        }
+    };
+
+    const handlePrintReceipt = () => {
+        if (selectedIds.length !== 1) return;
+        const receipt = filteredData.find(d => d.receiptId === selectedIds[0]);
+        if (!receipt) return;
+
+        const printWindow = window.open('', '_blank', 'width=800,height=600');
+        if (printWindow) {
+            printWindow.document.write(`
+                <html>
+                    <head>
+                        <title>Receipt - ${receipt.receiptId}</title>
+                        <style>
+                            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap');
+                            body { font-family: 'Inter', sans-serif; padding: 40px; color: #1e293b; -webkit-print-color-adjust: exact; }
+                            .header { text-align: center; margin-bottom: 40px; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; }
+                            .logo { font-size: 24px; font-weight: 800; color: #0f172a; margin-bottom: 8px; letter-spacing: -0.5px; }
+                            .sub-text { font-size: 14px; color: #64748b; }
+                            .receipt-box { border: 1px solid #e2e8f0; border-radius: 12px; padding: 40px; max-width: 600px; margin: 0 auto; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+                            .title { text-align: center; margin-bottom: 32px; font-size: 18px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 1px; }
+                            .row { display: flex; justify-content: space-between; margin-bottom: 16px; font-size: 14px; align-items: center; }
+                            .label { color: #64748b; font-weight: 500; }
+                            .value { font-weight: 600; color: #0f172a; text-align: right; }
+                            .total-row { margin-top: 32px; padding-top: 24px; border-top: 2px dashed #e2e8f0; font-size: 18px; }
+                            .total-row .value { color: #10b981; font-weight: 800; }
+                            .footer { margin-top: 60px; text-align: center; font-size: 12px; color: #94a3b8; line-height: 1.5; }
+                            .stamp { margin-top: 40px; text-align: right; font-size: 12px; color: #cbd5e1; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="header">
+                            <div class="logo">BHARAT PROPERTIES</div>
+                            <div class="sub-text">Premium Real Estate Consultancy</div>
+                        </div>
+                        <div class="receipt-box">
+                            <div class="title">Payment Receipt</div>
+                            <div class="row">
+                                <span class="label">Receipt No</span>
+                                <span class="value" style="font-family: monospace; background: #f1f5f9; padding: 4px 8px; border-radius: 4px;">${receipt.receiptId}</span>
+                            </div>
+                            <div class="row">
+                                <span class="label">Date</span>
+                                <span class="value">${receipt.paymentDate}</span>
+                            </div>
+                            <div style="height: 1px; background: #f1f5f9; margin: 16px 0;"></div>
+                            <div class="row">
+                                <span class="label">Received From</span>
+                                <span class="value">${receipt.bookingSnapshot.customer}</span>
+                            </div>
+                            <div class="row">
+                                <span class="label">Booking Reference</span>
+                                <span class="value">${receipt.bookingSnapshot.id}</span>
+                            </div>
+                            <div class="row">
+                                <span class="label">Property Detail</span>
+                                <span class="value">${receipt.bookingSnapshot.property}</span>
+                            </div>
+                            <div style="height: 1px; background: #f1f5f9; margin: 16px 0;"></div>
+                            <div class="row">
+                                <span class="label">Payment Mode</span>
+                                <span class="value">${receipt.paymentMode} (${receipt.paymentCategory})</span>
+                            </div>
+                            <div class="row">
+                                <span class="label">Payment Towards</span>
+                                <span class="value">${receipt.liabilityType}</span>
+                            </div>
+                            <div class="row total-row">
+                                <span class="label">Amount Paid</span>
+                                <span class="value">${new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(receipt.amount)}</span>
+                            </div>
+                        </div>
+                        <div class="stamp">Authorized Signatory</div>
+                        <div class="footer">
+                            <p>This receipt is computer generated and valid without signature.</p>
+                            <p>Thank you for choosing Bharat Properties.</p>
+                        </div>
+                        <script>
+                            window.onload = function() { window.print(); }
+                        </script>
+                    </body>
+                </html>
+            `);
+            printWindow.document.close();
+        }
+    };
 
     return (
-        <section className="main-content">
-            <div className="page-container">
-                {/* Page Header */}
-                <div className="page-header" style={{ position: 'sticky', top: 0, zIndex: 100, background: '#fff', borderBottom: '1px solid #eef2f5', padding: '20px 2rem' }}>
-                    <div className="page-title-group">
-                        <i className="fas fa-wallet" style={{ color: '#68737d' }}></i>
+        <section className="main-content" style={{ background: '#f8fafc', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+
+            {/* Header: Hide if embedded, only show KPIs optionally or simpler view */}
+            {!isEmbedded && (
+                <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '20px 32px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                         <div>
-                            <span className="working-list-label">Post Sale</span>
-                            <h1>Payment</h1>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                                <i className="fas fa-wallet" style={{ color: '#0ea5e9', fontSize: '1.2rem' }}></i>
+                                <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Financial Control Center</h1>
+                            </div>
+                            <p style={{ margin: 0, color: '#64748b', fontSize: '0.9rem' }}>Cash-flow monitoring, liability tracking & commission control.</p>
                         </div>
                     </div>
-                    <div className="header-actions" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <button
-                            className="btn-outline"
-                            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-                            onClick={() => onNavigate && onNavigate('booking')}
-                        >
-                            <i className="fas fa-handshake"></i> Booking
-                        </button>
-                        <button
-                            className="btn-primary"
-                            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-                        >
-                            <i className="fas fa-wallet"></i> Account
-                        </button>
-                        <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <i className="fas fa-plus"></i> Add Payment
-                        </button>
-                        <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <i className="fas fa-filter"></i> Filter
-                        </button>
-                    </div>
                 </div>
+            )}
 
-                {/* Filter Tabs */}
-                <div style={{ padding: '15px 2rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                    <div style={{ display: 'flex', gap: '20px', borderBottom: '2px solid #e2e8f0' }}>
-                        {['All Payment', 'Booking', 'EMI', 'Full Payment'].map(tab => (
+            {/* Smart Tabs Toolbar / Bulk Action Bar */}
+            <div style={{ padding: '16px 32px', background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: '72px' }}>
+                {selectedCount > 0 ? (
+                    // Bulk Action Mode
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%', animation: 'fadeIn 0.2s ease-in-out' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '8px' }}>
+                            <input type="checkbox" checked={selectedCount > 0} onChange={toggleSelectAll} style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
+                            <span style={{ fontWeight: 700, color: '#6366f1', fontSize: '0.9rem' }}>{selectedCount} Selected</span>
+                        </div>
+                        <div style={{ height: '24px', width: '1px', background: '#e2e8f0' }}></div>
+
+                        {/* Specific Actions */}
+                        {selectedCount === 1 && (
                             <button
-                                key={tab}
-                                onClick={() => setActiveTab(tab)}
-                                style={{
-                                    padding: '10px 0',
-                                    border: 'none',
-                                    background: 'none',
-                                    fontSize: '0.85rem',
-                                    fontWeight: 600,
-                                    color: activeTab === tab ? '#10b981' : '#64748b',
-                                    borderBottom: activeTab === tab ? '2px solid #10b981' : '2px solid transparent',
-                                    cursor: 'pointer',
-                                    marginBottom: '-2px'
+                                onClick={() => {
+                                    const item = filteredData.find(d => d.receiptId === selectedIds[0]);
+                                    if (item) onNavigate('booking', item.bookingSnapshot.id);
                                 }}
+                                className="action-btn"
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.85rem', cursor: 'pointer' }}
                             >
-                                {tab}
+                                <i className="fas fa-external-link-alt"></i> View Booking
                             </button>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0 }}>
-                    {/* Action Bar */}
-                    <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', borderBottom: '1px solid #eef2f5', minHeight: '45px', display: 'flex', alignItems: 'center', background: '#fff' }}>
-                        {selectedIds.length > 0 ? (
-                            <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%' }}>
-                                <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)' }}>
-                                    {selectedIds.length} Selected
-                                </div>
-                                <button className="action-btn"><i className="fas fa-receipt"></i> Generate Receipt</button>
-                                <button className="action-btn"><i className="fas fa-download"></i> Export</button>
-                                <div style={{ flex: 1 }}></div>
-                                <button className="action-btn delete-btn"><i className="fas fa-trash-alt"></i> Delete</button>
-                            </div>
-                        ) : (
-                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', width: '100%' }}>
-                                <div className="search-box" style={{ flex: 1, maxWidth: '400px' }}>
-                                    <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.85rem' }}></i>
-                                    <input
-                                        type="text"
-                                        placeholder="Search payments by customer, receipt ID..."
-                                        style={{
-                                            width: '100%',
-                                            padding: '8px 12px 8px 36px',
-                                            border: '1px solid #e2e8f0',
-                                            borderRadius: '6px',
-                                            fontSize: '0.85rem',
-                                            outline: 'none'
-                                        }}
-                                    />
-                                </div>
-                                <div style={{ flex: 1 }}></div>
-                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Items: {paymentData.length}</span>
-                            </div>
                         )}
+                        <button
+                            onClick={handlePrintReceipt}
+                            title="Print Receipt"
+                            className="action-btn"
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.85rem', cursor: 'pointer' }}
+                        >
+                            <i className="fas fa-print"></i> Receipt
+                        </button>
+                        <button title="Reminder" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.85rem', cursor: 'pointer' }}>
+                            <i className="fas fa-bell"></i> Reminder
+                        </button>
+                    </div>
+                ) : (
+                    // Default Search Mode
+                    <>
+                        <div style={{ display: 'flex', gap: '2px', background: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
+                            {['All Payments', 'Overdue', 'Due This Week', 'High Value Pending', 'Commission Pending'].map(tab => (
+                                <button
+                                    key={tab}
+                                    onClick={() => setActiveTab(tab)}
+                                    style={{
+                                        padding: '8px 16px',
+                                        border: 'none',
+                                        background: activeTab === tab ? '#fff' : 'transparent',
+                                        color: activeTab === tab ? (tab === 'Overdue' ? '#ef4444' : '#0f172a') : '#64748b',
+                                        fontWeight: 700,
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.85rem',
+                                        boxShadow: activeTab === tab ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                                        transition: 'all 0.2s',
+                                        display: 'flex', alignItems: 'center', gap: '6px'
+                                    }}
+                                >
+                                    {tab === 'Overdue' && <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444' }}></span>}
+                                    {tab}
+                                </button>
+                            ))}
+                        </div>
+                        <div style={{ position: 'relative', width: '280px' }}>
+                            <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
+                            <input
+                                type="text"
+                                placeholder="Search receipt, customer..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                style={{ width: '100%', padding: '10px 10px 10px 36px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                            />
+                        </div>
+                    </>
+                )}
+            </div>
+
+            {/* Advanced Table */}
+            <div style={{ flex: 1, overflow: 'auto', padding: '20px 32px' }}>
+                <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+                    {/* Header - ACTIONS COLUMN REMOVED */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '40px 1.5fr 1.8fr 1.2fr 1.2fr 1.5fr 1.2fr', background: '#f8fafc', padding: '16px 20px', borderBottom: '1px solid #e2e8f0', fontWeight: 600, color: '#475569', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        <div><input type="checkbox" onChange={toggleSelectAll} checked={selectedIds.length === filteredData.length && filteredData.length > 0} /></div>
+                        <div>Receipt & Date</div>
+                        <div>Booking Context</div>
+                        <div>Liability Type</div>
+                        <div>Payment</div>
+                        <div>Amount & Status</div>
+                        <div>Health / Due</div>
                     </div>
 
-                    {/* Payment List Header */}
-                    <div style={{ position: 'sticky', top: '45px', zIndex: 99, padding: '15px 2rem', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'grid', gridTemplateColumns: '40px 100px 150px 100px 180px 120px 120px 100px 120px 100px 100px 100px 100px 150px 80px', gap: '0.8rem', alignItems: 'center' }}>
-                        <div><input type="checkbox" onChange={toggleSelectAll} checked={selectedIds.length === paymentData.length} /></div>
-                        <div>Date</div>
-                        <div>Receipt ID</div>
-                        <div>Date</div>
-                        <div>Customer Name</div>
-                        <div>Contact</div>
-                        <div>Payment For</div>
-                        <div>Current EMI</div>
-                        <div>Balance</div>
-                        <div>EMI Amount</div>
-                        <div>EMI Date</div>
-                        <div>EMI Paid Date</div>
-                        <div>Type</div>
-                        <div>Remarks</div>
-                        <div>Actions</div>
-                    </div>
+                    {/* Rows */}
+                    {filteredData.map(item => {
+                        const healthColor = getHealthColor(item.health.status);
+                        const liabilityStyle = getLiabilityBadge(item.liabilityType);
+                        const isSelected = selectedIds.includes(item.receiptId);
 
-                    {/* Payment List */}
-                    <div className="list-content" style={{ background: '#fafbfc', padding: '1rem 2rem' }}>
-                        {paymentData.map((payment) => (
-                            <div
-                                key={payment.id}
-                                style={{
-                                    padding: '18px 20px',
-                                    marginBottom: '8px',
-                                    borderRadius: '8px',
-                                    border: '1px solid #e2e8f0',
-                                    background: '#fff',
-                                    display: 'grid',
-                                    gridTemplateColumns: '40px 100px 150px 100px 180px 120px 120px 100px 120px 100px 100px 100px 100px 150px 80px',
-                                    gap: '0.8rem',
-                                    alignItems: 'center',
-                                    transition: 'all 0.2s',
-                                    boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
-                                }}
-                                onMouseEnter={(e) => {
-                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)';
-                                    e.currentTarget.style.transform = 'translateY(-1px)';
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.04)';
-                                    e.currentTarget.style.transform = 'translateY(0)';
+                        return (
+                            <div key={item.receiptId} style={{
+                                display: 'grid',
+                                gridTemplateColumns: '40px 1.5fr 1.8fr 1.2fr 1.2fr 1.5fr 1.2fr',
+                                padding: '18px 20px',
+                                borderBottom: '1px solid #f1f5f9',
+                                alignItems: 'center', // Align items to center vertically
+                                fontSize: '0.9rem',
+                                background: isSelected ? '#f0f9ff' : '#fff',
+                                transition: 'background 0.2s',
+                                cursor: 'pointer'
+                            }}
+                                onClick={(e) => {
+                                    if (e.target.type !== 'checkbox') toggleSelect(item.receiptId);
                                 }}
                             >
-                                <input
-                                    type="checkbox"
-                                    checked={selectedIds.includes(payment.id)}
-                                    onChange={() => toggleSelect(payment.id)}
-                                />
+                                <div onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={isSelected} onChange={() => toggleSelect(item.receiptId)} /></div>
 
-                                <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 600 }}>{payment.date}</div>
+                                {/* Receipt & Date */}
+                                <div>
+                                    <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.9rem', marginBottom: '2px' }}>{item.receiptId}</div>
+                                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}><i className="far fa-calendar-alt" style={{ marginRight: '4px' }}></i>{item.paymentDate}</div>
+                                </div>
 
-                                <div style={{ fontSize: '0.75rem', color: '#0891b2', fontWeight: 700 }}>{payment.receiptId}</div>
+                                {/* Booking Context */}
+                                <div>
+                                    <div style={{ fontWeight: 700, color: '#334155' }}>To: {item.bookingSnapshot.customer}</div>
+                                    <div style={{ fontSize: '0.8rem', color: '#0ea5e9', fontWeight: 500, margin: '2px 0' }}>{item.bookingSnapshot.id}</div>
+                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{item.bookingSnapshot.property}</div>
+                                </div>
 
-                                <div style={{ fontSize: '0.75rem', color: '#334155' }}>{payment.paymentDate}</div>
+                                {/* Liability Type */}
+                                <div>
+                                    <span style={{
+                                        background: liabilityStyle.bg, color: liabilityStyle.color, border: `1px solid ${liabilityStyle.border}`,
+                                        fontSize: '0.7rem', padding: '4px 8px', borderRadius: '6px', fontWeight: 700
+                                    }}>
+                                        {item.liabilityType}
+                                    </span>
+                                </div>
 
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0f172a' }}>{payment.customerName}</div>
-                                    <div style={{ fontSize: '0.7rem', color: '#8e44ad', fontWeight: 600 }}>
-                                        <i className="fas fa-phone" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>{payment.contact}
+                                {/* Payment */}
+                                <div>
+                                    <div style={{ fontWeight: 600, color: '#475569' }}>{item.paymentCategory}</div>
+                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Via {item.paymentMode}</div>
+                                </div>
+
+                                {/* Amount & Status */}
+                                <div>
+                                    <div style={{ fontSize: '0.95rem', fontWeight: 800, color: item.amount > 0 ? '#10b981' : '#ef4444' }}>
+                                        {formatCurrency(Math.max(item.amount, item.commission.pending))}
                                     </div>
+                                    <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '2px' }}>
+                                        {item.amount > 0 ? 'Received' : 'Pending'} • Bal: {formatCurrency(item.financials.pending || item.commission.pending)}
+                                    </div>
+                                    {/* Mini Logic for Comm Breakdown if Applicable */}
+                                    {item.liabilityType === 'Commission' && (
+                                        <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                                            <div style={{ height: '4px', width: '50%', background: '#bfdbfe', borderRadius: '2px' }} title="Company"></div>
+                                            <div style={{ height: '4px', width: '30%', background: '#bbf7d0', borderRadius: '2px' }} title="Exec"></div>
+                                            <div style={{ height: '4px', width: '20%', background: '#fde047', borderRadius: '2px' }} title="Partner"></div>
+                                        </div>
+                                    )}
                                 </div>
 
+                                {/* Health */}
                                 <div>
-                                    <span style={{
-                                        fontSize: '0.7rem',
-                                        padding: '4px 10px',
-                                        borderRadius: '12px',
-                                        fontWeight: 700,
-                                        background: payment.paymentFor === 'CASH' ? '#fef3c7' :
-                                            payment.paymentFor === 'ONLINE' ? '#dbeafe' : '#d1fae5',
-                                        color: payment.paymentFor === 'CASH' ? '#92400e' :
-                                            payment.paymentFor === 'ONLINE' ? '#1e40af' : '#065f46',
-                                        border: payment.paymentFor === 'CASH' ? '1px solid #fcd34d' :
-                                            payment.paymentFor === 'ONLINE' ? '1px solid #93c5fd' : '1px solid #6ee7b7'
-                                    }}>
-                                        {payment.paymentFor}
-                                    </span>
-                                </div>
-
-                                <div style={{ fontSize: '0.75rem', color: '#334155', textAlign: 'center' }}>{payment.currentEmi || '--'}</div>
-
-                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#dc2626' }}>{payment.balance}</div>
-
-                                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#10b981' }}>{payment.emiAmount || '--'}</div>
-
-                                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{payment.emiDate || '--'}</div>
-
-                                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{payment.emiPaidDate || '--'}</div>
-
-                                <div>
-                                    <span style={{
-                                        fontSize: '0.7rem',
-                                        padding: '4px 10px',
-                                        borderRadius: '12px',
-                                        fontWeight: 700,
-                                        background: payment.type === 'Booking' ? '#e0e7ff' : '#fce7f3',
-                                        color: payment.type === 'Booking' ? '#4338ca' : '#be123c',
-                                        border: payment.type === 'Booking' ? '1px solid #a5b4fc' : '1px solid #fda4af'
-                                    }}>
-                                        {payment.type}
-                                    </span>
-                                </div>
-
-                                <div style={{ fontSize: '0.75rem', color: '#475569', fontStyle: 'italic' }}>{payment.remarks}</div>
-
-                                <div style={{ display: 'flex', gap: '4px' }}>
-                                    <button style={{ padding: '4px 8px', border: 'none', background: '#e0f2fe', color: '#0369a1', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem' }}>
-                                        <i className="fas fa-eye"></i>
-                                    </button>
-                                    <button style={{ padding: '4px 8px', border: 'none', background: '#dbeafe', color: '#1e40af', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem' }}>
-                                        <i className="fas fa-receipt"></i>
-                                    </button>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: healthColor }}></div>
+                                        <span style={{ fontWeight: 600, color: healthColor, fontSize: '0.8rem' }}>{item.health.status}</span>
+                                    </div>
+                                    {item.health.daysOverdue > 0 && (
+                                        <div style={{ fontSize: '0.75rem', color: '#ef4444', fontWeight: 700 }}>
+                                            {item.health.daysOverdue} Days Late
+                                        </div>
+                                    )}
+                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Due: {item.health.dueDate}</div>
                                 </div>
                             </div>
-                        ))}
-                    </div>
+                        );
+                    })}
 
-                    {/* Summary Footer */}
-                    <div className="list-footer" style={{
-                        padding: '15px 2rem',
-                        background: '#f8fafc',
-                        borderTop: '2px solid #e2e8f0',
-                        display: 'flex',
-                        gap: '30px',
-                        alignItems: 'center',
-                        boxShadow: '0 -2px 8px rgba(0,0,0,0.05)',
-                        position: 'sticky',
-                        bottom: 0,
-                        zIndex: 99
-                    }}>
-                        <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#475569' }}>Summary</div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Tot. Agent Incc.</div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0891b2' }}>₹1,76,950.2</div>
+                    {filteredData.length === 0 && (
+                        <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
+                            <i className="fas fa-search-dollar" style={{ fontSize: '2.5rem', marginBottom: '16px', color: '#cbd5e1' }}></i>
+                            <p style={{ margin: 0 }}>No payments found matching your criteria.</p>
                         </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Tot. Brok.</div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0891b2' }}>₹{totalBalance.toLocaleString('en-IN')}</div>
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Tot. Recd. Amount</div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#10b981' }}>₹{totalPayments.toLocaleString('en-IN')}</div>
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Brok. Recd. (Net)</div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#10b981' }}>₹365,000</div>
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Tot. Tax</div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#64748b' }}>₹0</div>
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Tot. Tax</div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#64748b' }}>₹0</div>
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginLeft: 'auto' }}>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Balance</div>
-                            <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#dc2626' }}>₹{totalBalance.toLocaleString('en-IN')}</div>
-                        </div>
-                    </div>
+                    )}
                 </div>
             </div>
         </section>
     );
-}
+};
 
 export default AccountPage;
