@@ -20,6 +20,9 @@ import { useCall } from '../../context/CallContext';
 import { useDistribution } from '../../context/DistributionContext';
 import EnrollSequenceModal from '../../components/EnrollSequenceModal';
 
+import LeadFilterPanel from './components/LeadFilterPanel';
+import { applyLeadFilters } from '../../utils/leadFilterLogic';
+
 function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const {
         scoringAttributes,
@@ -53,6 +56,10 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(10);
+
+    // Filter State
+    const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+    const [filters, setFilters] = useState({});
 
     // Modals State
     const [isSendMessageOpen, setIsSendMessageOpen] = useState(false);
@@ -114,13 +121,20 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     return {
                         _id: lead._id || `mock-${index}`,
 
+                        // Pass raw data for accurate filtering
+                        req: lead.req,
+                        budgetMin: lead.budgetMin,
+                        budgetMax: lead.budgetMax,
+                        propertyType: lead.propertyType,
+                        stage: lead.stage,
+
                         // ===== BASIC INFO =====
                         name: name,
                         mobile: lead.mobile || contact.phones?.[0]?.number || "",
                         email: lead.email || contact.emails?.[0]?.address || "",
 
                         // ===== REQUIREMENT =====
-                        req: lead.req || {
+                        reqDisplay: lead.req || {
                             type: `${lead.requirement || ""} ${lead.subType?.[0] || ""}`.trim(),
                             size: `${lead.areaMin || ""}-${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
                         },
@@ -161,10 +175,15 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                 // Client-side Filter for Mock
                 let filtered = mappedLeads;
+
+                // 1. Search Filter
                 if (searchTerm) {
                     const lower = searchTerm.toLowerCase();
                     filtered = filtered.filter(l => l.name.toLowerCase().includes(lower) || l.mobile.includes(lower));
                 }
+
+                // 2. Advanced Filters
+                filtered = applyLeadFilters(filtered, filters);
 
                 setLeads(filtered);
                 setTotalCount(filtered.length);
@@ -179,7 +198,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
         const timer = setTimeout(fetchLeads, 500);
         return () => clearTimeout(timer);
-    }, [currentPage, recordsPerPage, searchTerm]);
+    }, [currentPage, recordsPerPage, searchTerm, filters]); // Added filters to dependency
 
 
     const toggleSelect = (name) => {
@@ -232,7 +251,19 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        <button className="btn-outline"><i className="fas fa-filter"></i> Filters</button>
+                        {/* Filter Button with Active State Indicator */}
+                        <button
+                            className={`btn-outline ${Object.keys(filters).length > 0 ? 'active-filter' : ''}`}
+                            onClick={() => setIsFilterPanelOpen(true)}
+                            style={{
+                                borderColor: Object.keys(filters).length > 0 ? '#22c55e' : '',
+                                color: Object.keys(filters).length > 0 ? '#166534' : '',
+                                backgroundColor: Object.keys(filters).length > 0 ? '#dcfce7' : ''
+                            }}
+                        >
+                            <i className="fas fa-filter"></i>
+                            Filters {Object.keys(filters).length > 0 ? `(${Object.keys(filters).length})` : ''}
+                        </button>
                     </div>
                 </div>
 
@@ -944,6 +975,18 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     </div>
                 )
             }
+            {/* Lead Filter Panel */}
+            <LeadFilterPanel
+                isOpen={isFilterPanelOpen}
+                onClose={() => setIsFilterPanelOpen(false)}
+                filters={filters}
+                onApply={(newFilters) => {
+                    setFilters(newFilters);
+                    // Reset page to 1 on new filter application
+                    setCurrentPage(1);
+                    showToast('Filters applied successfully');
+                }}
+            />
         </section >
     );
 }
