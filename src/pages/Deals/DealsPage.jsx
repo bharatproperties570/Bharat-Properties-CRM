@@ -1,6 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import AddDealModal from '../../components/AddDealModal';
+import DealsFilterPanel from './components/DealsFilterPanel';
 import { useCall } from '../../context/CallContext';
+import { sizeData } from '../../data/sizeData';
+import { applyDealsFilters } from '../../utils/dealsFilterLogic';
+
+
 
 function DealsPage() {
     const { startCall } = useCall();
@@ -8,6 +13,8 @@ function DealsPage() {
     const [selectedIds, setSelectedIds] = useState([]);
     const [currentView, setCurrentView] = useState('list'); // 'list' or 'map'
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+    const [filters, setFilters] = useState({});
 
     const dealsData = [
         {
@@ -43,9 +50,9 @@ function DealsPage() {
             corner: 'Three Side Open',
             propertyType: 'Plot(Residential)',
             size: '4 Marla (100.48 Sq Yard)',
-            projectName: '',
-            block: '',
-            location: 'Sector 3 Kurukshetra',
+            projectName: 'Sector 3 Chandigarh',
+            block: 'North Block',
+            location: 'Sector 3 Chandigarh',
             lat: 29.9520,
             lng: 76.8650,
             score: { val: 72, class: 'warm' },
@@ -69,9 +76,9 @@ function DealsPage() {
             corner: 'Ordinary',
             propertyType: 'Flat(Residential)',
             size: '4 Marla (114.82 Sq Yard)',
-            projectName: '',
-            block: '',
-            location: 'Sector 4 Kurukshetra',
+            projectName: 'Sector 13 Kurukshetra',
+            block: 'A Block',
+            location: 'Sector 13 Kurukshetra',
             lat: 29.9488,
             lng: 76.8715,
             score: { val: 68, class: 'warm' },
@@ -121,9 +128,9 @@ function DealsPage() {
             corner: 'Three Side Open',
             propertyType: 'Plot(Residential)',
             size: '5 Marla (138.06 Sq Yard)',
-            projectName: '',
+            projectName: 'Sector 71 Mohali',
             block: '',
-            location: 'Sector 29 (Green Homes) Kurukshetra',
+            location: 'Sector 71 Mohali',
             lat: 29.9400,
             lng: 76.8850,
             score: { val: 55, class: 'cold' },
@@ -138,7 +145,8 @@ function DealsPage() {
             remarks: 'pending email follow',
             followUp: '12/25/2023',
             lastContacted: '12/08/2023 9:00 AM',
-            date: '2023-11-08'
+            date: '2023-11-08',
+            facing: 'North-East'
         }
     ];
 
@@ -146,13 +154,19 @@ function DealsPage() {
 
     const filteredDeals = deals.filter(deal => {
         const search = searchTerm.toLowerCase();
-        return (
+        // Basic Search
+        const matchesSearch = (
             (deal.id && deal.id.toLowerCase().includes(search)) ||
             (deal.owner && deal.owner.name && deal.owner.name.toLowerCase().includes(search)) ||
             (deal.location && deal.location.toLowerCase().includes(search)) ||
             (deal.propertyType && deal.propertyType.toLowerCase().includes(search)) ||
             (deal.assigned && deal.assigned.toLowerCase().includes(search))
         );
+
+        if (!matchesSearch) return false;
+
+        // Advanced Filters via Utility
+        return applyDealsFilters(deal, filters);
     });
 
     const toggleSelect = (id) => {
@@ -189,7 +203,11 @@ function DealsPage() {
                                 <i className="fas fa-map-marked-alt"></i> Map View
                             </button>
                         </div>
-                        <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                            className="btn-outline"
+                            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                            onClick={() => setIsFilterPanelOpen(true)}
+                        >
                             <i className="fas fa-filter"></i> Filters
                         </button>
 
@@ -612,6 +630,13 @@ function DealsPage() {
                     setDeals(prev => [formattedDeal, ...prev]);
                     setIsAddModalOpen(false);
                 }}
+            />
+
+            <DealsFilterPanel
+                isOpen={isFilterPanelOpen}
+                onClose={() => setIsFilterPanelOpen(false)}
+                filters={filters}
+                onFilterChange={setFilters}
             />
         </section >
     );

@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useTriggers } from '../../context/TriggersContext';
 import { useCall } from '../../context/CallContext';
+import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { inventoryData } from '../../data/mockData';
+import { PROJECTS_LIST } from '../../data/projectData';
 import { dealIntakeData } from '../../data/dealIntakeData';
 
 import UploadModal from '../../components/UploadModal';
@@ -13,6 +15,8 @@ import SendMailModal from '../Contacts/components/SendMailModal';
 import SendMessageModal from '../../components/SendMessageModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
 import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
+import InventoryFilterPanel from './components/InventoryFilterPanel';
+import { applyInventoryFilters } from '../../utils/inventoryFilterLogic';
 
 function InventoryPage({ onNavigate }) {
     const { fireEvent } = useTriggers();
@@ -24,6 +28,7 @@ function InventoryPage({ onNavigate }) {
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
     const [isEditInventoryModalOpen, setIsEditInventoryModalOpen] = useState(false);
     const [selectedProperty, setSelectedProperty] = useState(null);
+    const [inventoryItems, setInventoryItems] = useState(inventoryData); // Assuming inventoryData is the initial state
 
     // Contextual Action States
     const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false);
@@ -35,7 +40,36 @@ function InventoryPage({ onNavigate }) {
     // Data placeholders for modals
     const [modalData, setModalData] = useState([]);
     const [currentOwners, setCurrentOwners] = useState([]);
-    const [inventoryItems, setInventoryItems] = useState(inventoryData);
+    const { propertyConfig } = usePropertyConfig(); // Use context if needed or just rely on manual parsing
+    const { masterFields } = usePropertyConfig();
+
+    // Advanced Filtering State
+    const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+    const [filters, setFilters] = useState({});
+
+    // Helper: Parse Price (e.g. "1.25 Cr" -> 12500000)
+    const parsePrice = (priceStr) => {
+        if (!priceStr) return 0;
+        const cleanStr = priceStr.toString().toLowerCase().replace(/,/g, '').trim();
+        let multiplier = 1;
+        if (cleanStr.includes('cr')) multiplier = 10000000;
+        else if (cleanStr.includes('lac') || cleanStr.includes('lakh')) multiplier = 100000;
+        else if (cleanStr.includes('k')) multiplier = 1000;
+
+        const num = parseFloat(cleanStr.replace(/[a-z]/g, ''));
+        return isNaN(num) ? 0 : num * multiplier;
+    };
+
+    // Helper: Parse Size (e.g. "10 Marla" -> 10) - Simplistic for now
+    const parseSize = (sizeStr) => {
+        if (!sizeStr) return 0;
+        const num = parseFloat(sizeStr.replace(/,/g, '')); // simplistic
+        return isNaN(num) ? 0 : num;
+    };
+
+    // Use the extracted filter logic
+    const filteredInventory = applyInventoryFilters(inventoryItems, filters, PROJECTS_LIST);
+
 
     const getSelectedProperty = () => inventoryItems.find(p => p.id === selectedIds[0]);
 
@@ -197,7 +231,9 @@ function InventoryPage({ onNavigate }) {
                     time: timeStr,
                     user: 'You',
                     action: data.nextActionType || 'Call',
+                    action: data.nextActionType || 'Call',
                     result: data.result,
+                    reason: data.reason, // Store specific reason for filtering
                     note: newRemark
                 };
 
@@ -247,16 +283,13 @@ function InventoryPage({ onNavigate }) {
         <section id="inventoryView" className="view-section active">
             {viewMode === 'list' ? (
                 <div className="view-scroll-wrapper">
-                    <div className="page-header">
-                        <div className="page-title-group">
-                            <i className="fas fa-bars" style={{ color: '#68737d' }}></i>
-                            <div>
-                                <span className="working-list-label">Global Inventory</span>
-                                <h1>Properties Dashboard</h1>
-                            </div>
+                    <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                        <div>
+                            <h1 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1e293b', marginBottom: '4px' }}>Inventory</h1>
+                            <p style={{ fontSize: '0.9rem', color: '#64748b' }}>Manage your property listings</p>
                         </div>
-                        <div className="header-actions" style={{ display: 'flex', gap: '12px' }}>
-                            <div className="view-toggle-group">
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <div className="view-toggle-group" style={{ marginRight: '10px' }}>
                                 <button
                                     className={`view-toggle-btn ${viewMode === 'list' ? 'active' : ''}`}
                                     onClick={() => setViewMode('list')}
@@ -270,11 +303,28 @@ function InventoryPage({ onNavigate }) {
                                     <i className="fas fa-map-marked-alt"></i> Map View
                                 </button>
                             </div>
-                            <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                                className="toolbar-btn"
+                                onClick={() => setIsFilterPanelOpen(true)}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px',
+                                    backgroundColor: Object.keys(filters).length > 0 ? '#eff6ff' : '#fff',
+                                    color: Object.keys(filters).length > 0 ? '#2563eb' : '#64748b',
+                                    border: Object.keys(filters).length > 0 ? '1px solid #2563eb' : '1px solid #e2e8f0',
+                                    borderRadius: '8px', cursor: 'pointer', fontWeight: 600
+                                }}
+                            >
                                 <i className="fas fa-filter"></i> Filters
+                                {Object.keys(filters).length > 0 && <span style={{ background: '#2563eb', color: '#fff', fontSize: '0.7rem', padding: '2px 6px', borderRadius: '10px' }}>{Object.keys(filters).length}</span>}
                             </button>
-
                         </div>
+                        {/* Filter Panel */}
+                        <InventoryFilterPanel
+                            isOpen={isFilterPanelOpen}
+                            onClose={() => setIsFilterPanelOpen(false)}
+                            filters={filters}
+                            onFilterChange={setFilters}
+                        />
                     </div>
 
                     <div className="inventory-stats-row" style={{ padding: '12px 25px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -400,7 +450,7 @@ function InventoryPage({ onNavigate }) {
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                         <div style={{ fontSize: '0.85rem', color: '#68737d', fontWeight: 500 }}>
-                                            Total: <strong>{inventoryItems.length}</strong> Properties
+                                            Total: <strong>{filteredInventory.length}</strong> Properties
                                         </div>
                                         <div className="pagination-nums" style={{ display: 'flex', gap: '4px' }}>
                                             <span className="page-num active">1</span>
@@ -424,9 +474,14 @@ function InventoryPage({ onNavigate }) {
                         </div>
 
                         <div className="list-content">
-                            {(inventoryItems || []).map((item) => {
-                                if (!item) return null;
-                                return (
+                            {filteredInventory.length === 0 ? (
+                                <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                                    <i className="fas fa-search" style={{ fontSize: '2rem', marginBottom: '10px', opacity: 0.5 }}></i>
+                                    <p>No inventory items match your filters.</p>
+                                    <button onClick={() => setFilters({})} style={{ marginTop: '10px', border: 'none', background: 'transparent', color: '#2563eb', cursor: 'pointer', textDecoration: 'underline' }}>Clear Filters</button>
+                                </div>
+                            ) : (
+                                filteredInventory.map((item) => (
                                     <div key={item.id} className="list-item inventory-list-grid" style={{ padding: '10px 1.5rem', alignItems: 'flex-start' }}>
                                         <input
                                             type="checkbox"
@@ -542,8 +597,8 @@ function InventoryPage({ onNavigate }) {
                                             ) : <div style={{ color: '#cbd5e1', fontStyle: 'italic', fontSize: '0.75rem' }}>No record</div>}
                                         </div>
                                     </div>
-                                );
-                            })}
+                                ))
+                            )}
                         </div>
                     </div>
                 </div>
@@ -751,7 +806,8 @@ function InventoryPage({ onNavigate }) {
                         </div>
                     </div>
                 </>
-            )}
+            )
+            }
 
             <footer className="summary-footer" style={{ height: '55px', background: '#f8fafc' }}>
                 <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
@@ -823,7 +879,7 @@ function InventoryPage({ onNavigate }) {
                 inventory={selectedProperty}
                 onSave={handleSaveFeedback}
             />
-        </section>
+        </section >
     );
 }
 
