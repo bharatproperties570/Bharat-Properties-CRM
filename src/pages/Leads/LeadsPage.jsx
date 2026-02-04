@@ -23,6 +23,7 @@ import EnrollSequenceModal from '../../components/EnrollSequenceModal';
 import LeadFilterPanel from './components/LeadFilterPanel';
 import { applyLeadFilters } from '../../utils/leadFilterLogic';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
+import { parseBudget, parseSizeSqYard, calculateMatch } from '../../utils/matchingLogic';
 
 function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const {
@@ -176,7 +177,18 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         lastAct: lead.lastAct || "Today",
                         activity: lead.activity || "None",
                         remarks: lead.remarks || "",
-                        matched: lead.matched || 0,
+                        matched: (() => {
+                            // FAST MATCH COUNT for Badge
+                            const baseBudget = parseBudget(lead.budget || "");
+                            const leadContext = {
+                                baseBudget,
+                                leadSize: lead.req?.size ? parseSizeSqYard(lead.req.size) : 0,
+                                leadType: lead.req?.type ? lead.req.type.toLowerCase() : '',
+                                leadLocation: (lead.location || "").toLowerCase(),
+                                leadLocationSectors: (lead.location ? lead.location.toLowerCase() : "").split(',').map(s => s.trim()).filter(Boolean)
+                            };
+                            return calculateMatch(lead, leadContext, { location: 30, type: 20, budget: 1, size: 1 }, { minMatchScore: 40 }).length;
+                        })(),
                         addOn: lead.addOn || `Added ${new Date().toLocaleDateString()}`,
 
                         // ===== TEMPORARY LEAD META =====
@@ -1029,31 +1041,69 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
             {/* Top Matches Popover */}
             {
-                activeMatchPopover && (
-                    <div
-                        style={{ position: 'fixed', top: activeMatchPopover.y, left: activeMatchPopover.x, zIndex: 2000, background: '#fff', color: '#0f172a', padding: '16px', borderRadius: '12px', boxShadow: '0 10px 40px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', minWidth: '280px' }}
-                        onMouseLeave={() => setActiveMatchPopover(null)}
-                    >
-                        <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px' }}>Top 5 Property Matches</div>
-                        {[
-                            { title: 'Sector 17 - 3 Marla Plot', price: '₹1.05 Cr', match: '98%' },
-                            { title: 'Sector 4 - Residential', price: '₹1.20 Cr', match: '94%' },
-                            { title: 'Bharat Nagar - Plot', price: '₹1.15 Cr', match: '91%' },
-                            { title: 'Sector 6 - Comm. Plot', price: '₹2.10 Cr', match: '88%' },
-                            { title: 'DLF Phase 1 - 250 SqYd', price: '₹1.95 Cr', match: '85%' }
-                        ].map((item, i) => (
-                            <div key={i} className="match-item-hover" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', padding: '8px', borderRadius: '8px', marginBottom: '4px', cursor: 'pointer', transition: 'all 0.2s' }}>
-                                <div>
-                                    <div style={{ fontWeight: 800 }}>{item.title}</div>
-                                    <div style={{ fontSize: '0.65rem', color: '#64748b' }}>{item.price}</div>
-                                </div>
-                                <div style={{ background: '#dcfce7', color: '#166534', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 900 }}>{item.match}</div>
+                activeMatchPopover && (() => {
+                    const currentLead = leads.find(l => l.name === activeMatchPopover.name);
+                    if (!currentLead) return null;
+
+                    const baseBudget = parseBudget(currentLead.budget);
+                    const leadContext = {
+                        baseBudget,
+                        leadSize: currentLead.req?.size ? parseSizeSqYard(currentLead.req.size) : 0,
+                        leadType: currentLead.req?.type ? currentLead.req.type.toLowerCase() : '',
+                        leadLocation: currentLead.location ? currentLead.location.toLowerCase() : '',
+                        leadLocationSectors: (currentLead.location ? currentLead.location.toLowerCase() : '').split(',').map(s => s.trim()).filter(Boolean)
+                    };
+
+                    const topMatches = calculateMatch(currentLead, leadContext, {
+                        location: 30, type: 20, budget: 25, size: 25
+                    }, { includeNearby: true, minMatchScore: 10 }).slice(0, 5);
+
+                    return (
+                        <div
+                            style={{ position: 'fixed', top: activeMatchPopover.y, left: activeMatchPopover.x, zIndex: 2000, background: '#fff', color: '#0f172a', padding: '16px', borderRadius: '12px', boxShadow: '0 10px 40px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', minWidth: '320px' }}
+                            onMouseLeave={() => setActiveMatchPopover(null)}
+                        >
+                            <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px', display: 'flex', justifyContent: 'space-between' }}>
+                                <span>Top 5 Property Matches</span>
+                                <span style={{ color: 'var(--primary-color)' }}>{topMatches.length} Found</span>
                             </div>
-                        ))}
-                        <button style={{ width: '100%', marginTop: '10px', padding: '8px', background: 'var(--premium-blue)', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 900, cursor: 'pointer' }}>View All {leads.find(l => l.name === activeMatchPopover.name)?.matched} Matches</button>
-                        <style>{`.match-item-hover:hover { background: #f8fafc; }`}</style>
-                    </div>
-                )
+
+                            {topMatches.map((item, i) => (
+                                <div
+                                    key={i}
+                                    className="match-item-hover"
+                                    onClick={() => onNavigate('lead-matching', currentLead.mobile)}
+                                    style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '8px', borderRadius: '8px', marginBottom: '4px', cursor: 'pointer', transition: 'all 0.2s' }}
+                                >
+                                    <div style={{ width: '50px', height: '40px', borderRadius: '6px', overflow: 'hidden', background: '#f1f5f9', flexShrink: 0 }}>
+                                        <img src={item.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontWeight: 800, fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.propertyType} at {item.location}</div>
+                                        <div style={{ fontSize: '0.65rem', color: '#64748b' }}>₹{item.price} • {item.size}</div>
+                                    </div>
+                                    <div style={{ background: item.matchPercentage > 80 ? '#dcfce7' : '#fef3c7', color: item.matchPercentage > 80 ? '#166534' : '#92400e', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 900, flexShrink: 0 }}>
+                                        {item.matchPercentage}%
+                                    </div>
+                                </div>
+                            ))}
+
+                            {topMatches.length === 0 && (
+                                <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>
+                                    No direct matches found. Try adjusting criteria.
+                                </div>
+                            )}
+
+                            <button
+                                onClick={() => onNavigate('lead-matching', currentLead.mobile)}
+                                style={{ width: '100%', marginTop: '10px', padding: '10px', background: 'var(--primary-color)', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', boxShadow: '0 4px 6px rgba(59, 130, 246, 0.2)' }}
+                            >
+                                View All Matches Center
+                            </button>
+                            <style>{`.match-item-hover:hover { background: #f8fafc; transform: translateX(4px); }`}</style>
+                        </div>
+                    );
+                })()
             }
 
             {/* Enroll Sequence Modal */}

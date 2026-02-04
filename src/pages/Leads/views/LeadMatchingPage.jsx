@@ -4,6 +4,7 @@ import SendMailModal from '../../Contacts/components/SendMailModal';
 import SendMessageModal from '../../../components/SendMessageModal';
 import AlgorithmSettingsModal from '../components/AlgorithmSettingsModal';
 import toast from 'react-hot-toast';
+import { parseBudget, parseSizeSqYard, calculateMatch } from '../../../utils/matchingLogic';
 
 const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const lead = useMemo(() => leadData.find(l => l.mobile === leadId), [leadId]);
@@ -28,120 +29,31 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const [isMessageOpen, setIsMessageOpen] = useState(false);
     const [selectedItemsForAction, setSelectedItemsForAction] = useState([]);
 
-    const parsePrice = (priceStr) => {
-        if (!priceStr) return 0;
-        return parseFloat(priceStr.replace(/,/g, '').replace(/[^\d.]/g, ''));
-    };
-
-    const parseBudget = (budgetStr) => {
-        if (!budgetStr) return { min: 0, max: 0 };
-        const numbers = budgetStr.replace(/[^\d-]/g, '').split('-').map(n => parseFloat(n) || 0);
-        if (numbers.length === 1) return { min: numbers[0], max: numbers[0] };
-        return { min: numbers[0], max: numbers[1] };
-    };
-
-    const parseSizeSqYard = (sizeStr) => {
-        if (!sizeStr) return 0;
-        const match = sizeStr.match(/\(([\d.]+)\s*Sq Yard\)/);
-        if (match) return parseFloat(match[1]);
-        const marlaMatch = sizeStr.match(/([\d.]+)\s*Marla/);
-        if (marlaMatch) return parseFloat(marlaMatch[1]) * 30.25;
-        return parseFloat(sizeStr.replace(/[^\d.]/g, '')) || 0;
-    };
-
-    const matchedItems = useMemo(() => {
-        if (!lead) return [];
-
+    // 2. Pre-parse Lead Context
+    const leadContext = useMemo(() => {
+        if (!lead) return null;
         const baseBudget = parseBudget(lead.budget);
-        const flexibleBudget = {
-            min: baseBudget.min * (1 - budgetFlexibility / 100),
-            max: baseBudget.max * (1 + budgetFlexibility / 100)
+        return {
+            baseBudget,
+            leadSize: lead.req?.size ? parseSizeSqYard(lead.req.size) : 0,
+            leadType: lead.req?.type ? lead.req.type.toLowerCase() : '',
+            leadLocation: lead.location ? lead.location.toLowerCase() : '',
+            leadLocationSectors: (lead.location ? lead.location.toLowerCase() : '').split(',').map(s => s.trim()).filter(Boolean)
         };
-        const leadSize = lead.req?.size ? parseSizeSqYard(lead.req.size) : 0;
-        const leadType = lead.req?.type ? lead.req.type.toLowerCase() : '';
-        const leadLocation = lead.location ? lead.location.toLowerCase() : '';
+    }, [lead]);
 
-        const allItems = [
-            ...dealsData.map(d => ({ ...d, itemType: 'Deal' })),
-            ...(inventoryData || []).map(i => ({ ...i, itemType: 'Inventory' }))
-        ];
+    // 3. Optimize regions with Centralized Logic
+    const matchedItems = useMemo(() => {
+        return calculateMatch(lead, leadContext, weights, {
+            budgetFlexibility,
+            includeNearby,
+            minMatchScore
+        });
+    }, [lead, leadContext, budgetFlexibility, includeNearby, minMatchScore, weights]);
 
-        const totalPossibleScore = weights.location + weights.type + weights.budget + weights.size;
-
-        return allItems.map((item, index) => {
-            let score = 0;
-            const details = {
-                location: 'mismatch',
-                type: 'mismatch',
-                budget: 'mismatch',
-                size: 'mismatch'
-            };
-            const gaps = [];
-
-            // Location Match (Weights-based)
-            const itemLocation = item.location ? item.location.toLowerCase() : '';
-            const itemProject = item.projectName ? item.projectName.toLowerCase() : '';
-            if ((itemLocation && leadLocation.includes(itemLocation)) || (itemProject && leadLocation.includes(itemProject))) {
-                score += weights.location;
-                details.location = 'match';
-            } else if (includeNearby && itemLocation && leadLocation.split(',').some(loc => loc.trim() && (itemLocation.includes(loc.trim()) || loc.trim().includes(itemLocation)))) {
-                score += (weights.location * 0.66);
-                details.location = 'partial';
-            } else {
-                gaps.push('Location mismatch');
-            }
-
-            // Type Match (Weights-based)
-            const itemType = item.propertyType ? item.propertyType.toLowerCase() : '';
-            if (leadType && itemType && (leadType.includes(itemType) || itemType.includes(leadType))) {
-                score += weights.type;
-                details.type = 'match';
-            } else {
-                gaps.push(`${item.propertyType} vs ${lead.req?.type}`);
-            }
-
-            // Price/Budget Match (Weights-based)
-            const itemPrice = parsePrice(item.price);
-            if (itemPrice >= flexibleBudget.min && itemPrice <= flexibleBudget.max) {
-                score += weights.budget;
-                details.budget = 'match';
-            } else if (itemPrice > 0 && flexibleBudget.max > 0) {
-                const diff = Math.abs(itemPrice - (flexibleBudget.min + flexibleBudget.max) / 2);
-                const avg = (flexibleBudget.min + flexibleBudget.max) / 2;
-                const proximity = Math.max(0, weights.budget - (diff / avg) * (weights.budget * 2));
-                score += proximity;
-                if (proximity > (weights.budget * 0.6)) details.budget = 'partial';
-                else gaps.push(`₹${Math.round(Math.abs(itemPrice - baseBudget.max) / 100000)}L over budget`);
-            }
-
-            // Size Match (Weights-based)
-            const itemSize = parseSizeSqYard(item.size);
-            if (leadSize > 0 && itemSize > 0) {
-                const diff = Math.abs(itemSize - leadSize);
-                const proximity = Math.max(0, weights.size - (diff / leadSize) * (weights.size * 4));
-                score += proximity;
-                if (proximity > (weights.size * 0.8)) details.size = 'match';
-                else if (proximity > (weights.size * 0.4)) details.size = 'partial';
-                else gaps.push('Size significantly different');
-            } else if (itemSize > 0 || leadSize > 0) {
-                score += (weights.size * 0.4);
-                details.size = 'partial';
-            }
-
-            // Mock Market Context
-            const marketStatus = score > (totalPossibleScore * 0.6) ? (index % 3 === 0 ? 'Below Market' : 'Fair Price') : 'Premium';
-
-            return {
-                ...item,
-                matchPercentage: Math.round((score / totalPossibleScore) * 100),
-                matchDetails: details,
-                gaps,
-                marketStatus,
-                thumbnail: `https://picsum.photos/seed/${item.id || item.unitNo}/200/150`
-            };
-        }).filter(item => item.matchPercentage >= minMatchScore)
-            .sort((a, b) => b.matchPercentage - a.matchPercentage);
-    }, [lead, budgetFlexibility, includeNearby, minMatchScore, weights]);
+    // Progressive Rendering
+    const [visibleCount, setVisibleCount] = useState(15);
+    const displayedItems = useMemo(() => matchedItems.slice(0, visibleCount), [matchedItems, visibleCount]);
 
     const handleSelectAll = (e) => {
         if (e.target.checked) {
@@ -324,7 +236,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         </div>
                     </div>
 
-                    {matchedItems.map((item, idx) => (
+                    {displayedItems.map((item, idx) => (
                         <div
                             key={(item.id || item.unitNo) + idx}
                             style={{
@@ -439,6 +351,17 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                             </div>
                         </div>
                     ))}
+
+                    {matchedItems.length > visibleCount && (
+                        <button
+                            onClick={() => setVisibleCount(prev => prev + 15)}
+                            style={{ padding: '16px', borderRadius: '15px', border: '2px dashed #cbd5e1', background: '#f1f5f9', color: '#64748b', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
+                            onMouseOver={(e) => { e.target.style.background = '#e2e8f0'; e.target.style.borderColor = '#94a3b8'; }}
+                            onMouseOut={(e) => { e.target.style.background = '#f1f5f9'; e.target.style.borderColor = '#cbd5e1'; }}
+                        >
+                            <i className="fas fa-plus-circle"></i> Load More Matches ({matchedItems.length - visibleCount} remaining)
+                        </button>
+                    )}
 
                     {matchedItems.length === 0 && (
                         <div style={{ padding: '60px', textAlign: 'center', background: '#fff', borderRadius: '24px', border: '2px dashed #e2e8f0' }}>
