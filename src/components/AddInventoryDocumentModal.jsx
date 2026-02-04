@@ -2,44 +2,46 @@ import React, { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useContactConfig } from '../context/ContactConfigContext';
 
-// Mock Contact Data for Linking (Should ideally come from context or props)
-import { contactData } from '../data/mockData';
-
 const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) => {
     const { propertyConfig } = usePropertyConfig();
-    const { profileConfig = {} } = useContactConfig();
+    const config = useContactConfig();
+    const profileConfig = config?.profileConfig || {};
 
     const [formData, setFormData] = useState({
         inventoryDocuments: [{ documentName: '', documentType: '', linkedContactMobile: '', file: null }],
-        owners: [] // To hold potential owners if passed, or we can fetch relevant contacts
+        owners: []
     });
 
     useEffect(() => {
         if (isOpen && project) {
-            // If project (property) data is passed, we might want to pre-fill owners or existing docs
-            // For now, initializing with one empty row as per "Add" behavior
-            // But we should try to populate 'owners' from the project if available to enable linking
             let potentialOwners = [];
-            if (project.ownerName) {
-                // Mocking an owner object structure to match AddInventoryModal expectation
-                potentialOwners.push({
-                    name: project.ownerName,
-                    mobile: project.ownerPhone || '',
-                    role: 'Property Owner'
-                });
-            }
-            if (project.associatedContact) {
-                potentialOwners.push({
-                    name: project.associatedContact,
-                    mobile: project.associatedPhone || '',
-                    role: 'Associate'
-                });
+            try {
+                if (project && typeof project === 'object') {
+                    if (project.ownerName) {
+                        potentialOwners.push({
+                            name: String(project.ownerName),
+                            mobile: project.ownerPhone ? String(project.ownerPhone) : '',
+                            role: 'Property Owner'
+                        });
+                    }
+                    if (project.associatedContact) {
+                        potentialOwners.push({
+                            name: String(project.associatedContact),
+                            mobile: project.associatedPhone ? String(project.associatedPhone) : '',
+                            role: 'Associate'
+                        });
+                    }
+                }
+            } catch (e) {
+                console.error("Error processing project owners", e);
             }
 
             setFormData(prev => ({
                 ...prev,
                 owners: potentialOwners,
-                inventoryDocuments: project.inventoryDocuments || [{ documentName: '', documentType: '', linkedContactMobile: '', file: null }]
+                inventoryDocuments: (project && Array.isArray(project.inventoryDocuments))
+                    ? project.inventoryDocuments
+                    : [{ documentName: '', documentType: '', linkedContactMobile: '', file: null }]
             }));
         } else if (isOpen) {
             setFormData({
@@ -49,39 +51,49 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
         }
     }, [isOpen, project]);
 
-
     const handleSave = () => {
-        onSave(formData.inventoryDocuments);
-        onClose();
+        if (typeof onSave === 'function') {
+            onSave(formData.inventoryDocuments);
+        }
+        if (typeof onClose === 'function') {
+            onClose();
+        }
     };
 
     if (!isOpen) return null;
 
-    // --- Styles (Copied from AddInventoryModal) ---
-    const labelStyle = {
-        fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '6px', display: 'block'
-    };
-    const inputStyle = {
-        width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0',
-        fontSize: '0.9rem', outline: 'none', color: '#1e293b', transition: 'all 0.2s',
-        backgroundColor: '#fff', height: '42px', boxSizing: 'border-box'
-    };
-    const customSelectStyle = {
-        ...inputStyle,
-        appearance: 'none',
-        backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23475569%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`,
-        backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '12px', paddingRight: '32px'
-    };
+    // --- Styles ---
+    const labelStyle = { fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '6px', display: 'block' };
+    const inputStyle = { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.9rem', outline: 'none', color: '#1e293b', transition: 'all 0.2s', backgroundColor: '#fff', height: '42px', boxSizing: 'border-box' };
+    const customSelectStyle = { ...inputStyle, appearance: 'none', backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23475569%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '12px', paddingRight: '32px' };
     const customSelectStyleDisabled = { ...customSelectStyle, background: '#f1f5f9', cursor: 'not-allowed', color: '#94a3b8' };
+    const sectionStyle = { background: '#fff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', marginBottom: '24px' };
+    const buttonStyle = { cancel: { padding: '10px 24px', borderRadius: '8px', border: '1px solid #fecaca', background: '#fff', color: '#ef4444', fontWeight: 600, cursor: 'pointer' }, success: { padding: '10px 24px', borderRadius: '8px', border: 'none', background: '#22c55e', color: '#fff', fontWeight: 600, cursor: 'pointer' } };
 
-    const sectionStyle = {
-        background: '#fff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.05)', marginBottom: '24px'
+    // --- Safety Getters ---
+    const getDocCategories = () => {
+        try {
+            const cats = profileConfig?.Documents?.subCategories || [];
+            return Array.isArray(cats) ? cats : [];
+        } catch (e) {
+            console.error("Error getting doc categories", e);
+            return [];
+        }
     };
-    const buttonStyle = {
-        cancel: { padding: '10px 24px', borderRadius: '8px', border: '1px solid #fecaca', background: '#fff', color: '#ef4444', fontWeight: 600, cursor: 'pointer' },
-        success: { padding: '10px 24px', borderRadius: '8px', border: 'none', background: '#22c55e', color: '#fff', fontWeight: 600, cursor: 'pointer' }
+
+    const getDocTypes = (catName, categories) => {
+        if (!catName || !Array.isArray(categories)) return [];
+        try {
+            const cat = categories.find(c => c && (c.name === catName || c.lookup_value === catName));
+            const types = cat?.subCategories || cat?.types || [];
+            return Array.isArray(types) ? types : [];
+        } catch (e) {
+            console.error("Error in getDocTypes", e);
+            return [];
+        }
     };
+
+    const docCategories = getDocCategories();
 
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(4px)' }}>
@@ -98,7 +110,9 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
                         </h2>
                         {project && (
                             <span style={{ fontSize: '0.9rem', color: '#64748b', marginTop: '4px', marginLeft: '42px' }}>
-                                For: <span style={{ fontWeight: 600, color: '#0f172a' }}>{project.unitNo} - {project.area}</span>
+                                For: <span style={{ fontWeight: 600, color: '#0f172a' }}>
+                                    {String(project.unitNo || project.id || 'N/A')} - {String(project.area || project.location || 'Deal')}
+                                </span>
                             </span>
                         )}
                     </div>
@@ -115,132 +129,131 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
                                 <i className="fas fa-file-contract" style={{ color: '#6366f1' }}></i> Inventory Documents
                             </h4>
 
-                            {(() => {
-                                const docCategories = profileConfig?.Documents?.subCategories || [];
-                                const getDocTypes = (catName) => {
-                                    const cat = docCategories.find(c => c.name === catName);
-                                    return cat?.types || [];
-                                };
-
-                                return formData.inventoryDocuments.map((doc, idx) => {
-                                    const availableDocTypes = getDocTypes(doc.documentName);
-                                    return (
-                                        <div key={idx} style={{
-                                            background: '#fff',
-                                            border: '1px solid #e2e8f0',
-                                            borderRadius: '8px',
-                                            padding: '12px',
-                                            marginBottom: '12px',
-                                            boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
-                                        }}>
-                                            {/* Row 1: Identity */}
-                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 32px', gap: '8px', marginBottom: '12px' }}>
-                                                <div>
-                                                    <label style={labelStyle}>Category</label>
-                                                    <select
-                                                        style={{ ...customSelectStyle, fontSize: '0.85rem', padding: '8px' }}
-                                                        value={doc.documentName}
-                                                        onChange={e => {
-                                                            const newDocs = [...formData.inventoryDocuments];
-                                                            newDocs[idx].documentName = e.target.value;
-                                                            newDocs[idx].documentType = '';
-                                                            setFormData({ ...formData, inventoryDocuments: newDocs });
-                                                        }}
-                                                    >
-                                                        <option value="">Select Category</option>
-                                                        {docCategories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                                                    </select>
-                                                </div>
-                                                <div>
-                                                    <label style={labelStyle}>Document Type</label>
-                                                    <select
-                                                        style={{ ...(!doc.documentName ? customSelectStyleDisabled : customSelectStyle), fontSize: '0.85rem', padding: '8px' }}
-                                                        value={doc.documentType}
-                                                        disabled={!doc.documentName}
-                                                        onChange={e => {
-                                                            const newDocs = [...formData.inventoryDocuments];
-                                                            newDocs[idx].documentType = e.target.value;
-                                                            setFormData({ ...formData, inventoryDocuments: newDocs });
-                                                        }}
-                                                    >
-                                                        <option value="">Select Type</option>
-                                                        {availableDocTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                                                    </select>
-                                                </div>
-                                                <div style={{ display: 'flex', alignItems: 'end' }}>
-                                                    <button
-                                                        onClick={() => {
-                                                            if (idx === 0) {
-                                                                setFormData({ ...formData, inventoryDocuments: [...formData.inventoryDocuments, { documentName: '', documentType: '', registrationNo: '', linkedContactMobile: '', file: null }] });
-                                                            } else {
-                                                                const newDocs = formData.inventoryDocuments.filter((_, i) => i !== idx);
-                                                                setFormData({ ...formData, inventoryDocuments: newDocs });
-                                                            }
-                                                        }}
-                                                        style={{ height: '36px', width: '100%', borderRadius: '6px', border: 'none', background: idx === 0 ? '#eff6ff' : '#fef2f2', color: idx === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                                    >
-                                                        <i className={`fas ${idx === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            {/* Row 2: Contact Context */}
-                                            <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '6px', border: '1px solid #f1f5f9', marginBottom: '12px' }}>
-                                                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '6px', display: 'block' }}>
-                                                    Link to Contact (Optional)
-                                                </label>
+                            {formData.inventoryDocuments.map((doc, idx) => {
+                                const availableDocTypes = getDocTypes(doc.documentName, docCategories);
+                                return (
+                                    <div key={idx} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', marginBottom: '12px', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 32px', gap: '8px', marginBottom: '12px' }}>
+                                            {/* Category Select */}
+                                            <div>
+                                                <label style={labelStyle}>Category</label>
                                                 <select
-                                                    style={{ ...customSelectStyle, background: '#fff', fontSize: '0.85rem', padding: '8px' }}
-                                                    value={doc.linkedContactMobile}
+                                                    style={{ ...customSelectStyle, fontSize: '0.85rem', padding: '8px' }}
+                                                    value={String(doc.documentName || '')}
                                                     onChange={e => {
                                                         const newDocs = [...formData.inventoryDocuments];
-                                                        newDocs[idx].linkedContactMobile = e.target.value;
+                                                        newDocs[idx].documentName = e.target.value;
+                                                        newDocs[idx].documentType = '';
                                                         setFormData({ ...formData, inventoryDocuments: newDocs });
                                                     }}
                                                 >
-                                                    <option value="">Select Owner/Associate</option>
-                                                    {formData.owners && formData.owners.map(owner => (
-                                                        <option key={owner.mobile} value={owner.mobile}>
-                                                            {owner.name} ({owner.role})
-                                                        </option>
-                                                    ))}
+                                                    <option value="">Select Category</option>
+                                                    {docCategories.map((c, cidx) => {
+                                                        if (!c) return null;
+                                                        const val = typeof c === 'object' ? (c.name || c.lookup_value || c.id || cidx) : c;
+                                                        const label = typeof c === 'object' ? (c.name || c.lookup_value || c.id || `Category ${cidx}`) : c;
+                                                        return <option key={`cat-${cidx}-${val}`} value={String(val)}>{String(label)}</option>;
+                                                    })}
                                                 </select>
                                             </div>
 
-                                            {/* Row 3: Evidence */}
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                <div style={{ flex: 1 }}>
-                                                    <label style={{
-                                                        display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: '#fff',
-                                                        border: '1px dashed #cbd5e1', borderRadius: '6px', cursor: 'pointer', color: '#64748b', fontSize: '0.85rem',
-                                                        transition: 'all 0.2s', ':hover': { borderColor: '#3b82f6', background: '#eff6ff' }
-                                                    }}>
-                                                        <div style={{ width: '28px', height: '28px', background: '#ecfdf5', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                            <i className="fas fa-file-upload" style={{ color: '#10b981', fontSize: '0.9rem' }}></i>
-                                                        </div>
-                                                        <div style={{ flex: 1 }}>
-                                                            <span style={{ fontWeight: 600, color: '#334155' }}>
-                                                                {doc.file ? doc.file.name : "Upload Document File"}
-                                                            </span>
-                                                            {!doc.file && <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: '6px' }}>PDF or Image</span>}
-                                                        </div>
-                                                        <input type="file" style={{ display: 'none' }} onChange={e => {
-                                                            const newDocs = [...formData.inventoryDocuments];
-                                                            newDocs[idx].file = e.target.files[0];
+                                            {/* Type Select */}
+                                            <div>
+                                                <label style={labelStyle}>Document Type</label>
+                                                <select
+                                                    style={{ ...(!doc.documentName ? customSelectStyleDisabled : customSelectStyle), fontSize: '0.85rem', padding: '8px' }}
+                                                    value={String(doc.documentType || '')}
+                                                    disabled={!doc.documentName}
+                                                    onChange={e => {
+                                                        const newDocs = [...formData.inventoryDocuments];
+                                                        newDocs[idx].documentType = e.target.value;
+                                                        setFormData({ ...formData, inventoryDocuments: newDocs });
+                                                    }}
+                                                >
+                                                    <option value="">Select Type</option>
+                                                    {availableDocTypes.map((t, tidx) => {
+                                                        if (!t) return null;
+                                                        const val = typeof t === 'object' ? (t.name || t.lookup_value || t.id || tidx) : t;
+                                                        const label = typeof t === 'object' ? (t.name || t.lookup_value || t.id || `Option ${tidx}`) : t;
+                                                        return <option key={`type-${tidx}-${val}`} value={String(val)}>{String(label)}</option>;
+                                                    })}
+                                                </select>
+                                            </div>
+
+                                            {/* Add/Remove Button */}
+                                            <div style={{ display: 'flex', alignItems: 'end' }}>
+                                                <button
+                                                    onClick={() => {
+                                                        if (idx === 0) {
+                                                            setFormData({ ...formData, inventoryDocuments: [...formData.inventoryDocuments, { documentName: '', documentType: '', registrationNo: '', linkedContactMobile: '', file: null }] });
+                                                        } else {
+                                                            const newDocs = formData.inventoryDocuments.filter((_, i) => i !== idx);
                                                             setFormData({ ...formData, inventoryDocuments: newDocs });
-                                                        }} />
-                                                        {doc.file ? (
-                                                            <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 600 }}>File Selected</span>
-                                                        ) : (
-                                                            <span style={{ padding: '4px 10px', background: '#f1f5f9', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>Browse</span>
-                                                        )}
-                                                    </label>
-                                                </div>
+                                                        }
+                                                    }}
+                                                    style={{ height: '36px', width: '100%', borderRadius: '6px', border: 'none', background: idx === 0 ? '#eff6ff' : '#fef2f2', color: idx === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                                >
+                                                    <i className={`fas ${idx === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
+                                                </button>
                                             </div>
                                         </div>
-                                    );
-                                });
-                            })()}
+
+                                        {/* Contact Link */}
+                                        <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '6px', border: '1px solid #f1f5f9', marginBottom: '12px' }}>
+                                            <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '6px', display: 'block' }}>
+                                                Link to Contact (Optional)
+                                            </label>
+                                            <select
+                                                style={{ ...customSelectStyle, background: '#fff', fontSize: '0.85rem', padding: '8px' }}
+                                                value={String(doc.linkedContactMobile || '')}
+                                                onChange={e => {
+                                                    const newDocs = [...formData.inventoryDocuments];
+                                                    newDocs[idx].linkedContactMobile = e.target.value;
+                                                    setFormData({ ...formData, inventoryDocuments: newDocs });
+                                                }}
+                                            >
+                                                <option value="">Select Owner/Associate</option>
+                                                {Array.isArray(formData.owners) && formData.owners.map((owner, oidx) => (
+                                                    <option key={String(owner.mobile || oidx)} value={String(owner.mobile || '')}>
+                                                        {String(owner.name)} ({String(owner.role)})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {/* File Upload */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                            <div style={{ flex: 1 }}>
+                                                <label style={{
+                                                    display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: '#fff',
+                                                    border: '1px dashed #cbd5e1', borderRadius: '6px', cursor: 'pointer', color: '#64748b', fontSize: '0.85rem',
+                                                    transition: 'all 0.2s'
+                                                }} className="upload-label-hover">
+                                                    <div style={{ width: '28px', height: '28px', background: '#ecfdf5', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                        <i className="fas fa-file-upload" style={{ color: '#10b981', fontSize: '0.9rem' }}></i>
+                                                    </div>
+                                                    <div style={{ flex: 1 }}>
+                                                        <span style={{ fontWeight: 600, color: '#334155' }}>
+                                                            {doc.file ? String(doc.file.name) : "Upload Document File"}
+                                                        </span>
+                                                        {!doc.file && <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: '6px' }}>PDF or Image</span>}
+                                                    </div>
+                                                    <input type="file" style={{ display: 'none' }} onChange={e => {
+                                                        const newDocs = [...formData.inventoryDocuments];
+                                                        newDocs[idx].file = e.target.files[0];
+                                                        setFormData({ ...formData, inventoryDocuments: newDocs });
+                                                    }} />
+                                                    {doc.file ? (
+                                                        <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 600 }}>File Selected</span>
+                                                    ) : (
+                                                        <span style={{ padding: '4px 10px', background: '#f1f5f9', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>Browse</span>
+                                                    )}
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 </div>
@@ -252,9 +265,9 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
                 </div>
 
                 <style>{`
-                    .grid-2-col { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
                     .animate-slideIn { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
                     .fade-in { animation: fadeIn 0.3s ease-out; }
+                    .upload-label-hover:hover { border-color: #3b82f6 !important; background: #eff6ff !important; }
                     @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
                     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
                 `}</style>

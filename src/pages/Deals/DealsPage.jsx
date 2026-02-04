@@ -1,13 +1,22 @@
 import React, { useState, useRef, useEffect } from 'react';
 import AddDealModal from '../../components/AddDealModal';
 import DealsFilterPanel from './components/DealsFilterPanel';
+import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 import { useCall } from '../../context/CallContext';
 import { sizeData } from '../../data/sizeData';
 import { applyDealsFilters } from '../../utils/dealsFilterLogic';
+import UploadModal from '../../components/UploadModal';
+import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
+import SendMailModal from '../Contacts/components/SendMailModal';
+import SendMessageModal from '../../components/SendMessageModal';
+import ManageTagsModal from '../../components/ManageTagsModal';
+import toast from 'react-hot-toast';
 
 
 
-function DealsPage() {
+import { dealsData } from '../../data/mockData';
+
+function DealsPage({ onNavigate }) {
     const { startCall } = useCall();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
@@ -16,139 +25,31 @@ function DealsPage() {
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
 
-    const dealsData = [
-        {
-            id: '2158',
-            type: 'Ordinary',
-            unitNo: '1',
-            corner: 'Corner',
-            propertyType: 'Plot(Residential)',
-            size: '3 Marla (74.95 Sq Yard)',
-            projectName: '',
-            block: '',
-            location: 'Sector 5 Kurukshetra',
-            lat: 29.9457,
-            lng: 76.8780,
-            score: { val: 85, class: 'hot' },
-            intent: 'Sell',
-            matched: 3,
-            owner: { name: 'RENU SHARMA', phone: '8076319951', email: 'renu.sharma@gmail.com' },
-            associatedContact: { name: '', phone: '', email: '' },
-            price: '1,04,93,000',
-            priceWord: 'One crore four lakh ninety-three thousand Only',
-            status: 'Open',
-            assigned: 'Suraj',
-            remarks: '',
-            followUp: '',
-            lastContacted: '12/15/2023 2:30 PM',
-            date: '2023-11-15'
-        },
-        {
-            id: '2368',
-            type: 'Ordinary',
-            unitNo: '1',
-            corner: 'Three Side Open',
-            propertyType: 'Plot(Residential)',
-            size: '4 Marla (100.48 Sq Yard)',
-            projectName: 'Sector 3 Chandigarh',
-            block: 'North Block',
-            location: 'Sector 3 Chandigarh',
-            lat: 29.9520,
-            lng: 76.8650,
-            score: { val: 72, class: 'warm' },
-            intent: 'Rent',
-            matched: 5,
-            owner: { name: 'Vikash Pehowa', phone: '7015811721', email: 'vikash.pehowa@gmail.com' },
-            associatedContact: { name: 'Ram Kumar', phone: '9876543210', email: 'ram.kumar@gmail.com' },
-            price: '1,12,00,000',
-            priceWord: 'One crore twelve lakh Only',
-            status: 'Quote',
-            assigned: 'Varun Saini',
-            remarks: 'Interested buyer',
-            followUp: '12/20/2023',
-            lastContacted: '12/14/2023 11:00 AM',
-            date: '2023-11-14'
-        },
-        {
-            id: '1439',
-            type: 'Ordinary',
-            unitNo: '1',
-            corner: 'Ordinary',
-            propertyType: 'Flat(Residential)',
-            size: '4 Marla (114.82 Sq Yard)',
-            projectName: 'Sector 13 Kurukshetra',
-            block: 'A Block',
-            location: 'Sector 13 Kurukshetra',
-            lat: 29.9488,
-            lng: 76.8715,
-            score: { val: 68, class: 'warm' },
-            intent: 'Sell',
-            matched: 2,
-            owner: { name: 'Nishant Bhardwaj', phone: '9728308282', email: 'nishant.bhardwaj@gmail.com' },
-            associatedContact: { name: '', phone: '', email: '' },
-            price: '1,25,00,000',
-            priceWord: 'One crore twenty-five lakh Only',
-            status: 'Negotiation',
-            assigned: 'Varun Saini',
-            remarks: '',
-            followUp: '',
-            lastContacted: '',
-            date: '2023-11-12'
-        },
-        {
-            id: '228',
-            type: 'Ordinary',
-            unitNo: '1',
-            corner: 'Corner',
-            propertyType: 'Plot(Residential)',
-            size: '6 Marla (170.07 Sq Yard)',
-            projectName: '',
-            block: '',
-            location: 'Sector 30 Kurukshetra',
-            lat: 29.9380,
-            lng: 76.8900,
-            score: { val: 90, class: 'hot' },
-            intent: 'Sell',
-            matched: 7,
-            owner: { name: 'Sumit Rathi', phone: '9999984022', email: 'sumit.rathi@gmail.com' },
-            associatedContact: { name: 'Ram Chander Rathi', phone: '9876543211', email: 'ram.rathi@gmail.com' },
-            price: '1,39,45,740',
-            priceWord: 'One crore thirty-nine lakh forty-five thousand seven hundred and forty Only',
-            status: 'Open',
-            assigned: 'Suraj',
-            remarks: '',
-            followUp: '',
-            lastContacted: '12/10/2023 3:15 PM',
-            date: '2023-11-10'
-        },
-        {
-            id: 'D 133',
-            type: 'Ordinary',
-            unitNo: '1',
-            corner: 'Three Side Open',
-            propertyType: 'Plot(Residential)',
-            size: '5 Marla (138.06 Sq Yard)',
-            projectName: 'Sector 71 Mohali',
-            block: '',
-            location: 'Sector 71 Mohali',
-            lat: 29.9400,
-            lng: 76.8850,
-            score: { val: 55, class: 'cold' },
-            intent: 'Lease',
-            matched: 1,
-            owner: { name: 'VIKRAM KAUSHIK', phone: '9991278700', email: 'vikram.kaushik@gmail.com' },
-            associatedContact: { name: '', phone: '', email: '' },
-            price: '1,65,67,200',
-            priceWord: 'One crore sixty-five lakh sixty-seven thousand two hundred Only',
-            status: 'Open',
-            assigned: 'Varun Saini',
-            remarks: 'pending email follow',
-            followUp: '12/25/2023',
-            lastContacted: '12/08/2023 9:00 AM',
-            date: '2023-11-08',
-            facing: 'North-East'
-        }
-    ];
+    // Action Modal States
+    const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+    const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
+    const [selectedDealState, setSelectedDealState] = useState(null);
+
+    const [isSendMailOpen, setIsSendMailOpen] = useState(false);
+    const [selectedDealsForMail, setSelectedDealsForMail] = useState([]);
+
+    const [isSendMessageOpen, setIsSendMessageOpen] = useState(false);
+    const [selectedDealsForMessage, setSelectedDealsForMessage] = useState([]);
+
+    const [isManageTagsOpen, setIsManageTagsOpen] = useState(false);
+    const [selectedDealsForTags, setSelectedDealsForTags] = useState([]);
+
+    // Filter Removal Handlers
+    const handleRemoveFilter = (key) => {
+        const newFilters = { ...filters };
+        delete newFilters[key];
+        setFilters(newFilters);
+    };
+
+    const handleClearAll = () => {
+        setFilters({});
+    };
+
 
     const [deals, setDeals] = useState(dealsData);
 
@@ -175,6 +76,100 @@ function DealsPage() {
         } else {
             setSelectedIds([...selectedIds, id]);
         }
+    };
+
+    const getSelectedDeal = () => deals.find(d => d.id === selectedIds[0]);
+
+    const handleEditClick = () => {
+        const deal = getSelectedDeal();
+        if (deal) {
+            setSelectedDealState(deal);
+            setIsAddModalOpen(true);
+        }
+    };
+
+    const handleUploadClick = () => {
+        const deal = getSelectedDeal();
+        if (deal) {
+            setSelectedDealState(deal);
+            setIsUploadModalOpen(true);
+        }
+    };
+
+    const handleDocumentClick = () => {
+        const deal = getSelectedDeal();
+        if (deal) {
+            setSelectedDealState(deal);
+            setIsDocumentModalOpen(true);
+        }
+    };
+
+    const getSelectedDealsFull = () => {
+        return deals.filter(d => selectedIds.includes(d.id));
+    };
+
+    const handleEmailClick = () => {
+        const selectedDeals = getSelectedDealsFull();
+        if (selectedDeals.length > 0) {
+            const recipients = selectedDeals.map(d => ({
+                id: d.id,
+                name: d.owner?.name || 'Owner',
+                email: d.owner?.email || ''
+            })).filter(r => r.email);
+
+            if (recipients.length === 0) {
+                toast.error("Selected deals do not have email addresses");
+                return;
+            }
+
+            setSelectedDealsForMail(recipients);
+            setIsSendMailOpen(true);
+        }
+    };
+
+    const handleMessageClick = () => {
+        const selectedDeals = getSelectedDealsFull();
+        if (selectedDeals.length > 0) {
+            const recipients = selectedDeals.map(d => ({
+                id: d.id,
+                name: d.owner?.name || 'Owner',
+                phone: d.owner?.phone || ''
+            })).filter(r => r.phone);
+
+            if (recipients.length === 0) {
+                toast.error("Selected deals do not have phone numbers");
+                return;
+            }
+
+            setSelectedDealsForMessage(recipients);
+            setIsSendMessageOpen(true);
+        }
+    };
+
+    const handleTagClick = () => {
+        const selectedDeals = getSelectedDealsFull();
+        if (selectedDeals.length > 0) {
+            setSelectedDealsForTags(selectedDeals);
+            setIsManageTagsOpen(true);
+        }
+    };
+
+    const handleSaveUploads = (data) => {
+        if (!selectedDealState) return;
+        const updatedDeals = deals.map(d =>
+            d.id === selectedDealState.id ? { ...d, ...data } : d
+        );
+        setDeals(updatedDeals);
+        toast.success('Media uploaded successfully');
+    };
+
+    const handleSaveDocuments = (docs) => {
+        if (!selectedDealState) return;
+        const updatedDeals = deals.map(d =>
+            d.id === selectedDealState.id ? { ...d, inventoryDocuments: docs } : d
+        );
+        setDeals(updatedDeals);
+        toast.success('Documents updated successfully');
     };
 
     return (
@@ -205,12 +200,27 @@ function DealsPage() {
                         </div>
                         <button
                             className="btn-outline"
-                            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                            style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}
                             onClick={() => setIsFilterPanelOpen(true)}
                         >
                             <i className="fas fa-filter"></i> Filters
+                            {Object.keys(filters).length > 0 && (
+                                <span style={{
+                                    position: 'absolute', top: '-5px', right: '-5px',
+                                    width: '10px', height: '10px', background: 'red', borderRadius: '50%'
+                                }}></span>
+                            )}
                         </button>
-
+                        <button
+                            className="btn-primary"
+                            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                            onClick={() => {
+                                setSelectedDealState(null);
+                                setIsAddModalOpen(true);
+                            }}
+                        >
+                            <i className="fas fa-plus"></i> New Deal
+                        </button>
                     </div>
                 </div>
 
@@ -234,7 +244,7 @@ function DealsPage() {
 
                                 {selectedIds.length === 1 && (
                                     <>
-                                        <button className="action-btn" title="Edit Deal"><i className="fas fa-edit"></i> Edit</button>
+                                        <button className="action-btn" title="Edit Deal" onClick={handleEditClick}><i className="fas fa-edit"></i> Edit</button>
                                         <button className="action-btn" title="Move Stage"><i className="fas fa-step-forward"></i> Move</button>
                                         <button
                                             className="action-btn"
@@ -257,6 +267,27 @@ function DealsPage() {
                                         </button>
                                         <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
                                         <button className="action-btn" title="View Quote"><i className="fas fa-file-invoice-dollar"></i> Quote</button>
+                                    </>
+                                )}
+
+                                <button
+                                    className="action-btn"
+                                    title="Match"
+                                    onClick={() => {
+                                        const deal = getSelectedDeal();
+                                        if (deal) onNavigate('deal-matching', deal.id);
+                                    }}
+                                >
+                                    <i className="fas fa-sync-alt"></i> Match
+                                </button>
+                                <button className="action-btn" title="Email" onClick={handleEmailClick}><i className="fas fa-envelope"></i> Email</button>
+                                <button className="action-btn" title="Message" onClick={handleMessageClick}><i className="fas fa-comment-alt"></i> Message</button>
+                                <button className="action-btn" title="Tag" onClick={handleTagClick}><i className="fas fa-tag"></i> Tag</button>
+
+                                {selectedIds.length === 1 && (
+                                    <>
+                                        <button className="action-btn" title="Upload Files" onClick={handleUploadClick}><i className="fas fa-cloud-upload-alt"></i> Upload</button>
+                                        <button className="action-btn" title="Manage Documents" onClick={handleDocumentClick}><i className="fas fa-file-contract"></i> Document</button>
                                     </>
                                 )}
 
@@ -290,6 +321,15 @@ function DealsPage() {
                             </div>
                         )}
                     </div>
+
+
+
+                    {/* Active Filters Chips */}
+                    <ActiveFiltersChips
+                        filters={filters}
+                        onRemoveFilter={handleRemoveFilter}
+                        onClearAll={handleClearAll}
+                    />
 
                     {/* Header */}
                     {currentView === 'list' && (
@@ -620,15 +660,50 @@ function DealsPage() {
 
             <AddDealModal
                 isOpen={isAddModalOpen}
-                onClose={() => setIsAddModalOpen(false)}
-                onSave={(newDeal) => {
-                    const formattedDeal = {
-                        ...newDeal,
-                        id: `D${Math.floor(Math.random() * 10000)}`,
-                        score: { val: 60, class: 'warm' } // Mock initial score
-                    };
-                    setDeals(prev => [formattedDeal, ...prev]);
+                deal={selectedDealState}
+                onClose={() => {
                     setIsAddModalOpen(false);
+                    setSelectedDealState(null);
+                }}
+                onSave={(updatedData) => {
+                    if (selectedDealState) {
+                        setDeals(prev => prev.map(d => d.id === selectedDealState.id ? { ...d, ...updatedData } : d));
+                    } else {
+                        const formattedDeal = {
+                            ...updatedData,
+                            id: `D${Math.floor(Math.random() * 10000)}`,
+                            score: { val: 60, class: 'warm' } // Mock initial score
+                        };
+                        setDeals(prev => [formattedDeal, ...prev]);
+                    }
+                    setIsAddModalOpen(false);
+                    setSelectedDealState(null);
+                }}
+            />
+
+            <SendMailModal
+                isOpen={isSendMailOpen}
+                onClose={() => setIsSendMailOpen(false)}
+                selectedContacts={selectedDealsForMail}
+            />
+
+            <SendMessageModal
+                isOpen={isSendMessageOpen}
+                onClose={() => setIsSendMessageOpen(false)}
+                selectedContacts={selectedDealsForMessage}
+            />
+
+            <ManageTagsModal
+                isOpen={isManageTagsOpen}
+                onClose={() => setIsManageTagsOpen(false)}
+                selectedItems={selectedDealsForTags}
+                entityType="deals"
+                onSave={(updatedItems) => {
+                    const updatedIds = updatedItems.map(item => item.id);
+                    setDeals(prev => prev.map(d => {
+                        const updatedItem = updatedItems.find(item => item.id === d.id);
+                        return updatedItem ? { ...d, tags: updatedItem.tags } : d;
+                    }));
                 }}
             />
 
@@ -637,6 +712,21 @@ function DealsPage() {
                 onClose={() => setIsFilterPanelOpen(false)}
                 filters={filters}
                 onFilterChange={setFilters}
+            />
+
+            <UploadModal
+                isOpen={isUploadModalOpen}
+                onClose={() => setIsUploadModalOpen(false)}
+                onSave={handleSaveUploads}
+                project={selectedDealState}
+                type="property"
+            />
+
+            <AddInventoryDocumentModal
+                isOpen={isDocumentModalOpen}
+                onClose={() => setIsDocumentModalOpen(false)}
+                onSave={handleSaveDocuments}
+                project={selectedDealState}
             />
         </section >
     );

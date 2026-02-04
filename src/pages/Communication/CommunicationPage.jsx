@@ -1,10 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import CommunicationFilterPanel from './components/CommunicationFilterPanel';
+import { applyCommunicationFilters } from '../../utils/communicationFilterLogic';
+import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 
 function CommunicationPage() {
     const [activeTab, setActiveTab] = useState('Calls');
     const [activeSubTab, setActiveSubTab] = useState('Matched');
     const [selectedIds, setSelectedIds] = useState([]);
+
+    // Filter State
     const [isFilterOpen, setIsFilterOpen] = useState(false);
+    const [filters, setFilters] = useState({});
+
+    // Filter Handlers
+    const handleRemoveFilter = (key) => {
+        const newFilters = { ...filters };
+        delete newFilters[key];
+        setFilters(newFilters);
+    };
+
+    const handleClearAll = () => {
+        setFilters({});
+    };
+
     const [searchQuery, setSearchQuery] = useState('');
 
     // Sample communication data - Calls
@@ -162,36 +180,18 @@ function CommunicationPage() {
         }
     ];
 
-    // Get data based on active tab
-    const getCommunicationData = () => {
+    // Filter Logic
+    const communicationData = useMemo(() => {
         let data = [];
         switch (activeTab) {
-            case 'Calls':
-                data = callsData;
-                break;
-            case 'Messaging':
-                data = messagesData;
-                break;
-            case 'Email':
-                data = emailData;
-                break;
-            default:
-                data = callsData;
+            case 'Calls': data = callsData; break;
+            case 'Messaging': data = messagesData; break;
+            case 'Email': data = emailData; break;
+            default: data = callsData;
         }
 
-        if (searchQuery) {
-            const query = searchQuery.toLowerCase();
-            return data.filter(item =>
-                item.participant.toLowerCase().includes(query) ||
-                (item.platform && item.platform.toLowerCase().includes(query)) ||
-                item.associatedDeals.includes(query) ||
-                item.type.toLowerCase().includes(query)
-            );
-        }
-        return data;
-    };
-
-    const communicationData = getCommunicationData();
+        return applyCommunicationFilters(data, filters, searchQuery);
+    }, [activeTab, filters, searchQuery]);
 
     const toggleSelect = (id) => {
         setSelectedIds(prev =>
@@ -220,7 +220,7 @@ function CommunicationPage() {
                     <div className="header-actions">
                         <button
                             className={`btn-filter ${isFilterOpen ? 'active' : ''}`}
-                            onClick={() => setIsFilterOpen(!isFilterOpen)}
+                            onClick={() => setIsFilterOpen(true)}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -228,16 +228,23 @@ function CommunicationPage() {
                                 padding: '8px 16px',
                                 borderRadius: '8px',
                                 border: '1px solid #e2e8f0',
-                                background: isFilterOpen ? '#f1f5f9' : '#fff',
-                                color: '#475569',
+                                background: Object.keys(filters).length > 0 ? '#eff6ff' : '#fff',
+                                color: Object.keys(filters).length > 0 ? '#2563eb' : '#475569',
                                 fontSize: '0.85rem',
                                 fontWeight: 600,
                                 cursor: 'pointer',
-                                transition: 'all 0.2s'
+                                transition: 'all 0.2s',
+                                position: 'relative'
                             }}
                         >
                             <i className="fas fa-filter"></i>
                             <span>Filter</span>
+                            {Object.keys(filters).length > 0 && (
+                                <span style={{
+                                    position: 'absolute', top: '-5px', right: '-5px',
+                                    width: '10px', height: '10px', background: 'red', borderRadius: '50%'
+                                }}></span>
+                            )}
                         </button>
                     </div>
                 </div>
@@ -303,6 +310,15 @@ function CommunicationPage() {
                                 </button>
                             ))}
                         </div>
+                    </div>
+
+                    {/* Active Filters Chips */}
+                    <div style={{ padding: '0 2rem', background: '#f8fafc' }}>
+                        <ActiveFiltersChips
+                            filters={filters}
+                            onRemoveFilter={handleRemoveFilter}
+                            onClearAll={handleClearAll}
+                        />
                     </div>
 
                     {/* Communication List with Filters */}
@@ -451,52 +467,33 @@ function CommunicationPage() {
                                 ))}
                             </div>
                         </div>
-                        {/* Filters Panel */}
-                        {isFilterOpen && (
-                            <div style={{
-                                width: '250px',
-                                background: '#fff',
-                                borderLeft: '1px solid #e2e8f0',
-                                padding: '1rem',
-                                height: 'calc(100vh - 120px)',
-                                position: 'sticky',
-                                top: '45px'
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
-                                    <i className="fas fa-filter" style={{ color: '#64748b', fontSize: '0.85rem' }}></i>
-                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>Filters</div>
-                                </div>
-
-                                {/* Filter Options */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                                    {/* Show only missed calls */}
-                                    <div>
-                                        <div style={{ fontSize: '0.75rem', color: '#334155', marginBottom: '5px' }}>Show only missed calls</div>
-                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>No</div>
-                                        <i className="fas fa-filter" style={{ color: '#64748b', fontSize: '0.75rem', float: 'right', marginTop: '-18px' }}></i>
-                                    </div>
-
-                                    {/* Hot */}
-                                    <div>
-                                        <div style={{ fontSize: '0.75rem', color: '#334155', marginBottom: '5px' }}>Hot</div>
-                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>No</div>
-                                        <i className="fas fa-filter" style={{ color: '#64748b', fontSize: '0.75rem', float: 'right', marginTop: '-18px' }}></i>
-                                    </div>
-
-                                    {/* Associated to deal */}
-                                    <div>
-                                        <div style={{ fontSize: '0.75rem', color: '#334155', marginBottom: '5px' }}>Associated to deal</div>
-                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>No</div>
-                                        <i className="fas fa-filter" style={{ color: '#64748b', fontSize: '0.75rem', float: 'right', marginTop: '-18px' }}></i>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
+                        {/* Filters Panel removed, using Component */}
                     </div>
                 </div>
+                <CommunicationFilterPanel
+                    isOpen={isFilterOpen}
+                    onClose={() => setIsFilterOpen(false)}
+                    filters={filters}
+                    onFilterChange={(key, value) => {
+                        // Support single key update or bulk object update
+                        if (typeof key === 'object') {
+                            setFilters(prev => ({ ...prev, ...key }));
+                        } else {
+                            if (value === null) {
+                                const newFilters = { ...filters };
+                                delete newFilters[key];
+                                setFilters(newFilters);
+                            } else {
+                                setFilters(prev => ({ ...prev, [key]: value }));
+                            }
+                        }
+                    }}
+                    onReset={() => setFilters({})}
+                />
             </div>
         </section>
     );
 }
+
 
 export default CommunicationPage;

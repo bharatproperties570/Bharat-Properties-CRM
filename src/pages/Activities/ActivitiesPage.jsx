@@ -1,17 +1,40 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useActivities } from '../../context/ActivityContext';
 import CreateActivityModal from '../../components/CreateActivityModal';
+import ActivityFilterPanel from './components/ActivityFilterPanel';
+import { applyActivityFilters } from '../../utils/activityFilterLogic';
+import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 
 function ActivitiesPage() {
     const { activities } = useActivities(); // Use global state
-    const [activeTab, setActiveTab] = useState('Today');
-    const [activeFilter, setActiveFilter] = useState('All');
-    const [selectedIds, setSelectedIds] = useState([]);
+
+    // UI State
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'calendar'
     const [calendarView, setCalendarView] = useState('month'); // 'month', 'week', 'day'
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedActivity, setSelectedActivity] = useState(null);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+
+    // Selection State
+    const [selectedIds, setSelectedIds] = useState([]);
+
+    // Filter State
+    const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+    const [filters, setFilters] = useState({});
+
+    // Filter Handlers
+    const handleRemoveFilter = (key) => {
+        const newFilters = { ...filters };
+        delete newFilters[key];
+        setFilters(newFilters);
+    };
+
+    const handleClearAll = () => {
+        setFilters({});
+    };
+
+    const [searchTerm, setSearchTerm] = useState('');
+
     const { addActivity } = useActivities();
 
     const handleSaveActivity = (activityData) => {
@@ -28,7 +51,8 @@ function ActivitiesPage() {
             stage: 'Pending',
             status: 'pending',
             feedback: activityData.description || '',
-            project: activityData.visitedProperties?.[0]?.project || ''
+            project: activityData.visitedProperties?.[0]?.project || '',
+            priority: activityData.priority || 'Normal'
         };
         addActivity(newActivity);
         setIsCreateModalOpen(false);
@@ -46,10 +70,69 @@ function ActivitiesPage() {
         );
     };
 
-    // Filter activities based on activeFilter
-    const filteredActivities = activeFilter === 'All'
-        ? activities
-        : activities.filter(a => a.type === activeFilter);
+    // Filter Logic
+    const filteredActivities = useMemo(() => {
+        return applyActivityFilters(activities, filters, searchTerm);
+    }, [activities, filters, searchTerm]);
+
+    // Helpers for Quick Filters (Pills)
+    const activeType = filters.activityType?.[0] || 'All'; // Simplified for UI pill checks
+    const activeStatus = filters.status?.[0] || 'All'; // Simplified for Tab checks
+
+    const setQuickTypeFilter = (type) => {
+        if (type === 'All') {
+            const { activityType, ...rest } = filters;
+            setFilters(rest);
+        } else {
+            setFilters(prev => ({ ...prev, activityType: [type] }));
+        }
+    };
+
+    const setQuickStatusFilter = (statusTab) => {
+        // Map Tabs to Filters
+        let newFilters = { ...filters };
+
+        // Reset Date Range and Status first if switching tabs broadly
+        delete newFilters.dateRange;
+        delete newFilters.status;
+
+        if (statusTab === 'Today') {
+            const today = new Date().toISOString().split('T')[0];
+            newFilters.dateRange = { start: today, end: today };
+        } else if (statusTab === 'Upcoming') {
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const dateStr = tomorrow.toISOString().split('T')[0];
+            newFilters.dateRange = { start: dateStr };
+            newFilters.status = ['Pending', 'Upcoming']; // Ensure we don't see completed?
+        } else if (statusTab === 'Overdue') {
+            newFilters.status = ['Overdue'];
+        } else if (statusTab === 'Completed') {
+            newFilters.status = ['Completed'];
+        } else if (statusTab === 'Custom') {
+            // Keep existing date range if set, or open panel? 
+            // For now just set a marker or minimal range
+            setIsFilterPanelOpen(true);
+        }
+
+        setFilters(newFilters);
+    };
+
+    // Helper to determine active tab based on filters
+    const getActiveTabRaw = () => {
+        if (filters.status?.includes('Overdue')) return 'Overdue';
+        if (filters.status?.includes('Completed')) return 'Completed';
+        if (filters.dateRange) {
+            const today = new Date().toISOString().split('T')[0];
+            if (filters.dateRange.start === today && filters.dateRange.end === today) return 'Today';
+            if (filters.dateRange.start > today) return 'Upcoming';
+            return 'Custom';
+        }
+        return 'All'; // Default fallback, though "All" isn't a tab. 'Today' was default.
+    };
+
+    // Determine active tab for UI
+    const currentTab = getActiveTabRaw() === 'All' ? 'Today' : getActiveTabRaw();
 
     // Calendar logic
     const getDaysInMonth = (date) => new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
@@ -451,75 +534,43 @@ function ActivitiesPage() {
                             </button>
                         </div>
 
-                        <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                            className="btn-outline"
+                            style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}
+                            onClick={() => setIsFilterPanelOpen(true)}
+                        >
                             <i className="fas fa-filter"></i> Filter
+                            {Object.keys(filters).length > 0 && (
+                                <span style={{
+                                    position: 'absolute', top: '-5px', right: '-5px',
+                                    width: '10px', height: '10px', background: 'red', borderRadius: '50%'
+                                }}></span>
+                            )}
                         </button>
                     </div>
                 </div>
 
-                {/* Filter Tabs */}
                 <div style={{ padding: '15px 2rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                     <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                        <button
-                            style={{
-                                padding: '6px 16px',
-                                borderRadius: '6px',
-                                border: activeFilter === 'All' ? 'none' : '1px solid #e2e8f0',
-                                background: activeFilter === 'All' ? '#10b981' : '#fff',
-                                color: activeFilter === 'All' ? '#fff' : '#64748b',
-                                fontSize: '0.8rem',
-                                fontWeight: 600,
-                                cursor: 'pointer'
-                            }}
-                            onClick={() => setActiveFilter('All')}
-                        >
-                            All
-                        </button>
-                        <button
-                            style={{
-                                padding: '6px 16px',
-                                borderRadius: '6px',
-                                border: activeFilter === 'Follow Up' ? 'none' : '1px solid #e2e8f0',
-                                background: activeFilter === 'Follow Up' ? '#10b981' : '#fff',
-                                color: activeFilter === 'Follow Up' ? '#fff' : '#64748b',
-                                fontSize: '0.8rem',
-                                fontWeight: 600,
-                                cursor: 'pointer'
-                            }}
-                            onClick={() => setActiveFilter('Follow Up')}
-                        >
-                            Follow Up
-                        </button>
-                        <button
-                            style={{
-                                padding: '6px 16px',
-                                borderRadius: '6px',
-                                border: activeFilter === 'Site Visit' ? 'none' : '1px solid #e2e8f0',
-                                background: activeFilter === 'Site Visit' ? '#10b981' : '#fff',
-                                color: activeFilter === 'Site Visit' ? '#fff' : '#64748b',
-                                fontSize: '0.8rem',
-                                fontWeight: 600,
-                                cursor: 'pointer'
-                            }}
-                            onClick={() => setActiveFilter('Site Visit')}
-                        >
-                            Site Visit
-                        </button>
-                        <button
-                            style={{
-                                padding: '6px 16px',
-                                borderRadius: '6px',
-                                border: activeFilter === 'Meeting' ? 'none' : '1px solid #e2e8f0',
-                                background: activeFilter === 'Meeting' ? '#10b981' : '#fff',
-                                color: activeFilter === 'Meeting' ? '#fff' : '#64748b',
-                                fontSize: '0.8rem',
-                                fontWeight: 600,
-                                cursor: 'pointer'
-                            }}
-                            onClick={() => setActiveFilter('Meeting')}
-                        >
-                            Meeting
-                        </button>
+                        {['All', 'Follow Up', 'Site Visit', 'Meeting', 'Call', 'Email', 'Task'].map(type => (
+                            <button
+                                key={type}
+                                style={{
+                                    padding: '6px 16px',
+                                    borderRadius: '6px',
+                                    border: activeType === type ? 'none' : '1px solid #e2e8f0',
+                                    background: activeType === type ? '#10b981' : '#fff',
+                                    color: activeType === type ? '#fff' : '#64748b',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                                onClick={() => setQuickTypeFilter(type)}
+                            >
+                                {type}
+                            </button>
+                        ))}
                     </div>
 
                     {/* Status Tabs */}
@@ -527,15 +578,15 @@ function ActivitiesPage() {
                         {['Today', 'Upcoming', 'Overdue', 'Completed', 'Custom'].map(tab => (
                             <button
                                 key={tab}
-                                onClick={() => setActiveTab(tab)}
+                                onClick={() => setQuickStatusFilter(tab)}
                                 style={{
                                     padding: '10px 0',
                                     border: 'none',
                                     background: 'none',
                                     fontSize: '0.85rem',
                                     fontWeight: 600,
-                                    color: activeTab === tab ? '#10b981' : '#64748b',
-                                    borderBottom: activeTab === tab ? '2px solid #10b981' : '2px solid transparent',
+                                    color: currentTab === tab ? '#10b981' : '#64748b',
+                                    borderBottom: currentTab === tab ? '2px solid #10b981' : '2px solid transparent',
                                     cursor: 'pointer',
                                     marginBottom: '-2px'
                                 }}
@@ -574,11 +625,13 @@ function ActivitiesPage() {
                                     </div>
                                 ) : (
                                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center', width: '100%' }}>
-                                        <div className="search-box" style={{ flex: 1, maxWidth: '400px' }}>
+                                        <div className="search-box" style={{ flex: 1, maxWidth: '400px', position: 'relative' }}>
                                             <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.85rem' }}></i>
                                             <input
                                                 type="text"
                                                 placeholder="Search activities by contact, agenda, or type..."
+                                                value={searchTerm}
+                                                onChange={(e) => setSearchTerm(e.target.value)}
                                                 style={{
                                                     width: '100%',
                                                     padding: '8px 12px 8px 36px',
@@ -602,6 +655,13 @@ function ActivitiesPage() {
                                     </div>
                                 )}
                             </div>
+
+                            {/* Active Filters Chips */}
+                            <ActiveFiltersChips
+                                filters={filters}
+                                onRemoveFilter={handleRemoveFilter}
+                                onClearAll={handleClearAll}
+                            />
 
                             <div className="list-scroll-area" style={{ flex: 1, overflow: 'auto' }}>
                                 {/* Activities List Header - Unified for all types */}
@@ -804,6 +864,20 @@ function ActivitiesPage() {
                 isOpen={isCreateModalOpen}
                 onClose={() => setIsCreateModalOpen(false)}
                 onSave={handleSaveActivity}
+            />
+            <ActivityFilterPanel
+                isOpen={isFilterPanelOpen}
+                onClose={() => setIsFilterPanelOpen(false)}
+                filters={filters}
+                onFilterChange={(key, value) => {
+                    // Support single key update or bulk object update
+                    if (typeof key === 'object') {
+                        setFilters(prev => ({ ...prev, ...key }));
+                    } else {
+                        setFilters(prev => ({ ...prev, [key]: value }));
+                    }
+                }}
+                onReset={() => setFilters({})}
             />
         </section >
     );

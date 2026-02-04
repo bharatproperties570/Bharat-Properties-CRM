@@ -1,4 +1,7 @@
 
+import { calculateDistance } from './inventoryFilterLogic';
+import { PROJECTS_LIST } from '../data/projectData';
+
 // ==================================================================================
 // LEAD FILTERING LOGIC
 // ==================================================================================
@@ -7,38 +10,26 @@ export const applyLeadFilters = (leads, filters) => {
     if (!leads) return [];
 
     return leads.filter(lead => {
-        // 1. Status Filter (Multi-Select)
+        // 1. Requirement Intent (Buy/Rent)
+        if (filters.intent) {
+            // Intent in lead.req.type or lead.requirement
+            const reqType = lead.req?.type || lead.requirement || "";
+            // Normalizing: "Buy Residential" -> includes "Buy", "Rent Commercial" -> includes "Rent"
+            if (!reqType.toLowerCase().includes(filters.intent.toLowerCase())) return false;
+        }
+
+        // 2. Lead Status (Multi-Select)
         if (filters.status && filters.status.length > 0) {
-            const leadStatus = lead.status?.label || lead.status; // Handle object or string
+            const leadStatus = lead.status?.label || lead.status;
             if (!filters.status.includes(leadStatus)) return false;
         }
 
-        // 2. Stage Filter (Multi-Select)
-        // Assuming lead has a 'stage' field, or we infer it from somewhere. 
-        // Based on analysis, 'status' seems to often cover stage-like things (New, Working), 
-        // but real CRM usually has a distinct Stage. We'll check 'stage' if it exists.
-        if (filters.stage && filters.stage.length > 0) {
-            // Check implicit stage from status if stage not explicit
-            // Or check actual stage field
-            const leadStage = lead.stage || (lead.status?.label || lead.status);
-            if (!filters.stage.includes(leadStage)) return false;
-        }
-
-        // 3. Source Filter (Multi-Select)
+        // 3. Lead Source (Multi-Select)
         if (filters.source && filters.source.length > 0) {
             if (!filters.source.includes(lead.source)) return false;
         }
 
-        // 4. Requirement Intent (Buy/Rent)
-        if (filters.intent) {
-            // Intent is usually inside lead.req.type (e.g., "Buy Residential")
-            // or lead.requirement field directly. 
-            // We'll normalize to check availability.
-            const reqType = lead.req?.type || lead.requirement || "";
-            if (!reqType.toLowerCase().includes(filters.intent.toLowerCase())) return false;
-        }
-
-        // 5. Property Category (Residential, Commercial, etc.)
+        // 4. Property Category (Multi-Select)
         if (filters.category && filters.category.length > 0) {
             const reqType = lead.req?.type || lead.propertyType || "";
             // Check if ANY selected category is present in the requirement string
@@ -46,43 +37,99 @@ export const applyLeadFilters = (leads, filters) => {
             if (!hasCategory) return false;
         }
 
-        // 6. Budget Range
-        // Budget in lead might be string "₹50 Lakh - ₹1 Cr" or numeric fields budgetMin/budgetMax
-        // We'll try to parse or use raw values if available
+        // 5. Sub Category (Multi-Select)
+        if (filters.subCategory && filters.subCategory.length > 0) {
+            const reqType = lead.req?.type || lead.propertyType || "";
+            const hasSub = filters.subCategory.some(sub => reqType.includes(sub));
+            if (!hasSub) return false;
+        }
+
+        // 6. Size Filtering (Type or Range)
+        if (filters.sizeMode === 'type' && filters.sizeType && filters.sizeType.length > 0) {
+            // Check if Size Type (e.g., 2 BHK, 250 SqYd) is in requirement description
+            // Ideally, leads should have specific size fields. Using req description or existing 'size' field.
+            const leadSize = lead.req?.size || lead.reqDisplay?.size || "";
+            const hasSizeType = filters.sizeType.some(type => leadSize.includes(type) || (lead.req?.type || "").includes(type));
+            if (!hasSizeType) return false;
+        } else if ((filters.minSize || filters.maxSize) && (!filters.sizeMode || filters.sizeMode === 'range')) {
+            // Size Range Parsing (Complex due to units, assuming SqYd/SqFt normalization if needed)
+            // For now, simple numeric check if lead has numeric size fields
+            const leadMin = parseFloat(lead.areaMin || lead.req?.minSize || 0);
+            const leadMax = parseFloat(lead.areaMax || lead.req?.maxSize || 0);
+            const filterMin = parseFloat(filters.minSize || 0);
+            const filterMax = parseFloat(filters.maxSize || Infinity);
+
+            // If lead has no size, maybe include? Or exclude. Let's exclude if completely missing.
+            if (leadMin === 0 && leadMax === 0) {
+                // Return true if filter is not set, false if strict range needed?
+                // Let's be lenient: if checks are active, and data missing, exclude.
+                if (filters.minSize || filters.maxSize) return false;
+            } else {
+                // Check overlap? 
+                // If Lead is 200-300, Filter is > 250.
+                // We accept overlap.
+                if (filterMin > 0 && leadMax > 0 && leadMax < filterMin) return false;
+                if (filterMax < Infinity && leadMin > 0 && leadMin > filterMax) return false;
+            }
+        }
+
+        // 7. Budget Range
         if (filters.budgetMin || filters.budgetMax) {
-            // Attempt to get a numeric representative value for the lead
-            // If lead has raw numbers:
-            let leadBudget = 0;
-            if (lead.budgetMin) leadBudget = parseFloat(lead.budgetMin);
-            else if (lead.budgetMax) leadBudget = parseFloat(lead.budgetMax);
-            else {
-                // Try to parse from string if numbers missing (fallback)
-                // This is complex, so we might skip strict parsing if raw data isn't clean.
-                // Ideally, we depend on raw numbers being present.
-            }
+            let leadMin = parseFloat(lead.budgetMin || 0);
+            let leadMax = parseFloat(lead.budgetMax || 0);
+            // If fields are missing but budget string exists (e.g. "50L - 1Cr") - Parsing is hard.
+            // Rely on prepared data.
 
-            // Simplification: Only filter if we have valid numeric data on lead
-            if (leadBudget > 0) {
-                if (filters.budgetMin && leadBudget < parseFloat(filters.budgetMin)) return false;
-                if (filters.budgetMax && leadBudget > parseFloat(filters.budgetMax)) return false;
-            }
+            const filterMin = parseFloat(filters.budgetMin || 0);
+            const filterMax = parseFloat(filters.budgetMax || Infinity);
+
+            if (leadMin === 0 && leadMax === 0) return true; // Skip if no budget data
+
+            if (filterMin > 0 && leadMax > 0 && leadMax < filterMin) return false;
+            if (filterMax < Infinity && leadMin > 0 && leadMin > filterMax) return false;
         }
 
-        // 7. Location (Text Search)
+        // 8. Location (Text Search & Geometry)
         if (filters.location) {
-            const locationStr = lead.location || "";
-            // Simple case-insensitive match
-            if (!locationStr.toLowerCase().includes(filters.location.toLowerCase())) return false;
+            const leadLoc = Array.isArray(lead.location) ? lead.location.join(" ") : (lead.location || "");
+
+            // Geo Filter
+            if (filters.locationCoords && filters.range && filters.range !== 'Exact') {
+                // Convert lead parsed location to coords? Not possible client side easily without geocoding all leads.
+                // HOWEVER, usually leads are linked to PROJECTS.
+                // If lead matches a PROJECT, use project coords.
+                const project = PROJECTS_LIST.find(p => leadLoc.includes(p.name));
+                if (project) {
+                    const rangeKm = parseInt(filters.range.replace(/\D/g, ''), 10);
+                    if (!isNaN(rangeKm)) {
+                        const dist = calculateDistance(filters.locationCoords.lat, filters.locationCoords.lng, project.lat, project.lng);
+                        if (dist === null || dist > rangeKm) return false;
+                    }
+                } else {
+                    // Fallback to text match if not linked to project, OR exclude?
+                    // Let's fallback to text match if Geo fails, but typically "Filtered by Location" implies strictness.
+                    // But for Leads, location data is messy. 
+                    // Let's stick to Text Match as primary filter unless Project Match found.
+                    if (!leadLoc.toLowerCase().includes(filters.location.toLowerCase())) return false;
+                }
+            } else {
+                // Simple Text Match
+                if (!leadLoc.toLowerCase().includes(filters.location.toLowerCase())) return false;
+            }
         }
 
-        // 8. Owner/Team
-        if (filters.owner && filters.owner.length > 0) {
-            if (!filters.owner.includes(lead.owner)) return false;
+        // 9. Project Filter
+        if (filters.project) {
+            const leadLoc = Array.isArray(lead.location) ? lead.location.join(" ") : (lead.location || "");
+            if (!leadLoc.includes(filters.project)) return false;
         }
 
-        if (filters.team && filters.team.length > 0) {
-            if (!filters.team.includes(lead.team)) return false;
+        // 10. Orientation (Direction, Road, Facing)
+        if (filters.direction && filters.direction.length > 0) {
+            // Check lead.req specs
+            if (!filters.direction.some(dir => (lead.req?.direction || "").includes(dir))) return false; // Loose check
         }
+        // ... Similar for other minor fields if data exists
 
         return true;
     });

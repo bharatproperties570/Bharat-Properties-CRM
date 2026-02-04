@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { companyData, companyTypes } from '../../data/companyData';
 import { getInitials } from '../../utils/helpers';
+import CompanyFilterPanel from './components/CompanyFilterPanel';
+import { applyCompanyFilters } from '../../utils/companyFilterLogic';
 
 function CompanyPage({ onEdit }) {
     const [selectedIds, setSelectedIds] = useState([]);
@@ -8,6 +10,9 @@ function CompanyPage({ onEdit }) {
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'card'
+
+    const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+    const [filters, setFilters] = useState({});
 
     const toggleSelect = (id) => {
         if (selectedIds.includes(id)) {
@@ -21,14 +26,18 @@ function CompanyPage({ onEdit }) {
     const selectedCount = selectedIds.length;
 
     // Filter companies
-    const filteredCompanies = companyData.filter(company => {
-        const matchesSearch = company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            company.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            company.phone.includes(searchTerm) ||
-            company.address.toLowerCase().includes(searchTerm.toLowerCase());
+    // Filter companies
+    const filteredCompanies = React.useMemo(() => {
+        const baseFiltered = applyCompanyFilters(companyData, filters);
 
-        return matchesSearch;
-    });
+        return baseFiltered.filter(company => {
+            const matchesSearch = company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                company.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                company.phone.includes(searchTerm) ||
+                (company.address && company.address.toLowerCase().includes(searchTerm.toLowerCase()));
+            return matchesSearch;
+        });
+    }, [filters, searchTerm]);
 
     const totalCount = companyData.length;
 
@@ -90,7 +99,19 @@ function CompanyPage({ onEdit }) {
                         >
                             <i className={`fas ${viewMode === 'list' ? 'fa-th-large' : 'fa-list'}`}></i> {viewMode === 'list' ? 'Card' : 'List'}
                         </button>
-                        <button className="btn-outline"><i className="fas fa-filter"></i> Filters</button>
+                        <button
+                            className="btn-outline"
+                            onClick={() => setIsFilterPanelOpen(true)}
+                            style={{ position: 'relative' }}
+                        >
+                            <i className="fas fa-filter"></i> Filters
+                            {Object.keys(filters).length > 0 && (
+                                <span style={{
+                                    position: 'absolute', top: '-5px', right: '-5px',
+                                    width: '10px', height: '10px', background: 'red', borderRadius: '50%'
+                                }}></span>
+                            )}
+                        </button>
                     </div>
                 </div>
 
@@ -558,6 +579,16 @@ function CompanyPage({ onEdit }) {
                     </div>
                 </div>
             </div>
+            {/* Filter Panel */}
+            <CompanyFilterPanel
+                isOpen={isFilterPanelOpen}
+                onClose={() => setIsFilterPanelOpen(false)}
+                filters={filters}
+                onFilterChange={(newFilters) => {
+                    setFilters(newFilters);
+                    setCurrentPage(1);
+                }}
+            />
         </section>
     );
 }

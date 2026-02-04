@@ -87,7 +87,7 @@ const getNestedValue = (obj, path) => {
 /**
  * Check if trigger event matches the fired event
  */
-export const matchesEvent = (triggerEvent, firedEvent, eventData = {}) => {
+export const matchesEvent = (triggerEvent, firedEvent) => {
     if (triggerEvent === firedEvent) return true;
     if (triggerEvent.includes('*')) {
         const regex = new RegExp('^' + triggerEvent.replace(/\*/g, '.*') + '$');
@@ -104,7 +104,7 @@ export const matchesEvent = (triggerEvent, firedEvent, eventData = {}) => {
  * @returns {Object} - { valid: boolean, reason: string }
  */
 export const validateTriggerSafety = (trigger, entity, context = {}) => {
-    const { fieldRules = [], entityType } = context;
+    const { entityType } = context;
 
     // Check if trigger is active
     if (!trigger.isActive) {

@@ -12,6 +12,9 @@ import { useTriggers } from "../../context/TriggersContext";
 import { useCall } from "../../context/CallContext";
 import { useDistribution } from "../../context/DistributionContext";
 import EnrollSequenceModal from "../../components/EnrollSequenceModal";
+import ContactFilterPanel from "./components/ContactFilterPanel";
+import { applyContactFilters } from "../../utils/contactFilterLogic";
+import ActiveFiltersChips from "../../components/ActiveFiltersChips";
 
 // Debounce Utility
 const useDebounce = (value, delay) => {
@@ -32,6 +35,20 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [totalRecords, setTotalRecords] = useState(0);
+
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [filters, setFilters] = useState({});
+
+  // Filter Handlers
+  const handleRemoveFilter = (key) => {
+    const newFilters = { ...filters };
+    delete newFilters[key];
+    setFilters(newFilters);
+  };
+
+  const handleClearAll = () => {
+    setFilters({});
+  };
 
   const [selectedIds, setSelectedIds] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -167,9 +184,14 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const totalCount = totalRecords;
   const selectedCount = selectedIds.length;
 
+  // Filter Logic Implementation
+  const filteredContacts = React.useMemo(() => {
+    return applyContactFilters(contacts, filters);
+  }, [contacts, filters]);
+
   // Server-side pagination means 'contacts' is ALREADY the current page data
-  // So we don't slice it.
-  const paginatedContacts = contacts;
+  // But we apply client-side filtering on top of the fetched page for visual refinement
+  const paginatedContacts = filteredContacts;
   const totalPages = Math.ceil(totalRecords / recordsPerPage);
 
   // Regrouping paginated results
@@ -261,8 +283,18 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
               ></i>
               {viewMode === "list" ? "Card" : "List"}
             </button>
-            <button className="btn-outline">
+            <button
+              className="btn-outline"
+              onClick={() => setIsFilterPanelOpen(true)}
+              style={{ position: 'relative' }}
+            >
               <i className="fas fa-filter"></i> Filters
+              {Object.keys(filters).length > 0 && (
+                <span style={{
+                  position: 'absolute', top: '-5px', right: '-5px',
+                  width: '10px', height: '10px', background: 'red', borderRadius: '50%'
+                }}></span>
+              )}
             </button>
           </div>
         </div>
@@ -629,6 +661,14 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
               </div>
             )}
           </div>
+
+          {/* Active Filters Chips */}
+          <ActiveFiltersChips
+            filters={filters}
+            onRemoveFilter={handleRemoveFilter}
+            onClearAll={handleClearAll}
+          />
+
           {/* Loading State */}
           {loading && (
             <div
@@ -1880,6 +1920,16 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
         onClose={() => setIsEnrollModalOpen(false)}
         entityId={selectedContactForSequence?.id}
         entityName={selectedContactForSequence?.name}
+      />
+      {/* Filter Panel */}
+      <ContactFilterPanel
+        isOpen={isFilterPanelOpen}
+        onClose={() => setIsFilterPanelOpen(false)}
+        filters={filters}
+        onFilterChange={(newFilters) => {
+          setFilters(newFilters);
+          // Optimally we would reset page to 1 and refetch with filters here if API supported it
+        }}
       />
     </section>
   );

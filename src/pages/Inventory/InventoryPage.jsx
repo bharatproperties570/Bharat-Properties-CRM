@@ -231,7 +231,6 @@ function InventoryPage({ onNavigate }) {
                     time: timeStr,
                     user: 'You',
                     action: data.nextActionType || 'Call',
-                    action: data.nextActionType || 'Call',
                     result: data.result,
                     reason: data.reason, // Store specific reason for filtering
                     note: newRemark

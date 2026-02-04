@@ -1,343 +1,559 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { usePropertyConfig } from '../../../../context/PropertyConfigContext';
-import MultiSelectDropdown from '../../../../components/MultiSelectDropdown';
-import { PROPERTY_CATEGORIES } from '../../../../data/propertyData';
+import { PROPERTY_CATEGORIES } from '../../../data/propertyData';
+import { PROJECTS_LIST } from '../../../data/projectData';
+import { usePropertyConfig } from '../../../context/PropertyConfigContext';
+import { calculateDistance } from '../../../utils/inventoryFilterLogic';
 
 // ==================================================================================
-// STYLES (Extracted as per Coding Standards)
+// STYLES (Copied from DealsFilterPanel for Consistency)
 // ==================================================================================
 const styles = {
-    overlay: {
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-        backdropFilter: 'blur(2px)',
-        zIndex: 5000,
-        transition: 'opacity 0.3s ease'
-    },
-    panel: {
-        position: 'fixed',
-        top: 0,
-        right: 0,
-        bottom: 0,
-        width: '400px',
-        maxWidth: '90%',
-        backgroundColor: '#fff',
-        boxShadow: '-4px 0 20px rgba(0,0,0,0.1)',
-        zIndex: 5001,
-        display: 'flex',
-        flexDirection: 'column',
-        transition: 'transform 0.3s cubic-bezier(0.25, 1, 0.5, 1)',
-        overflow: 'hidden'
-    },
-    header: {
-        padding: '20px',
-        borderBottom: '1px solid #f1f5f9',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        background: '#fff'
-    },
-    title: {
-        fontSize: '1.1rem',
-        fontWeight: '700',
-        color: '#0f172a',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px'
-    },
-    closeBtn: {
-        background: 'none',
-        border: 'none',
-        color: '#64748b',
-        cursor: 'pointer',
-        fontSize: '1.1rem',
-        padding: '8px',
-        borderRadius: '50%',
-        transition: 'all 0.2s',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center'
-    },
-    body: {
-        flex: 1,
-        overflowY: 'auto',
-        padding: '20px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '24px'
-    },
-    section: {
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '12px'
-    },
     sectionTitle: {
-        fontSize: '0.75rem',
+        fontSize: '0.7rem',
         fontWeight: '700',
-        color: '#94a3b8',
+        color: '#64748b',
         textTransform: 'uppercase',
         letterSpacing: '0.05em',
-        marginBottom: '4px'
+        marginBottom: '10px',
+        display: 'block'
     },
     label: {
-        fontSize: '0.9rem',
+        display: 'block',
+        fontSize: '0.85rem',
         fontWeight: '600',
-        color: '#334155',
-        marginBottom: '6px',
-        display: 'block'
+        color: '#1e293b',
+        marginBottom: '6px'
     },
     input: {
         width: '100%',
         padding: '10px 12px',
+        fontSize: '0.9rem',
+        color: '#0f172a',
+        backgroundColor: '#fff',
+        border: '1px solid #cbd5e1',
         borderRadius: '8px',
-        border: '1px solid #e2e8f0',
-        fontSize: '0.9rem',
         outline: 'none',
-        transition: 'border-color 0.2s'
+        transition: 'all 0.2s ease',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
     },
-    toggleGroup: {
-        display: 'flex',
-        background: '#f1f5f9',
-        padding: '4px',
-        borderRadius: '8px'
-    },
-    toggleBtn: (active) => ({
-        flex: 1,
-        padding: '8px',
-        borderRadius: '6px',
-        border: 'none',
+    select: {
+        width: '100%',
+        padding: '10px 12px',
         fontSize: '0.9rem',
-        fontWeight: active ? '600' : '500',
-        backgroundColor: active ? '#fff' : 'transparent',
-        color: active ? '#0f172a' : '#64748b',
-        boxShadow: active ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
-        cursor: 'pointer',
-        transition: 'all 0.2s'
-    }),
-    footer: {
-        padding: '20px',
-        borderTop: '1px solid #f1f5f9',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        background: '#fff'
+        color: '#0f172a',
+        backgroundColor: '#fff',
+        border: '1px solid #cbd5e1',
+        borderRadius: '8px',
+        outline: 'none',
+        transition: 'all 0.2s ease',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+        appearance: 'none',
+        backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2364748b\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'/%3e%3c/svg%3e")',
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'right 12px center',
+        backgroundSize: '16px'
     },
-    clearBtn: {
-        background: 'none',
+    activeBtn: {
+        backgroundColor: '#eff6ff',
+        borderColor: '#0066ff',
+        color: '#0066ff',
+        boxShadow: '0 1px 2px rgba(0, 102, 255, 0.1)'
+    },
+    inactiveBtn: {
+        backgroundColor: '#ffffff',
+        borderColor: '#e2e8f0',
+        color: '#64748b'
+    },
+    resetBtn: {
+        background: 'transparent',
         border: 'none',
         color: '#64748b',
-        fontSize: '0.9rem',
+        fontSize: '0.85rem',
         fontWeight: '600',
         cursor: 'pointer',
-        padding: '10px'
+        textDecoration: 'underline',
+        textAlign: 'center'
     },
     applyBtn: {
-        backgroundColor: '#0f172a', // Professional black/dark slate
-        color: '#fff',
+        width: '100%',
+        padding: '14px',
+        backgroundColor: '#22c55e',
+        color: 'white',
         border: 'none',
-        padding: '12px 24px',
         borderRadius: '8px',
         fontSize: '0.95rem',
-        fontWeight: '600',
+        fontWeight: '700',
         cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        boxShadow: '0 4px 6px -1px rgba(15, 23, 42, 0.1)'
+        boxShadow: '0 4px 12px rgba(15, 23, 42, 0.15)',
+        transition: 'all 0.2s'
     }
 };
 
-const LeadFilterPanel = ({ isOpen, onClose, filters, onApply }) => {
+// ==================================================================================
+// COMPONENTS
+// ==================================================================================
+
+// MultiSelect Component
+const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disabled }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const containerRef = useRef(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (containerRef.current && !containerRef.current.contains(event.target)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const handleSelect = (option) => {
+        if (selected.includes(option)) {
+            onChange(selected.filter(item => item !== option));
+        } else {
+            onChange([...selected, option]);
+        }
+    };
+
+    const displayText = selected.length > 0
+        ? `${selected.length} Selected`
+        : placeholder;
+
+    return (
+        <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
+            <div
+                onClick={() => !disabled && setIsOpen(!isOpen)}
+                style={{
+                    ...styles.input,
+                    color: disabled ? '#94a3b8' : '#0f172a',
+                    backgroundColor: disabled ? '#f1f5f9' : '#fff',
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                }}
+            >
+                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '90%' }}>
+                    {displayText}
+                </span>
+                <i className={`fas fa-chevron-${isOpen ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#64748b' }}></i>
+            </div>
+
+            {isOpen && !disabled && (
+                <div style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px',
+                    backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', zIndex: 2001, maxHeight: '200px', overflowY: 'auto'
+                }}>
+                    {options.map(option => (
+                        <div
+                            key={option}
+                            onClick={() => handleSelect(option)}
+                            style={{
+                                padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
+                                backgroundColor: selected.includes(option) ? '#eff6ff' : 'transparent',
+                                color: selected.includes(option) ? '#0066ff' : '#0f172a', fontSize: '0.9rem'
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? '#eff6ff' : '#f8fafc'}
+                            onMouseLeave={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? '#eff6ff' : 'transparent'}
+                        >
+                            <input type="checkbox" checked={selected.includes(option)} readOnly style={{ pointerEvents: 'none' }} />
+                            {option}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const LeadFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
     const { masterFields } = usePropertyConfig();
+    const [isVisible, setIsVisible] = useState(false);
+    const [sizeMode, setSizeMode] = useState('type');
 
-    // Local state to manage filter changes before applying
-    const [localFilters, setLocalFilters] = useState({});
+    useEffect(() => {
+        if (filters.sizeMode) setSizeMode(filters.sizeMode);
+        else if (filters.minSize || filters.maxSize) setSizeMode('range');
+        else if (filters.sizeType && filters.sizeType.length > 0) setSizeMode('type');
+    }, [isOpen]);
 
-    // Sync local state when panel opens or filters change externally
     useEffect(() => {
         if (isOpen) {
-            setLocalFilters(filters || {});
+            setIsVisible(true);
+            document.body.style.overflow = 'hidden';
+        } else {
+            const timer = setTimeout(() => setIsVisible(false), 300);
+            document.body.style.overflow = 'unset';
+            return () => clearTimeout(timer);
+        }
+    }, [isOpen]);
+
+    const searchInputRef = useRef(null);
+
+    useEffect(() => {
+        if (isOpen && searchInputRef.current && window.google) {
+            const autocomplete = new window.google.maps.places.Autocomplete(searchInputRef.current, {
+                types: ['geocode'],
+                fields: ['formatted_address', 'geometry', 'address_components']
+            });
+
+            autocomplete.addListener('place_changed', () => {
+                const place = autocomplete.getPlace();
+                if (place.formatted_address) {
+                    const updateObj = { ...filters, location: place.formatted_address };
+                    if (place.geometry && place.geometry.location) {
+                        updateObj.locationCoords = { lat: place.geometry.location.lat(), lng: place.geometry.location.lng() };
+                    } else {
+                        updateObj.locationCoords = null;
+                    }
+                    onFilterChange(updateObj);
+                }
+            });
         }
     }, [isOpen, filters]);
 
-    if (!isOpen) return null;
-
-    const handleUpdate = (key, value) => {
-        setLocalFilters(prev => ({
-            ...prev,
-            [key]: value
-        }));
+    const updateFilter = (key, value) => {
+        onFilterChange({ ...filters, [key]: value });
     };
 
-    const handleApply = () => {
-        onApply(localFilters);
-        onClose();
+    const toggleFilterArray = (key, value) => {
+        const current = filters[key] || [];
+        if (current.includes(value)) {
+            updateFilter(key, current.filter(item => item !== value));
+        } else {
+            updateFilter(key, [...current, value]);
+        }
     };
 
-    const handleClear = () => {
-        setLocalFilters({});
-        // onApply({}); // Optional: Apply clear immediately or wait for user to click Apply
+    const handleReset = () => {
+        onFilterChange({});
+        setSizeMode('type');
     };
 
-    // Derived Options
-    const stageOptions = ['New', 'Contacted', 'Interested', 'Meeting Scheduled', 'Negotiation', 'Qualified', 'Won', 'Lost'];
-    // Use masterFields if available, else fallback
-    const statusOptions = masterFields?.statuses || ['Active', 'Inactive', 'Pending', 'Closed'];
-    const sourceOptions = masterFields?.sources || ['Direct', 'Facebook', 'Referral', 'Website', 'Walk-in'];
+    const selectedCategories = filters.category || [];
+    const selectedSubCategories = filters.subCategory || [];
+
+    const availableSubCategories = selectedCategories.length > 0
+        ? selectedCategories.reduce((acc, cat) => PROPERTY_CATEGORIES[cat] ? [...acc, ...PROPERTY_CATEGORIES[cat].subCategories.map(sc => sc.name)] : acc, [])
+        : [];
+
+    const availableSizeTypes = selectedSubCategories.length > 0
+        ? selectedCategories.reduce((acc, cat) => {
+            if (PROPERTY_CATEGORIES[cat]) {
+                const matchingSubs = PROPERTY_CATEGORIES[cat].subCategories.filter(sc => selectedSubCategories.includes(sc.name));
+                const types = matchingSubs.reduce((tAcc, sub) => [...tAcc, ...sub.types.map(t => t.name)], []);
+                return [...acc, ...types];
+            }
+            return acc;
+        }, [])
+        : [];
+
+    const uniqueSubCategories = [...new Set(availableSubCategories)];
+    const uniqueSizeTypes = [...new Set(availableSizeTypes)];
+
+    const getFilteredProjects = () => {
+        const projects = PROJECTS_LIST.map(p => p.name);
+        if (filters.locationCoords && filters.range && filters.range !== 'Exact') {
+            const rangeKm = parseInt(filters.range.replace(/\D/g, ''), 10);
+            if (!isNaN(rangeKm)) {
+                return PROJECTS_LIST.filter(p => {
+                    const dist = calculateDistance(filters.locationCoords.lat, filters.locationCoords.lng, p.lat, p.lng);
+                    return dist !== null && dist <= rangeKm;
+                }).map(p => p.name);
+            }
+        }
+        return projects;
+    };
+
+    const projectOptions = getFilteredProjects();
+
+    const statusOptions = masterFields.statuses || ['New', 'Contacted', 'Interested', 'Meeting Scheduled', 'Negotiation', 'Qualified', 'Won', 'Lost'];
+    const sourceOptions = masterFields.sources || ['Direct', 'Facebook', 'Referral', 'Website', 'Walk-in'];
+
+    if (!isOpen && !isVisible) return null;
 
     return createPortal(
-        <div style={styles.overlay} onClick={onClose}>
-            <div style={styles.panel} onClick={e => e.stopPropagation()}>
-                {/* Header */}
-                <div style={styles.header}>
-                    <div style={styles.title}>
-                        <i className="fas fa-filter" style={{ color: '#0f172a' }}></i>
-                        Filter Leads
+        <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', justifyContent: 'flex-end', fontFamily: "'Inter', sans-serif" }}>
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(15, 23, 42, 0.3)', opacity: isOpen ? 1 : 0, transition: 'opacity 200ms ease' }} onClick={onClose}></div>
+            <div style={{
+                position: 'relative', width: '420px', height: '100%', background: '#ffffff', boxShadow: '-10px 0 40px rgba(0,0,0,0.1)',
+                display: 'flex', flexDirection: 'column', transform: isOpen ? 'translateX(0)' : 'translateX(100%)', transition: 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1)'
+            }}>
+                <header style={{ padding: '20px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffffff' }}>
+                    <div>
+                        <h2 style={{ fontSize: '1.25rem', fontWeight: '700', color: '#0f172a', letterSpacing: '-0.025em', margin: 0 }}>Filter Leads</h2>
+                        <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px', margin: 0 }}>Real-time filtering enabled</p>
                     </div>
-                    <button style={styles.closeBtn} onClick={onClose}>
+                    <button onClick={onClose} style={{ width: '36px', height: '36px', borderRadius: '50%', border: 'none', background: '#f8fafc', color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', transition: 'all 0.2s' }}>
                         <i className="fas fa-times"></i>
                     </button>
-                </div>
+                </header>
 
-                {/* Body */}
-                <div style={styles.body}>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
 
-                    {/* 1. Lead Details Section */}
-                    <div style={styles.section}>
-                        <span style={styles.sectionTitle}>Lead Status & Source</span>
-
-                        <div>
-                            <label style={styles.label}>Status</label>
-                            <MultiSelectDropdown
-                                options={statusOptions}
-                                selected={localFilters.status || []}
-                                onChange={val => handleUpdate('status', val)}
-                                placeholder="All Statuses"
-                            />
+                    {/* 1. Requirement Intent */}
+                    <section>
+                        <span style={styles.sectionTitle}>Requirement Intent</span>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                            {['Buy', 'Rent'].map(intent => {
+                                const isActive = filters.intent === intent;
+                                return (
+                                    <button
+                                        key={intent}
+                                        onClick={() => updateFilter('intent', intent === isActive ? '' : intent)}
+                                        style={{
+                                            padding: '10px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: '600', cursor: 'pointer', border: '1px solid',
+                                            transition: 'all 0.2s', ...(isActive ? styles.activeBtn : styles.inactiveBtn)
+                                        }}
+                                    >
+                                        {intent}
+                                    </button>
+                                );
+                            })}
                         </div>
+                    </section>
 
-                        <div>
-                            <label style={styles.label}>Stage</label>
-                            <MultiSelectDropdown
-                                options={stageOptions}
-                                selected={localFilters.stage || []}
-                                onChange={val => handleUpdate('stage', val)}
-                                placeholder="All Stages"
-                            />
+                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+
+                    {/* 2. Lead Status */}
+                    <section>
+                        <span style={styles.sectionTitle}>Lead Status</span>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                            {statusOptions.map(status => {
+                                const isActive = (filters.status || []).includes(status);
+                                return (
+                                    <button
+                                        key={status}
+                                        onClick={() => toggleFilterArray('status', status)}
+                                        style={{
+                                            padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: '600', cursor: 'pointer', border: '1px solid',
+                                            transition: 'all 0.2s', ...(isActive ? styles.activeBtn : styles.inactiveBtn)
+                                        }}
+                                    >
+                                        {status}
+                                    </button>
+                                );
+                            })}
                         </div>
+                    </section>
 
-                        <div>
-                            <label style={styles.label}>Source</label>
-                            <MultiSelectDropdown
-                                options={sourceOptions}
-                                selected={localFilters.source || []}
-                                onChange={val => handleUpdate('source', val)}
-                                placeholder="All Sources"
-                            />
+                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+
+                    {/* 3. Lead Source (New Field) */}
+                    <section>
+                        <span style={styles.sectionTitle}>Lead Source</span>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                            {sourceOptions.map(src => {
+                                const isActive = (filters.source || []).includes(src);
+                                return (
+                                    <button
+                                        key={src}
+                                        onClick={() => toggleFilterArray('source', src)}
+                                        style={{
+                                            padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: '600', cursor: 'pointer', border: '1px solid',
+                                            transition: 'all 0.2s', ...(isActive ? styles.activeBtn : styles.inactiveBtn)
+                                        }}
+                                    >
+                                        {src}
+                                    </button>
+                                );
+                            })}
                         </div>
-                    </div>
+                    </section>
 
-                    <div style={{ height: '1px', background: '#f1f5f9', margin: '8px 0' }}></div>
+                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
 
-                    {/* 2. Requirement Section */}
-                    <div style={styles.section}>
-                        <span style={styles.sectionTitle}>Requirement</span>
-
-                        {/* Intent Toggle */}
-                        <div style={styles.toggleGroup}>
-                            {['Buy', 'Rent'].map(intent => (
-                                <button
-                                    key={intent}
-                                    style={styles.toggleBtn(localFilters.intent === intent)}
-                                    onClick={() => handleUpdate('intent', localFilters.intent === intent ? null : intent)}
-                                >
-                                    {intent}
-                                </button>
-                            ))}
-                        </div>
-
-                        <div>
-                            <label style={styles.label}>Property Category</label>
-                            <MultiSelectDropdown
-                                options={Object.keys(PROPERTY_CATEGORIES)}
-                                selected={localFilters.category || []}
-                                onChange={val => handleUpdate('category', val)}
-                                placeholder="Select Categories"
-                            />
-                        </div>
-
-                        {/* Budget Range */}
-                        <div>
-                            <label style={styles.label}>Budget Range</label>
-                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                <input
-                                    type="number"
-                                    placeholder="Min"
-                                    style={styles.input}
-                                    value={localFilters.budgetMin || ''}
-                                    onChange={e => handleUpdate('budgetMin', e.target.value)}
-                                />
-                                <span style={{ color: '#94a3b8' }}>-</span>
-                                <input
-                                    type="number"
-                                    placeholder="Max"
-                                    style={styles.input}
-                                    value={localFilters.budgetMax || ''}
-                                    onChange={e => handleUpdate('budgetMax', e.target.value)}
-                                />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div style={{ height: '1px', background: '#f1f5f9', margin: '8px 0' }}></div>
-
-                    {/* 3. Location Section */}
-                    <div style={styles.section}>
-                        <span style={styles.sectionTitle}>Location</span>
-                        <div>
-                            <label style={styles.label}>City or Area</label>
-                            <div style={{ position: 'relative' }}>
-                                <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
-                                <input
-                                    type="text"
-                                    placeholder="Search location..."
-                                    style={{ ...styles.input, paddingLeft: '36px' }}
-                                    value={localFilters.location || ''}
-                                    onChange={e => handleUpdate('location', e.target.value)}
+                    {/* 4. Property Information */}
+                    <section>
+                        <span style={styles.sectionTitle}>Property Information</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div>
+                                <label style={styles.label}>Category</label>
+                                <MultiSelectDropdown
+                                    options={Object.keys(PROPERTY_CATEGORIES)}
+                                    selected={filters.category || []}
+                                    onChange={(val) => {
+                                        onFilterChange({ ...filters, category: val, subCategory: [], sizeType: [] });
+                                    }}
+                                    placeholder="Select Categories"
                                 />
                             </div>
+                            <div>
+                                <label style={styles.label}>Sub Category</label>
+                                <MultiSelectDropdown
+                                    options={uniqueSubCategories}
+                                    selected={filters.subCategory || []}
+                                    onChange={(val) => {
+                                        onFilterChange({ ...filters, subCategory: val, sizeType: [] });
+                                    }}
+                                    placeholder="Select Sub-Categories"
+                                    disabled={selectedCategories.length === 0}
+                                />
+                            </div>
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                    <label style={{ ...styles.label, marginBottom: 0 }}>Size</label>
+                                    <div style={{ display: 'flex', backgroundColor: '#f1f5f9', padding: '2px', borderRadius: '6px' }}>
+                                        <button onClick={() => { setSizeMode('type'); updateFilter('sizeMode', 'type'); }} style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', fontWeight: '600', cursor: 'pointer', backgroundColor: sizeMode === 'type' ? '#fff' : 'transparent', color: sizeMode === 'type' ? '#0f172a' : '#64748b', boxShadow: sizeMode === 'type' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>Type</button>
+                                        <button onClick={() => { setSizeMode('range'); updateFilter('sizeMode', 'range'); }} style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', fontWeight: '600', cursor: 'pointer', backgroundColor: sizeMode === 'range' ? '#fff' : 'transparent', color: sizeMode === 'range' ? '#0f172a' : '#64748b', boxShadow: sizeMode === 'range' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>Min/Max</button>
+                                    </div>
+                                </div>
+                                {sizeMode === 'type' ? (
+                                    <MultiSelectDropdown
+                                        options={uniqueSizeTypes}
+                                        selected={filters.sizeType || []}
+                                        onChange={(val) => {
+                                            const newFilters = { ...filters, sizeType: val };
+                                            delete newFilters.minSize;
+                                            delete newFilters.maxSize;
+                                            onFilterChange(newFilters);
+                                        }}
+                                        placeholder="Select Size Types"
+                                        disabled={selectedSubCategories.length === 0}
+                                    />
+                                ) : (
+                                    <div style={{ display: 'flex', gap: '10px' }}>
+                                        <div style={{ flex: 1 }}>
+                                            <input type="text" placeholder="Min Size" style={styles.input} value={filters.minSize || ''} onChange={(e) => {
+                                                const newFilters = { ...filters, minSize: e.target.value };
+                                                delete newFilters.sizeType;
+                                                onFilterChange(newFilters);
+                                            }} />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <input type="text" placeholder="Max Size" style={styles.input} value={filters.maxSize || ''} onChange={(e) => {
+                                                const newFilters = { ...filters, maxSize: e.target.value };
+                                                delete newFilters.sizeType;
+                                                onFilterChange(newFilters);
+                                            }} />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    </div>
+                    </section>
 
-                    {/* 4. Assignment Section */}
-                    <div style={styles.section}>
-                        <span style={styles.sectionTitle}>Assignment</span>
-                        <div>
-                            <label style={styles.label}>Assigned To</label>
+                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+
+                    {/* 5. Location & Project */}
+                    <section>
+                        <span style={styles.sectionTitle}>Location & Project</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                                <div style={{ flex: 1 }}>
+                                    <label style={styles.label}>Location</label>
+                                    <div style={{ position: 'relative' }}>
+                                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.9rem' }}></i>
+                                        <input
+                                            ref={searchInputRef}
+                                            type="text"
+                                            placeholder="Search location..."
+                                            style={{ ...styles.input, paddingLeft: '36px' }}
+                                            value={filters.location || ''}
+                                            onChange={(e) => updateFilter('location', e.target.value)}
+                                            onFocus={e => e.target.style.borderColor = '#0066ff'}
+                                            onBlur={e => e.target.style.borderColor = '#cbd5e1'}
+                                        />
+                                    </div>
+                                </div>
+                                <div style={{ width: '130px' }}>
+                                    <label style={styles.label}>Range</label>
+                                    <select style={styles.select} value={filters.range || 'Exact'} onChange={(e) => updateFilter('range', e.target.value)}>
+                                        <option value="Exact">Exact</option>
+                                        <option value="Within 1 km">Within 1 km</option>
+                                        <option value="Within 2 km">Within 2 km</option>
+                                        <option value="Within 5 km">Within 5 km</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <label style={styles.label}>
+                                    Project Name
+                                    {filters.location && filters.range !== 'Exact' && (
+                                        <span style={{ fontSize: '0.75rem', fontWeight: '400', color: '#22c55e', marginLeft: '6px' }}>(Filtered by Location)</span>
+                                    )}
+                                </label>
+                                <select style={styles.select} value={filters.project || ''} onChange={(e) => updateFilter('project', e.target.value)}>
+                                    <option value="">Select Project</option>
+                                    {projectOptions.map(proj => (
+                                        <option key={proj} value={proj}>{proj}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                    </section>
+
+                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+
+                    {/* 6. Budget Range */}
+                    <section>
+                        <span style={styles.sectionTitle}>Budget Range</span>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                             <input
                                 type="text"
-                                placeholder="Search Owner Name" // Simple text for now, could be dropdown of users
+                                placeholder="Min ₹"
                                 style={styles.input}
-                                value={localFilters.owner ? localFilters.owner[0] : ''}
-                                onChange={e => handleUpdate('owner', e.target.value ? [e.target.value] : [])}
+                                value={filters.budgetMin || ''}
+                                onChange={(e) => updateFilter('budgetMin', e.target.value)}
+                            />
+                            <input
+                                type="text"
+                                placeholder="Max ₹"
+                                style={styles.input}
+                                value={filters.budgetMax || ''}
+                                onChange={(e) => updateFilter('budgetMax', e.target.value)}
                             />
                         </div>
-                    </div>
+                    </section>
 
+                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+
+                    {/* 7. Orientation */}
+                    <section>
+                        <span style={styles.sectionTitle}>Orientation</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div>
+                                <label style={styles.label}>Direction</label>
+                                <MultiSelectDropdown
+                                    options={masterFields.directions || []}
+                                    selected={filters.direction || []}
+                                    onChange={(val) => updateFilter('direction', val)}
+                                    placeholder="Select Directions"
+                                />
+                            </div>
+                            <div>
+                                <label style={styles.label}>Road Width</label>
+                                <MultiSelectDropdown
+                                    options={masterFields.roadWidths || []}
+                                    selected={filters.roadWidth || []}
+                                    onChange={(val) => updateFilter('roadWidth', val)}
+                                    placeholder="Select Road Widths"
+                                />
+                            </div>
+                            <div>
+                                <label style={styles.label}>Facing</label>
+                                <MultiSelectDropdown
+                                    options={masterFields.facings || []}
+                                    selected={filters.facing || []}
+                                    onChange={(val) => updateFilter('facing', val)}
+                                    placeholder="Select Facings"
+                                />
+                            </div>
+                        </div>
+                    </section>
                 </div>
 
-                {/* Footer */}
-                <div style={styles.footer}>
-                    <button style={styles.clearBtn} onClick={handleClear}>
-                        Clear All
+                <footer style={{ padding: '24px', borderTop: '1px solid #e2e8f0', backgroundColor: '#ffffff', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <button onClick={onClose} style={styles.applyBtn}>
+                        View {Object.keys(filters).length > 0 ? 'Filtered Results' : 'All Leads'}
                     </button>
-                    <button style={styles.applyBtn} onClick={handleApply}>
-                        <i className="fas fa-check"></i> Apply Filters
+                    <button onClick={handleReset} style={styles.resetBtn}>
+                        Reset All Filters
                     </button>
-                </div>
+                </footer>
             </div>
         </div>,
         document.body

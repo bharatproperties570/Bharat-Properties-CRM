@@ -22,6 +22,7 @@ import EnrollSequenceModal from '../../components/EnrollSequenceModal';
 
 import LeadFilterPanel from './components/LeadFilterPanel';
 import { applyLeadFilters } from '../../utils/leadFilterLogic';
+import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 
 function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const {
@@ -60,6 +61,17 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     // Filter State
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
+
+    // Filter Handlers
+    const handleRemoveFilter = (key) => {
+        const newFilters = { ...filters };
+        delete newFilters[key];
+        setFilters(newFilters);
+    };
+
+    const handleClearAll = () => {
+        setFilters({});
+    };
 
     // Modals State
     const [isSendMessageOpen, setIsSendMessageOpen] = useState(false);
@@ -238,6 +250,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         setCurrentPage(1);
     };
 
+    const [viewMode, setViewMode] = useState('list'); // 'list' or 'grid'
+
     return (
         <section id="leadsView" className="view-section active">
             <div className="view-scroll-wrapper">
@@ -251,18 +265,31 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        {/* View Toggle Button */}
+                        <button
+                            className="btn-outline"
+                            onClick={() => setViewMode(viewMode === 'list' ? 'card' : 'list')}
+                            title={viewMode === 'list' ? "Switch to Card View" : "Switch to List View"}
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                        >
+                            <i className={`fas ${viewMode === 'list' ? 'fa-th-large' : 'fa-list'}`}></i>
+                            {viewMode === 'list' ? 'Card' : 'List'}
+                        </button>
+
                         {/* Filter Button with Active State Indicator */}
                         <button
-                            className={`btn-outline ${Object.keys(filters).length > 0 ? 'active-filter' : ''}`}
+                            className="btn-outline"
+                            style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}
                             onClick={() => setIsFilterPanelOpen(true)}
-                            style={{
-                                borderColor: Object.keys(filters).length > 0 ? '#22c55e' : '',
-                                color: Object.keys(filters).length > 0 ? '#166534' : '',
-                                backgroundColor: Object.keys(filters).length > 0 ? '#dcfce7' : ''
-                            }}
                         >
                             <i className="fas fa-filter"></i>
-                            Filters {Object.keys(filters).length > 0 ? `(${Object.keys(filters).length})` : ''}
+                            Filters
+                            {Object.keys(filters).length > 0 && (
+                                <span style={{
+                                    position: 'absolute', top: '-5px', right: '-5px',
+                                    width: '10px', height: '10px', background: 'red', borderRadius: '50%'
+                                }}></span>
+                            )}
                         </button>
                     </div>
                 </div>
@@ -398,13 +425,15 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         </button>
                                         <button
                                             className="action-btn"
-                                            title="Send Properties"
+                                            title="Match Properties"
                                             onClick={() => {
                                                 const selected = getSelectedLeads();
-                                                showToast(`Sent top 5 matches to ${selected.length} leads.`);
+                                                if (selected.length > 0) {
+                                                    onNavigate('lead-matching', selected[0].mobile);
+                                                }
                                             }}
                                         >
-                                            <i className="fas fa-share-square"></i> Send Matches
+                                            <i className="fas fa-sync-alt"></i> Match
                                         </button>
                                         <button
                                             className="action-btn"
@@ -571,221 +600,290 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         )}
                     </div>
 
-                    {/* Header Strip (Pati) - Sticky 45px */}
-                    <div className="list-header lead-list-grid" style={{ position: 'sticky', top: '45px', background: '#f8fafc', zIndex: 99, borderBottom: '2px solid #e2e8f0', fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        <div><input type="checkbox" /></div>
-                        <div>Lead Profile</div>
-                        <div>Match</div>
-                        <div>Requirement & Budget</div>
-                        <div>Location</div>
-                        <div>Status & Source</div>
-                        <div>Interaction (Remarks)</div>
-                        <div>Assignment</div>
-                    </div>
+                    {/* Active Filters Chips */}
+                    <ActiveFiltersChips
+                        filters={filters}
+                        onRemoveFilter={handleRemoveFilter}
+                        onClearAll={handleClearAll}
+                    />
 
-                    {/* Data List (Div Grid) */}
-                    <div id="leadListContent">
-                        {loading ? <div style={{ padding: '20px', textAlign: 'center' }}>Loading...</div> : leads.map((c, idx) => {
-                            if (!c) return null;
-                            // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
-                            const typeStr = c.req?.type || 'Requirement Missing';
-                            const intent = typeStr.split(/[\s,]+/)[0];
-                            const propertyType = typeStr.replace(intent, '').replace(/^[\s,]+/, '');
+                    {/* Header Strip (Only for List View) */}
+                    {viewMode === 'list' && (
+                        <div className="list-header lead-list-grid" style={{ position: 'sticky', top: '45px', background: '#f8fafc', zIndex: 99, borderBottom: '2px solid #e2e8f0', fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            <div><input type="checkbox" onChange={() => {
+                                if (selectedCount === leads.length) setSelectedIds([]);
+                                else setSelectedIds(leads.map(l => l.name));
+                            }} checked={selectedCount === leads.length && leads.length > 0} /></div>
+                            <div>Lead Profile</div>
+                            <div>Match</div>
+                            <div>Requirement & Budget</div>
+                            <div>Location</div>
+                            <div>Status & Source</div>
+                            <div>Interaction (Remarks)</div>
+                            <div>Assignment</div>
+                        </div>
+                    )}
 
-                            return (
-                                <div
-                                    key={c.name}
-                                    className="list-item lead-list-grid"
-                                    style={{
-                                        padding: "15px 2rem",
-                                        background: isSelected(c.name) ? '#f0f9ff' : '#fff',
-                                        transition: 'all 0.2s',
-                                    }}
-                                    onMouseOver={(e) => {
-                                        if (!isSelected(c.name)) e.currentTarget.style.background = '#fafbfc';
-                                    }}
-                                    onMouseOut={(e) => {
-                                        if (!isSelected(c.name)) e.currentTarget.style.background = '#fff';
-                                        else e.currentTarget.style.background = '#f0f9ff';
-                                    }}
-                                >
-                                    <div>
-                                        <input
-                                            type="checkbox"
-                                            className="item-check"
-                                            checked={isSelected(c.name)}
-                                            onChange={() => toggleSelect(c.name)}
-                                        />
-                                    </div>
-                                    <div className="col-profile">
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                            {/* Dynamic Lead Scoring Engine Badge */}
-                                            {(() => {
-                                                const scoring = calculateLeadScore(c, c.activities || [], scoringConfig);
-                                                const temp = scoring.temperature;
-                                                return (
-                                                    <div
-                                                        className={`score-indicator ${temp.class}`}
-                                                        style={{
-                                                            width: '42px',
-                                                            height: '42px',
-                                                            fontSize: '0.95rem',
-                                                            borderRadius: '50%',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            fontWeight: '900',
-                                                            border: '2px solid rgba(255,255,255,0.2)',
-                                                            cursor: 'pointer',
-                                                            boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                                                            background: temp.color,
-                                                            color: '#fff'
-                                                        }}
-                                                        onClick={(e) => {
-                                                            const rect = e.currentTarget.getBoundingClientRect();
-                                                            const aiExplanation = AIExpertService.explainLeadScore(c, scoringConfig);
-                                                            setActiveScorePopover({
-                                                                name: c.name,
-                                                                x: rect.left,
-                                                                y: rect.bottom + 10,
-                                                                scoring,
-                                                                ai: aiExplanation
-                                                            });
-                                                        }}
-                                                    >
-                                                        {scoring.total}
-                                                    </div>
-                                                );
-                                            })()}
-                                            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    {/* Content Area */}
+                    <div id="leadListContent" style={{ display: viewMode === 'grid' || viewMode === 'card' ? 'block' : 'grid' }}>
+                        {viewMode === 'card' ? (
+                            /* Card View Grid */
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px', padding: '20px' }}>
+                                {leads.map((lead, idx) => (
+                                    <div
+                                        key={lead._id || lead.name || idx}
+                                        style={{
+                                            backgroundColor: '#fff',
+                                            borderRadius: '12px',
+                                            border: isSelected(lead.name) ? '2px solid var(--primary-color)' : '1px solid #e2e8f0',
+                                            padding: '16px',
+                                            position: 'relative',
+                                            transition: 'all 0.2s',
+                                            boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+                                            cursor: 'pointer'
+                                        }}
+                                        onClick={(e) => {
+                                            if (!e.target.closest('button') && !e.target.closest('input')) {
+                                                toggleSelect(lead.name);
+                                            }
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
+                                            <div style={{ display: 'flex', gap: '12px' }}>
+                                                <div className="avatar-circle" style={{ width: '40px', height: '40px', fontSize: '1rem', background: '#eff6ff', color: 'var(--primary-color)' }}>{getInitials(lead.name)}</div>
                                                 <div>
-                                                    <a
-                                                        href="#"
-                                                        className="primary-text text-ellipsis"
-                                                        onClick={(e) => {
-                                                            e.preventDefault();
-                                                            if (onNavigate) onNavigate('contact-detail', c.mobile);
-                                                        }}
-                                                        style={{ color: '#0f172a', fontWeight: 800, fontSize: '0.95rem', textDecoration: 'none', display: 'block' }}
-                                                    >
-                                                        {c.name}
-                                                    </a>
+                                                    <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '1rem' }}>{lead.name}</div>
+                                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{lead.mobile}</div>
                                                 </div>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
-                                                    {c.isTemporary && c.expiryBadge ? (
-                                                        <span
+                                            </div>
+                                            <input type="checkbox" checked={isSelected(lead.name)} onChange={() => toggleSelect(lead.name)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
+                                        </div>
+                                        {/* Simplified Card Content for brevity in fix */}
+                                        <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', marginBottom: '12px' }}>
+                                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{lead.reqDisplay?.type || "Any Property"}</div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginTop: '4px', color: '#64748b' }}><span>{lead.reqDisplay?.size}</span><span style={{ fontWeight: 700, color: '#059669' }}>{lead.budget}</span></div>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                            <span className={`status-badge ${lead.status?.class || 'new'}`} style={{ fontSize: '0.75rem' }}>{lead.status?.label || lead.status}</span>
+                                            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{lead.source}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '8px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
+                                            <button className="btn-icon" style={{ flex: 1, padding: '6px', fontSize: '0.9rem', color: '#3b82f6', background: '#eff6ff', borderRadius: '6px', border: 'none', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); startCall({ name: lead.name, mobile: lead.mobile }, { purpose: 'Lead Follow-up', entityId: lead._id, entityType: 'lead' }); }}><i className="fas fa-phone-alt"></i></button>
+                                            <button className="btn-icon" style={{ flex: 1, padding: '6px', fontSize: '0.9rem', color: '#64748b', background: '#f1f5f9', borderRadius: '6px', border: 'none', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onEdit(lead); }}><i className="fas fa-edit"></i></button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            /* List View Render (Falling through to existing map below) */
+                            null
+                        )}
+
+
+                        {/* List View Rendering */}
+                        {viewMode === 'list' && (
+                            loading ? <div style={{ padding: '20px', textAlign: 'center' }}>Loading...</div> : leads.map((c, idx) => {
+                                if (!c) return null;
+                                // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
+                                const typeStr = c.req?.type || 'Requirement Missing';
+                                const intent = typeStr.split(/[\s,]+/)[0];
+                                const propertyType = typeStr.replace(intent, '').replace(/^[\s,]+/, '');
+
+                                return (
+                                    <div
+                                        key={c.name}
+                                        className="list-item lead-list-grid"
+                                        style={{
+                                            padding: "15px 2rem",
+                                            background: isSelected(c.name) ? '#f0f9ff' : '#fff',
+                                            transition: 'all 0.2s',
+                                        }}
+                                        onMouseOver={(e) => {
+                                            if (!isSelected(c.name)) e.currentTarget.style.background = '#fafbfc';
+                                        }}
+                                        onMouseOut={(e) => {
+                                            if (!isSelected(c.name)) e.currentTarget.style.background = '#fff';
+                                            else e.currentTarget.style.background = '#f0f9ff';
+                                        }}
+                                    >
+                                        <div>
+                                            <input
+                                                type="checkbox"
+                                                className="item-check"
+                                                checked={isSelected(c.name)}
+                                                onChange={() => toggleSelect(c.name)}
+                                            />
+                                        </div>
+                                        <div className="col-profile">
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                                {/* Dynamic Lead Scoring Engine Badge */}
+                                                {(() => {
+                                                    const scoring = calculateLeadScore(c, c.activities || [], scoringConfig);
+                                                    const temp = scoring.temperature;
+                                                    return (
+                                                        <div
+                                                            className={`score-indicator ${temp.class}`}
                                                             style={{
-                                                                background: c.expiryBadge.class === 'badge-danger' ? '#fee2e2' : '#fef3c7',
-                                                                color: c.expiryBadge.class === 'badge-danger' ? '#991b1b' : '#92400e',
-                                                                fontSize: '0.65rem',
-                                                                padding: '1px 6px',
-                                                                borderRadius: '4px',
-                                                                fontWeight: 800,
+                                                                width: '42px',
+                                                                height: '42px',
+                                                                fontSize: '0.95rem',
+                                                                borderRadius: '50%',
                                                                 display: 'flex',
                                                                 alignItems: 'center',
-                                                                gap: '3px',
-                                                                border: c.expiryBadge.class === 'badge-danger' ? '1px solid #fca5a5' : '1px solid #fcd34d'
+                                                                justifyContent: 'center',
+                                                                fontWeight: '900',
+                                                                border: '2px solid rgba(255,255,255,0.2)',
+                                                                cursor: 'pointer',
+                                                                boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                                                                background: temp.color,
+                                                                color: '#fff'
                                                             }}
-                                                            title="Broker leads auto-expire in 15 days"
+                                                            onClick={(e) => {
+                                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                                const aiExplanation = AIExpertService.explainLeadScore(c, scoringConfig);
+                                                                setActiveScorePopover({
+                                                                    name: c.name,
+                                                                    x: rect.left,
+                                                                    y: rect.bottom + 10,
+                                                                    scoring,
+                                                                    ai: aiExplanation
+                                                                });
+                                                            }}
                                                         >
-                                                            <i className="fas fa-clock"></i> {c.expiryBadge.label.toUpperCase()}
-                                                        </span>
-                                                    ) : (
-                                                        LeadConversionService.isConverted(c.mobile) || c.isConverted ? (
+                                                            {scoring.total}
+                                                        </div>
+                                                    );
+                                                })()}
+                                                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                                                    <div>
+                                                        <a
+                                                            href="#"
+                                                            className="primary-text text-ellipsis"
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                if (onNavigate) onNavigate('contact-detail', c.mobile);
+                                                            }}
+                                                            style={{ color: '#0f172a', fontWeight: 800, fontSize: '0.95rem', textDecoration: 'none', display: 'block' }}
+                                                        >
+                                                            {c.name}
+                                                        </a>
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+                                                        {c.isTemporary && c.expiryBadge ? (
                                                             <span
-                                                                onClick={() => onNavigate('contact-detail', c.mobile)}
-                                                                style={{ background: '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
+                                                                style={{
+                                                                    background: c.expiryBadge.class === 'badge-danger' ? '#fee2e2' : '#fef3c7',
+                                                                    color: c.expiryBadge.class === 'badge-danger' ? '#991b1b' : '#92400e',
+                                                                    fontSize: '0.65rem',
+                                                                    padding: '1px 6px',
+                                                                    borderRadius: '4px',
+                                                                    fontWeight: 800,
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '3px',
+                                                                    border: c.expiryBadge.class === 'badge-danger' ? '1px solid #fca5a5' : '1px solid #fcd34d'
+                                                                }}
+                                                                title="Broker leads auto-expire in 15 days"
                                                             >
-                                                                <i className="fas fa-check-circle"></i> CONVERTED
+                                                                <i className="fas fa-clock"></i> {c.expiryBadge.label.toUpperCase()}
                                                             </span>
                                                         ) : (
-                                                            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}><i className="fas fa-mobile-alt" style={{ marginRight: '6px', width: '12px' }}></i>{c.mobile}</div>
-                                                        )
-                                                    )}
+                                                            LeadConversionService.isConverted(c.mobile) || c.isConverted ? (
+                                                                <span
+                                                                    onClick={() => onNavigate('contact-detail', c.mobile)}
+                                                                    style={{ background: '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
+                                                                >
+                                                                    <i className="fas fa-check-circle"></i> CONVERTED
+                                                                </span>
+                                                            ) : (
+                                                                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}><i className="fas fa-mobile-alt" style={{ marginRight: '6px', width: '12px' }}></i>{c.mobile}</div>
+                                                            )
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="col-intent">
+                                            <div style={{ lineHeight: 1.4 }}>
+                                                <div
+                                                    contentEditable
+                                                    suppressContentEditableWarning
+                                                    onBlur={() => showToast(`Requirement updated for ${c.name}`)}
+                                                    style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', outline: 'none', padding: '2px 0' }}
+                                                >{intent}</div>
+                                                <div style={{ marginTop: '4px', fontSize: '0.7rem' }}>
+                                                    <span
+                                                        onClick={(e) => {
+                                                            const rect = e.currentTarget.getBoundingClientRect();
+                                                            setActiveMatchPopover({ name: c.name, x: rect.left, y: rect.bottom + 10 });
+                                                        }}
+                                                        style={{ background: '#e0f2fe', color: '#0284c7', fontWeight: 800, padding: '3px 10px', borderRadius: '6px', cursor: 'pointer', border: '1px solid rgba(2, 132, 199, 0.1)' }}
+                                                    >
+                                                        {c.matched} Matches
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="col-budget">
+                                            <div style={{ lineHeight: 1.4 }}>
+                                                <div style={{ color: '#0f172a', fontSize: '0.75rem', fontWeight: 700, marginBottom: '2px' }}>{propertyType || 'Residential Plot'}</div>
+                                                <div
+                                                    contentEditable
+                                                    suppressContentEditableWarning
+                                                    onBlur={() => showToast(`Budget updated for ${c.name}. Recalculating matches...`)}
+                                                    style={{ color: 'var(--primary-color)', fontWeight: 800, fontSize: '0.85rem', outline: 'none' }}
+                                                >{(c.budget || '').replace('<br/>', ' ')}</div>
+                                                <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, marginTop: '2px' }}>{c?.req?.size || 'Std. Size'}</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="col-location">
+                                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                                <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '3px' }}></i>
+                                                <div
+                                                    contentEditable
+                                                    suppressContentEditableWarning
+                                                    onBlur={() => showToast(`Location preference updated for ${c.name}`)}
+                                                    style={{ fontWeight: 600, color: '#334155', fontSize: '0.8rem', lineHeight: 1.3, outline: 'none' }}
+                                                >{c.location}</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="col-status">
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
+                                                <div style={{ fontWeight: 800, fontSize: '0.7rem', color: '#1a1f23', textTransform: 'uppercase' }}>{c.status?.label || 'NEW'}</div>
+                                                <span className={`status-badge ${c.status?.class || 'new'}`} style={{ height: '20px', fontSize: '0.65rem', padding: '0 8px', borderRadius: '4px' }}>{(c.status?.class || 'new').toUpperCase()}</span>
+                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    {c.source}
+                                                    <i className="fas fa-info-circle" title="AI Insight: Facebook leads convert better when called within 30 mins" style={{ fontSize: '0.6rem', color: '#cbd5e1' }}></i>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="col-interaction">
+                                            <div style={{ lineHeight: 1.4, maxWidth: '240px' }}>
+                                                <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500, fontStyle: 'italic', marginBottom: '4px' }}>"{c.remarks}"</div>
+                                                <div style={{ color: '#27ae60', fontSize: '0.7rem', fontWeight: 700 }}>
+                                                    <i className="fas fa-phone-alt" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>{c.activity} • <span style={{ color: '#64748b' }}>{c.lastAct}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="col-assignment">
+                                            <div style={{ lineHeight: 1.4 }}>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0f172a' }}>{c.owner}</div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', fontSize: '0.65rem', color: '#94a3b8' }}>
+                                                    <i className="far fa-clock"></i>
+                                                    <span dangerouslySetInnerHTML={{ __html: c.addOn }}></span>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
 
-                                    <div className="col-intent">
-                                        <div style={{ lineHeight: 1.4 }}>
-                                            <div
-                                                contentEditable
-                                                suppressContentEditableWarning
-                                                onBlur={() => showToast(`Requirement updated for ${c.name}`)}
-                                                style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', outline: 'none', padding: '2px 0' }}
-                                            >{intent}</div>
-                                            <div style={{ marginTop: '4px', fontSize: '0.7rem' }}>
-                                                <span
-                                                    onClick={(e) => {
-                                                        const rect = e.currentTarget.getBoundingClientRect();
-                                                        setActiveMatchPopover({ name: c.name, x: rect.left, y: rect.bottom + 10 });
-                                                    }}
-                                                    style={{ background: '#e0f2fe', color: '#0284c7', fontWeight: 800, padding: '3px 10px', borderRadius: '6px', cursor: 'pointer', border: '1px solid rgba(2, 132, 199, 0.1)' }}
-                                                >
-                                                    {c.matched} Matches
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="col-budget">
-                                        <div style={{ lineHeight: 1.4 }}>
-                                            <div style={{ color: '#0f172a', fontSize: '0.75rem', fontWeight: 700, marginBottom: '2px' }}>{propertyType || 'Residential Plot'}</div>
-                                            <div
-                                                contentEditable
-                                                suppressContentEditableWarning
-                                                onBlur={() => showToast(`Budget updated for ${c.name}. Recalculating matches...`)}
-                                                style={{ color: 'var(--primary-color)', fontWeight: 800, fontSize: '0.85rem', outline: 'none' }}
-                                            >{(c.budget || '').replace('<br/>', ' ')}</div>
-                                            <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, marginTop: '2px' }}>{c?.req?.size || 'Std. Size'}</div>
-                                        </div>
-                                    </div>
-
-                                    <div className="col-location">
-                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                            <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '3px' }}></i>
-                                            <div
-                                                contentEditable
-                                                suppressContentEditableWarning
-                                                onBlur={() => showToast(`Location preference updated for ${c.name}`)}
-                                                style={{ fontWeight: 600, color: '#334155', fontSize: '0.8rem', lineHeight: 1.3, outline: 'none' }}
-                                            >{c.location}</div>
-                                        </div>
-                                    </div>
-
-                                    <div className="col-status">
-                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
-                                            <div style={{ fontWeight: 800, fontSize: '0.7rem', color: '#1a1f23', textTransform: 'uppercase' }}>{c.status?.label || 'NEW'}</div>
-                                            <span className={`status-badge ${c.status?.class || 'new'}`} style={{ height: '20px', fontSize: '0.65rem', padding: '0 8px', borderRadius: '4px' }}>{(c.status?.class || 'new').toUpperCase()}</span>
-                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                {c.source}
-                                                <i className="fas fa-info-circle" title="AI Insight: Facebook leads convert better when called within 30 mins" style={{ fontSize: '0.6rem', color: '#cbd5e1' }}></i>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="col-interaction">
-                                        <div style={{ lineHeight: 1.4, maxWidth: '240px' }}>
-                                            <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500, fontStyle: 'italic', marginBottom: '4px' }}>"{c.remarks}"</div>
-                                            <div style={{ color: '#27ae60', fontSize: '0.7rem', fontWeight: 700 }}>
-                                                <i className="fas fa-phone-alt" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>{c.activity} • <span style={{ color: '#64748b' }}>{c.lastAct}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="col-assignment">
-                                        <div style={{ lineHeight: 1.4 }}>
-                                            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0f172a' }}>{c.owner}</div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', fontSize: '0.65rem', color: '#94a3b8' }}>
-                                                <i className="far fa-clock"></i>
-                                                <span dangerouslySetInnerHTML={{ __html: c.addOn }}></span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
+                                );
+                            }))}
                     </div>
                 </div>
             </div>
@@ -980,11 +1078,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 isOpen={isFilterPanelOpen}
                 onClose={() => setIsFilterPanelOpen(false)}
                 filters={filters}
-                onApply={(newFilters) => {
+                onFilterChange={(newFilters) => {
                     setFilters(newFilters);
-                    // Reset page to 1 on new filter application
-                    setCurrentPage(1);
-                    showToast('Filters applied successfully');
+                    setCurrentPage(1); // Reset to first page on filter change
                 }}
             />
         </section >

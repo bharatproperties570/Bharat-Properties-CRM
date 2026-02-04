@@ -4,10 +4,15 @@ import AddProjectModal from '../../components/AddProjectModal';
 import AddProjectPriceModal from '../../components/AddProjectPriceModal';
 import UploadModal from '../../components/UploadModal';
 import AddDocumentModal from '../../components/AddDocumentModal';
+import ProjectFilterPanel from './components/ProjectFilterPanel';
+import { applyProjectFilters } from '../../utils/projectFilterLogic';
 
 function ProjectsPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
+
+    const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+    const [filters, setFilters] = useState({});
 
     const [projectsData, setProjectsData] = useState(PROJECTS_LIST);
 
@@ -85,6 +90,21 @@ function ProjectsPage() {
         setIsAddModalOpen(false);
     };
 
+    // Filter Logic
+    const filteredProjects = React.useMemo(() => {
+        // 1. Apply Panel Filters
+        const baseFiltered = applyProjectFilters(projectsData, filters);
+
+        // 2. Apply Search
+        if (!searchTerm) return baseFiltered;
+        const lowerTerm = searchTerm.toLowerCase();
+        return baseFiltered.filter(p =>
+            p.name.toLowerCase().includes(lowerTerm) ||
+            (p.location && p.location.toLowerCase().includes(lowerTerm)) ||
+            (p.units && p.units.some(u => u.toLowerCase().includes(lowerTerm)))
+        );
+    }, [projectsData, filters, searchTerm]);
+
     const renderHeader = () => (
         <div className="page-header">
             <div className="page-title-group">
@@ -109,8 +129,18 @@ function ProjectsPage() {
                         <i className="fas fa-map-marked-alt"></i> Map View
                     </button>
                 </div>
-                <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                    className="btn-outline"
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}
+                    onClick={() => setIsFilterPanelOpen(true)}
+                >
                     <i className="fas fa-filter"></i> Filters
+                    {Object.keys(filters).length > 0 && (
+                        <span style={{
+                            position: 'absolute', top: '-5px', right: '-5px',
+                            width: '10px', height: '10px', background: 'red', borderRadius: '50%'
+                        }}></span>
+                    )}
                 </button>
             </div>
         </div>
@@ -126,11 +156,12 @@ function ProjectsPage() {
                         <div style={{ padding: '15px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
                             <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
                                 <i className="fas fa-map-pin" style={{ color: '#ef4444', marginRight: '6px' }}></i>
-                                Projects by Location ({projectsData.length})
+                                Projects by Location ({filteredProjects.length})
                             </div>
                         </div>
+
                         <div style={{ flex: 1, overflowY: 'auto' }}>
-                            {projectsData.map(project => (
+                            {filteredProjects.map(project => (
                                 <div key={project.id} style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.2s' }} onMouseOver={e => e.currentTarget.style.background = '#f8fafc'} onMouseOut={e => e.currentTarget.style.background = '#fff'}>
                                     <div style={{ display: 'flex', gap: '12px' }}>
                                         <div style={{ width: '50px', height: '50px', background: '#f1f5f9', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -159,7 +190,8 @@ function ProjectsPage() {
                         ></iframe>
 
                         {/* Project Pin Markers Overlay */}
-                        {projectsData.map((project, idx) => {
+                        {/* Project Pin Markers Overlay */}
+                        {filteredProjects.map((project, idx) => {
                             if (!project.lat || !project.lng) return null;
 
                             // Convert lat/lng to approximate pixel position for demo purposes
@@ -253,11 +285,11 @@ function ProjectsPage() {
                         </div>
                         <div style={{ position: 'absolute', top: '20px', left: '20px', background: 'rgba(255,255,255,0.9)', padding: '10px 15px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', backdropFilter: 'blur(4px)' }}>
                             <div style={{ fontWeight: 700, color: '#1e293b' }}><i className="fas fa-info-circle" style={{ color: '#3b82f6', marginRight: '8px' }}></i> Map View Active</div>
-                            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Displaying all {projectsData.length} projects</div>
+                            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Displaying {filteredProjects.length} projects</div>
                         </div>
                     </div>
                 </div>
-            </div>
+            </div >
         </>
     );
 
@@ -325,7 +357,7 @@ function ProjectsPage() {
 
                                     <div className="toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                                         <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
-                                            Displaying <strong>{projectsData.length}</strong> of <strong>{projectsData.length * 5}</strong> Projects
+                                            Displaying <strong>{filteredProjects.length}</strong> of <strong>{projectsData.length}</strong> Projects
                                         </div>
                                         <div className="pagination-nums" style={{ display: 'flex', gap: '8px' }}>
                                             <span className="page-num active">1</span>
@@ -350,7 +382,7 @@ function ProjectsPage() {
 
                         <div className="list-content">
                             {Object.entries(
-                                projectsData.reduce((acc, project) => {
+                                filteredProjects.reduce((acc, project) => {
                                     // Simple city extraction or default to 'Other'
                                     const city = project.location.includes('Mohali') ? 'Mohali' :
                                         project.location.includes('Chandigarh') ? 'Chandigarh' :
@@ -497,6 +529,13 @@ function ProjectsPage() {
                 onClose={() => setIsDocumentModalOpen(false)}
                 onSave={(data) => console.log("Saved Documents:", data)}
                 project={editProjectData}
+            />
+
+            <ProjectFilterPanel
+                isOpen={isFilterPanelOpen}
+                onClose={() => setIsFilterPanelOpen(false)}
+                filters={filters}
+                onFilterChange={setFilters}
             />
         </section >
     );

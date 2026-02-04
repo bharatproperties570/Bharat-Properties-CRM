@@ -41,12 +41,20 @@ function App() {
         if (path === '/projects') return 'projects';
         if (path === '/account') return 'account';
         if (path === '/deal-intake') return 'deal-intake';
+        if (path.startsWith('/deals/match/')) return 'deal-matching';
+        if (path.startsWith('/leads/match/')) return 'lead-matching';
         return 'dashboard';
     });
 
     const [currentContactId, setCurrentContactId] = useState(() => {
         const path = window.location.pathname;
         if (path.startsWith('/contacts/')) {
+            return path.split('/').pop();
+        }
+        if (path.startsWith('/deals/match/')) {
+            return path.split('/').pop();
+        }
+        if (path.startsWith('/leads/match/')) {
             return path.split('/').pop();
         }
         return null;
@@ -60,6 +68,8 @@ function App() {
         let url = '/';
         if (view === 'contacts') url = '/contacts';
         else if (view === 'contact-detail' && contactId) url = `/contacts/${contactId}`;
+        else if (view === 'deal-matching' && contactId) url = `/deals/match/${contactId}`;
+        else if (view === 'lead-matching' && contactId) url = `/leads/match/${contactId}`;
         else if (view === 'dashboard') url = '/';
         else url = `/${view}`;
 
@@ -84,6 +94,12 @@ function App() {
                     setCurrentView('contacts');
                 } else if (path === '/deal-intake') {
                     setCurrentView('deal-intake');
+                } else if (path.startsWith('/deals/match/')) {
+                    setCurrentView('deal-matching');
+                    setCurrentContactId(path.split('/').pop());
+                } else if (path.startsWith('/leads/match/')) {
+                    setCurrentView('lead-matching');
+                    setCurrentContactId(path.split('/').pop());
                 } else {
                     setCurrentView('dashboard');
                 }

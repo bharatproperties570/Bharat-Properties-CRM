@@ -19,6 +19,8 @@ import WizardPage from '../pages/Wizard/WizardPage';
 import SettingsPage from '../pages/Settings/SettingsPage';
 import CommunicationPage from '../pages/Communication/CommunicationPage';
 import DealIntakePage from '../pages/Deals/views/DealIntakePage';
+import DealMatchingPage from '../pages/Deals/views/DealMatchingPage';
+import LeadMatchingPage from '../pages/Leads/views/LeadMatchingPage';
 
 // Settings Sub-Pages
 import EmailSettingsPage from '../pages/Settings/views/EmailSettingsPage';
@@ -52,7 +54,11 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
         case 'forms':
             return <FormsPage />;
         case 'deals':
-            return <DealsPage />;
+            return <DealsPage onNavigate={onNavigate} />;
+        case 'deal-matching':
+            return <DealMatchingPage onNavigate={onNavigate} dealId={currentContactId} />;
+        case 'lead-matching':
+            return <LeadMatchingPage onNavigate={onNavigate} leadId={currentContactId} />;
         case 'marketing':
             return <MarketingPage onNavigate={onNavigate} />;
         case 'wizard':

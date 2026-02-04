@@ -406,6 +406,16 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                                     </div>
                                 )}
                             </div>
+
+                            <div>
+                                <label style={styles.label}>Unit Type</label>
+                                <MultiSelectDropdown
+                                    options={['Ordinary', 'Corner', 'Three Side Open']}
+                                    selected={filters.unitType || []}
+                                    onChange={(val) => updateFilter('unitType', val)}
+                                    placeholder="Select Unit Types"
+                                />
+                            </div>
                         </div>
                     </section>
 
@@ -517,6 +527,42 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                             />
                         </div>
                     </section>
+
+                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+
+                    {/* Deal Details (New Fields) */}
+                    <section>
+                        <span style={styles.sectionTitle}>Deal Details</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div>
+                                <label style={styles.label}>Deal Type</label>
+                                <MultiSelectDropdown
+                                    options={['Hot', 'Warm', 'Cold']}
+                                    selected={filters.dealType || []}
+                                    onChange={(val) => updateFilter('dealType', val)}
+                                    placeholder="Select Deal Types"
+                                />
+                            </div>
+                            <div>
+                                <label style={styles.label}>Transaction Type</label>
+                                <MultiSelectDropdown
+                                    options={['Full White', 'Collector Rate', 'Flexible']}
+                                    selected={filters.transactionType || []}
+                                    onChange={(val) => updateFilter('transactionType', val)}
+                                    placeholder="Select Transaction Types"
+                                />
+                            </div>
+                            <div>
+                                <label style={styles.label}>Source</label>
+                                <MultiSelectDropdown
+                                    options={['Walk-in', 'Newspaper', '99acres', 'Social Media', 'Cold Calling', 'Own Website']}
+                                    selected={filters.source || []}
+                                    onChange={(val) => updateFilter('source', val)}
+                                    placeholder="Select Sources"
+                                />
+                            </div>
+                        </div>
+                    </section>
                 </div>
 
                 <footer style={{ padding: '24px', borderTop: '1px solid #e2e8f0', backgroundColor: '#ffffff', display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -527,8 +573,8 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                         Reset All Filters
                     </button>
                 </footer>
-            </div>
-        </div>,
+            </div >
+        </div >,
         document.body
     );
 };

@@ -16,14 +16,16 @@ export const evaluateSequenceTrigger = (entity, trigger, type = 'lead') => {
         case 'onStageChange':
             return entity.stage === trigger.targetStage;
 
-        case 'onScoreBandEntry':
+        case 'onScoreBandEntry': {
             const score = entity.score || 0;
             return score >= trigger.minScore && score <= trigger.maxScore;
+        }
 
-        case 'onInactivity':
+        case 'onInactivity': {
             const lastActivityDate = new Date(entity.lastActivityAt || entity.updatedAt);
             const daysInactive = (new Date() - lastActivityDate) / (1000 * 60 * 60 * 24);
             return daysInactive >= trigger.days;
+        }
 
         default:
             return false;
