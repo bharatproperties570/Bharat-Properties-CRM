@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { dealsData, leadData, inventoryData } from '../../../data/mockData';
 import SendMailModal from '../../Contacts/components/SendMailModal';
 import SendMessageModal from '../../../components/SendMessageModal';
+import AlgorithmSettingsModal from '../components/AlgorithmSettingsModal';
 import toast from 'react-hot-toast';
 
 const LeadMatchingPage = ({ onNavigate, leadId }) => {
@@ -14,6 +15,13 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const [budgetFlexibility, setBudgetFlexibility] = useState(10); // % flexibility
     const [includeNearby, setIncludeNearby] = useState(true);
     const [minMatchScore, setMinMatchScore] = useState(20);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [weights, setWeights] = useState({
+        location: 30,
+        type: 20,
+        budget: 25,
+        size: 25
+    });
 
     // Communication Modals State
     const [isMailOpen, setIsMailOpen] = useState(false);
@@ -58,6 +66,8 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             ...(inventoryData || []).map(i => ({ ...i, itemType: 'Inventory' }))
         ];
 
+        const totalPossibleScore = weights.location + weights.type + weights.budget + weights.size;
+
         return allItems.map((item, index) => {
             let score = 0;
             const details = {
@@ -68,62 +78,62 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             };
             const gaps = [];
 
-            // Location Match (30 points)
+            // Location Match (Weights-based)
             const itemLocation = item.location ? item.location.toLowerCase() : '';
             const itemProject = item.projectName ? item.projectName.toLowerCase() : '';
             if ((itemLocation && leadLocation.includes(itemLocation)) || (itemProject && leadLocation.includes(itemProject))) {
-                score += 30;
+                score += weights.location;
                 details.location = 'match';
             } else if (includeNearby && itemLocation && leadLocation.split(',').some(loc => loc.trim() && (itemLocation.includes(loc.trim()) || loc.trim().includes(itemLocation)))) {
-                score += 20;
+                score += (weights.location * 0.66);
                 details.location = 'partial';
             } else {
                 gaps.push('Location mismatch');
             }
 
-            // Type Match (20 points)
+            // Type Match (Weights-based)
             const itemType = item.propertyType ? item.propertyType.toLowerCase() : '';
             if (leadType && itemType && (leadType.includes(itemType) || itemType.includes(leadType))) {
-                score += 20;
+                score += weights.type;
                 details.type = 'match';
             } else {
                 gaps.push(`${item.propertyType} vs ${lead.req?.type}`);
             }
 
-            // Price/Budget Match (25 points)
+            // Price/Budget Match (Weights-based)
             const itemPrice = parsePrice(item.price);
             if (itemPrice >= flexibleBudget.min && itemPrice <= flexibleBudget.max) {
-                score += 25;
+                score += weights.budget;
                 details.budget = 'match';
             } else if (itemPrice > 0 && flexibleBudget.max > 0) {
                 const diff = Math.abs(itemPrice - (flexibleBudget.min + flexibleBudget.max) / 2);
                 const avg = (flexibleBudget.min + flexibleBudget.max) / 2;
-                const proximity = Math.max(0, 25 - (diff / avg) * 50);
+                const proximity = Math.max(0, weights.budget - (diff / avg) * (weights.budget * 2));
                 score += proximity;
-                if (proximity > 15) details.budget = 'partial';
+                if (proximity > (weights.budget * 0.6)) details.budget = 'partial';
                 else gaps.push(`₹${Math.round(Math.abs(itemPrice - baseBudget.max) / 100000)}L over budget`);
             }
 
-            // Size Match (25 points)
+            // Size Match (Weights-based)
             const itemSize = parseSizeSqYard(item.size);
             if (leadSize > 0 && itemSize > 0) {
                 const diff = Math.abs(itemSize - leadSize);
-                const proximity = Math.max(0, 25 - (diff / leadSize) * 100);
+                const proximity = Math.max(0, weights.size - (diff / leadSize) * (weights.size * 4));
                 score += proximity;
-                if (proximity > 20) details.size = 'match';
-                else if (proximity > 10) details.size = 'partial';
+                if (proximity > (weights.size * 0.8)) details.size = 'match';
+                else if (proximity > (weights.size * 0.4)) details.size = 'partial';
                 else gaps.push('Size significantly different');
             } else if (itemSize > 0 || leadSize > 0) {
-                score += 10;
+                score += (weights.size * 0.4);
                 details.size = 'partial';
             }
 
             // Mock Market Context
-            const marketStatus = score > 60 ? (index % 3 === 0 ? 'Below Market' : 'Fair Price') : 'Premium';
+            const marketStatus = score > (totalPossibleScore * 0.6) ? (index % 3 === 0 ? 'Below Market' : 'Fair Price') : 'Premium';
 
             return {
                 ...item,
-                matchPercentage: Math.round(score),
+                matchPercentage: Math.round((score / totalPossibleScore) * 100),
                 matchDetails: details,
                 gaps,
                 marketStatus,
@@ -131,7 +141,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             };
         }).filter(item => item.matchPercentage >= minMatchScore)
             .sort((a, b) => b.matchPercentage - a.matchPercentage);
-    }, [lead, budgetFlexibility, includeNearby, minMatchScore]);
+    }, [lead, budgetFlexibility, includeNearby, minMatchScore, weights]);
 
     const handleSelectAll = (e) => {
         if (e.target.checked) {
@@ -194,7 +204,11 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                     </div>
                 </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
-                    <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff' }}>
+                    <button
+                        className="btn-outline"
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff' }}
+                        onClick={() => setIsSettingsOpen(true)}
+                    >
                         <i className="fas fa-cog"></i> Algorithm Settings
                     </button>
                     <button
@@ -483,6 +497,16 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 isOpen={isMessageOpen}
                 onClose={() => setIsMessageOpen(false)}
                 selectedContacts={[lead]}
+            />
+            <AlgorithmSettingsModal
+                isOpen={isSettingsOpen}
+                onClose={() => setIsSettingsOpen(false)}
+                weights={weights}
+                onSave={(newWeights) => {
+                    setWeights(newWeights);
+                    setIsSettingsOpen(false);
+                    toast.success('Algorithm weights updated!');
+                }}
             />
         </div>
     );
