@@ -1,14 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { whatsappTemplates } from '../../../data/mockData';
+import { whatsappTemplates, smsTemplates, rcsTemplates } from '../../../data/mockData';
+import Swal from 'sweetalert2';
+import { toast } from 'react-hot-toast';
 
 // --- Sub-Components ---
 
-const MessagingTemplateModal = ({ isOpen, onClose, channelType }) => {
+const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onSave }) => {
     const [templateData, setTemplateData] = useState({
         name: '',
         category: 'MARKETING',
         language: 'en_US',
-        headerType: 'TEXT',
+        headerType: 'NONE',
         headerText: '',
         body: '',
         footer: '',
@@ -20,20 +22,30 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType }) => {
 
     useEffect(() => {
         if (isOpen) {
-            setTemplateData({
-                name: '',
-                category: 'MARKETING',
-                language: 'en_US',
-                headerType: 'TEXT',
-                headerText: '',
-                body: '',
-                footer: '',
-                buttons: [],
-                tags: [],
-                shared: true
-            });
+            if (initialData) {
+                setTemplateData({
+                    ...initialData,
+                    // Ensure nested fields are initialized if missing
+                    buttons: initialData.buttons || [],
+                    tags: initialData.tags || [],
+                    headerType: initialData.headerType || 'NONE'
+                });
+            } else {
+                setTemplateData({
+                    name: '',
+                    category: 'MARKETING',
+                    language: 'en_US',
+                    headerType: 'NONE',
+                    headerText: '',
+                    body: (channelType === 'whatsapp' || channelType === 'sms') ? '' : '',
+                    footer: '',
+                    buttons: [],
+                    tags: [],
+                    shared: true
+                });
+            }
         }
-    }, [isOpen]);
+    }, [isOpen, initialData, channelType]);
 
     if (!isOpen) return null;
 
@@ -347,7 +359,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType }) => {
 
                 <div style={{ padding: '20px 32px', borderTop: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                     <button className="btn-outline" onClick={onClose} style={{ background: '#fff' }}>Cancel</button>
-                    <button className="btn-primary" onClick={() => { console.log('Saving:', templateData); onClose(); }}>Save Template</button>
+                    <button className="btn-primary" onClick={() => { onSave(templateData); onClose(); }}>Save Template</button>
                 </div>
             </div>
         </div>
@@ -358,6 +370,69 @@ const MessagingSettingsPage = () => {
     const [subTab, setSubTab] = useState('templates');
     const [templateType, setTemplateType] = useState('whatsapp'); // Default to whatsapp
     const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+    const [editingTemplate, setEditingTemplate] = useState(null);
+
+    // Initialize state with mock data
+    const [allTemplates, setAllTemplates] = useState({
+        whatsapp: whatsappTemplates,
+        sms: smsTemplates,
+        rcs: rcsTemplates
+    });
+
+    const handleDelete = (templateId) => {
+        Swal.fire({
+            title: 'Are you sure?',
+            text: "You won't be able to revert this!",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: 'var(--primary-color)',
+            cancelButtonColor: '#64748b',
+            confirmButtonText: 'Yes, delete it!'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                setAllTemplates(prev => ({
+                    ...prev,
+                    [templateType]: prev[templateType].filter(t => t.id !== templateId)
+                }));
+                toast.success('Template deleted successfully');
+            }
+        });
+    };
+
+    const handleEdit = (template) => {
+        // Normalize field names for the modal
+        const normalizedTemplate = {
+            ...template,
+            body: template.body || template.content || '', // WhatsApp uses 'content', modal uses 'body'
+        };
+        setEditingTemplate(normalizedTemplate);
+        setIsTemplateModalOpen(true);
+    };
+
+    const handleSaveTemplate = (data) => {
+        // For WhatsApp templates, map 'body' back to 'content'
+        const savedData = templateType === 'whatsapp'
+            ? { ...data, content: data.body, body: undefined }
+            : data;
+
+        setAllTemplates(prev => {
+            const currentList = prev[templateType];
+            if (data.id) {
+                // Update
+                return {
+                    ...prev,
+                    [templateType]: currentList.map(t => t.id === data.id ? savedData : t)
+                };
+            } else {
+                // Add
+                return {
+                    ...prev,
+                    [templateType]: [...currentList, { ...savedData, id: Date.now() }]
+                };
+            }
+        });
+        toast.success(data.id ? 'Template updated' : 'Template created');
+    };
 
     const tabs = [
         { id: 'templates', label: 'Templates' },
@@ -387,7 +462,7 @@ const MessagingSettingsPage = () => {
     );
 
     const renderTemplates = () => {
-        const templatesToDisplay = templateType === 'whatsapp' ? whatsappTemplates : [];
+        const templatesToDisplay = allTemplates[templateType] || [];
 
         return (
             <div>
@@ -407,7 +482,7 @@ const MessagingSettingsPage = () => {
                         </div>
                         <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff' }}>Filter tags <i className="fas fa-chevron-down"></i></button>
                     </div>
-                    <button className="btn-primary" onClick={() => setIsTemplateModalOpen(true)}>Add template</button>
+                    <button className="btn-primary" onClick={() => { setEditingTemplate(null); setIsTemplateModalOpen(true); }}>Add template</button>
                 </div>
 
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
@@ -431,7 +506,22 @@ const MessagingSettingsPage = () => {
                                 <td style={{ padding: '16px 12px' }}><span style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem' }}>{row.tags ? row.tags[0] : 'Property'}</span></td>
                                 <td style={{ padding: '16px 12px' }}>Bharat Properties</td>
                                 <td style={{ padding: '16px 12px' }}>Owned by you</td>
-                                <td style={{ padding: '16px 12px' }}><i className="fas fa-ellipsis-v" style={{ color: '#cbd5e1' }}></i></td>
+                                <td style={{ padding: '16px 12px' }}>
+                                    <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                                        <i
+                                            className="far fa-edit"
+                                            style={{ cursor: 'pointer', color: '#3b82f6' }}
+                                            onClick={() => handleEdit(row)}
+                                            title="Edit Template"
+                                        ></i>
+                                        <i
+                                            className="far fa-trash-alt"
+                                            style={{ cursor: 'pointer', color: '#ef4444' }}
+                                            onClick={() => handleDelete(row.id)}
+                                            title="Delete Template"
+                                        ></i>
+                                    </div>
+                                </td>
                             </tr>
                         )) : (
                             <tr>
@@ -498,8 +588,10 @@ const MessagingSettingsPage = () => {
 
             <MessagingTemplateModal
                 isOpen={isTemplateModalOpen}
-                onClose={() => setIsTemplateModalOpen(false)}
+                onClose={() => { setIsTemplateModalOpen(false); setEditingTemplate(null); }}
                 channelType={templateType}
+                initialData={editingTemplate}
+                onSave={handleSaveTemplate}
             />
         </div>
     );

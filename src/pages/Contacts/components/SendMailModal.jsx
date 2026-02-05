@@ -15,7 +15,8 @@ const styles = {
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: 'rgba(15, 23, 42, 0.6)', // slate-900/60
-        backdropFilter: 'blur(4px)'
+        backdropFilter: 'blur(4px)',
+        pointerEvents: 'auto'
     },
     modal: {
         backgroundColor: '#fff',
@@ -27,7 +28,10 @@ const styles = {
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
-        animation: 'zoomIn 0.2s ease-out'
+        animation: 'zoomIn 0.2s ease-out',
+        position: 'relative',
+        isolation: 'isolate',
+        contain: 'layout style paint'
     },
     header: {
         padding: '20px 32px',
@@ -111,6 +115,7 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend, initialSubjec
 
     const [subject, setSubject] = useState(initialSubject);
     const [body, setBody] = useState(initialBody);
+    const editorRef = React.useRef(null); // Add ref for editor
 
     React.useEffect(() => {
         if (isOpen) {
@@ -161,9 +166,10 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend, initialSubjec
                 selection.addRange(newRange);
             }
 
-            // Sync body state
-            const editor = document.querySelector('[contentEditable="true"]');
-            if (editor) setBody(editor.innerHTML);
+            // Sync body state - USE REF instead of querySelector
+            if (editorRef.current) {
+                setBody(editorRef.current.innerHTML);
+            }
         } else {
             // Fallback: append to end
             setBody(prev => prev + html);
@@ -191,7 +197,15 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend, initialSubjec
     if (!isOpen) return null;
 
     return createPortal(
-        <div style={styles.overlay}>
+        <div
+            style={styles.overlay}
+            onClick={(e) => {
+                // Close modal when clicking on overlay (outside modal)
+                if (e.target === e.currentTarget) {
+                    onClose();
+                }
+            }}
+        >
             <style>
                 {`
                 @keyframes zoomIn {
@@ -200,7 +214,13 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend, initialSubjec
                 }
                 `}
             </style>
-            <div style={styles.modal}>
+            <div
+                style={styles.modal}
+                onClick={(e) => {
+                    // Stop propagation to prevent overlay click from closing modal
+                    e.stopPropagation();
+                }}
+            >
 
                 {/* Header */}
                 <div style={styles.header}>
@@ -278,9 +298,10 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend, initialSubjec
                                             if (tmpl) {
                                                 setSubject(tmpl.subject);
                                                 setBody(tmpl.content);
-                                                // If we have an editor div, sync it
-                                                const editor = document.querySelector('[contentEditable="true"]');
-                                                if (editor) editor.innerHTML = tmpl.content;
+                                                // Sync editor using ref instead of querySelector
+                                                if (editorRef.current) {
+                                                    editorRef.current.innerHTML = tmpl.content;
+                                                }
                                             }
                                         }
                                     }}
@@ -314,6 +335,7 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend, initialSubjec
                                 <button style={styles.toolBtn} title="Image"><i className="far fa-image"></i></button>
                             </div>
                             <div
+                                ref={editorRef}
                                 contentEditable
                                 style={{
                                     ...styles.textarea,

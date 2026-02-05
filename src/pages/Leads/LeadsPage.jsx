@@ -374,6 +374,23 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         </button>
                                         <button
                                             className="action-btn"
+                                            title="Send Message"
+                                            onClick={() => {
+                                                const selectedLead = leads.find(l => l.name === selectedIds[0]);
+                                                if (selectedLead) {
+                                                    setSelectedLeadsForMessage([{
+                                                        id: selectedLead.mobile,
+                                                        name: selectedLead.name,
+                                                        mobile: selectedLead.mobile
+                                                    }]);
+                                                    setIsSendMessageOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-comment-dots"></i> Message
+                                        </button>
+                                        <button
+                                            className="action-btn"
                                             title="Add Activity"
                                             onClick={() => {
                                                 const selectedLead = leads.find(l => l.name === selectedIds[0]);

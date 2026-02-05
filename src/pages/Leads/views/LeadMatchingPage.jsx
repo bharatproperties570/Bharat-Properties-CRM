@@ -109,6 +109,33 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         logActivity('WhatsApp Sent', item);
     };
 
+    const handleSendPortfolio = () => {
+        const selectedDeals = matchedItems.filter(item => selectedItems.includes(item.id || item.unitNo));
+        if (selectedDeals.length === 0) {
+            toast.error('Please select at least one property to send.');
+            return;
+        }
+
+        const template = whatsappTemplates.find(t => t.name === 'Property Portfolio');
+        let message = template.content;
+
+        // Group properties list
+        const propertyListText = selectedDeals.map((item, index) => {
+            return `${index + 1}. *${item.propertyType || item.type || 'Property'}* in ${item.location}\n📐 ${item.size} | 💰 ₹${item.price}\n🔗 http://bharatproperties.in/p/${item.id || item.unitNo}`;
+        }).join('\n\n');
+
+        // Inject variables
+        message = message.replace('{{ContactName}}', lead.name);
+        message = message.replace('{{PropertiesCount}}', selectedDeals.length);
+        message = message.replace('{{PropertyList}}', propertyListText);
+
+        window.open(`https://wa.me/91${lead.mobile}?text=${encodeURIComponent(message)}`, '_blank');
+
+        selectedDeals.forEach(item => logActivity('Portfolio Shared', item));
+        setSelectedItems([]);
+        toast.success(`Portfolio of ${selectedDeals.length} deals sent to ${lead.name}`);
+    };
+
     const generateEmailContent = (items) => {
         const subject = `🔥 Priority Selected: Top ${items.length} Property Matches for your Requirement!`;
         let body = `Dear ${lead.name},<br><br>`;
@@ -542,10 +569,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         <button
                             className="btn-primary"
                             style={{ background: '#25d366', borderColor: '#25d366', borderRadius: '12px', padding: '10px 24px', fontSize: '0.9rem' }}
-                            onClick={() => {
-                                toast.success(`Portfolio of ${selectedItems.length} deals sent to ${lead.name}`);
-                                setSelectedItems([]);
-                            }}
+                            onClick={handleSendPortfolio}
                         >
                             <i className="fab fa-whatsapp"></i> Send Portfolio
                         </button>
