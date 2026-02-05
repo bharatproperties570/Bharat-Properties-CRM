@@ -360,6 +360,70 @@ const DealIntakePage = () => {
         }
     };
 
+    // Process selected file when Add Intake button is clicked
+    const handleFileImport = async () => {
+        if (!selectedFile) {
+            toast.error('Please select a file first');
+            return;
+        }
+
+        setIsImporting(true);
+        const toastId = toast.loading('Parsing file...');
+
+        try {
+            let parsedItems = [];
+
+            if (selectedFile.name.endsWith('.zip')) {
+                parsedItems = await parseWhatsAppZip(selectedFile);
+            } else if (selectedFile.name.endsWith('.pdf')) {
+                parsedItems = await parseTribunePdf(selectedFile);
+            } else if (selectedFile.name.match(/\.(jpg|jpeg|png|gif)$/i)) {
+                // Handle image files - create a single intake item
+                parsedItems = [{
+                    id: Date.now(),
+                    source: campaignSource || 'Image Upload',
+                    content: `Image uploaded: ${selectedFile.name}`,
+                    receivedAt: new Date().toISOString(),
+                    status: 'Raw Received',
+                    campaignName: campaignName,
+                    campaignDate: campaignDate,
+                    attachments: [selectedFile.name]
+                }];
+            } else {
+                throw new Error('Unsupported format. Please upload .zip (WhatsApp), .pdf (Tribune), or image files.');
+            }
+
+            if (parsedItems.length === 0) {
+                toast.error('No valid messages found', { id: toastId });
+            } else {
+                // Add campaign details to parsed items
+                const itemsWithCampaign = parsedItems.map(item => ({
+                    ...item,
+                    campaignName: campaignName,
+                    campaignDate: campaignDate,
+                    source: campaignSource || item.source
+                }));
+
+                setIntakeItems(prev => [...itemsWithCampaign, ...prev]);
+                toast.success(`Imported ${parsedItems.length} items!`, { id: toastId });
+
+                // Close Add modal and reset form
+                setIsAddModalOpen(false);
+                setCampaignName('');
+                setCampaignSource('WhatsApp');
+                setCampaignDate('');
+                setContentInputMode('paste');
+                setSelectedFile(null);
+            }
+
+        } catch (error) {
+            console.error(error);
+            toast.error(error.message, { id: toastId });
+        } finally {
+            setIsImporting(false);
+        }
+    };
+
     // --- SELLER FLOW HANDLERS ---
     const handleConfirmOwner = (contact) => {
         setSelectedOwner(contact);
@@ -1489,12 +1553,27 @@ const DealIntakePage = () => {
                                         <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '12px' }}>
                                             Upload WhatsApp Export (.zip), Tribune Ad (.pdf), or Images
                                         </p>
+                                        {selectedFile && (
+                                            <div style={{ marginBottom: '12px' }}>
+                                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 16px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px' }}>
+                                                    <i className="fas fa-file" style={{ color: '#3b82f6' }}></i>
+                                                    <span style={{ color: '#1e40af', fontWeight: 600, fontSize: '0.85rem' }}>{selectedFile.name}</span>
+                                                    <button
+                                                        onClick={() => setSelectedFile(null)}
+                                                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0 4px' }}
+                                                        title="Remove file"
+                                                    >
+                                                        <i className="fas fa-times"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
                                         <label style={{ display: 'inline-block', padding: '10px 20px', background: '#3b82f6', color: '#fff', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
-                                            Choose File
+                                            {selectedFile ? 'Change File' : 'Choose File'}
                                             <input
                                                 type="file"
                                                 accept=".zip,.pdf,image/*"
-                                                onChange={handleFileUpload}
+                                                onChange={handleFileSelect}
                                                 style={{ display: 'none' }}
                                             />
                                         </label>
@@ -1516,10 +1595,7 @@ const DealIntakePage = () => {
                                     Cancel
                                 </button>
                                 <button
-                                    onClick={contentInputMode === 'paste' ? handleAddIntake : () => {
-                                        setIsAddModalOpen(false);
-                                        setIsImportModalOpen(true);
-                                    }}
+                                    onClick={contentInputMode === 'paste' ? handleAddIntake : handleFileImport}
                                     style={{ padding: '10px 20px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: '#fff', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                                 >
                                     <i className={contentInputMode === 'paste' ? 'fas fa-plus' : 'fas fa-file-import'}></i> Add Intake
