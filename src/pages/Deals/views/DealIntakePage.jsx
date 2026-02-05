@@ -32,6 +32,12 @@ const DealIntakePage = () => {
     const [newSourceContent, setNewSourceContent] = useState('');
     const [newSourceType, setNewSourceType] = useState('WhatsApp');
 
+    // Campaign Details State
+    const [campaignName, setCampaignName] = useState('');
+    const [campaignSource, setCampaignSource] = useState('WhatsApp');
+    const [campaignDate, setCampaignDate] = useState('');
+    const [contentInputMode, setContentInputMode] = useState('paste'); // 'paste' or 'import'
+
     // Call Outcome State (Strict Gating)
     const [ownerCallOutcome, setOwnerCallOutcome] = useState(null); // 'Confirmed' | 'Follow-up' etc.
 
@@ -275,13 +281,18 @@ const DealIntakePage = () => {
         if (!newSourceContent.trim()) return;
         const newItem = {
             id: Date.now(),
-            source: newSourceType,
+            source: campaignSource || newSourceType,
             content: newSourceContent,
             receivedAt: new Date().toISOString(),
-            status: 'Raw Received'
+            status: 'Raw Received',
+            campaignName: campaignName,
+            campaignDate: campaignDate
         };
         setIntakeItems([newItem, ...intakeItems]);
         setNewSourceContent('');
+        setCampaignName('');
+        setCampaignSource('WhatsApp');
+        setCampaignDate('');
         setIsAddModalOpen(false);
         toast.success('New Intake Added');
     };
@@ -300,15 +311,44 @@ const DealIntakePage = () => {
                 parsedItems = await parseWhatsAppZip(file);
             } else if (file.name.endsWith('.pdf')) {
                 parsedItems = await parseTribunePdf(file);
+            } else if (file.name.match(/\.(jpg|jpeg|png|gif)$/i)) {
+                // Handle image files - create a single intake item
+                parsedItems = [{
+                    id: Date.now(),
+                    source: campaignSource || 'Image Upload',
+                    content: `Image uploaded: ${file.name}`,
+                    receivedAt: new Date().toISOString(),
+                    status: 'Raw Received',
+                    campaignName: campaignName,
+                    campaignDate: campaignDate,
+                    attachments: [file.name]
+                }];
             } else {
-                throw new Error('Unsupported format. Please upload .zip (WhatsApp) or .pdf (Tribune).');
+                throw new Error('Unsupported format. Please upload .zip (WhatsApp), .pdf (Tribune), or image files.');
             }
 
             if (parsedItems.length === 0) {
                 toast.error('No valid messages found', { id: toastId });
             } else {
-                setIntakeItems(prev => [...parsedItems, ...prev]);
+                // Add campaign details to parsed items
+                const itemsWithCampaign = parsedItems.map(item => ({
+                    ...item,
+                    campaignName: campaignName,
+                    campaignDate: campaignDate,
+                    source: campaignSource || item.source
+                }));
+
+                setIntakeItems(prev => [...itemsWithCampaign, ...prev]);
                 toast.success(`Imported ${parsedItems.length} items!`, { id: toastId });
+
+                // Close Add modal and reset form
+                setIsAddModalOpen(false);
+                setCampaignName('');
+                setCampaignSource('WhatsApp');
+                setCampaignDate('');
+                setContentInputMode('paste');
+
+                // Also close import modal if it was open
                 setIsImportModalOpen(false);
             }
 
@@ -601,10 +641,21 @@ const DealIntakePage = () => {
                         <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>Processing Queue: {intakeItems.length} items</p>
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <button onClick={() => setIsImportModalOpen(true)} title="Import File" style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '50%', width: '32px', height: '32px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <i className="fas fa-file-import" style={{ color: '#16a34a' }}></i>
-                        </button>
-                        <button onClick={() => setIsAddModalOpen(true)} title="Add Manually" style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '50%', width: '32px', height: '32px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <button
+                            onClick={() => setIsAddModalOpen(true)}
+                            title="Add Intake"
+                            style={{
+                                background: '#f1f5f9',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '50%',
+                                width: '32px',
+                                height: '32px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                        >
                             <i className="fas fa-plus" style={{ color: '#64748b' }}></i>
                         </button>
                     </div>
@@ -1344,29 +1395,135 @@ const DealIntakePage = () => {
                     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
                         <div style={{ background: '#fff', width: '500px', borderRadius: '12px', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
                             <h3 style={{ marginTop: 0, fontSize: '1.2rem', fontWeight: 800 }}>Add New Intake</h3>
+
+                            {/* Campaign Details Fields */}
                             <div style={{ marginBottom: '16px' }}>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>Source</label>
-                                <div style={{ display: 'flex', gap: '10px' }}>
-                                    <button onClick={() => setNewSourceType('WhatsApp')} style={{ flex: 1, padding: '10px', borderRadius: '6px', border: newSourceType === 'WhatsApp' ? '2px solid #22c55e' : '1px solid #e2e8f0', background: newSourceType === 'WhatsApp' ? '#dcfce7' : '#fff', fontWeight: 600, color: newSourceType === 'WhatsApp' ? '#14532d' : '#64748b', cursor: 'pointer' }}>WhatsApp</button>
-                                    <button onClick={() => setNewSourceType('Tribune')} style={{ flex: 1, padding: '10px', borderRadius: '6px', border: newSourceType === 'Tribune' ? '2px solid #f59e0b' : '1px solid #e2e8f0', background: newSourceType === 'Tribune' ? '#fef3c7' : '#fff', fontWeight: 600, color: newSourceType === 'Tribune' ? '#78350f' : '#64748b', cursor: 'pointer' }}>Tribune / PDF</button>
-                                </div>
+                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>Campaign Source</label>
+                                <select
+                                    value={campaignSource}
+                                    onChange={e => setCampaignSource(e.target.value)}
+                                    style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', background: '#fff' }}
+                                >
+                                    <option value="WhatsApp">WhatsApp</option>
+                                    <option value="Tribune">Tribune / Newspaper</option>
+                                    <option value="Facebook">Facebook</option>
+                                    <option value="Instagram">Instagram</option>
+                                    <option value="Website">Website</option>
+                                    <option value="Walk-in">Walk-in</option>
+                                    <option value="Referral">Referral</option>
+                                    <option value="Other">Other</option>
+                                </select>
                             </div>
+
+                            <div style={{ marginBottom: '16px' }}>
+                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>Campaign Date</label>
+                                <input
+                                    type="date"
+                                    value={campaignDate}
+                                    onChange={e => setCampaignDate(e.target.value)}
+                                    style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                                />
+                            </div>
+
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>Content / Paste Text</label>
-                                <textarea
-                                    value={newSourceContent}
-                                    onChange={e => setNewSourceContent(e.target.value)}
-                                    rows={6}
-                                    placeholder="Paste the message or extracted text here..."
-                                    style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem', resize: 'vertical' }}
-                                ></textarea>
-                                <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#64748b' }}>
-                                    <strong>Tip:</strong> Use keywords like "Need", "Buy" for Buyer Detection.
+                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>Content Input</label>
+
+                                {/* Paste/Import Toggle */}
+                                <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
+                                    <button
+                                        onClick={() => setContentInputMode('paste')}
+                                        style={{
+                                            flex: 1,
+                                            padding: '10px',
+                                            borderRadius: '6px',
+                                            border: contentInputMode === 'paste' ? '2px solid #3b82f6' : '1px solid #e2e8f0',
+                                            background: contentInputMode === 'paste' ? '#eff6ff' : '#fff',
+                                            fontWeight: 600,
+                                            color: contentInputMode === 'paste' ? '#1e40af' : '#64748b',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px'
+                                        }}
+                                    >
+                                        <i className="fas fa-paste"></i> Paste Text
+                                    </button>
+                                    <button
+                                        onClick={() => setContentInputMode('import')}
+                                        style={{
+                                            flex: 1,
+                                            padding: '10px',
+                                            borderRadius: '6px',
+                                            border: contentInputMode === 'import' ? '2px solid #16a34a' : '1px solid #e2e8f0',
+                                            background: contentInputMode === 'import' ? '#f0fdf4' : '#fff',
+                                            fontWeight: 600,
+                                            color: contentInputMode === 'import' ? '#15803d' : '#64748b',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px'
+                                        }}
+                                    >
+                                        <i className="fas fa-file-import"></i> Import File
+                                    </button>
                                 </div>
+
+                                {contentInputMode === 'paste' ? (
+                                    <>
+                                        <textarea
+                                            value={newSourceContent}
+                                            onChange={e => setNewSourceContent(e.target.value)}
+                                            rows={6}
+                                            placeholder="Paste the message or extracted text here..."
+                                            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem', resize: 'vertical' }}
+                                        ></textarea>
+                                        <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#64748b' }}>
+                                            <strong>Tip:</strong> Use keywords like "Need", "Buy" for Buyer Detection.
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div style={{ padding: '40px', border: '2px dashed #cbd5e1', borderRadius: '12px', textAlign: 'center', background: '#f8fafc' }}>
+                                        <i className="fas fa-cloud-upload-alt" style={{ fontSize: '2rem', color: '#94a3b8', marginBottom: '12px' }}></i>
+                                        <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '12px' }}>
+                                            Upload WhatsApp Export (.zip), Tribune Ad (.pdf), or Images
+                                        </p>
+                                        <label style={{ display: 'inline-block', padding: '10px 20px', background: '#3b82f6', color: '#fff', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
+                                            Choose File
+                                            <input
+                                                type="file"
+                                                accept=".zip,.pdf,image/*"
+                                                onChange={handleFileUpload}
+                                                style={{ display: 'none' }}
+                                            />
+                                        </label>
+                                    </div>
+                                )}
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                                <button onClick={() => setIsAddModalOpen(false)} style={{ padding: '10px 20px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-                                <button onClick={handleAddIntake} style={{ padding: '10px 20px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Add to Queue</button>
+                                <button
+                                    onClick={() => {
+                                        setIsAddModalOpen(false);
+                                        setCampaignName('');
+                                        setCampaignSource('WhatsApp');
+                                        setCampaignDate('');
+                                        setNewSourceContent('');
+                                        setContentInputMode('paste');
+                                    }}
+                                    style={{ padding: '10px 20px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontWeight: 600, cursor: 'pointer' }}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={contentInputMode === 'paste' ? handleAddIntake : () => {
+                                        setIsAddModalOpen(false);
+                                        setIsImportModalOpen(true);
+                                    }}
+                                    style={{ padding: '10px 20px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: '#fff', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                                >
+                                    <i className={contentInputMode === 'paste' ? 'fas fa-plus' : 'fas fa-file-import'}></i> Add Intake
+                                </button>
                             </div>
                         </div>
                     </div>
