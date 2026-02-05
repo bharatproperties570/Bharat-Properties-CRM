@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import Toast from "../../../components/Toast";
 import api from "../../../../api";
+import Swal from "sweetalert2";
+
 
 // Define the hierarchy and lookup_type per level
 const HIERARCHY_LEVELS = {
@@ -19,8 +21,7 @@ const HIERARCHY_LEVELS = {
     { title: "Pincode", lookup_type: "Pincode" },
   ],
   Profile: [
-    { title: "Section", lookup_type: "Section" },
-    { title: "Item", lookup_type: "Item" },
+    { title: "Title", lookup_type: "Title" },
   ],
 };
 
@@ -177,7 +178,20 @@ const ContactSettingsPage = () => {
   const handleAdd = async (levelIndex) => {
     const level = HIERARCHY_LEVELS[activeTab][levelIndex];
     const parentId = levelIndex === 0 ? null : selectedPath[levelIndex - 1];
-    const name = prompt(`Enter ${level.title}`);
+    
+     const { value: name } = await Swal.fire({
+    title: `Enter ${level.title}`,
+    input: "text",
+    inputPlaceholder: `Enter ${level.title} name`,
+    showCancelButton: true,
+    confirmButtonText: "Add",
+    cancelButtonText: "Cancel",
+    inputValidator: (value) => {
+      if (!value) {
+        return "Name is required!";
+      }
+    },
+  });
     if (!name) return;
 
     try {
@@ -236,7 +250,7 @@ const ContactSettingsPage = () => {
     if (!window.confirm("Delete this item?")) return;
 
     try {
-      const res = await api.delete("api/RemoveLookup", { data: { id: item._id } });
+      const res = await api.delete(`api/RemoveLookup?id=${item._id}`);
 
       if (res.data.status === "success") {
         showToast("Deleted Successfully");
