@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { emailTemplates } from '../../../data/mockData';
 import { getInitials } from '../../../utils/helpers';
 
 const styles = {
@@ -106,11 +107,24 @@ const styles = {
     }
 };
 
-const SendMailModal = ({ isOpen, onClose, recipients = [], onSend }) => {
+const SendMailModal = ({ isOpen, onClose, recipients = [], onSend, initialSubject = '', initialBody = '', autoAttachments = [], initialTemplateId = '' }) => {
 
-    const [subject, setSubject] = useState('');
-    const [body, setBody] = useState('');
-    const [selectedTemplate, setSelectedTemplate] = useState('');
+    const [subject, setSubject] = useState(initialSubject);
+    const [body, setBody] = useState(initialBody);
+
+    React.useEffect(() => {
+        if (isOpen) {
+            setSubject(initialSubject);
+            setBody(initialBody);
+        }
+    }, [isOpen, initialSubject, initialBody]);
+    const [selectedTemplate, setSelectedTemplate] = useState(initialTemplateId);
+
+    React.useEffect(() => {
+        if (isOpen && initialTemplateId) {
+            setSelectedTemplate(initialTemplateId);
+        }
+    }, [isOpen, initialTemplateId]);
     const [scheduleDate, setScheduleDate] = useState('');
     const [scheduleTime, setScheduleTime] = useState('');
     const [addSignature, setAddSignature] = useState(true);
@@ -124,8 +138,41 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend }) => {
         { label: 'Assigned Agent', value: '{{AssignedAgent}}' },
     ];
 
+    const insertHTML = (html) => {
+        const selection = window.getSelection();
+        if (selection.rangeCount > 0) {
+            const range = selection.getRangeAt(0);
+            range.deleteContents();
+            const el = document.createElement("div");
+            el.innerHTML = html;
+            const frag = document.createDocumentFragment();
+            let node, lastNode;
+            while ((node = el.firstChild)) {
+                lastNode = frag.appendChild(node);
+            }
+            range.insertNode(frag);
+
+            // Move cursor after the inserted content
+            if (lastNode) {
+                const newRange = document.createRange();
+                newRange.setStartAfter(lastNode);
+                newRange.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(newRange);
+            }
+
+            // Sync body state
+            const editor = document.querySelector('[contentEditable="true"]');
+            if (editor) setBody(editor.innerHTML);
+        } else {
+            // Fallback: append to end
+            setBody(prev => prev + html);
+        }
+    };
+
     const insertVariable = (variable) => {
-        setBody(prev => prev + ` ${variable} `);
+        const html = `<span style="color: #2563eb; font-weight: 700; background: #eff6ff; padding: 2px 6px; border-radius: 4px;">{{${variable}}}</span>&nbsp;`;
+        insertHTML(html);
     };
 
     const handleSend = () => {
@@ -178,7 +225,12 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend }) => {
                                     <div style={styles.pillAvatar}>
                                         {getInitials(recipient.name)}
                                     </div>
-                                    <span style={styles.pillText}>{recipient.name}</span>
+                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                        <span style={styles.pillText}>{recipient.name}</span>
+                                        {recipient.email && (
+                                            <span style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '-2px' }}>{recipient.email}</span>
+                                        )}
+                                    </div>
                                     {idx === 0 && recipients.length > 1 && (
                                         <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 500 }}>+{recipients.length - 1} others</span>
                                     )}
@@ -216,17 +268,27 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend }) => {
                             {/* Templates & Variables */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <select
-                                    style={{ fontSize: '0.75rem', border: '1px solid #e2e8f0', borderRadius: '100px', padding: '4px 12px', outline: 'none', cursor: 'pointer', color: '#475569' }}
+                                    style={{ fontSize: '0.75rem', border: '1px solid #e2e8f0', borderRadius: '100px', padding: '4px 12px', outline: 'none', cursor: 'pointer', color: '#475569', maxWidth: '180px' }}
                                     value={selectedTemplate}
                                     onChange={(e) => {
-                                        setSelectedTemplate(e.target.value);
-                                        if (e.target.value) setBody('Hello {{ContactName}},\n\nHere is the information about {{PropertyName}}.\n\nBest,\n{{AssignedAgent}}');
+                                        const templateId = e.target.value;
+                                        setSelectedTemplate(templateId);
+                                        if (templateId) {
+                                            const tmpl = emailTemplates.find(t => t.id === parseInt(templateId));
+                                            if (tmpl) {
+                                                setSubject(tmpl.subject);
+                                                setBody(tmpl.content);
+                                                // If we have an editor div, sync it
+                                                const editor = document.querySelector('[contentEditable="true"]');
+                                                if (editor) editor.innerHTML = tmpl.content;
+                                            }
+                                        }
                                     }}
                                 >
                                     <option value="">Select Template</option>
-                                    <option value="intro">Introduction</option>
-                                    <option value="followup">Follow Up</option>
-                                    <option value="offer">New Offer</option>
+                                    {emailTemplates.map(tmpl => (
+                                        <option key={tmpl.id} value={tmpl.id}>{tmpl.name}</option>
+                                    ))}
                                 </select>
                                 <div style={{ width: '1px', height: '16px', backgroundColor: '#e2e8f0' }}></div>
                                 <div style={{ display: 'flex', gap: '6px' }}>
@@ -251,13 +313,41 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend }) => {
                                 <button style={styles.toolBtn} title="Link"><i className="fas fa-link"></i></button>
                                 <button style={styles.toolBtn} title="Image"><i className="far fa-image"></i></button>
                             </div>
-                            <textarea
-                                style={styles.textarea}
-                                placeholder="Type your message here..."
-                                value={body}
-                                onChange={(e) => setBody(e.target.value)}
-                            ></textarea>
+                            <div
+                                contentEditable
+                                style={{
+                                    ...styles.textarea,
+                                    minHeight: '200px',
+                                    overflowY: 'auto'
+                                }}
+                                onInput={(e) => setBody(e.target.innerHTML)}
+                                dangerouslySetInnerHTML={{ __html: body }}
+                            />
                         </div>
+
+                        {autoAttachments.length > 0 && (
+                            <div style={{ padding: '12px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <i className="fas fa-paperclip"></i> Auto-Attachments ({autoAttachments.length})
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                    {autoAttachments.map((att, idx) => (
+                                        <div key={idx} style={{ position: 'relative', width: '70px', height: '54px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', background: '#fff' }}>
+                                            {att.type === 'image' ? (
+                                                <img src={att.url} alt="attachment" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            ) : (
+                                                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9' }}>
+                                                    <i className="fas fa-video" style={{ color: 'var(--primary-color)', fontSize: '1rem' }}></i>
+                                                </div>
+                                            )}
+                                            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: '10px', padding: '1px 4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>
+                                                {att.name || 'Media'}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Attachments */}

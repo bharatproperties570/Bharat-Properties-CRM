@@ -337,7 +337,9 @@ export const inventoryData = [
         lastContactTime: '2:43 PM',
         lastContactUser: 'Admin',
         lat: 30.6695,
-        lng: 76.7112
+        lng: 76.7112,
+        images: ['https://images.unsplash.com/photo-1564013799919-ab600027ffc6', 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
+        video: 'https://www.w3schools.com/html/mov_bbb.mp4'
     },
     {
         id: 2,
@@ -364,7 +366,9 @@ export const inventoryData = [
         lastContactTime: '10:27 AM',
         lastContactUser: 'Admin',
         lat: 29.9691,
-        lng: 76.8406
+        lng: 76.8406,
+        images: ['https://images.unsplash.com/photo-1486406146926-c627a92ad1ab', 'https://images.unsplash.com/photo-1497366216548-37526070297c'],
+        video: 'https://www.w3schools.com/html/movie.mp4'
     },
     {
         id: 3,
@@ -1010,5 +1014,104 @@ export const dealsData = [
         lastContacted: '12/08/2023 9:00 AM',
         date: '2023-11-08',
         facing: 'North-East'
+    }
+];
+
+export const emailTemplates = [
+    {
+        id: 1,
+        name: 'Welcome & Discovery',
+        author: 'Bharat Properties',
+        visibility: 'Owned by everyone',
+        tags: ['Welcome', 'Leads'],
+        subject: '👋 Welcome to Bharat Properties | Let\'s find your dream home!',
+        content: `Dear {{First name}},<br><br>Thank you for choosing <strong>Bharat Properties</strong>. We are thrilled to assist you in your journey to find the perfect property.<br><br>Our mission is to provide you with a seamless and transparent real estate experience. One of our senior consultants will reach out to you shortly to understand your requirements in detail.<br><br>In the meantime, feel free to browse our latest premium listings on our website.<br><br>Best regards,<br><div style="margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>{{Sender\'s signature}}</strong><br><span style="color: #64748b; font-size: 0.9rem;">Bharat Properties | Premium Real Estate Solutions</span><br><span style="color: #64748b; font-size: 0.85rem;">Ph: +91-XXXXX-XXXXX | Web: www.bharatproperties.com</span></div>`,
+        shared: true
+    },
+    {
+        id: 2,
+        name: 'Top Matches Priority',
+        author: 'Bharat Properties',
+        visibility: 'Owned by everyone',
+        tags: ['Leads', 'Priority'],
+        subject: '🔥 Exclusive Selection: Top property matches for you!',
+        content: `Dear {{First name}},<br><br>Based on our latest market analysis, we have identified these <strong>Top Property Matches</strong> that perfectly align with your requirements.<br><br>{{PropertyList}}<br><br>These properties are currently seeing high interest. Would you like to schedule a priority visit this weekend?<br><br>Best regards,<br><div style="margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>{{Sender\'s signature}}</strong><br><span style="color: #64748b; font-size: 0.9rem;">Bharat Properties | Premium Real Estate Solutions</span><br><span style="color: #64748b; font-size: 0.85rem;">Ph: +91-XXXXX-XXXXX | Web: www.bharatproperties.com</span></div>`,
+        shared: true
+    },
+    {
+        id: 3,
+        name: 'Visit Confirmation',
+        author: 'Bharat Properties',
+        visibility: 'Owned by everyone',
+        tags: ['Site Visit'],
+        subject: '✅ Confirmed: Your Property Visit for {{PropertyList}}',
+        content: `Hello {{First name}},<br><br>Your site visit has been successfully scheduled. Here are the details:<br><br>📍 <strong>Location:</strong> {{PropertyList}}<br>📅 <strong>Date & Time:</strong> [Insert Selection]<br>👤 <strong>Assigned Executive:</strong> {{Sender\'s first name}}<br><br>We recommend arriving 5 minutes early. If you need a pickup or directions, please reply to this email or call us directly.<br><br>Looking forward to showing you your potential future home!<br><br>Best regards,<br><div style="margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>{{Sender\'s signature}}</strong><br><span style="color: #64748b; font-size: 0.9rem;">Bharat Properties | Premium Real Estate Solutions</span><br><span style="color: #64748b; font-size: 0.85rem;">Ph: +91-XXXXX-XXXXX | Web: www.bharatproperties.com</span></div>`,
+        shared: true
+    },
+    {
+        id: 4,
+        name: 'Post-Visit Feedback',
+        author: 'Bharat Properties',
+        visibility: 'Owned by everyone',
+        tags: ['Follow-up'],
+        subject: '🏠 Thoughts on your recent visit? | Next steps for {{PropertyList}}',
+        content: `Dear {{First name}},<br><br>It was a pleasure meeting you during our visit to <strong>{{PropertyList}}</strong> today. We would love to hear your thoughts on the property.<br><br>Did the unit meet your expectations, or would you like to explore other options in a similar range?<br><br><strong>Next Steps:</strong> We can initiate the negotiation process if you liked this unit, or I can share 2-3 alternative listings by tomorrow morning.<br><br>Waiting for your feedback.<br><br>Best regards,<br><div style="margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>{{Sender\'s signature}}</strong><br><span style="color: #64748b; font-size: 0.9rem;">Bharat Properties | Premium Real Estate Solutions</span><br><span style="color: #64748b; font-size: 0.85rem;">Ph: +91-XXXXX-XXXXX | Web: www.bharatproperties.com</span></div>`,
+        shared: true
+    },
+    {
+        id: 5,
+        name: 'Market Update / Re-engagement',
+        author: 'Bharat Properties',
+        visibility: 'Owned by everyone',
+        tags: ['Re-engagement'],
+        subject: '💎 New inventory just landed! | Are you still looking in {{Address}}?',
+        content: `Hi {{First name}},<br><br>It\'s been a while since we last spoke! I wanted to give you a quick heads-up that some <strong>exclusive new inventory</strong> has just opened up in {{Address}} that matches your previous preferences.<br><br>Before these hit the public portals, would you like to see the details?<br><br>Looking forward to reconnecting.<br><br>Best regards,<br><div style="margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>{{Sender\'s signature}}</strong><br><span style="color: #64748b; font-size: 0.9rem;">Bharat Properties | Premium Real Estate Solutions</span><br><span style="color: #64748b; font-size: 0.85rem;">Ph: +91-XXXXX-XXXXX | Web: www.bharatproperties.com</span></div>`,
+        shared: true
+    },
+    {
+        id: 6,
+        name: 'Booking Success',
+        author: 'Bharat Properties',
+        visibility: 'Owned by everyone',
+        tags: ['Deals', 'Success'],
+        subject: '🎉 Congratulations on your new home at {{Company name}}!',
+        content: `Dear {{First name}},<br><br><div style="text-align: center; padding: 20px; background: #f0fdf4; border-radius: 12px; border: 1px solid #bbf7d0;"><h2>🎉 CONGRATULATIONS!</h2><p>Your booking for the unit at <strong>{{Company name}}</strong> has been successfully processed.</p></div><br>This is a major milestone, and we are honored to be part of it. Our post-sales team will guide you through the documentation and registry process shortly.<br><br>Welcome to the Bharat Properties family!<br><br>Best regards,<br><div style="margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>{{Sender\'s signature}}</strong><br><span style="color: #64748b; font-size: 0.9rem;">Bharat Properties | Premium Real Estate Solutions</span><br><span style="color: #64748b; font-size: 0.85rem;">Ph: +91-XXXXX-XXXXX | Web: www.bharatproperties.com</span></div>`,
+        shared: true
+    },
+    {
+        id: 7,
+        name: 'Document Request',
+        author: 'Bharat Properties',
+        visibility: 'Owned by everyone',
+        tags: ['Operations'],
+        subject: '📄 Action Required: Documentation for {{First name}}',
+        content: `Dear {{First name}},<br><br>To proceed with your application for {{Company name}}, we require the following documents at your earliest convenience:<br><br>✅ PAN Card Copy<br>✅ Aadhaar Card (Front & Back)<br>✅ Passport Size Photograph<br>✅ Booking Cheque/Transaction Receipt<br><br>Please reply to this email with the scanned copies or WhatsApp them to us at +91-XXXXX-XXXXX.<br><br>Keeping these ready will ensure a smooth and priority processing of your file.<br><br>Best regards,<br><div style="margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>{{Sender\'s signature}}</strong><br><span style="color: #64748b; font-size: 0.9rem;">Bharat Properties | Premium Real Estate Solutions</span><br><span style="color: #64748b; font-size: 0.85rem;">Ph: +91-XXXXX-XXXXX | Web: www.bharatproperties.com</span></div>`,
+        shared: true
+    },
+    {
+        id: 8,
+        name: 'Property Presentation',
+        author: 'Bharat Properties',
+        visibility: 'Owned by everyone',
+        tags: ['Presentation', 'Property'],
+        subject: '🏠 Property Details: {{PropertyName}} at {{Address}}',
+        content: `Dear {{First name}},<br><br>As discussed, I am sharing the details of a premium property that perfectly matches your requirement:<br><br><div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; background: #f8fafc;"><h3>🏠 {{PropertyName}}</h3>📍 <strong>Location:</strong> {{Address}}<br>📏 <strong>Size:</strong> {{Size}}<br>💰 <strong>Exclusive Price:</strong> {{Price}}<br><br>{{PropertyDescription}}</div><br>I have also attached the site plan and additional images for your reference. Would you like to schedule a site visit for this property?<br><br>Best regards,<br><div style="margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>{{Sender\'s signature}}</strong><br><span style="color: #64748b; font-size: 0.9rem;">Bharat Properties | Premium Real Estate Solutions</span><br><span style="color: #64748b; font-size: 0.85rem;">Ph: +91-XXXXX-XXXXX | Web: www.bharatproperties.com</span></div>`,
+        shared: true
+    }
+];
+
+export const whatsappTemplates = [
+    {
+        id: 1,
+        name: 'Property Presentation',
+        content: `Hi {{ContactName}}, I found a *{{PropertyType}}* that matches your requirement! 🏠
+
+📍 *Location:* {{Location}}
+📏 *Size:* {{Size}}
+💰 *Price:* ₹{{Price}}
+
+Check it out here: {{PropertyLink}}
+
+Would you like to visit this property today?`
     }
 ];

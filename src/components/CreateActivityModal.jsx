@@ -59,7 +59,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         if (isOpen) {
             // Reset form on open
             setFormData({
-                activityType: 'Call',
+                activityType: initialData?.activityType || 'Call',
                 subject: '',
                 relatedTo: initialData?.relatedTo || [],
                 participants: [],
@@ -68,9 +68,9 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                 priority: 'Normal',
                 description: '', // Remark
                 tasks: [{ id: Date.now(), subject: '', reminder: false, reminderTime: '' }],
-                status: 'Not Started',
+                status: initialData?.status || 'Not Started',
 
-                purpose: '',
+                purpose: initialData?.purpose || '',
                 duration: '15',
                 callOutcome: '',
 
@@ -89,7 +89,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                 completionTime: new Date().toTimeString().slice(0, 5),
                 completionDuration: '',
                 meetingOutcomeStatus: '',
-                visitedProperties: [{ project: '', block: '', property: '', result: '', feedback: '' }],
+                visitedProperties: initialData?.visitedProperties || [{ project: '', block: '', property: '', result: '', feedback: '' }],
                 selectedPropertyNo: '',
                 cancellationReason: '',
                 mailStatus: '',
@@ -575,6 +575,9 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                                     {allProjects.map(p => (
                                         <option key={p.id} value={p.name}>{p.name} ({p.city})</option>
                                     ))}
+                                    {row.project && !allProjects.some(p => p.name === row.project) && (
+                                        <option value={row.project}>{row.project}</option>
+                                    )}
                                 </select>
                             </div>
                             <div style={{ flex: 1 }}>

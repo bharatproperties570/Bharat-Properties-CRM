@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { emailTemplates } from '../../../data/mockData';
 
 // --- Sub-Components (Moved outside to prevent re-renders) ---
 
@@ -38,8 +39,19 @@ const VisibilityDropdown = ({ type, value, onChange }) => {
     );
 };
 
-const TemplateModal = ({ isOpen, onClose, onSave }) => {
+const TemplateModal = ({ isOpen, onClose, onSave, initialData }) => {
     const [templateData, setTemplateData] = useState({ name: '', subject: '', content: '', tags: [], shared: true });
+
+    useEffect(() => {
+        if (isOpen) {
+            if (initialData) {
+                setTemplateData(initialData);
+            } else {
+                setTemplateData({ name: '', subject: '', content: '', tags: [], shared: true });
+            }
+        }
+    }, [isOpen, initialData]);
+
     const [showMergeTags, setShowMergeTags] = useState(false);
     const [showImageModal, setShowImageModal] = useState(false);
     const [showLinkModal, setShowLinkModal] = useState(false);
@@ -51,12 +63,12 @@ const TemplateModal = ({ isOpen, onClose, onSave }) => {
     const [linkText, setLinkText] = useState('');
     const editorRef = useRef(null);
 
-    // Sync content if it changes externally (rare for new templates but good practice)
+    // Sync content if it changes externally
     useEffect(() => {
         if (isOpen && editorRef.current) {
             editorRef.current.innerHTML = templateData.content || '<div><br></div>';
         }
-    }, [isOpen]);
+    }, [isOpen, templateData.content]);
 
     if (!isOpen) return null;
 
@@ -410,10 +422,9 @@ const EmailSettingsPage = () => {
     const [blockInnerTab, setBlockInnerTab] = useState('individual');
     const [filterTags, setFilterTags] = useState(['Welcome']);
     const [allTags, setAllTags] = useState(['Welcome', 'Leads', 'Follow-up', 'Onboarding']);
+    const [editingTemplate, setEditingTemplate] = useState(null);
 
-    const [templates, setTemplates] = useState([
-        { id: 1, name: 'Welcome Email', author: 'Real Deal', visibility: 'Owned by you', tags: ['Welcome'] }
-    ]);
+    const [templates, setTemplates] = useState(emailTemplates);
     const [visibilitySettings, setVisibilitySettings] = useState({
         leads: 'Not visible to users',
         contacts: 'Not visible to users',
@@ -643,15 +654,27 @@ const EmailSettingsPage = () => {
                     </div>
                     <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                            <thead><tr style={{ background: '#fff', borderBottom: '1px solid #e2e8f0' }}><th style={{ padding: '12px 24px', textAlign: 'left' }}>Template name</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Tags</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Created by</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Sharing</th><th style={{ padding: '12px 24px', width: '40px' }}></th></tr></thead>
-                            <tbody>{templates.map(tmpl => (<tr key={tmpl.id} style={{ borderBottom: '1px solid #f1f5f9' }}><td style={{ padding: '16px 24px', fontWeight: 600 }}>{tmpl.name}</td><td style={{ padding: '16px 24px' }}>{tmpl.tags.map(tag => (<span key={tag} style={{ fontSize: '0.7rem', color: '#475569', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', marginRight: '4px' }}>{tag}</span>))}</td><td style={{ padding: '16px 24px' }}>{tmpl.author}</td><td style={{ padding: '16px 24px' }}>{tmpl.visibility}</td><td style={{ padding: '16px 24px', textAlign: 'right' }}><i className="far fa-trash-alt" style={{ cursor: 'pointer', color: '#94a3b8' }} onClick={() => setTemplates(templates.filter(t => t.id !== tmpl.id))}></i></td></tr>))}</tbody>
+                            <thead><tr style={{ background: '#fff', borderBottom: '1px solid #e2e8f0' }}><th style={{ padding: '12px 24px', textAlign: 'left' }}>Template name</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Tags</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Created by</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Sharing</th><th style={{ padding: '12px 24px', width: '40px' }}></th><th style={{ padding: '12px 24px', width: '40px' }}></th></tr></thead>
+                            <tbody>{templates.map(tmpl => (<tr key={tmpl.id} style={{ borderBottom: '1px solid #f1f5f9' }}><td style={{ padding: '16px 24px', fontWeight: 600 }}>{tmpl.name}</td><td style={{ padding: '16px 24px' }}>{tmpl.tags.map(tag => (<span key={tag} style={{ fontSize: '0.7rem', color: '#475569', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', marginRight: '4px' }}>{tag}</span>))}</td><td style={{ padding: '16px 24px' }}>{tmpl.author}</td><td style={{ padding: '16px 24px' }}>{tmpl.visibility}</td><td style={{ padding: '16px 24px', textAlign: 'right' }}><i className="far fa-edit" style={{ cursor: 'pointer', color: '#3b82f6', marginRight: '12px' }} onClick={() => { setEditingTemplate(tmpl); setIsAddTemplateModalOpen(true); }}></i></td><td style={{ padding: '16px 24px', textAlign: 'right' }}><i className="far fa-trash-alt" style={{ cursor: 'pointer', color: '#94a3b8' }} onClick={() => setTemplates(templates.filter(t => t.id !== tmpl.id))}></i></td></tr>))}</tbody>
                         </table>
                     </div>
                 </>
             ) : (
                 <div style={{ padding: '40px', textAlign: 'center', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}><p>Tag management is coming soon.</p></div>
             )}
-            <TemplateModal isOpen={isAddTemplateModalOpen} onClose={() => setIsAddTemplateModalOpen(false)} onSave={(data) => setTemplates([...templates, { ...data, id: Date.now(), author: 'Real Deal', visibility: data.shared ? 'Owned by everyone' : 'Owned by you' }])} />
+            <TemplateModal
+                isOpen={isAddTemplateModalOpen}
+                onClose={() => { setIsAddTemplateModalOpen(false); setEditingTemplate(null); }}
+                initialData={editingTemplate}
+                onSave={(data) => {
+                    if (data.id) {
+                        setTemplates(templates.map(t => t.id === data.id ? { ...data, visibility: data.shared ? 'Owned by everyone' : 'Owned by you' } : t));
+                    } else {
+                        setTemplates([...templates, { ...data, id: Date.now(), author: 'Bharat Properties', visibility: data.shared ? 'Owned by everyone' : 'Owned by you' }]);
+                    }
+                    setEditingTemplate(null);
+                }}
+            />
         </div>
     );
 

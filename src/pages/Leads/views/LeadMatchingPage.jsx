@@ -1,20 +1,31 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { dealsData, leadData, inventoryData } from '../../../data/mockData';
+import { dealsData, leadData, inventoryData, whatsappTemplates } from '../../../data/mockData';
 import SendMailModal from '../../Contacts/components/SendMailModal';
 import SendMessageModal from '../../../components/SendMessageModal';
+import CreateActivityModal from '../../../components/CreateActivityModal';
 import AlgorithmSettingsModal from '../components/AlgorithmSettingsModal';
+import { PROJECTS_LIST } from '../../../data/projectData';
 import toast from 'react-hot-toast';
 import { parseBudget, parseSizeSqYard, calculateMatch } from '../../../utils/matchingLogic';
 
 const LeadMatchingPage = ({ onNavigate, leadId }) => {
-    const lead = useMemo(() => leadData.find(l => l.mobile === leadId), [leadId]);
+    const lead = useMemo(() => {
+        const found = leadData.find(l => l.mobile === leadId);
+        if (found && !found.email) {
+            found.email = `${found.name.toLowerCase().replace(/\s+/g, '.')}@example.com`; // Dummy email for matches
+        }
+        return found;
+    }, [leadId]);
 
     // Selection State
     const [selectedItems, setSelectedItems] = useState([]);
 
     // Refinement State
     const [budgetFlexibility, setBudgetFlexibility] = useState(10); // % flexibility
+    const [sizeFlexibility, setSizeFlexibility] = useState(10); // % flexibility
     const [includeNearby, setIncludeNearby] = useState(true);
+    const [isTypeFlexible, setIsTypeFlexible] = useState(false);
+    const [isSizeFlexible, setIsSizeFlexible] = useState(false);
     const [minMatchScore, setMinMatchScore] = useState(20);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [weights, setWeights] = useState({
@@ -27,7 +38,13 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     // Communication Modals State
     const [isMailOpen, setIsMailOpen] = useState(false);
     const [isMessageOpen, setIsMessageOpen] = useState(false);
+    const [isActivityOpen, setIsActivityOpen] = useState(false);
     const [selectedItemsForAction, setSelectedItemsForAction] = useState([]);
+    const [activityInitialData, setActivityInitialData] = useState(null);
+    const [mailSubject, setMailSubject] = useState('');
+    const [mailBody, setMailBody] = useState('');
+    const [mailAttachments, setMailAttachments] = useState([]);
+    const [mailTemplateId, setMailTemplateId] = useState('');
 
     // 2. Pre-parse Lead Context
     const leadContext = useMemo(() => {
@@ -46,10 +63,13 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const matchedItems = useMemo(() => {
         return calculateMatch(lead, leadContext, weights, {
             budgetFlexibility,
+            sizeFlexibility,
             includeNearby,
+            isTypeFlexible,
+            isSizeFlexible,
             minMatchScore
         });
-    }, [lead, leadContext, budgetFlexibility, includeNearby, minMatchScore, weights]);
+    }, [lead, leadContext, budgetFlexibility, sizeFlexibility, includeNearby, isTypeFlexible, isSizeFlexible, minMatchScore, weights]);
 
     // Progressive Rendering
     const [visibleCount, setVisibleCount] = useState(15);
@@ -74,9 +94,71 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     };
 
     const handleWhatsApp = (item) => {
-        const message = `Hi ${lead.name}, I found a ${item.itemType} that matches your requirement: ${item.propertyType} at ${item.location}. Price: ₹${item.price}. Link: http://bharatproperties.in/p/${item.id || item.unitNo}`;
+        const template = whatsappTemplates.find(t => t.name === 'Property Presentation');
+        let message = template.content;
+
+        // Inject variables
+        message = message.replace('{{ContactName}}', lead.name);
+        message = message.replace('{{PropertyType}}', item.propertyType || item.type || 'Property');
+        message = message.replace('{{Location}}', item.location);
+        message = message.replace('{{Size}}', item.size);
+        message = message.replace('{{Price}}', item.price);
+        message = message.replace('{{PropertyLink}}', `http://bharatproperties.in/p/${item.id || item.unitNo}`);
+
         window.open(`https://wa.me/91${lead.mobile}?text=${encodeURIComponent(message)}`, '_blank');
         logActivity('WhatsApp Sent', item);
+    };
+
+    const generateEmailContent = (items) => {
+        const subject = `🔥 Priority Selected: Top ${items.length} Property Matches for your Requirement!`;
+        let body = `Dear ${lead.name},<br><br>`;
+        body += `We've been working hard to find the perfect properties for you. Based on our latest market analysis, we have identified these <strong>Top ${items.length} Matches</strong> that perfectly align with your requirements.<br><br>`;
+
+        items.forEach((item, index) => {
+            body += `<div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 20px; font-family: sans-serif; background: #fff;">`;
+            body += `<div style="display: flex; gap: 16px; align-items: flex-start;">`;
+
+            // Image Preview (if available)
+            if (item.images && item.images.length > 0) {
+                body += `<div style="width: 120px; height: 90px; border-radius: 8px; overflow: hidden; flex-shrink: 0; background: #f1f5f9;">`;
+                body += `<img src="${item.images[0]}" style="width: 100%; height: 100%; object-fit: cover;">`;
+                body += `</div>`;
+            } else if (item.thumbnail) {
+                body += `<div style="width: 120px; height: 90px; border-radius: 8px; overflow: hidden; flex-shrink: 0; background: #f1f5f9;">`;
+                body += `<img src="${item.thumbnail}" style="width: 100%; height: 100%; object-fit: cover;">`;
+                body += `</div>`;
+            }
+
+            body += `<div>`;
+            body += `<h3 style="margin: 0; color: #1e293b; font-size: 1.1rem;">🏠 MATCH #${index + 1}: ${item.projectName || 'Premium Listing'}</h3>`;
+            body += `<p style="margin: 4px 0; color: #64748b; font-size: 0.9rem;"><i class="fas fa-map-marker-alt"></i> ${item.location}</p>`;
+            body += `<p style="margin: 4px 0; color: #475569; font-size: 0.85rem;">🏢 Type: <strong>${item.propertyType || item.type}</strong> | 📏 Size: <strong>${item.size}</strong></p>`;
+            body += `<p style="margin: 8px 0; color: #10b981; font-weight: 800; font-size: 1.1rem;">💰 Exclusive Price: ₹${item.price}</p>`;
+            body += `<div style="display: inline-block; background: #ecfdf5; color: #059669; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">✨ Match Accuracy: ${item.matchPercentage}%</div>`;
+            body += `</div>`;
+            body += `</div>`;
+            body += `</div>`;
+        });
+
+        body += `<br>These properties are currently seeing high interest and are moving fast. I'd love to show them to you this week.<br><br>`;
+        body += `<strong>Can we schedule a visit or a brief call today to discuss these?</strong><br><br>`;
+        body += `Looking forward to helping you find your ideal property.<br><br>`;
+        body += `Best regards,<br>`;
+        body += `<strong>Bharat Properties Team</strong><br>`;
+        body += `Ph: +91-XXXXX-XXXXX`;
+
+        // Aggregate Attachments
+        const attachments = [];
+        items.forEach(item => {
+            if (item.images) {
+                item.images.forEach((url, i) => attachments.push({ type: 'image', url, name: `${item.projectName || 'Property'}_Img_${i + 1}.jpg` }));
+            }
+            if (item.video) {
+                attachments.push({ type: 'video', url: item.video, name: `${item.projectName || 'Property'}_Video.mp4` });
+            }
+        });
+
+        return { subject, body, attachments };
     };
 
     if (!lead) {
@@ -111,7 +193,14 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Requirement Match Center</h1>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
                             <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Finding matches for Lead:</span>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>{lead.name} | {lead.mobile}</span>
+                            <span
+                                style={{ fontSize: '0.85rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', textDecoration: 'none' }}
+                                onClick={() => onNavigate('contact-detail', lead.mobile)}
+                                onMouseOver={(e) => e.target.style.textDecoration = 'underline'}
+                                onMouseOut={(e) => e.target.style.textDecoration = 'none'}
+                            >
+                                {lead.name} | {lead.mobile}
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -127,7 +216,15 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         className="btn-primary"
                         style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
                         onClick={() => {
-                            toast.success(`Broadcasting top ${selectedItems.length || 5} matches to ${lead.name}`);
+                            const topMatches = matchedItems.slice(0, 5);
+                            const { subject, body, attachments } = generateEmailContent(topMatches);
+                            setMailSubject(subject);
+                            setMailBody(body);
+                            setMailAttachments(attachments);
+                            setSelectedItemsForAction(topMatches);
+                            setMailTemplateId('8'); // Property Presentation
+                            setIsMailOpen(true);
+                            toast.success(`Generated multimedia email for top ${topMatches.length} matches`);
                         }}
                     >
                         <i className="fas fa-paper-plane"></i> Send All Top Matches
@@ -146,19 +243,20 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                             <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px' }}>
-                                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Target</label>
-                                <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', margin: '4px 0' }}>{lead.req?.type}</p>
-                                <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}><i className="fas fa-map-marker-alt"></i> {lead.location}</p>
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '12px' }}>
-                                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Size</label>
-                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', margin: '2px 0' }}>{lead.req?.size}</p>
+                                <div style={{ padding: '0 0 16px 0', borderBottom: '1px solid #f1f5f9', marginBottom: '20px' }}>
+                                    <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', margin: '4px 0' }}>{lead.req?.type}</p>
+                                    <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}><i className="fas fa-map-marker-alt"></i> {lead.location}</p>
                                 </div>
-                                <div style={{ background: '#eff6ff', padding: '12px', borderRadius: '12px' }}>
-                                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#2563eb', textTransform: 'uppercase' }}>Budget</label>
-                                    <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#2563eb', margin: '2px 0' }}>{lead.budget}</p>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                    <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '12px' }}>
+                                        <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Size</label>
+                                        <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', margin: '2px 0' }}>{lead.req?.size}</p>
+                                    </div>
+                                    <div style={{ background: '#eff6ff', padding: '12px', borderRadius: '12px' }}>
+                                        <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#2563eb', textTransform: 'uppercase' }}>Budget</label>
+                                        <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#2563eb', margin: '2px 0' }}>{lead.budget}</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -178,12 +276,27 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                 </div>
                                 <input
                                     type="range"
-                                    min="0" max="30"
+                                    min="0" max="50"
                                     value={budgetFlexibility}
                                     onChange={(e) => setBudgetFlexibility(parseInt(e.target.value))}
                                     style={{ width: '100%', cursor: 'pointer', accentColor: '#3b82f6' }}
                                 />
-                                <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '4px' }}>Includes properties slightly above lead budget.</p>
+                                <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '4px' }}>Includes properties above lead budget.</p>
+                            </div>
+
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b' }}>Size Flexibility</label>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#10b981' }}>±{sizeFlexibility}%</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0" max="50"
+                                    value={sizeFlexibility}
+                                    onChange={(e) => setSizeFlexibility(parseInt(e.target.value))}
+                                    style={{ width: '100%', cursor: 'pointer', accentColor: '#10b981' }}
+                                />
+                                <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '4px' }}>Includes properties within size range deviation.</p>
                             </div>
 
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f8fafc', padding: '12px', borderRadius: '12px' }}>
@@ -278,21 +391,40 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
                             {/* Item Info */}
                             <div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <h4 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#0f172a' }}>{item.propertyType}</h4>
-                                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: item.marketStatus === 'Below Market' ? '#10b981' : '#64748b', background: item.marketStatus === 'Below Market' ? '#ecfdf5' : '#f8fafc', padding: '2px 8px', borderRadius: '100px' }}>
-                                        <i className="fas fa-chart-line"></i> {item.marketStatus}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                    <div style={{
+                                        background: item.matchPercentage > 80 ? '#dcfce7' : item.matchPercentage > 50 ? '#fef3c7' : '#f1f5f9',
+                                        color: item.matchPercentage > 80 ? '#166534' : item.matchPercentage > 50 ? '#92400e' : '#475569',
+                                        padding: '4px 12px',
+                                        borderRadius: '8px',
+                                        fontSize: '1.2rem',
+                                        fontWeight: 900,
+                                        minWidth: '60px',
+                                        textAlign: 'center',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+                                        border: `1px solid ${item.matchPercentage > 80 ? '#b9f6ca' : item.matchPercentage > 50 ? '#fde68a' : '#e2e8f0'}`
+                                    }}>
+                                        {item.unitNo || 'N/A'}
+                                    </div>
+                                    <span style={{ fontSize: '1rem', fontWeight: 800, color: '#10b981', background: '#ecfdf5', padding: '4px 12px', borderRadius: '100px', border: '1px solid #b9f6ca' }}>
+                                        ₹{item.price}
                                     </span>
                                 </div>
 
-                                <p style={{ fontSize: '0.9rem', color: '#475569', margin: '4px 0', fontWeight: 500 }}>
+                                <p style={{ fontSize: '0.9rem', color: '#475569', margin: '8px 0', fontWeight: 500 }}>
                                     <i className="fas fa-map-marker-alt" style={{ color: '#94a3b8' }}></i> {item.location} {item.projectName ? `| ${item.projectName}` : ''}
                                 </p>
 
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '8px' }}>
-                                    <span style={{ fontSize: '1rem', color: '#2563eb', fontWeight: 800 }}>₹{item.price}</span>
-                                    <span style={{ width: '1px', height: '12px', background: '#e2e8f0' }}></span>
-                                    <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>{item.size}</span>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '10px', alignItems: 'center' }}>
+                                    <div style={{ background: '#f1f5f9', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <i className="fas fa-building" style={{ color: '#94a3b8', fontSize: '0.7rem' }}></i>
+                                        Type: <span style={{ color: '#2563eb' }}>{item.propertyType || item.type || 'N/A'}</span>
+                                    </div>
+                                    <span style={{ width: '1px', height: '14px', background: '#e2e8f0', margin: '0 4px' }}></span>
+                                    <div style={{ background: '#f8fafc', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0' }}>
+                                        <i className="fas fa-ruler-combined" style={{ color: '#94a3b8', fontSize: '0.7rem' }}></i>
+                                        Size: <span style={{ color: '#0f172a' }}>{item.size}</span>
+                                    </div>
                                 </div>
 
                                 {/* Mismatch Reasoning */}
@@ -319,7 +451,12 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     </button>
                                     <button
                                         onClick={() => {
+                                            const { subject, body, attachments } = generateEmailContent([item]);
+                                            setMailSubject(subject);
+                                            setMailBody(body);
+                                            setMailAttachments(attachments);
                                             setSelectedItemsForAction([item]);
+                                            setMailTemplateId('8'); // ID for 'Property Presentation'
                                             setIsMailOpen(true);
                                         }}
                                         title="Email Presentation"
@@ -329,8 +466,11 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     </button>
                                     <button
                                         onClick={() => {
-                                            toast.success('Professional Listing PDF Generated!');
-                                            logActivity('PDF Shared', item);
+                                            const toastId = toast.loading('Generating Professional PDF...');
+                                            setTimeout(() => {
+                                                toast.success('Professional Listing PDF Generated!', { id: toastId });
+                                                logActivity('PDF Shared', item);
+                                            }, 1500);
                                         }}
                                         title="Generate Professional PDF"
                                         style={{ flex: 1, height: '44px', borderRadius: '14px', border: '1px solid #f1f5f9', background: '#fff', color: '#64748b', cursor: 'pointer' }}
@@ -342,8 +482,27 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     className="btn-primary"
                                     style={{ width: '100%', height: '48px', borderRadius: '14px', fontSize: '0.9rem', fontWeight: 800, boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.2)' }}
                                     onClick={() => {
-                                        toast.success(`Reserved for Site Visit: ${item.propertyType}`);
-                                        logActivity('Site Visit Interest', item);
+                                        // Improved project matching logic
+                                        const areaText = (item.area || item.location || '').toLowerCase();
+                                        const matchingProject = PROJECTS_LIST.find(p =>
+                                            areaText.includes(p.name.toLowerCase()) ||
+                                            p.name.toLowerCase().includes(areaText)
+                                        );
+
+                                        setActivityInitialData({
+                                            activityType: 'Site Visit',
+                                            status: 'Not Started',
+                                            purpose: 'Property Visit',
+                                            relatedTo: [{ id: lead.mobile, name: lead.name }],
+                                            visitedProperties: [{
+                                                project: matchingProject ? matchingProject.name : (item.area || item.location || item.propertyType || item.type),
+                                                block: item.location || 'A Block',
+                                                property: item.unitNo || item.id,
+                                                result: '',
+                                                feedback: ''
+                                            }]
+                                        });
+                                        setIsActivityOpen(true);
                                     }}
                                 >
                                     Log Site Visit Interest
@@ -414,7 +573,11 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             <SendMailModal
                 isOpen={isMailOpen}
                 onClose={() => setIsMailOpen(false)}
-                selectedContacts={[lead]} // In Lead matching, the target is always this lead
+                recipients={[lead]}
+                initialSubject={mailSubject}
+                initialBody={mailBody}
+                autoAttachments={mailAttachments}
+                initialTemplateId={mailTemplateId}
             />
             <SendMessageModal
                 isOpen={isMessageOpen}
@@ -429,6 +592,15 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                     setWeights(newWeights);
                     setIsSettingsOpen(false);
                     toast.success('Algorithm weights updated!');
+                }}
+            />
+            <CreateActivityModal
+                isOpen={isActivityOpen}
+                onClose={() => setIsActivityOpen(false)}
+                initialData={activityInitialData}
+                onSave={(data) => {
+                    toast.success(`${data.activityType} logged successfully!`);
+                    setIsActivityOpen(false);
                 }}
             />
         </div>

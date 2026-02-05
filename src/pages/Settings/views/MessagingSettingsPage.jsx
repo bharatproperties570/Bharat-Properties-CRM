@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { whatsappTemplates } from '../../../data/mockData';
 
 // --- Sub-Components ---
 
@@ -355,7 +356,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType }) => {
 
 const MessagingSettingsPage = () => {
     const [subTab, setSubTab] = useState('templates');
-    const [templateType, setTemplateType] = useState('sms');
+    const [templateType, setTemplateType] = useState('whatsapp'); // Default to whatsapp
     const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
 
     const tabs = [
@@ -385,59 +386,63 @@ const MessagingSettingsPage = () => {
         </div>
     );
 
-    const renderTemplates = () => (
-        <div>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '32px' }}>
-                <div style={{ display: 'flex', background: '#f8fafc', padding: '4px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                    <button onClick={() => setTemplateType('sms')} style={{ padding: '8px 32px', border: 'none', background: templateType === 'sms' ? '#fff' : 'transparent', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700, color: templateType === 'sms' ? 'var(--primary-color)' : '#64748b', boxShadow: templateType === 'sms' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer' }}>SMS</button>
-                    <button onClick={() => setTemplateType('whatsapp')} style={{ padding: '8px 32px', border: 'none', background: templateType === 'whatsapp' ? '#fff' : 'transparent', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700, color: templateType === 'whatsapp' ? 'var(--primary-color)' : '#64748b', boxShadow: templateType === 'whatsapp' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer' }}>Whatsapp</button>
-                    <button onClick={() => setTemplateType('rcs')} style={{ padding: '8px 32px', border: 'none', background: templateType === 'rcs' ? '#fff' : 'transparent', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700, color: templateType === 'rcs' ? '#4285F4' : '#64748b', boxShadow: templateType === 'rcs' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer' }}>RCS</button>
-                </div>
-            </div>
+    const renderTemplates = () => {
+        const templatesToDisplay = templateType === 'whatsapp' ? whatsappTemplates : [];
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <div style={{ display: 'flex', gap: '12px' }}>
-                    <div style={{ position: 'relative' }}>
-                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1' }}></i>
-                        <input type="text" placeholder="Search..." style={{ padding: '8px 12px 8px 36px', border: '1px solid #e2e8f0', borderRadius: '4px', width: '240px' }} />
+        return (
+            <div>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '32px' }}>
+                    <div style={{ display: 'flex', background: '#f8fafc', padding: '4px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                        <button onClick={() => setTemplateType('sms')} style={{ padding: '8px 32px', border: 'none', background: templateType === 'sms' ? '#fff' : 'transparent', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700, color: templateType === 'sms' ? 'var(--primary-color)' : '#64748b', boxShadow: templateType === 'sms' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer' }}>SMS</button>
+                        <button onClick={() => setTemplateType('whatsapp')} style={{ padding: '8px 32px', border: 'none', background: templateType === 'whatsapp' ? '#fff' : 'transparent', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700, color: templateType === 'whatsapp' ? 'var(--primary-color)' : '#64748b', boxShadow: templateType === 'whatsapp' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer' }}>Whatsapp</button>
+                        <button onClick={() => setTemplateType('rcs')} style={{ padding: '8px 32px', border: 'none', background: templateType === 'rcs' ? '#fff' : 'transparent', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700, color: templateType === 'rcs' ? '#4285F4' : '#64748b', boxShadow: templateType === 'rcs' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', cursor: 'pointer' }}>RCS</button>
                     </div>
-                    <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff' }}>Filter tags <i className="fas fa-chevron-down"></i></button>
                 </div>
-                <button className="btn-primary" onClick={() => setIsTemplateModalOpen(true)}>Add template</button>
-            </div>
 
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                <thead>
-                    <tr style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>
-                        <th style={{ padding: '12px' }}>Template name</th>
-                        <th style={{ padding: '12px' }}>Status</th>
-                        <th style={{ padding: '12px' }}>Dated</th>
-                        <th style={{ padding: '12px' }}>Tags</th>
-                        <th style={{ padding: '12px' }}>Created by</th>
-                        <th style={{ padding: '12px' }}>Sharing</th>
-                        <th style={{ padding: '12px' }}></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {[
-                        { name: 'Welcome', status: 'Active', date: '04/12/2023', tags: ['Welcome'], creator: 'Real Deal', sharing: 'Owned by you' },
-                        { name: 'New Lead Creation', status: 'Active', date: '04/12/2023', tags: ['Welcome'], creator: 'Real Deal', sharing: 'Owned by team' },
-                        { name: 'Meeting confirmation', status: 'Active', date: '04/12/2023', tags: ['Leads'], creator: 'Real Deal', sharing: 'Owned by you' }
-                    ].map((row, i) => (
-                        <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                            <td style={{ padding: '16px 12px', fontWeight: 600, color: 'var(--primary-color)' }}>{row.name}</td>
-                            <td style={{ padding: '16px 12px' }}>{row.status}</td>
-                            <td style={{ padding: '16px 12px' }}>{row.date}</td>
-                            <td style={{ padding: '16px 12px' }}><span style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem' }}>{row.tags[0]}</span></td>
-                            <td style={{ padding: '16px 12px' }}>{row.creator}</td>
-                            <td style={{ padding: '16px 12px' }}>{row.sharing}</td>
-                            <td style={{ padding: '16px 12px' }}><i className="fas fa-ellipsis-v" style={{ color: '#cbd5e1' }}></i></td>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                        <div style={{ position: 'relative' }}>
+                            <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1' }}></i>
+                            <input type="text" placeholder="Search..." style={{ padding: '8px 12px 8px 36px', border: '1px solid #e2e8f0', borderRadius: '4px', width: '240px' }} />
+                        </div>
+                        <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff' }}>Filter tags <i className="fas fa-chevron-down"></i></button>
+                    </div>
+                    <button className="btn-primary" onClick={() => setIsTemplateModalOpen(true)}>Add template</button>
+                </div>
+
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                    <thead>
+                        <tr style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>
+                            <th style={{ padding: '12px' }}>Template name</th>
+                            <th style={{ padding: '12px' }}>Status</th>
+                            <th style={{ padding: '12px' }}>Dated</th>
+                            <th style={{ padding: '12px' }}>Tags</th>
+                            <th style={{ padding: '12px' }}>Created by</th>
+                            <th style={{ padding: '12px' }}>Sharing</th>
+                            <th style={{ padding: '12px' }}></th>
                         </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
-    );
+                    </thead>
+                    <tbody>
+                        {templatesToDisplay.length > 0 ? templatesToDisplay.map((row, i) => (
+                            <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '16px 12px', fontWeight: 600, color: 'var(--primary-color)' }}>{row.name}</td>
+                                <td style={{ padding: '16px 12px' }}><span style={{ color: '#22c55e', fontWeight: 600 }}>Active</span></td>
+                                <td style={{ padding: '16px 12px' }}>05/02/2026</td>
+                                <td style={{ padding: '16px 12px' }}><span style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem' }}>{row.tags ? row.tags[0] : 'Property'}</span></td>
+                                <td style={{ padding: '16px 12px' }}>Bharat Properties</td>
+                                <td style={{ padding: '16px 12px' }}>Owned by you</td>
+                                <td style={{ padding: '16px 12px' }}><i className="fas fa-ellipsis-v" style={{ color: '#cbd5e1' }}></i></td>
+                            </tr>
+                        )) : (
+                            <tr>
+                                <td colSpan="7" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>No templates found for this channel.</td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        );
+    };
 
     const renderBlocklist = () => (
         <div>

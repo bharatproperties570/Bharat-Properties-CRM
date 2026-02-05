@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { dealsData, leadData } from '../../../data/mockData';
 import SendMailModal from '../../Contacts/components/SendMailModal';
 import SendMessageModal from '../../../components/SendMessageModal';
+import CreateActivityModal from '../../../components/CreateActivityModal';
 import toast from 'react-hot-toast';
 
 const DealMatchingPage = ({ onNavigate, dealId }) => {
@@ -13,8 +14,17 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     // Communication Modals State
     const [isMailOpen, setIsMailOpen] = useState(false);
     const [isMessageOpen, setIsMessageOpen] = useState(false);
+    const [isActivityOpen, setIsActivityOpen] = useState(false);
     const [selectedContactsForMail, setSelectedContactsForMail] = useState([]);
     const [selectedContactsForMessage, setSelectedContactsForMessage] = useState([]);
+    const [activityInitialData, setActivityInitialData] = useState(null);
+    const [mailSubject, setMailSubject] = useState('');
+    const [mailBody, setMailBody] = useState('');
+    const [mailAttachments, setMailAttachments] = useState([]);
+
+    // Refinement State
+    const [budgetFlexibility, setBudgetFlexibility] = useState(10); // % flexibility
+    const [sizeFlexibility, setSizeFlexibility] = useState(10); // % flexibility
 
     const parsePrice = (priceStr) => {
         if (!priceStr) return 0;
@@ -52,13 +62,18 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                 size: 'mismatch'
             };
 
+            const gaps = [];
+
             // Project/Location Match (30 points)
-            const projectMatch = deal.projectName && lead.location && lead.location.toLowerCase().includes(deal.projectName.toLowerCase());
-            const locationMatch = deal.location && lead.location && lead.location.toLowerCase().includes(deal.location.toLowerCase());
+            const areaText = (lead.location || '').toLowerCase();
+            const projectMatch = deal.projectName && areaText.includes(deal.projectName.toLowerCase());
+            const locationMatch = deal.location && areaText.includes(deal.location.toLowerCase());
 
             if (projectMatch || locationMatch) {
                 score += 30;
                 details.project = 'match';
+            } else {
+                gaps.push('Location Mismatch');
             }
 
             // Type Match (20 points)
@@ -67,19 +82,19 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             if (dealType && leadType && (dealType.includes(leadType) || leadType.includes(dealType))) {
                 score += 20;
                 details.type = 'match';
+            } else {
+                gaps.push('Property Type Mismatch');
             }
 
             // Budget Match (25 points)
             const budget = parseBudget(lead.budget);
-            if (dealPrice >= budget.min && dealPrice <= budget.max) {
+            const budgetTolerance = (budget.max - budget.min || budget.max) * (budgetFlexibility / 100);
+
+            if (dealPrice >= (budget.min - budgetTolerance) && dealPrice <= (budget.max + budgetTolerance)) {
                 score += 25;
-                details.budget = 'match';
-            } else if (dealPrice > 0 && budget.max > 0) {
-                const diff = Math.abs(dealPrice - (budget.min + budget.max) / 2);
-                const avg = (budget.min + budget.max) / 2;
-                const proximity = Math.max(0, 25 - (diff / avg) * 50);
-                score += proximity;
-                if (proximity > 15) details.budget = 'partial';
+                details.budget = dealPrice >= budget.min && dealPrice <= budget.max ? 'match' : 'partial';
+            } else {
+                gaps.push('Budget Out of Range');
             }
 
             // Size Match (25 points)
@@ -87,10 +102,15 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                 const leadSize = parseSizeSqYard(lead.req.size);
                 if (leadSize > 0 && dealSize > 0) {
                     const diff = Math.abs(dealSize - leadSize);
-                    const proximity = Math.max(0, 25 - (diff / leadSize) * 100);
-                    score += proximity;
-                    if (proximity > 20) details.size = 'match';
-                    else if (proximity > 10) details.size = 'partial';
+                    const tolerance = leadSize * (sizeFlexibility / 100);
+
+                    if (diff <= tolerance) {
+                        const proximity = Math.max(0, 25 - (diff / leadSize) * 100);
+                        score += proximity;
+                        details.size = diff === 0 ? 'match' : 'partial';
+                    } else {
+                        gaps.push('Size Mismatch');
+                    }
                 } else {
                     score += 10;
                     details.size = 'partial';
@@ -98,7 +118,6 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             }
 
             // Add mock stage and score if missing for professional feel
-            // In a real app, these would come from the database
             const mockScores = [92, 78, 45, 88, 62, 35];
             const mockStages = ['Site Visit', 'Follow-up', 'Negotiation', 'Prospect', 'Initial Contact', 'Closure'];
 
@@ -106,11 +125,14 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                 ...lead,
                 matchPercentage: Math.round(score),
                 matchDetails: details,
+                gaps,
                 leadScore: lead.score?.val || mockScores[index % mockScores.length],
                 leadStage: lead.stage || mockStages[index % mockStages.length]
             };
-        }).sort((a, b) => b.matchPercentage - a.matchPercentage);
-    }, [deal]);
+        })
+            .filter(l => l.matchPercentage > 10)
+            .sort((a, b) => b.matchPercentage - a.matchPercentage);
+    }, [deal, budgetFlexibility, sizeFlexibility]);
 
     const handleSelectAll = (e) => {
         if (e.target.checked) {
@@ -126,10 +148,55 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
         );
     };
 
+    const generateEmailContent = (leads) => {
+        const subject = `🔥 Priority Deal: Exclusive ${deal.propertyType} in ${deal.location}!`;
+        let body = `Dear Partner,<br><br>`;
+        body += `We have an exclusive property listing that perfectly aligns with your current requirements. This <strong>${deal.propertyType}</strong> at <strong>${deal.location}</strong> represents a significant opportunity in the current market.<br><br>`;
+
+        body += `<div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-bottom: 24px; font-family: sans-serif; background: #fff; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">`;
+        body += `<div style="display: flex; gap: 20px; align-items: flex-start;">`;
+
+        // Deal Image (if available) - Currently using a placeholder as deal doesn't have images in state yet
+        // In a real scenario, we'd use deal.images[0]
+        body += `<div style="width: 200px; height: 140px; border-radius: 12px; overflow: hidden; flex-shrink: 0; background: #f1f5f9;">`;
+        body += `<img src="https://images.unsplash.com/photo-1564013799919-ab600027ffc6" style="width: 100%; height: 100%; object-fit: cover;">`;
+        body += `</div>`;
+
+        body += `<div>`;
+        body += `<h2 style="margin: 0; color: #1e293b; font-size: 1.4rem;">🏠 ${deal.propertyType}</h2>`;
+        body += `<p style="margin: 6px 0; color: #64748b; font-size: 1rem;"><i class="fas fa-map-marker-alt"></i> ${deal.location} ${deal.projectName ? `| ${deal.projectName}` : ''}</p>`;
+        body += `<p style="margin: 8px 0; color: #475569; font-size: 0.95rem;">📏 Size: <strong>${deal.size}</strong></p>`;
+        body += `<p style="margin: 12px 0; color: #10b981; font-weight: 800; font-size: 1.5rem;">💰 Price: ₹${deal.price}</p>`;
+        body += `</div>`;
+        body += `</div>`;
+        body += `</div>`;
+
+        body += `This property has been vetted by our experts and is ready for immediate site visits.<br><br>`;
+        body += `<strong>Would you like to schedule a visit for your client(s) this weekend?</strong><br><br>`;
+        body += `Looking forward to your swift response.<br><br>`;
+        body += `Best regards,<br>`;
+        body += `<strong>${deal.assigned || 'Bharat Properties Team'}</strong><br>`;
+        body += `Ph: +91-XXXXX-XXXXX`;
+
+        // Attachments
+        const attachments = [
+            { type: 'image', url: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6', name: 'Property_Main.jpg' },
+            { type: 'image', url: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750', name: 'Property_Interior.jpg' },
+            { type: 'video', url: 'https://www.w3schools.com/html/mov_bbb.mp4', name: 'Property_Walkthrough.mp4' }
+        ];
+
+        return { subject, body, attachments };
+    };
+
     const handleBatchMail = () => {
         const selected = matchedLeads.filter(l => selectedLeads.includes(l.mobile));
+        const { subject, body, attachments } = generateEmailContent(selected);
+        setMailSubject(subject);
+        setMailBody(body);
+        setMailAttachments(attachments);
         setSelectedContactsForMail(selected);
         setIsMailOpen(true);
+        toast.success(`Generated personalized email for ${selected.length} leads`);
     };
 
     const handleBatchMessage = () => {
@@ -151,6 +218,16 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             </div>
         );
     }
+
+    const getStageColor = (stage) => {
+        switch (stage.toLowerCase()) {
+            case 'site visit': return { bg: '#eff6ff', color: '#2563eb' };
+            case 'negotiation': return { bg: '#f3e8ff', color: '#9333ea' };
+            case 'closure': return { bg: '#f0fdf4', color: '#16a34a' };
+            case 'follow-up': return { bg: '#fff7ed', color: '#ea580c' };
+            default: return { bg: '#f8fafc', color: '#64748b' };
+        }
+    };
 
     const getStatusColor = (status) => {
         switch (status) {
@@ -192,7 +269,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '24px' }}>
                 {/* Deal Snapshot */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <div style={{ background: '#fff', borderRadius: '20px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', position: 'sticky', top: '24px' }}>
+                    <div style={{ background: '#fff', borderRadius: '20px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
                         <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <i className="fas fa-info-circle" style={{ color: '#3b82f6' }}></i> Deal Particulars
                         </h3>
@@ -226,6 +303,45 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                         <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>Sales Manager</p>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Interactive Refinement */}
+                    <div style={{ background: '#fff', borderRadius: '20px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', position: 'sticky', top: '24px' }}>
+                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#64748b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            <i className="fas fa-filter" style={{ color: '#f59e0b' }}></i> Refine Matches
+                        </h3>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b' }}>Budget Flexibility</label>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#3b82f6' }}>±{budgetFlexibility}%</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0" max="50"
+                                    value={budgetFlexibility}
+                                    onChange={(e) => setBudgetFlexibility(parseInt(e.target.value))}
+                                    style={{ width: '100%', cursor: 'pointer', accentColor: '#3b82f6' }}
+                                />
+                                <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '4px' }}>Expand budget range for matching leads.</p>
+                            </div>
+
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b' }}>Size Flexibility</label>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#10b981' }}>±{sizeFlexibility}%</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0" max="50"
+                                    value={sizeFlexibility}
+                                    onChange={(e) => setSizeFlexibility(parseInt(e.target.value))}
+                                    style={{ width: '100%', cursor: 'pointer', accentColor: '#10b981' }}
+                                />
+                                <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '4px' }}>Allow deviation in required size matching.</p>
                             </div>
                         </div>
                     </div>
@@ -297,7 +413,14 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                             {/* Lead Info */}
                             <div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>{lead.name}</h4>
+                                    <h4
+                                        style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#2563eb', cursor: 'pointer', textDecoration: 'none' }}
+                                        onClick={() => onNavigate('contact-detail', lead.mobile)}
+                                        onMouseOver={(e) => e.target.style.textDecoration = 'underline'}
+                                        onMouseOut={(e) => e.target.style.textDecoration = 'none'}
+                                    >
+                                        {lead.name}
+                                    </h4>
                                     <div style={{ background: lead.leadScore > 80 ? '#fef2f2' : '#f0f9ff', color: lead.leadScore > 80 ? '#dc2626' : '#2563eb', padding: '2px 8px', borderRadius: '100px', fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                         <i className={`fas fa-thermometer-${lead.leadScore > 80 ? 'full' : lead.leadScore > 50 ? 'half' : 'empty'}`}></i>
                                         {lead.leadScore > 80 ? 'Hot' : 'Warm'} ({lead.leadScore})
@@ -308,31 +431,70 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                     <span style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                         <i className="fas fa-map-marker-alt" style={{ fontSize: '0.75rem' }}></i> {lead.location}
                                     </span>
-                                    <span style={{ fontSize: '0.8rem', color: '#2563eb', fontWeight: 700, background: '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>
+                                    <span style={{
+                                        fontSize: '0.75rem',
+                                        color: getStageColor(lead.leadStage).color,
+                                        fontWeight: 800,
+                                        background: getStageColor(lead.leadStage).bg,
+                                        padding: '4px 12px',
+                                        borderRadius: '8px',
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.5px'
+                                    }}>
                                         {lead.leadStage}
                                     </span>
                                 </div>
 
                                 {/* Match Analysis Badges */}
                                 <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                                    <div style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.project)}`, color: getStatusColor(lead.matchDetails.project), display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <div
+                                        title={`Deal: ${deal.projectName || 'N/A'} | Lead: ${lead.location}`}
+                                        style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.project)}`, color: getStatusColor(lead.matchDetails.project), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
+                                    >
                                         <i className={`fas fa-${lead.matchDetails.project === 'match' ? 'check-circle' : 'circle'}`}></i> PROJECT
                                     </div>
-                                    <div style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.type)}`, color: getStatusColor(lead.matchDetails.type), display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <div
+                                        title={`Deal: ${deal.propertyType} | Lead: ${lead.req?.type}`}
+                                        style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.type)}`, color: getStatusColor(lead.matchDetails.type), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
+                                    >
                                         <i className={`fas fa-${lead.matchDetails.type === 'match' ? 'check-circle' : 'circle'}`}></i> TYPE
                                     </div>
-                                    <div style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.budget)}`, color: getStatusColor(lead.matchDetails.budget), display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <div
+                                        title={`Deal: ₹${deal.price} | Lead: ${lead.budget}`}
+                                        style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.budget)}`, color: getStatusColor(lead.matchDetails.budget), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
+                                    >
                                         <i className={`fas fa-${lead.matchDetails.budget === 'match' ? 'check-circle' : 'circle'}`}></i> BUDGET
                                     </div>
-                                    <div style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.size)}`, color: getStatusColor(lead.matchDetails.size), display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <div
+                                        title={`Deal: ${deal.size} | Lead: ${lead.req?.size}`}
+                                        style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.size)}`, color: getStatusColor(lead.matchDetails.size), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
+                                    >
                                         <i className={`fas fa-${lead.matchDetails.size === 'match' ? 'check-circle' : 'circle'}`}></i> SIZE
                                     </div>
                                 </div>
+
+                                {/* Gaps Display */}
+                                {lead.gaps && lead.gaps.length > 0 && (
+                                    <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
+                                        {lead.gaps.map((gap, i) => (
+                                            <span key={i} style={{ fontSize: '0.6rem', fontWeight: 700, color: '#ef4444', background: '#fef2f2', padding: '2px 6px', borderRadius: '4px', border: '1px solid #fee2e2' }}>
+                                                {gap}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
 
                             {/* Actions */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                 <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button
+                                        onClick={() => window.open(`tel:${lead.mobile}`)}
+                                        title="Call Lead"
+                                        style={{ flex: 1, padding: '10px', borderRadius: '12px', border: '1px solid #dcfce7', background: '#f0fdf4', color: '#166534', cursor: 'pointer' }}
+                                    >
+                                        <i className="fas fa-phone-alt"></i>
+                                    </button>
                                     <button
                                         onClick={() => handleWhatsApp(lead.mobile, lead.name)}
                                         title="WhatsApp"
@@ -350,23 +512,28 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                     >
                                         <i className="fas fa-comment-alt"></i>
                                     </button>
-                                    <button
-                                        onClick={() => {
-                                            setSelectedContactsForMail([lead]);
-                                            setIsMailOpen(true);
-                                        }}
-                                        title="Sent Email"
-                                        style={{ flex: 1, padding: '10px', borderRadius: '12px', border: '1px solid #f8fafc', background: '#f1f5f9', color: '#334155', cursor: 'pointer' }}
-                                    >
-                                        <i className="fas fa-envelope"></i>
-                                    </button>
                                 </div>
                                 <button
                                     className="btn-primary"
-                                    style={{ width: '100%', padding: '12px', borderRadius: '12px', fontSize: '0.9rem', fontWeight: 700 }}
-                                    onClick={() => onNavigate('contact-detail', lead.mobile)}
+                                    style={{ width: '100%', padding: '12px', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 800 }}
+                                    onClick={() => {
+                                        setActivityInitialData({
+                                            activityType: 'Site Visit',
+                                            status: 'Not Started',
+                                            purpose: 'Property Visit',
+                                            relatedTo: [{ id: lead.mobile, name: lead.name }],
+                                            visitedProperties: [{
+                                                project: deal.projectName || deal.location || deal.propertyType,
+                                                block: deal.location || 'A Block',
+                                                property: deal.unitNo || deal.id,
+                                                result: '',
+                                                feedback: ''
+                                            }]
+                                        });
+                                        setIsActivityOpen(true);
+                                    }}
                                 >
-                                    View Full Profile
+                                    Log Site Visit Interest
                                 </button>
                             </div>
                         </div>
@@ -417,12 +584,24 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             <SendMailModal
                 isOpen={isMailOpen}
                 onClose={() => setIsMailOpen(false)}
-                selectedContacts={selectedContactsForMail}
+                recipients={selectedContactsForMail}
+                initialSubject={mailSubject}
+                initialBody={mailBody}
+                autoAttachments={mailAttachments}
             />
             <SendMessageModal
                 isOpen={isMessageOpen}
                 onClose={() => setIsMessageOpen(false)}
                 selectedContacts={selectedContactsForMessage}
+            />
+            <CreateActivityModal
+                isOpen={isActivityOpen}
+                onClose={() => setIsActivityOpen(false)}
+                initialData={activityInitialData}
+                onSave={(data) => {
+                    toast.success(`${data.activityType} logged successfully!`);
+                    setIsActivityOpen(false);
+                }}
             />
         </div>
     );

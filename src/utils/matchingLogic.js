@@ -72,6 +72,10 @@ export const calculateMatch = (lead, leadContext, weights, options = { includeNe
         if (leadType && item._lowerType && (leadType.includes(item._lowerType) || item._lowerType.includes(leadType))) {
             score += weights.type;
             details.type = 'match';
+        } else if (options.isTypeFlexible) {
+            score += (weights.type * 0.5); // 50% score for type flexibility
+            details.type = 'partial';
+            gaps.push(`${item.propertyType} (Type Flex)`);
         } else {
             gaps.push(`${item.propertyType} vs ${lead.req?.type}`);
         }
@@ -92,15 +96,25 @@ export const calculateMatch = (lead, leadContext, weights, options = { includeNe
 
         // Size Match
         const itemSize = item._normalizedSize;
+        const sizeFlexPercent = options.sizeFlexibility || 0;
+        const flexibleSize = {
+            min: leadSize * (1 - sizeFlexPercent / 100),
+            max: leadSize * (1 + sizeFlexPercent / 100)
+        };
+
         if (leadSize > 0 && itemSize > 0) {
-            const diff = Math.abs(itemSize - leadSize);
-            const proximity = Math.max(0, weights.size - (diff / leadSize) * (weights.size * 4));
-            score += proximity;
-            if (proximity > (weights.size * 0.8)) details.size = 'match';
-            else if (proximity > (weights.size * 0.4)) details.size = 'partial';
-            else gaps.push('Size significantly different');
+            if (itemSize >= flexibleSize.min && itemSize <= flexibleSize.max) {
+                score += weights.size;
+                details.size = 'match';
+            } else {
+                const diff = Math.abs(itemSize - leadSize);
+                const proximity = Math.max(0, weights.size - (diff / leadSize) * (weights.size * 4));
+                score += proximity;
+                if (proximity > (weights.size * 0.4)) details.size = 'partial';
+                else gaps.push('Size significant diff');
+            }
         } else if (itemSize > 0 || leadSize > 0) {
-            score += (weights.size * 0.4);
+            score += (weights.size * (options.isSizeFlexible ? 0.6 : 0.4));
             details.size = 'partial';
         }
 
