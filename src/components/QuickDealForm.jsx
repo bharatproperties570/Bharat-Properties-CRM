@@ -18,6 +18,22 @@ const QuickDealForm = ({
     const [dealType, setDealType] = useState('Sell');
     const [dealPrice, setDealPrice] = useState('');
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [verificationStatus, setVerificationStatus] = useState(null); // null | 'confirmed' | 'follow-up' | 'not-interested'
+
+    // Handle call outcome
+    const handleCallOutcome = (callLog) => {
+        const outcome = callLog.outcome.toLowerCase().replace(/\s+/g, '-');
+        setVerificationStatus(outcome);
+
+        // Show feedback toast
+        if (outcome === 'confirmed') {
+            toast.success('✓ Owner verified via call');
+        } else if (outcome.includes('follow')) {
+            toast.info('📅 Follow-up scheduled');
+        } else if (outcome.includes('not-interested')) {
+            toast.error('❌ Owner not interested');
+        }
+    };
 
     // Auto-selection on mount
     useEffect(() => {
@@ -56,11 +72,23 @@ const QuickDealForm = ({
             return;
         }
 
+        // Block if not interested
+        if (verificationStatus && verificationStatus.includes('not-interested')) {
+            toast.error('Cannot create deal - Owner not interested');
+            return;
+        }
+
+        // Warn if unverified (but allow)
+        if (!verificationStatus) {
+            toast.warning('⚠️ Creating unverified deal');
+        }
+
         onCreateDeal({
             owner: selectedOwner,
             property: selectedProperty,
             type: dealType,
-            price: dealPrice
+            price: dealPrice,
+            verificationStatus: verificationStatus || 'unverified'
         });
     };
 
@@ -102,28 +130,97 @@ const QuickDealForm = ({
 
                     {detectedContacts && detectedContacts.length > 0 ? (
                         <>
-                            {/* Selected Owner Display */}
+                            {/* Selected Owner Display with Verification Badge */}
                             <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '12px', marginBottom: '12px' }}>
-                                <div style={{ fontWeight: 700, color: '#1e40af', marginBottom: '4px' }}>
-                                    {selectedOwner?.name || 'Unknown'}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                                    <div>
+                                        <div style={{ fontWeight: 700, color: '#1e40af', marginBottom: '4px' }}>
+                                            {selectedOwner?.name || 'Unknown'}
+                                        </div>
+                                        <div style={{ fontSize: '0.85rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fas fa-phone"></i>
+                                            {selectedOwner?.mobile}
+                                        </div>
+                                    </div>
+
+                                    {/* Verification Status Badge */}
+                                    {verificationStatus ? (
+                                        <div style={{
+                                            padding: '4px 8px',
+                                            borderRadius: '4px',
+                                            fontSize: '0.7rem',
+                                            fontWeight: 700,
+                                            background:
+                                                verificationStatus === 'confirmed' ? '#dcfce7' :
+                                                    verificationStatus.includes('follow') ? '#fef3c7' :
+                                                        '#fee2e2',
+                                            color:
+                                                verificationStatus === 'confirmed' ? '#166534' :
+                                                    verificationStatus.includes('follow') ? '#b45309' :
+                                                        '#991b1b'
+                                        }}>
+                                            {verificationStatus === 'confirmed' && '✓ Verified'}
+                                            {verificationStatus.includes('follow') && '⏳ Follow-up'}
+                                            {verificationStatus.includes('not-interested') && '❌ Not Interested'}
+                                        </div>
+                                    ) : (
+                                        <div style={{
+                                            padding: '4px 8px',
+                                            borderRadius: '4px',
+                                            fontSize: '0.7rem',
+                                            fontWeight: 700,
+                                            background: '#e0e7ff',
+                                            color: '#3730a3'
+                                        }}>
+                                            Not Verified
+                                        </div>
+                                    )}
                                 </div>
-                                <div style={{ fontSize: '0.85rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+
+                                {/* Call Button with Callback */}
+                                <button
+                                    onClick={() => startCall(selectedOwner, {
+                                        purpose: 'Owner Verification',
+                                        entityId: currentItem.id,
+                                        entityType: 'deal_intake'
+                                    }, handleCallOutcome)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px',
+                                        borderRadius: '6px',
+                                        border: 'none',
+                                        background: verificationStatus === 'confirmed' ? '#10b981' : '#3b82f6',
+                                        color: '#fff',
+                                        cursor: 'pointer',
+                                        fontSize: '0.85rem',
+                                        fontWeight: 600,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '6px'
+                                    }}
+                                    title="Call to verify owner"
+                                >
                                     <i className="fas fa-phone"></i>
-                                    {selectedOwner?.mobile}
-                                </div>
+                                    {verificationStatus === 'confirmed' ? 'Call Again' : 'Call to Verify'}
+                                </button>
                             </div>
 
-                            {/* Actions */}
-                            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                                {detectedContacts.length > 1 && (
+                            {/* Change Owner Dropdown */}
+                            {detectedContacts.length > 1 && (
+                                <div style={{ marginBottom: '12px' }}>
+                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '6px' }}>
+                                        Change Owner:
+                                    </label>
                                     <select
                                         value={selectedOwner?.mobile || ''}
                                         onChange={(e) => {
                                             const contact = detectedContacts.find(c => c.mobile === e.target.value);
                                             setSelectedOwner(contact);
+                                            setVerificationStatus(null); // Reset verification when changing owner
                                         }}
                                         style={{
-                                            flex: 1,
+                                            width: '100%',
                                             padding: '8px 12px',
                                             borderRadius: '6px',
                                             border: '1px solid #cbd5e1',
@@ -137,29 +234,10 @@ const QuickDealForm = ({
                                             </option>
                                         ))}
                                     </select>
-                                )}
-                                <button
-                                    onClick={() => startCall(selectedOwner, {
-                                        purpose: 'Owner Verification',
-                                        entityId: currentItem.id,
-                                        entityType: 'deal_intake'
-                                    })}
-                                    style={{
-                                        padding: '8px 12px',
-                                        borderRadius: '6px',
-                                        border: 'none',
-                                        background: '#3b82f6',
-                                        color: '#fff',
-                                        cursor: 'pointer',
-                                        fontSize: '0.85rem',
-                                        fontWeight: 600
-                                    }}
-                                    title="Call to verify"
-                                >
-                                    <i className="fas fa-phone"></i>
-                                </button>
-                            </div>
+                                </div>
+                            )}
 
+                            {/* Add to CRM Button */}
                             {selectedOwner?.isNew && (
                                 <button
                                     onClick={() => onOpenAddContact(selectedOwner.mobile)}
@@ -379,20 +457,28 @@ const QuickDealForm = ({
 
                     <button
                         onClick={handleCreateDeal}
+                        disabled={verificationStatus && verificationStatus.includes('not-interested')}
                         style={{
                             padding: '12px 32px',
                             borderRadius: '8px',
                             border: 'none',
-                            background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
+                            background: (verificationStatus && verificationStatus.includes('not-interested'))
+                                ? '#cbd5e1'
+                                : 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)',
                             color: '#fff',
-                            cursor: 'pointer',
+                            cursor: (verificationStatus && verificationStatus.includes('not-interested')) ? 'not-allowed' : 'pointer',
                             fontSize: '0.9rem',
                             fontWeight: 700,
-                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                            opacity: (verificationStatus && verificationStatus.includes('not-interested')) ? 0.5 : 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
                         }}
                     >
-                        <i className="fas fa-check" style={{ marginRight: '8px' }}></i>
+                        <i className="fas fa-check"></i>
                         Create Deal
+                        {!verificationStatus && ' (Unverified)'}
                     </button>
                 </div>
             </div>
