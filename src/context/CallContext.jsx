@@ -40,15 +40,60 @@ export const CallProvider = ({ children }) => {
             // Implementation: We will Warn but allow proceed for now.)
         }
 
-        setActiveContact(contact);
-        setCallContext({
-            purpose: context.purpose || 'General Follow-up',
-            entityId: context.entityId,
-            entityType: context.entityType,
-            ...context
-        });
-        setOnCallComplete(() => onComplete);
-        setIsCallModalOpen(true);
+        // Trigger system calling app (Mac FaceTime, Phone app, etc.)
+        const phoneNumber = contact.mobile.replace(/[^0-9+]/g, ''); // Clean number
+        window.location.href = `tel:${phoneNumber}`;
+
+        // Show success toast
+        toast.success(`Calling ${contact.name || phoneNumber}...`);
+
+        // Open modal for call outcome logging after brief delay
+        setTimeout(() => {
+            setActiveContact(contact);
+            setCallContext({
+                purpose: context.purpose || 'General Follow-up',
+                entityId: context.entityId,
+                entityType: context.entityType,
+                ...context
+            });
+            setOnCallComplete(() => onComplete);
+            setIsCallModalOpen(true);
+        }, 1000); // 1 second delay to let system call initiate
+    };
+
+    const startWhatsAppCall = (contact, context = {}, onComplete = null) => {
+        if (!contact || !contact.mobile) {
+            toast.error("Invalid contact number");
+            return;
+        }
+
+        const spamCheck = checkSpam(contact.mobile);
+        if (spamCheck) {
+            const timeAgo = Math.floor((Date.now() - new Date(spamCheck.timestamp).getTime()) / (60 * 1000));
+            toast.error(`Spam Alert: Called ${timeAgo} mins ago (${spamCheck.outcome})`);
+        }
+
+        // Trigger WhatsApp call (works on desktop with WhatsApp Desktop app)
+        const phoneNumber = contact.mobile.replace(/[^0-9+]/g, ''); // Clean number
+        // WhatsApp call URL scheme
+        window.open(`https://wa.me/${phoneNumber}?text=`, '_blank');
+
+        // Show success toast
+        toast.success(`Opening WhatsApp to call ${contact.name || phoneNumber}...`);
+
+        // Open modal for call outcome logging after brief delay
+        setTimeout(() => {
+            setActiveContact(contact);
+            setCallContext({
+                purpose: context.purpose || 'General Follow-up',
+                entityId: context.entityId,
+                entityType: context.entityType,
+                callType: 'WhatsApp',
+                ...context
+            });
+            setOnCallComplete(() => onComplete);
+            setIsCallModalOpen(true);
+        }, 1500); // 1.5 second delay for WhatsApp to open
     };
 
     const endCall = (outcomeDetails) => {
@@ -86,10 +131,12 @@ export const CallProvider = ({ children }) => {
     return (
         <CallContext.Provider value={{
             startCall,
+            startWhatsAppCall,
             endCall,
             isCallModalOpen,
             activeContact,
             callContext, // Exported to be read by the Modal
+            callHistory, // Exported for components to access call history
             closeCall
         }}>
             {children}
