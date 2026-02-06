@@ -488,8 +488,7 @@ const DealIntakePage = () => {
             content: newSourceContent,
             receivedAt: new Date().toISOString(),
             status: 'Raw Received',
-            campaignName: campaignName,
-            campaignDate: campaignDate
+            campaignName: campaignName
         };
 
         // Check for duplicates
@@ -509,13 +508,20 @@ const DealIntakePage = () => {
         setNewSourceContent('');
         setCampaignName('');
         setCampaignSource('WhatsApp');
-        setCampaignDate('');
         setIsAddModalOpen(false);
 
         // Show notification with duplicate info
         if (duplicateInfo.isDuplicate) {
-            toast.warning(`Intake added - ${duplicateInfo.category.toUpperCase()} (seen ${duplicateInfo.frequency}x before)`, {
-                duration: 4000
+            // Calculate how old the duplicate is
+            const daysSinceLastSeen = duplicateInfo.lastSeen
+                ? Math.floor((new Date() - new Date(duplicateInfo.lastSeen)) / (1000 * 60 * 60 * 24))
+                : 0;
+            const ageText = daysSinceLastSeen === 0 ? 'today' :
+                daysSinceLastSeen === 1 ? 'yesterday' :
+                    `${daysSinceLastSeen} days ago`;
+
+            toast.warning(`Duplicate! ${duplicateInfo.category.toUpperCase()} (seen ${duplicateInfo.frequency}x, last ${ageText})`, {
+                duration: 5000
             });
         } else {
             toast.success('New Intake Added');
@@ -637,7 +643,6 @@ const DealIntakePage = () => {
                     const enrichedItem = {
                         ...item,
                         campaignName: campaignName,
-                        campaignDate: campaignDate,
                         source: campaignSource || item.source
                     };
 
@@ -685,7 +690,6 @@ const DealIntakePage = () => {
                 setIsAddModalOpen(false);
                 setCampaignName('');
                 setCampaignSource('WhatsApp');
-                setCampaignDate('');
                 setContentInputMode('paste');
                 setSelectedFile(null);
 
@@ -1821,7 +1825,17 @@ const DealIntakePage = () => {
                 isAddModalOpen && (
                     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
                         <div style={{ background: '#fff', width: '500px', borderRadius: '12px', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
-                            <h3 style={{ marginTop: 0, fontSize: '1.2rem', fontWeight: 800 }}>Add New Intake</h3>
+                            <div style={{ marginBottom: '16px' }}>
+                                <h3 style={{ marginTop: 0, marginBottom: '4px', fontSize: '1.2rem', fontWeight: 800 }}>Add New Intake</h3>
+                                <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500 }}>
+                                    <i className="fas fa-clock" style={{ marginRight: '6px' }}></i>
+                                    {new Date().toLocaleString('en-IN', {
+                                        dateStyle: 'medium',
+                                        timeStyle: 'short',
+                                        timeZone: 'Asia/Kolkata'
+                                    })}
+                                </div>
+                            </div>
 
                             {/* Campaign Details Fields */}
                             <div style={{ marginBottom: '16px' }}>
@@ -1842,15 +1856,7 @@ const DealIntakePage = () => {
                                 </select>
                             </div>
 
-                            <div style={{ marginBottom: '16px' }}>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>Campaign Date</label>
-                                <input
-                                    type="date"
-                                    value={campaignDate}
-                                    onChange={e => setCampaignDate(e.target.value)}
-                                    style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
-                                />
-                            </div>
+
 
                             <div style={{ marginBottom: '20px' }}>
                                 <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>Content Input</label>

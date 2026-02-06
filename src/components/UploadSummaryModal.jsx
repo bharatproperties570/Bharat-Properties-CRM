@@ -129,6 +129,14 @@ const UploadSummaryModal = ({ isOpen, onClose, summaryData }) => {
                                         details.category || details.type ? `${details.category || ''} ${details.type || ''}`.trim() : ''
                                     ].filter(Boolean).join(' | ') || 'Property details not extracted';
 
+                                    // Calculate duplicate age
+                                    const daysSinceLastSeen = item.duplicateInfo?.lastSeen
+                                        ? Math.floor((new Date() - new Date(item.duplicateInfo.lastSeen)) / (1000 * 60 * 60 * 24))
+                                        : 0;
+                                    const ageText = daysSinceLastSeen === 0 ? 'Today' :
+                                        daysSinceLastSeen === 1 ? 'Yesterday' :
+                                            `${daysSinceLastSeen} days ago`;
+
                                     return (
                                         <div key={index} style={{ padding: '8px', background: '#f8fafc', borderRadius: '4px', marginBottom: '6px', fontSize: '0.8rem' }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
@@ -146,14 +154,28 @@ const UploadSummaryModal = ({ isOpen, onClose, summaryData }) => {
                                                     {getCategoryLabel(item.category)}
                                                 </span>
                                             </div>
-                                            <div style={{ color: '#64748b', fontSize: '0.75rem' }}>
+                                            <div style={{ color: '#64748b', fontSize: '0.75rem', marginBottom: '4px' }}>
                                                 {item.content.substring(0, 100)}...
                                             </div>
-                                            {item.duplicateInfo.lastSeen && (
-                                                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '4px' }}>
-                                                    Last seen: {new Date(item.duplicateInfo.lastSeen).toLocaleDateString()}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                {item.duplicateInfo.lastSeen && (
+                                                    <div style={{ color: '#94a3b8', fontSize: '0.7rem' }}>
+                                                        <i className="fas fa-history" style={{ marginRight: '4px' }}></i>
+                                                        Last seen: {new Date(item.duplicateInfo.lastSeen).toLocaleDateString()}
+                                                    </div>
+                                                )}
+                                                <div style={{
+                                                    fontSize: '0.7rem',
+                                                    fontWeight: 700,
+                                                    color: daysSinceLastSeen <= 1 ? '#ef4444' : daysSinceLastSeen <= 7 ? '#f59e0b' : '#64748b',
+                                                    background: daysSinceLastSeen <= 1 ? '#fee2e2' : daysSinceLastSeen <= 7 ? '#fef3c7' : '#f1f5f9',
+                                                    padding: '2px 6px',
+                                                    borderRadius: '4px'
+                                                }}>
+                                                    <i className="fas fa-clock" style={{ marginRight: '4px' }}></i>
+                                                    {ageText}
                                                 </div>
-                                            )}
+                                            </div>
                                         </div>
                                     );
                                 })}
