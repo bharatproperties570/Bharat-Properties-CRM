@@ -120,33 +120,43 @@ const UploadSummaryModal = ({ isOpen, onClose, summaryData }) => {
 
                         {showDuplicates && (
                             <div style={{ marginTop: '12px', maxHeight: '200px', overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '8px' }}>
-                                {duplicatesList.map((item, index) => (
-                                    <div key={index} style={{ padding: '8px', background: '#f8fafc', borderRadius: '4px', marginBottom: '6px', fontSize: '0.8rem' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                                            <span style={{ fontWeight: 600, color: '#1e293b' }}>
-                                                {item.duplicateInfo.phone || 'Unknown'}
-                                            </span>
-                                            <span style={{
-                                                padding: '2px 8px',
-                                                borderRadius: '4px',
-                                                fontSize: '0.7rem',
-                                                fontWeight: 600,
-                                                background: getCategoryColor(item.category),
-                                                color: '#fff'
-                                            }}>
-                                                {getCategoryLabel(item.category)}
-                                            </span>
-                                        </div>
-                                        <div style={{ color: '#64748b', fontSize: '0.75rem' }}>
-                                            {item.content.substring(0, 100)}...
-                                        </div>
-                                        {item.duplicateInfo.lastSeen && (
-                                            <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '4px' }}>
-                                                Last seen: {new Date(item.duplicateInfo.lastSeen).toLocaleDateString()}
+                                {duplicatesList.map((item, index) => {
+                                    const details = item.duplicateInfo?.matchDetails || {};
+                                    const displayText = [
+                                        details.unitNumber ? `Unit: ${details.unitNumber}` : '',
+                                        details.project ? `Project: ${details.project}` : '',
+                                        details.location ? `Location: ${details.location}` : '',
+                                        details.category || details.type ? `${details.category || ''} ${details.type || ''}`.trim() : ''
+                                    ].filter(Boolean).join(' | ') || 'Property details not extracted';
+
+                                    return (
+                                        <div key={index} style={{ padding: '8px', background: '#f8fafc', borderRadius: '4px', marginBottom: '6px', fontSize: '0.8rem' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                                <span style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.75rem' }}>
+                                                    {displayText}
+                                                </span>
+                                                <span style={{
+                                                    padding: '2px 8px',
+                                                    borderRadius: '4px',
+                                                    fontSize: '0.7rem',
+                                                    fontWeight: 600,
+                                                    background: getCategoryColor(item.category),
+                                                    color: '#fff'
+                                                }}>
+                                                    {getCategoryLabel(item.category)}
+                                                </span>
                                             </div>
-                                        )}
-                                    </div>
-                                ))}
+                                            <div style={{ color: '#64748b', fontSize: '0.75rem' }}>
+                                                {item.content.substring(0, 100)}...
+                                            </div>
+                                            {item.duplicateInfo.lastSeen && (
+                                                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '4px' }}>
+                                                    Last seen: {new Date(item.duplicateInfo.lastSeen).toLocaleDateString()}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
                             </div>
                         )}
                     </div>

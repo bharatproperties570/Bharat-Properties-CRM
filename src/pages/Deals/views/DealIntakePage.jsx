@@ -120,21 +120,91 @@ const DealIntakePage = () => {
         }
     };
 
-    // Check if intake is duplicate and get frequency
+    // Calculate string similarity (Levenshtein distance based)
+    const calculateSimilarity = (str1, str2) => {
+        if (!str1 || !str2) return 0;
+        const s1 = str1.toLowerCase().trim();
+        const s2 = str2.toLowerCase().trim();
+        if (s1 === s2) return 100;
+
+        // Simple similarity: count matching words
+        const words1 = s1.split(/\s+/);
+        const words2 = s2.split(/\s+/);
+        const allWords = new Set([...words1, ...words2]);
+        const matchingWords = words1.filter(w => words2.includes(w)).length;
+
+        return (matchingWords / allWords.size) * 100;
+    };
+
+    // Extract property details from parsed data
+    const extractPropertyDetails = (item) => {
+        // If item has rawParsed data (from dealParser), use that
+        if (item.rawParsed) {
+            return {
+                unitNumber: item.rawParsed.address?.unitNumber || '',
+                project: item.rawParsed.address?.project || '',
+                location: item.rawParsed.location || '',
+                category: item.rawParsed.category || '',
+                type: item.rawParsed.type || '',
+                city: item.rawParsed.address?.city || ''
+            };
+        }
+
+        // Otherwise try to extract from content
+        const content = item.content || '';
+        return {
+            unitNumber: content.match(/(?:unit|plot|house|flat|shop)\s*#?\s*(\d+[\w-]*)/i)?.[1] || '',
+            project: content.match(/(?:project|society|colony|scheme)\s*:?\s*([a-z0-9\s]+)/i)?.[1]?.trim() || '',
+            location: content.match(/(?:location|sector|area)\s*:?\s*([a-z0-9\s]+)/i)?.[1]?.trim() || '',
+            category: content.match(/(?:residential|commercial|industrial|agricultural|institutional)/i)?.[0] || '',
+            type: content.match(/(?:plot|house|flat|apartment|villa|shop|office|warehouse|farmhouse)/i)?.[0] || '',
+            city: content.match(/(?:chandigarh|mohali|panchkula|zirakpur|kharar)/i)?.[0] || ''
+        };
+    };
+
+    // Check if intake is duplicate based on property details (95% match)
     const checkDuplicateAndFrequency = (newIntake, existingDeals = []) => {
-        const phone = extractPhoneNumber(newIntake.content);
-        if (!phone) return { isDuplicate: false, frequency: 0, category: 'new' };
+        const newDetails = extractPropertyDetails(newIntake);
+
+        // If no property details found, mark as new
+        const hasDetails = Object.values(newDetails).some(val => val && val.length > 0);
+        if (!hasDetails) {
+            return { isDuplicate: false, frequency: 0, category: 'new', matchDetails: null };
+        }
+
+        // Function to calculate overall match percentage
+        const calculatePropertyMatch = (details1, details2) => {
+            const fields = ['unitNumber', 'project', 'location', 'category', 'type', 'city'];
+            let totalScore = 0;
+            let fieldCount = 0;
+
+            fields.forEach(field => {
+                if (details1[field] && details2[field]) {
+                    const similarity = calculateSimilarity(details1[field], details2[field]);
+                    totalScore += similarity;
+                    fieldCount++;
+                }
+            });
+
+            return fieldCount > 0 ? totalScore / fieldCount : 0;
+        };
 
         // Check against existing deals (Deal List View)
-        const inDeals = existingDeals.some(deal => {
-            const dealPhone = extractPhoneNumber(deal.content || deal.description || '');
-            return dealPhone === phone;
-        });
+        let inDeals = false;
+        for (const deal of existingDeals) {
+            const dealDetails = extractPropertyDetails(deal);
+            const matchScore = calculatePropertyMatch(newDetails, dealDetails);
+            if (matchScore >= 95) {
+                inDeals = true;
+                break;
+            }
+        }
 
         // Check against intake history
         const historyMatches = intakeHistory.filter(item => {
-            const itemPhone = extractPhoneNumber(item.content);
-            return itemPhone === phone;
+            const itemDetails = extractPropertyDetails(item);
+            const matchScore = calculatePropertyMatch(newDetails, itemDetails);
+            return matchScore >= 95;
         });
 
         const frequency = historyMatches.length;
@@ -151,7 +221,7 @@ const DealIntakePage = () => {
             isDuplicate,
             frequency,
             category,
-            phone,
+            matchDetails: newDetails,
             lastSeen: historyMatches.length > 0 ? historyMatches[0].receivedAt : null
         };
     };
