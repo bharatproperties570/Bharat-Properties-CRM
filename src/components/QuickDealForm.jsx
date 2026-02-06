@@ -10,7 +10,8 @@ const QuickDealForm = ({
     onSkip,
     onBack,
     onOpenAddContact,
-    startCall
+    startCall,
+    startWhatsAppCall
 }) => {
     // Auto-select first contact as owner
     const [selectedOwner, setSelectedOwner] = useState(null);
@@ -177,33 +178,62 @@ const QuickDealForm = ({
                                     )}
                                 </div>
 
-                                {/* Call Button with Callback */}
-                                <button
-                                    onClick={() => startCall(selectedOwner, {
-                                        purpose: 'Owner Verification',
-                                        entityId: currentItem.id,
-                                        entityType: 'deal_intake'
-                                    }, handleCallOutcome)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '8px',
-                                        borderRadius: '6px',
-                                        border: 'none',
-                                        background: verificationStatus === 'confirmed' ? '#10b981' : '#3b82f6',
-                                        color: '#fff',
-                                        cursor: 'pointer',
-                                        fontSize: '0.85rem',
-                                        fontWeight: 600,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        gap: '6px'
-                                    }}
-                                    title="Call to verify owner"
-                                >
-                                    <i className="fas fa-phone"></i>
-                                    {verificationStatus === 'confirmed' ? 'Call Again' : 'Call to Verify'}
-                                </button>
+                                {/* Call Buttons */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                                    {/* Regular Call Button */}
+                                    <button
+                                        onClick={() => startCall(selectedOwner, {
+                                            purpose: 'Owner Verification',
+                                            entityId: currentItem.id,
+                                            entityType: 'deal_intake'
+                                        }, handleCallOutcome)}
+                                        style={{
+                                            padding: '8px',
+                                            borderRadius: '6px',
+                                            border: 'none',
+                                            background: verificationStatus === 'confirmed' ? '#10b981' : '#3b82f6',
+                                            color: '#fff',
+                                            cursor: 'pointer',
+                                            fontSize: '0.85rem',
+                                            fontWeight: 600,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px'
+                                        }}
+                                        title="Call via system app"
+                                    >
+                                        <i className="fas fa-phone"></i>
+                                        Call
+                                    </button>
+
+                                    {/* WhatsApp Call Button */}
+                                    <button
+                                        onClick={() => startWhatsAppCall(selectedOwner, {
+                                            purpose: 'Owner Verification',
+                                            entityId: currentItem.id,
+                                            entityType: 'deal_intake'
+                                        }, handleCallOutcome)}
+                                        style={{
+                                            padding: '8px',
+                                            borderRadius: '6px',
+                                            border: 'none',
+                                            background: verificationStatus === 'confirmed' ? '#10b981' : '#25D366',
+                                            color: '#fff',
+                                            cursor: 'pointer',
+                                            fontSize: '0.85rem',
+                                            fontWeight: 600,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px'
+                                        }}
+                                        title="Call via WhatsApp"
+                                    >
+                                        <i className="fab fa-whatsapp"></i>
+                                        WhatsApp
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Change Owner Dropdown */}

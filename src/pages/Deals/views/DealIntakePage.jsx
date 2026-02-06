@@ -14,6 +14,7 @@ import AddBlockModal from '../../../components/modals/AddBlockModal';
 import AddSizeModal from '../../../components/modals/AddSizeModal';
 import AddContactModal from '../../../components/AddContactModal'; // Imported AddContactModal
 import UploadSummaryModal from '../../../components/UploadSummaryModal';
+import QuickDealForm from '../../../components/QuickDealForm';
 
 const DealIntakePage = () => {
     // Shared State
@@ -22,7 +23,7 @@ const DealIntakePage = () => {
     const [intakeType, setIntakeType] = useState('SELLER'); // 'SELLER' | 'BUYER'
     const [stage, setStage] = useState(0); // 0=Source, 1=Classification, 2=Match, 3=Action, 4=Result
 
-    const { startCall } = useCall(); // Call Engine Hook
+    const { startCall, startWhatsAppCall } = useCall(); // Call Engine Hook
     const { customPatterns } = useParsing(); // Dynamic Regex from Context
 
     // New Intake State
@@ -54,6 +55,7 @@ const DealIntakePage = () => {
     const [showUploadSummary, setShowUploadSummary] = useState(false);
     const [uploadSummaryData, setUploadSummaryData] = useState(null);
     const [categoryFilter, setCategoryFilter] = useState('all'); // 'all' | 'new' | 'repeat1x' | 'repeat2x' | 'repeat3x' | 'repeat3plus'
+    const [useQuickDeal, setUseQuickDeal] = useState(true); // Toggle for simplified workflow
 
     // ... (existing code) ...
 
@@ -903,6 +905,47 @@ const DealIntakePage = () => {
         setMatchedBuyers(matches.slice(0, 3));
     };
 
+    // --- QUICK DEAL HANDLERS ---
+    const handleQuickDealCreate = (dealData) => {
+        // Set owner and property from QuickDealForm
+        setSelectedOwner(dealData.owner);
+        setSelectedInventory(dealData.property);
+
+        // Set deal form data
+        setDealForm({
+            intent: dealData.type,
+            price: dealData.price,
+            status: 'Open',
+            verificationStatus: dealData.verificationStatus
+        });
+
+        // Show success message
+        const verificationBadge = dealData.verificationStatus === 'confirmed' ? '✓ Verified' :
+            dealData.verificationStatus === 'unverified' ? '⚠️ Unverified' : '';
+        toast.success(`Deal Created: ${dealData.type} - ₹${dealData.price} ${verificationBadge}`);
+
+        // Move to buyer matching stage
+        setStage(4);
+        matchBuyers();
+
+        // Close workflow after brief delay
+        setTimeout(() => {
+            setCurrentItem(null);
+            setStage(0);
+        }, 2000);
+    };
+
+    const handleQuickDealSkip = () => {
+        toast.info('Deal creation skipped');
+        setCurrentItem(null);
+        setStage(0);
+    };
+
+    const handleQuickDealBack = () => {
+        setCurrentItem(null);
+        setStage(0);
+    };
+
     // --- BUYER FLOW HANDLERS ---
     const handleCreateLead = () => {
         // Mock Lead Creation
@@ -1357,290 +1400,309 @@ const DealIntakePage = () => {
                             {/* ================= SELLER FLOW ================= */}
                             {intakeType === 'SELLER' && (
                                 <>
-                                    {stage === 1 && (
-                                        <div className="animate-fade-in">
-                                            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b', marginBottom: '16px' }}>1. Confirm Property Owner</h3>
-                                            {detectedContacts.length === 0 ? (
-                                                <div style={{ padding: '20px', background: '#fff1f2', color: '#be123c', borderRadius: '8px', border: '1px solid #fb7185', textAlign: 'center' }}>
-                                                    No phone numbers detected. <button onClick={() => handleOpenAddContact()} style={{ border: 'none', background: 'none', textDecoration: 'underline', fontWeight: 700, cursor: 'pointer', color: '#be123c' }}>Add Manually</button>
-                                                </div>
-                                            ) : (
-                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
-                                                    {detectedContacts.map((contact, idx) => (
-                                                        <div key={idx} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '16px', position: 'relative' }}>
-
-                                                            {/* Call Context Action */}
-                                                            <button
-                                                                onClick={() => startCall(contact, {
-                                                                    purpose: 'Owner Verification',
-                                                                    entityId: currentItem.id,
-                                                                    entityType: 'deal_intake'
-                                                                }, (log) => {
-                                                                    if (log.outcome === 'Confirmed') setOwnerCallOutcome('Confirmed');
-                                                                })}
-                                                                style={{
-                                                                    position: 'absolute', top: '10px', right: '10px',
-                                                                    width: '32px', height: '32px', borderRadius: '50%',
-                                                                    background: '#eff6ff', color: '#3b82f6', border: 'none',
-                                                                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                                                }}
-                                                                title="Verify via Call"
-                                                            >
-                                                                <i className="fas fa-phone-alt"></i>
-                                                            </button>
-
-                                                            <div style={{ fontWeight: 700 }}>{contact.name}</div>
-                                                            <div style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                {contact.mobile}
-                                                                {contact.isNew && (
-                                                                    <button
-                                                                        onClick={() => handleOpenAddContact(contact.mobile)}
-                                                                        style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0', borderRadius: '4px', cursor: 'pointer' }}
-                                                                    >
-                                                                        + Add to CRM
-                                                                    </button>
-                                                                )}
-                                                            </div>
-
-                                                            {/* Role Selection */}
-                                                            <div style={{ marginBottom: '12px', padding: '10px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-
-                                                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '6px' }}>Align Contact As:</label>
-                                                                <div style={{ display: 'flex', gap: '10px' }}>
-                                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
-                                                                        <input type="radio" name={`role-${idx}`} checked={contact.selectedRole !== 'Associate'} onChange={() => {
-                                                                            const newContacts = [...detectedContacts];
-                                                                            newContacts[idx].selectedRole = 'Owner';
-                                                                            setDetectedContacts(newContacts);
-                                                                        }} />
-                                                                        Owner
-                                                                    </label>
-                                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
-                                                                        <input type="radio" name={`role-${idx}`} checked={contact.selectedRole === 'Associate'} onChange={() => {
-                                                                            const newContacts = [...detectedContacts];
-                                                                            newContacts[idx].selectedRole = 'Associate';
-                                                                            setDetectedContacts(newContacts);
-                                                                        }} />
-                                                                        Associate / Broker
-                                                                    </label>
-                                                                </div>
-
-                                                                {/* Relation Input if Associate */}
-                                                                {contact.selectedRole === 'Associate' && (
-                                                                    <div style={{ marginTop: '8px', animation: 'fadeIn 0.2s' }}>
-                                                                        <select
-                                                                            value={contact.relation || ''}
-                                                                            onChange={(e) => {
-                                                                                const newContacts = [...detectedContacts];
-                                                                                newContacts[idx].relation = e.target.value;
-                                                                                setDetectedContacts(newContacts);
-                                                                            }}
-                                                                            style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
-                                                                        >
-                                                                            <option value="">Select Relation...</option>
-                                                                            <option value="Broker">Broker / Agent</option>
-                                                                            <option value="Caretaker">Caretaker</option>
-                                                                            <option value="Family Member">Family Member</option>
-                                                                            <option value="POA Holder">POA Holder</option>
-                                                                            <option value="Invested Partner">Invested Partner</option>
-                                                                        </select>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-
-                                                            <button
-                                                                onClick={() => handleConfirmOwner(contact)}
-                                                                className="btn-primary"
-                                                                style={{ width: '100%', borderRadius: '6px', fontSize: '0.85rem', padding: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px' }}
-                                                            >
-                                                                <span>Confirm as {contact.selectedRole === 'Associate' ? 'Associate' : 'Owner'}</span>
-                                                                <i className="fas fa-arrow-right"></i>
-                                                            </button>
+                                    {useQuickDeal ? (
+                                        /* Simplified Single-Screen Quick Deal */
+                                        <QuickDealForm
+                                            currentItem={currentItem}
+                                            detectedContacts={detectedContacts}
+                                            matchedInventory={matchedInventory}
+                                            intakeType={intakeType}
+                                            onCreateDeal={handleQuickDealCreate}
+                                            onSkip={handleQuickDealSkip}
+                                            onBack={handleQuickDealBack}
+                                            onOpenAddContact={handleOpenAddContact}
+                                            startCall={startCall}
+                                            startWhatsAppCall={startWhatsAppCall}
+                                        />
+                                    ) : (
+                                        /* Traditional Multi-Stage Workflow */
+                                        <>
+                                            {stage === 1 && (
+                                                <div className="animate-fade-in">
+                                                    <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b', marginBottom: '16px' }}>1. Confirm Property Owner</h3>
+                                                    {detectedContacts.length === 0 ? (
+                                                        <div style={{ padding: '20px', background: '#fff1f2', color: '#be123c', borderRadius: '8px', border: '1px solid #fb7185', textAlign: 'center' }}>
+                                                            No phone numbers detected. <button onClick={() => handleOpenAddContact()} style={{ border: 'none', background: 'none', textDecoration: 'underline', fontWeight: 700, cursor: 'pointer', color: '#be123c' }}>Add Manually</button>
                                                         </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
+                                                    ) : (
+                                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+                                                            {detectedContacts.map((contact, idx) => (
+                                                                <div key={idx} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '16px', position: 'relative' }}>
 
-                                    {(stage === 2 || stage === 3 || stage === 4) && (
-                                        // Reuse existing Inventory Match UI...
-                                        // Simplified for brevity in this rewrite, assuming logic carried over or I can paste it fully.
-                                        // I will assume I need to fully render it.
-                                        <div className="animate-fade-in">
-                                            {/* ... Inventory Match UI ... */}
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                                                <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>2. Match Inventory</h3>
-                                                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                                    <span style={{ fontSize: '0.85rem' }}>Owner: <strong>{selectedOwner?.name}</strong></span>
-                                                    {!isManualLinkOpen && <button onClick={() => setIsManualLinkOpen(true)} style={{ fontSize: '0.75rem', padding: '4px 8px', border: '1px solid #3b82f6', color: '#3b82f6', background: '#fff', borderRadius: '4px', cursor: 'pointer' }}>+ Link Manually</button>}
-                                                </div>
-                                            </div>
+                                                                    {/* Call Context Action */}
+                                                                    <button
+                                                                        onClick={() => startCall(contact, {
+                                                                            purpose: 'Owner Verification',
+                                                                            entityId: currentItem.id,
+                                                                            entityType: 'deal_intake'
+                                                                        }, (log) => {
+                                                                            if (log.outcome === 'Confirmed') setOwnerCallOutcome('Confirmed');
+                                                                        })}
+                                                                        style={{
+                                                                            position: 'absolute', top: '10px', right: '10px',
+                                                                            width: '32px', height: '32px', borderRadius: '50%',
+                                                                            background: '#eff6ff', color: '#3b82f6', border: 'none',
+                                                                            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                                                        }}
+                                                                        title="Verify via Call"
+                                                                    >
+                                                                        <i className="fas fa-phone-alt"></i>
+                                                                    </button>
 
-                                            {/* Manual Link Interface */}
-                                            {isManualLinkOpen && (
-                                                <div className="animate-fade-in" style={{ marginBottom: '16px', padding: '12px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
-                                                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                                                        <input
-                                                            type="text"
-                                                            placeholder="Search Unit # or Location..."
-                                                            value={manualSearchQuery}
-                                                            onChange={(e) => {
-                                                                setManualSearchQuery(e.target.value);
-                                                                // Simple Live Search
-                                                                if (e.target.value.length > 1) {
-                                                                    const q = e.target.value.toLowerCase();
-                                                                    const hits = inventoryData.filter(inv =>
-                                                                        inv.unitNo.toLowerCase().includes(q) ||
-                                                                        inv.location.toLowerCase().includes(q)
-                                                                    ).slice(0, 3);
-                                                                    setManualSearchResults(hits);
-                                                                } else {
-                                                                    setManualSearchResults([]);
-                                                                }
-                                                            }}
-                                                            style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
-                                                        />
-                                                        <button onClick={() => setIsManualLinkOpen(false)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}><i className="fas fa-times"></i></button>
-                                                    </div>
+                                                                    <div style={{ fontWeight: 700 }}>{contact.name}</div>
+                                                                    <div style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                        {contact.mobile}
+                                                                        {contact.isNew && (
+                                                                            <button
+                                                                                onClick={() => handleOpenAddContact(contact.mobile)}
+                                                                                style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0', borderRadius: '4px', cursor: 'pointer' }}
+                                                                            >
+                                                                                + Add to CRM
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
 
-                                                    {manualSearchResults.length > 0 ? (
-                                                        <div>
-                                                            {manualSearchResults.map(res => (
-                                                                <div key={res.id} onClick={() => { setSelectedInventory(res); setStage(3); setIsManualLinkOpen(false); }}
-                                                                    style={{ padding: '8px', background: '#fff', borderBottom: '1px solid #e2e8f0', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                                    <span style={{ fontWeight: 700 }}>Unit {res.unitNo}</span>
-                                                                    <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{res.location}</span>
+                                                                    {/* Role Selection */}
+                                                                    <div style={{ marginBottom: '12px', padding: '10px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+
+                                                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '6px' }}>Align Contact As:</label>
+                                                                        <div style={{ display: 'flex', gap: '10px' }}>
+                                                                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                                                                                <input type="radio" name={`role-${idx}`} checked={contact.selectedRole !== 'Associate'} onChange={() => {
+                                                                                    const newContacts = [...detectedContacts];
+                                                                                    newContacts[idx].selectedRole = 'Owner';
+                                                                                    setDetectedContacts(newContacts);
+                                                                                }} />
+                                                                                Owner
+                                                                            </label>
+                                                                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                                                                                <input type="radio" name={`role-${idx}`} checked={contact.selectedRole === 'Associate'} onChange={() => {
+                                                                                    const newContacts = [...detectedContacts];
+                                                                                    newContacts[idx].selectedRole = 'Associate';
+                                                                                    setDetectedContacts(newContacts);
+                                                                                }} />
+                                                                                Associate / Broker
+                                                                            </label>
+                                                                        </div>
+
+                                                                        {/* Relation Input if Associate */}
+                                                                        {contact.selectedRole === 'Associate' && (
+                                                                            <div style={{ marginTop: '8px', animation: 'fadeIn 0.2s' }}>
+                                                                                <select
+                                                                                    value={contact.relation || ''}
+                                                                                    onChange={(e) => {
+                                                                                        const newContacts = [...detectedContacts];
+                                                                                        newContacts[idx].relation = e.target.value;
+                                                                                        setDetectedContacts(newContacts);
+                                                                                    }}
+                                                                                    style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                                                                                >
+                                                                                    <option value="">Select Relation...</option>
+                                                                                    <option value="Broker">Broker / Agent</option>
+                                                                                    <option value="Caretaker">Caretaker</option>
+                                                                                    <option value="Family Member">Family Member</option>
+                                                                                    <option value="POA Holder">POA Holder</option>
+                                                                                    <option value="Invested Partner">Invested Partner</option>
+                                                                                </select>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+
+                                                                    <button
+                                                                        onClick={() => handleConfirmOwner(contact)}
+                                                                        className="btn-primary"
+                                                                        style={{ width: '100%', borderRadius: '6px', fontSize: '0.85rem', padding: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px' }}
+                                                                    >
+                                                                        <span>Confirm as {contact.selectedRole === 'Associate' ? 'Associate' : 'Owner'}</span>
+                                                                        <i className="fas fa-arrow-right"></i>
+                                                                    </button>
                                                                 </div>
                                                             ))}
                                                         </div>
-                                                    ) : (
-                                                        <div style={{ marginTop: '12px', borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
-                                                            {manualSearchQuery.length > 1 && <div style={{ fontSize: '0.8rem', color: '#dc2626', marginBottom: '8px', fontWeight: 600 }}>No match found. Create New?</div>}
-
-                                                            <div style={{ marginTop: '12px' }}>
-                                                                <QuickInventoryForm
-                                                                    formData={quickAddForm}
-                                                                    setFormData={setQuickAddForm}
-                                                                    onTriggerModal={handleTriggerModal}
-                                                                />
-
-                                                                <button onClick={handleQuickAddInventory} style={{ width: '100%', background: '#3b82f6', color: '#fff', padding: '10px', borderRadius: '8px', border: 'none', fontWeight: 600, cursor: 'pointer', marginTop: '12px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                                                    <i className="fas fa-magic"></i> Create & Ensure Match
-                                                                </button>
-                                                            </div>
-                                                        </div>
                                                     )}
                                                 </div>
                                             )}
 
-                                            <div style={{ display: 'flex', gap: '20px' }}>
-                                                <div style={{ flex: 1 }}>
-                                                    {matchedInventory.map((match, idx) => (
-                                                        <div key={idx} onClick={() => { setSelectedInventory(match.inventory); setStage(3); }}
-                                                            style={{
-                                                                background: selectedInventory?.id === match.inventory.id ? '#eff6ff' : '#fff',
-                                                                border: selectedInventory?.id === match.inventory.id ? '2px solid #3b82f6' : '1px solid #e2e8f0',
-                                                                borderRadius: '8px', padding: '12px', marginBottom: '8px', cursor: 'pointer'
-                                                            }}
-                                                        >
-                                                            <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>Unit {match.inventory.unitNo}</div>
-                                                            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{match.inventory.location} - Score: {match.score}</div>
-                                                        </div>
-                                                    ))}
-                                                    {matchedInventory.length === 0 && !isManualLinkOpen && (
-                                                        <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', background: '#f8fafc', borderRadius: '8px', border: '2px dashed #e2e8f0' }}>
-                                                            No matches found. <button onClick={() => setIsManualLinkOpen(true)} style={{ color: '#3b82f6', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Link Manually</button>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                {selectedInventory && stage >= 3 && (
-                                                    <div className="animate-fade-in" style={{ width: '400px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                                        <h4 style={{ margin: 0, fontSize: '1rem' }}>Create Deal</h4>
-
-                                                        {/* Auto-Linked Info */}
-                                                        <div style={{ padding: '10px', background: '#f0fdf4', borderRadius: '6px', display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                                            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#16a34a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{selectedInventory.unitNo}</div>
-                                                            <div>
-                                                                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#14532d' }}>{selectedInventory.location}</div>
-                                                                <div style={{ fontSize: '0.75rem', color: '#15803d' }}>Linked to: {selectedOwner?.name}</div>
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Form Fields matching AddDealModal */}
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Intent</label>
-                                                            <div style={{ display: 'flex', gap: '8px' }}>
-                                                                {['Sell', 'Rent', 'Lease'].map(type => (
-                                                                    <button key={type} onClick={() => setDealForm({ ...dealForm, intent: type })}
-                                                                        style={{ flex: 1, padding: '6px', borderRadius: '4px', fontSize: '0.8rem', border: `1px solid ${dealForm.intent === type ? '#2563eb' : '#cbd5e1'}`, background: dealForm.intent === type ? '#eff6ff' : '#fff', color: dealForm.intent === type ? '#2563eb' : '#64748b', cursor: 'pointer' }}>
-                                                                        {type}
-                                                                    </button>
-                                                                ))}
-                                                            </div>
-                                                        </div>
-
-                                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                                                            <div>
-                                                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Expected Price</label>
-                                                                <input type="text" placeholder="e.g. 1.5 Cr" value={dealForm.price} onChange={e => setDealForm({ ...dealForm, price: e.target.value })}
-                                                                    style={{ width: '100%', padding: '8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '0.9rem' }} />
-                                                            </div>
-                                                            <div>
-                                                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Status</label>
-                                                                <select value={dealForm.status} onChange={e => setDealForm({ ...dealForm, status: e.target.value })} style={{ width: '100%', padding: '8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '0.9rem' }}>
-                                                                    <option value="Open">Open</option>
-                                                                    <option value="Quote">Quote</option>
-                                                                    <option value="Negotiation">Negotiation</option>
-                                                                </select>
-                                                            </div>
-                                                        </div>
-
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Remarks / Notes</label>
-                                                            <textarea placeholder="Any additional details..." value={dealForm.remarks} onChange={e => setDealForm({ ...dealForm, remarks: e.target.value })}
-                                                                style={{ width: '100%', padding: '8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '0.85rem', minHeight: '60px', resize: 'vertical' }} />
-                                                        </div>
-
-                                                        <div style={{ paddingTop: '10px', borderTop: '1px solid #e2e8f0' }}>
-                                                            {ownerCallOutcome !== 'Confirmed' ? (
-                                                                <div style={{ marginBottom: '10px', padding: '10px', background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '6px', color: '#be123c', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                    <i className="fas fa-exclamation-triangle"></i>
-                                                                    <span><b>Action Required:</b> Verify Owner via Call first.</span>
-                                                                </div>
-                                                            ) : (
-                                                                <div style={{ marginBottom: '10px', padding: '8px', background: '#f0fdf4', borderRadius: '6px', color: '#166534', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                                    <i className="fas fa-check-circle"></i> Owner Verified
-                                                                </div>
-                                                            )}
-
-                                                            <button
-                                                                onClick={handleCreateDeal}
-                                                                disabled={ownerCallOutcome !== 'Confirmed'}
-                                                                style={{
-                                                                    width: '100%',
-                                                                    background: ownerCallOutcome === 'Confirmed' ? '#2563eb' : '#94a3b8',
-                                                                    color: '#fff', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 600,
-                                                                    cursor: ownerCallOutcome === 'Confirmed' ? 'pointer' : 'not-allowed',
-                                                                    boxShadow: ownerCallOutcome === 'Confirmed' ? '0 2px 4px rgba(37, 99, 235, 0.2)' : 'none',
-                                                                    opacity: ownerCallOutcome === 'Confirmed' ? 1 : 0.7
-                                                                }}
-                                                            >
-                                                                <i className="fas fa-check-circle" style={{ marginRight: '6px' }}></i> Create Deal
-                                                            </button>
+                                            {(stage === 2 || stage === 3 || stage === 4) && (
+                                                // Reuse existing Inventory Match UI...
+                                                // Simplified for brevity in this rewrite, assuming logic carried over or I can paste it fully.
+                                                // I will assume I need to fully render it.
+                                                <div className="animate-fade-in">
+                                                    {/* ... Inventory Match UI ... */}
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                                        <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>2. Match Inventory</h3>
+                                                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                                            <span style={{ fontSize: '0.85rem' }}>Owner: <strong>{selectedOwner?.name}</strong></span>
+                                                            {!isManualLinkOpen && <button onClick={() => setIsManualLinkOpen(true)} style={{ fontSize: '0.75rem', padding: '4px 8px', border: '1px solid #3b82f6', color: '#3b82f6', background: '#fff', borderRadius: '4px', cursor: 'pointer' }}>+ Link Manually</button>}
                                                         </div>
                                                     </div>
-                                                )}
-                                            </div>
 
-                                            {stage === 4 && (
-                                                <div style={{ marginTop: '20px', padding: '20px', background: '#dcfce7', borderRadius: '8px', textAlign: 'center' }}>
-                                                    <h3>Deal Created!</h3>
-                                                    <p>Found {matchedBuyers.length} Potential Buyers</p>
-                                                    {matchedBuyers.map((b, i) => <div key={i}>{b.name}</div>)}
+                                                    {/* Manual Link Interface */}
+                                                    {isManualLinkOpen && (
+                                                        <div className="animate-fade-in" style={{ marginBottom: '16px', padding: '12px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                                                            <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                                                                <input
+                                                                    type="text"
+                                                                    placeholder="Search Unit # or Location..."
+                                                                    value={manualSearchQuery}
+                                                                    onChange={(e) => {
+                                                                        setManualSearchQuery(e.target.value);
+                                                                        // Simple Live Search
+                                                                        if (e.target.value.length > 1) {
+                                                                            const q = e.target.value.toLowerCase();
+                                                                            const hits = inventoryData.filter(inv =>
+                                                                                inv.unitNo.toLowerCase().includes(q) ||
+                                                                                inv.location.toLowerCase().includes(q)
+                                                                            ).slice(0, 3);
+                                                                            setManualSearchResults(hits);
+                                                                        } else {
+                                                                            setManualSearchResults([]);
+                                                                        }
+                                                                    }}
+                                                                    style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                                                                />
+                                                                <button onClick={() => setIsManualLinkOpen(false)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}><i className="fas fa-times"></i></button>
+                                                            </div>
+
+                                                            {manualSearchResults.length > 0 ? (
+                                                                <div>
+                                                                    {manualSearchResults.map(res => (
+                                                                        <div key={res.id} onClick={() => { setSelectedInventory(res); setStage(3); setIsManualLinkOpen(false); }}
+                                                                            style={{ padding: '8px', background: '#fff', borderBottom: '1px solid #e2e8f0', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                                            <span style={{ fontWeight: 700 }}>Unit {res.unitNo}</span>
+                                                                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{res.location}</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            ) : (
+                                                                <div style={{ marginTop: '12px', borderTop: '1px solid #e2e8f0', paddingTop: '12px' }}>
+                                                                    {manualSearchQuery.length > 1 && <div style={{ fontSize: '0.8rem', color: '#dc2626', marginBottom: '8px', fontWeight: 600 }}>No match found. Create New?</div>}
+
+                                                                    <div style={{ marginTop: '12px' }}>
+                                                                        <QuickInventoryForm
+                                                                            formData={quickAddForm}
+                                                                            setFormData={setQuickAddForm}
+                                                                            onTriggerModal={handleTriggerModal}
+                                                                        />
+
+                                                                        <button onClick={handleQuickAddInventory} style={{ width: '100%', background: '#3b82f6', color: '#fff', padding: '10px', borderRadius: '8px', border: 'none', fontWeight: 600, cursor: 'pointer', marginTop: '12px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                                                            <i className="fas fa-magic"></i> Create & Ensure Match
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+
+                                                    <div style={{ display: 'flex', gap: '20px' }}>
+                                                        <div style={{ flex: 1 }}>
+                                                            {matchedInventory.map((match, idx) => (
+                                                                <div key={idx} onClick={() => { setSelectedInventory(match.inventory); setStage(3); }}
+                                                                    style={{
+                                                                        background: selectedInventory?.id === match.inventory.id ? '#eff6ff' : '#fff',
+                                                                        border: selectedInventory?.id === match.inventory.id ? '2px solid #3b82f6' : '1px solid #e2e8f0',
+                                                                        borderRadius: '8px', padding: '12px', marginBottom: '8px', cursor: 'pointer'
+                                                                    }}
+                                                                >
+                                                                    <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>Unit {match.inventory.unitNo}</div>
+                                                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{match.inventory.location} - Score: {match.score}</div>
+                                                                </div>
+                                                            ))}
+                                                            {matchedInventory.length === 0 && !isManualLinkOpen && (
+                                                                <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', background: '#f8fafc', borderRadius: '8px', border: '2px dashed #e2e8f0' }}>
+                                                                    No matches found. <button onClick={() => setIsManualLinkOpen(true)} style={{ color: '#3b82f6', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Link Manually</button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        {selectedInventory && stage >= 3 && (
+                                                            <div className="animate-fade-in" style={{ width: '400px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                                                <h4 style={{ margin: 0, fontSize: '1rem' }}>Create Deal</h4>
+
+                                                                {/* Auto-Linked Info */}
+                                                                <div style={{ padding: '10px', background: '#f0fdf4', borderRadius: '6px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                                                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#16a34a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{selectedInventory.unitNo}</div>
+                                                                    <div>
+                                                                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#14532d' }}>{selectedInventory.location}</div>
+                                                                        <div style={{ fontSize: '0.75rem', color: '#15803d' }}>Linked to: {selectedOwner?.name}</div>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Form Fields matching AddDealModal */}
+                                                                <div>
+                                                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Intent</label>
+                                                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                                                        {['Sell', 'Rent', 'Lease'].map(type => (
+                                                                            <button key={type} onClick={() => setDealForm({ ...dealForm, intent: type })}
+                                                                                style={{ flex: 1, padding: '6px', borderRadius: '4px', fontSize: '0.8rem', border: `1px solid ${dealForm.intent === type ? '#2563eb' : '#cbd5e1'}`, background: dealForm.intent === type ? '#eff6ff' : '#fff', color: dealForm.intent === type ? '#2563eb' : '#64748b', cursor: 'pointer' }}>
+                                                                                {type}
+                                                                            </button>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+
+                                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                                                    <div>
+                                                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Expected Price</label>
+                                                                        <input type="text" placeholder="e.g. 1.5 Cr" value={dealForm.price} onChange={e => setDealForm({ ...dealForm, price: e.target.value })}
+                                                                            style={{ width: '100%', padding: '8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '0.9rem' }} />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Status</label>
+                                                                        <select value={dealForm.status} onChange={e => setDealForm({ ...dealForm, status: e.target.value })} style={{ width: '100%', padding: '8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '0.9rem' }}>
+                                                                            <option value="Open">Open</option>
+                                                                            <option value="Quote">Quote</option>
+                                                                            <option value="Negotiation">Negotiation</option>
+                                                                        </select>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div>
+                                                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Remarks / Notes</label>
+                                                                    <textarea placeholder="Any additional details..." value={dealForm.remarks} onChange={e => setDealForm({ ...dealForm, remarks: e.target.value })}
+                                                                        style={{ width: '100%', padding: '8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '0.85rem', minHeight: '60px', resize: 'vertical' }} />
+                                                                </div>
+
+                                                                <div style={{ paddingTop: '10px', borderTop: '1px solid #e2e8f0' }}>
+                                                                    {ownerCallOutcome !== 'Confirmed' ? (
+                                                                        <div style={{ marginBottom: '10px', padding: '10px', background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '6px', color: '#be123c', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                            <i className="fas fa-exclamation-triangle"></i>
+                                                                            <span><b>Action Required:</b> Verify Owner via Call first.</span>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div style={{ marginBottom: '10px', padding: '8px', background: '#f0fdf4', borderRadius: '6px', color: '#166534', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                                            <i className="fas fa-check-circle"></i> Owner Verified
+                                                                        </div>
+                                                                    )}
+
+                                                                    <button
+                                                                        onClick={handleCreateDeal}
+                                                                        disabled={ownerCallOutcome !== 'Confirmed'}
+                                                                        style={{
+                                                                            width: '100%',
+                                                                            background: ownerCallOutcome === 'Confirmed' ? '#2563eb' : '#94a3b8',
+                                                                            color: '#fff', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 600,
+                                                                            cursor: ownerCallOutcome === 'Confirmed' ? 'pointer' : 'not-allowed',
+                                                                            boxShadow: ownerCallOutcome === 'Confirmed' ? '0 2px 4px rgba(37, 99, 235, 0.2)' : 'none',
+                                                                            opacity: ownerCallOutcome === 'Confirmed' ? 1 : 0.7
+                                                                        }}
+                                                                    >
+                                                                        <i className="fas fa-check-circle" style={{ marginRight: '6px' }}></i> Create Deal
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {stage === 4 && (
+                                                        <div style={{ marginTop: '20px', padding: '20px', background: '#dcfce7', borderRadius: '8px', textAlign: 'center' }}>
+                                                            <h3>Deal Created!</h3>
+                                                            <p>Found {matchedBuyers.length} Potential Buyers</p>
+                                                            {matchedBuyers.map((b, i) => <div key={i}>{b.name}</div>)}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
-                                        </div>
+                                        </>
                                     )}
                                 </>
                             )}
