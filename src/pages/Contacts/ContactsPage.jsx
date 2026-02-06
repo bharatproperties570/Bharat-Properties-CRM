@@ -94,6 +94,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   useEffect(() => {
     fetchContacts();
   }, [fetchContacts]);
+console.log(contacts);
 
   // ==============delete contact======================
 
@@ -869,9 +870,9 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             >
                               {item?.personalAddress ? (
                                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                  <div>{`${item.personalAddress.hNo || ""}, ${item.personalAddress.street || ""}, ${item.personalAddress.location || ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}</div>
+                                  <div>{`${item.personalAddress.hNo || ""}, ${item.personalAddress.street || ""}, ${item.personalAddress.location.lookup_value || ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}</div>
                                   <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                    {`${item.personalAddress.area || ""}, ${item.personalAddress.city || ""}, ${item.personalAddress.state || ""} ${item.personalAddress.pinCode || ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}
+                                    {`${item.personalAddress.area || ""}, ${item.personalAddress.city.lookup_value || ""}, ${item.personalAddress.state.lookup_value || ""} ${item.personalAddress.pinCode || ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}
                                   </div>
                                 </div>
                               ) : item?.address || "Address not listed"}
@@ -896,8 +897,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                               }}
                             >
                               {(
-                                item?.professionCategory ||
-                                item?.professional ||
+                                item?.professionCategory.lookup_value ||
+                                item?.professional.lookup_value ||
                                 "N/A"
                               ).toUpperCase()}
                             </span>
@@ -908,7 +909,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 fontWeight: 700,
                               }}
                             >
-                              {item?.designation || "-"}
+                              {item?.designation.lookup_value || "-"}
                             </div>
                             <div
                               style={{
@@ -958,7 +959,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                   fontSize: "0.6rem",
                                 }}
                               ></i>
-                              {item?.source || "N/A"}
+                              {item?.source.lookup_value || "N/A"}
                             </span>
                             {item?.tags && item?.tags?.length > 0 && (
                               <div
@@ -1352,8 +1353,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                           }}
                         >
                           {(
-                            item?.professionCategory ||
-                            item?.professional ||
+                            item?.professionCategory.lookup_value ||
+                            item?.professional.lookup_value ||
                             "N/A"
                           ).toUpperCase()}
                         </span>
@@ -1365,7 +1366,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             marginBottom: "3px",
                           }}
                         >
-                          {item?.designation || "-"}
+                          {item?.designation.lookup_value || "-"}
                         </div>
                         <div
                           style={{
@@ -1441,7 +1442,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             }}
                           >
                             {item?.personalAddress?.city
-                              ? `${item.personalAddress.city}, ${item.personalAddress.state}`
+                              ? `${item.personalAddress.city.lookup_value}, ${item.personalAddress.state.lookup_value}`
                               : item?.address || "Address not listed"}
                           </div>
                         </div>
@@ -1484,7 +1485,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             className="fas fa-tag"
                             style={{ fontSize: "0.6rem" }}
                           ></i>
-                          {item?.source || "N/A"}
+                          {item?.source.lookup_value || "N/A"}
                         </span>
                       </div>
 

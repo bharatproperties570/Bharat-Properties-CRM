@@ -7,6 +7,7 @@ import AddressDetailsForm from "./common/AddressDetailsForm";
 import { PROJECTS_LIST, PROJECT_DATA, CITIES } from "../data/projectData";
 import { companyData } from "../data/companyData";
 import api from "../../api";
+import { fetchLookup } from "../utils/fetchLookup";
 
 // Simple Custom Multi-Select Component
 const CustomMultiSelect = ({
@@ -547,32 +548,8 @@ const AnimatedChipGroup = ({ options, value, onChange }) => {
   );
 };
 
-const BUDGET_VALUES = [
-  { value: 500000, label: "5 Lakh" },
-  { value: 2500000, label: "25 Lakh" },
-  { value: 5000000, label: "50 Lakh" },
-  { value: 7500000, label: "75 Lakh" },
-  { value: 10000000, label: "1 Crore" },
-  { value: 15000000, label: "1.5 Crore" },
-  { value: 20000000, label: "2 Crore" },
-  { value: 25000000, label: "2.5 Crore" },
-  { value: 30000000, label: "3 Crore" },
-  { value: 35000000, label: "3.5 Crore" },
-  { value: 40000000, label: "4 Crore" },
-  { value: 45000000, label: "4.5 Crore" },
-  { value: 50000000, label: "5 Crore" },
-  { value: 55000000, label: "5.5 Crore" },
-  { value: 60000000, label: "6 Crore" },
-  { value: 70000000, label: "7 Crore" },
-  { value: 80000000, label: "8 Crore" },
-  { value: 90000000, label: "9 Crore" },
-  { value: 100000000, label: "10 Crore" },
-  { value: 200000000, label: "20 Crore" },
-  { value: 300000000, label: "30 Crore" },
-  { value: 500000000, label: "50 Crore" },
-  { value: 750000000, label: "75 Crore" },
-  { value: 1000000000, label: "100 Crore" },
-];
+
+
 
 const AddContactModal = ({
   isOpen,
@@ -811,6 +788,26 @@ const AddContactModal = ({
       },
     ],
   });
+
+
+  const [title, setTitle] = useState([]);
+  const [countrycode, setCountrycode] = useState([]);
+  const [source, setsource] = useState([]);
+  const [team, setteam] = useState([]);
+  const [visible, setvisible] = useState([]);
+  const [doc_category, setdoc_category] = useState([]);
+  const [doc_type, setdoc_type] = useState([]);
+  const [edu_level, setedu_level] = useState([]);
+  const [degree, setdegree] = useState([]);
+   const [income_source, setincome_source] = useState([]);
+    const [loan_type, setloan_type] = useState([]);
+    const [bank, setbank] = useState([]);
+     const [social_plateform, setsocial_plateform] = useState([]);
+const [professionCategories, setProfessionCategories] = useState([]);
+const [professionSubCategories, setProfessionSubCategories] = useState([]);
+const [designation, setDesignation] = useState([]);
+const [loading, setLoading] = useState("");
+
 
   // Populate Initial Data if provided
   useEffect(() => {
@@ -1212,15 +1209,25 @@ const AddContactModal = ({
                         </label>
                         <select
                           value={formData.title}
+                                                         onFocus={async () => {
+    if (title.length === 0) {
+      setLoading("title");
+
+      const data = await fetchLookup("Title");
+
+      setTitle(data);
+      setLoading("");
+    }
+  }}
                           onChange={(e) =>
                             handleInputChange("title", e.target.value)
                           }
                           style={customSelectStyle}
                         >
                           <option value="">Title</option>
-                          {titleOptions.map((t) => (
-                            <option key={t} value={t}>
-                              {t}
+                          {title.map((t) => (
+                            <option key={t._id} value={t._id}>
+                              {t.lookup_value}
                             </option>
                           ))}
                         </select>
@@ -1377,6 +1384,16 @@ const AddContactModal = ({
                       >
                         <select
                           value={formData.countryCode}
+                                  onFocus={async () => {
+    if (countrycode.length === 0) {
+      setLoading("countrycode");
+
+      const data = await fetchLookup("Country-Code");
+
+      setCountrycode(data);
+      setLoading("");
+    }
+  }}
                           onChange={(e) =>
                             handleInputChange("countryCode", e.target.value)
                           }
@@ -1389,9 +1406,9 @@ const AddContactModal = ({
                             color: "#475569",
                           }}
                         >
-                          {COUNTRY_CODES.map((c) => (
-                            <option key={c.code} value={c.dial_code}>
-                              {c.dial_code} ({c.code})
+                          {countrycode.map((c) => (
+                            <option key={c._id} value={c._id}>
+                              {c.lookup_value}
                             </option>
                           ))}
                         </select>
@@ -1751,29 +1768,27 @@ const AddContactModal = ({
                             </label>
                             <select
                               value={formData.source}
+                               onFocus={async () => {
+    if (source.length === 0) {
+      setLoading("source");
+
+      const data = await fetchLookup("Source");
+
+      setsource(data);
+      setLoading("");
+    }
+  }}
                               onChange={(e) =>
                                 handleInputChange("source", e.target.value)
                               }
                               style={customSelectStyle}
                             >
                               <option value="">Select Source</option>
-                              {(() => {
-                                const allSources = [];
-                                (leadMasterFields?.campaigns || []).forEach(
-                                  (c) => {
-                                    (c.sources || []).forEach((s) => {
-                                      if (!allSources.includes(s.name)) {
-                                        allSources.push(s.name);
-                                      }
-                                    });
-                                  },
-                                );
-                                return allSources.map((s) => (
-                                  <option key={s} value={s}>
-                                    {s}
-                                  </option>
-                                ));
-                              })()}
+                             {source.map((c) => (
+                            <option key={c._id} value={c._id}>
+                              {c.lookup_value}
+                            </option>
+                          ))}
                             </select>
                           </div>
                         )}
@@ -1964,6 +1979,16 @@ const AddContactModal = ({
                               </label>
                               <select
                                 value={formData.professionCategory}
+                                 onFocus={async () => {
+    if (professionCategories.length === 0) {
+      setLoading("category");
+
+      const data = await fetchLookup("ProfessionalCategory");
+
+      setProfessionCategories(data);
+      setLoading("");
+    }
+  }}
                                 onChange={(e) => {
                                   handleInputChange(
                                     "professionCategory",
@@ -1978,9 +2003,9 @@ const AddContactModal = ({
                                 style={customSelectStyle}
                               >
                                 <option value="">Select Category</option>
-                                {Object.keys(professionalConfig).map((cat) => (
-                                  <option key={cat} value={cat}>
-                                    {cat}
+                                {professionCategories.map((cat) => (
+                                  <option key={cat._id} value={cat._id}>
+                                    {cat.lookup_value}
                                   </option>
                                 ))}
                               </select>
@@ -2001,6 +2026,16 @@ const AddContactModal = ({
                               </label>
                               <select
                                 value={formData.professionSubCategory}
+                                                                 onFocus={async () => {
+    if (professionSubCategories.length === 0) {
+      setLoading("subcategory");
+
+      const data = await fetchLookup("ProfessionalSubCategory",formData.professionCategory);
+
+      setProfessionSubCategories(data);
+      setLoading("");
+    }
+  }}
                                 onChange={(e) => {
                                   handleInputChange(
                                     "professionSubCategory",
@@ -2017,11 +2052,9 @@ const AddContactModal = ({
                               >
                                 <option value="">Select Sub-Category</option>
                                 {formData.professionCategory &&
-                                  professionalConfig[
-                                    formData.professionCategory
-                                  ]?.subCategories.map((sc) => (
-                                    <option key={sc.name} value={sc.name}>
-                                      {sc.name}
+                                  professionSubCategories.map((sc) => (
+                                    <option key={sc._id} value={sc._id}>
+                                      {sc.lookup_value}
                                     </option>
                                   ))}
                               </select>
@@ -2042,6 +2075,16 @@ const AddContactModal = ({
                               </label>
                               <select
                                 value={formData.designation}
+                                                                                                 onFocus={async () => {
+    if (designation.length === 0) {
+      setLoading("designation");
+
+      const data = await fetchLookup("ProfessionalDesignation",formData.professionSubCategory);
+
+      setDesignation(data);
+      setLoading("");
+    }
+  }}
                                 onChange={(e) =>
                                   handleInputChange(
                                     "designation",
@@ -2057,18 +2100,9 @@ const AddContactModal = ({
                               >
                                 <option value="">Select Designation</option>
                                 {formData.professionCategory &&
-                                  formData.professionSubCategory &&
-                                  professionalConfig[
-                                    formData.professionCategory
-                                  ]?.subCategories
-                                    .find(
-                                      (s) =>
-                                        s.name ===
-                                        formData.professionSubCategory,
-                                    )
-                                    ?.types.map((d) => (
-                                      <option key={d} value={d}>
-                                        {d}
+                                  designation.map((d) => (
+                                      <option key={d._id} value={d._id}>
+                                        {d.lookup_value}
                                       </option>
                                     ))}
                               </select>
@@ -2367,14 +2401,30 @@ const AddContactModal = ({
                       </label>
                       <select
                         value={formData.team}
+                                                     onFocus={async () => {
+    if (team.length === 0) {
+      setLoading("team");
+
+      const data = await fetchLookup("Team");
+
+      setteam(data);
+      setLoading("");
+    }
+  }}
                         onChange={(e) =>
                           handleInputChange("team", e.target.value)
                         }
                         style={customSelectStyle}
                       >
                         <option value="">Select Team</option>
-                        <option value="Sales">Sales</option>
-                        <option value="Marketing">Marketing</option>
+                     {
+                      team?.map((c)=>
+                      (
+                        <option key={c._id} value={c._id}>
+                          {c.lookup_value}
+                        </option>
+                      ))
+                     }
                       </select>
                     </div>
                     <div>
@@ -2415,15 +2465,30 @@ const AddContactModal = ({
                       </label>
                       <select
                         value={formData.visibleTo}
+                      onFocus={async () => {
+    if (visible.length === 0) {
+      setLoading("visible");
+
+      const data = await fetchLookup("Visibility");
+
+      setvisible(data);
+      setLoading("");
+    }
+  }}
                         onChange={(e) =>
                           handleInputChange("visibleTo", e.target.value)
                         }
                         style={customSelectStyle}
                       >
                         <option value="">Select Visibility</option>
-                        <option value="Public">Public</option>
-                        <option value="Private">Private</option>
-                        <option value="Team">Team Only</option>
+                     {
+                      visible?.map((c)=>
+                      (
+                        <option key={c._id} value={c._id}>
+                          {c.lookup_value}
+                        </option>
+                      ))
+                     }
                       </select>
                     </div>
                   </div>
@@ -2793,6 +2858,16 @@ const AddContactModal = ({
                             <label style={labelStyle}>Category</label>
                             <select
                               value={doc.documentName}
+                onFocus={async () => {
+    if (doc_category.length === 0) {
+      setLoading("doc_category");
+
+      const data = await fetchLookup("Document-Category");
+
+      setdoc_category(data);
+      setLoading("");
+    }
+  }}
                               onChange={(e) => {
                                 const newDocs = [...formData.documents];
                                 newDocs[index].documentName = e.target.value;
@@ -2806,9 +2881,9 @@ const AddContactModal = ({
                               }}
                             >
                               <option value="">Select Category</option>
-                              {docCategories.map((c) => (
-                                <option key={c.name} value={c.name}>
-                                  {c.name}
+                              {doc_category.map((c) => (
+                                <option key={c._id} value={c._id}>
+                                  {c.lookup_value}
                                 </option>
                               ))}
                             </select>
@@ -2817,6 +2892,16 @@ const AddContactModal = ({
                             <label style={labelStyle}>Document Type</label>
                             <select
                               value={doc.documentType}
+                                             onFocus={async () => {
+    if (doc_type.length === 0) {
+      setLoading("doc_type");
+
+      const data = await fetchLookup("Document-Type");
+
+      setdoc_type(data);
+      setLoading("");
+    }
+  }}
                               onChange={(e) => {
                                 const newDocs = [...formData.documents];
                                 newDocs[index].documentType = e.target.value;
@@ -2832,9 +2917,9 @@ const AddContactModal = ({
                               }}
                             >
                               <option value="">Select Type</option>
-                              {availableDocTypes.map((t) => (
-                                <option key={t} value={t}>
-                                  {t}
+                              {doc_type.map((t) => (
+                                <option key={t._id} value={t._id}>
+                                  {t.lookup_value}
                                 </option>
                               ))}
                             </select>
@@ -3166,6 +3251,16 @@ const AddContactModal = ({
                           </label>
                           <select
                             value={edu.education}
+                    onFocus={async () => {
+    if (edu_level.length === 0) {
+      setLoading("edu_level");
+
+      const data = await fetchLookup("Education-Level");
+
+      setedu_level(data);
+      setLoading("");
+    }
+  }}
                             onChange={(e) => {
                               const newEdu = [...formData.educations];
                               newEdu[index].education = e.target.value;
@@ -3175,9 +3270,9 @@ const AddContactModal = ({
                             style={customSelectStyle}
                           >
                             <option value="">Select Level</option>
-                            {educationCategories.map((cat) => (
-                              <option key={cat.name} value={cat.name}>
-                                {cat.name}
+                            {edu_level.map((cat) => (
+                              <option key={cat._id} value={cat._id}>
+                                {cat.lookup_value}
                               </option>
                             ))}
                           </select>
@@ -3195,6 +3290,16 @@ const AddContactModal = ({
                           </label>
                           <select
                             value={edu.degree}
+                                               onFocus={async () => {
+    if (degree.length === 0) {
+      setLoading("degree");
+
+      const data = await fetchLookup("Degree");
+
+      setdegree(data);
+      setLoading("");
+    }
+  }}
                             onChange={(e) => {
                               const newEdu = [...formData.educations];
                               newEdu[index].degree = e.target.value;
@@ -3208,9 +3313,9 @@ const AddContactModal = ({
                             }
                           >
                             <option value="">Select Degree</option>
-                            {availableDegrees.map((deg) => (
-                              <option key={deg} value={deg}>
-                                {deg}
+                            {degree.map((deg) => (
+                              <option key={deg._id} value={deg._id}>
+                                {deg.lookup_value}
                               </option>
                             ))}
                           </select>
@@ -3328,6 +3433,16 @@ const AddContactModal = ({
                     >
                       <select
                         value={inc.incomeType}
+              onFocus={async () => {
+    if (income_source.length === 0) {
+      setLoading("incomeSource");
+
+      const data = await fetchLookup("Income-Source");
+
+      setincome_source(data);
+      setLoading("");
+    }
+  }}
                         onChange={(e) => {
                           const newInc = [...formData.incomes];
                           newInc[index].incomeType = e.target.value;
@@ -3336,9 +3451,9 @@ const AddContactModal = ({
                         style={customSelectStyle}
                       >
                         <option value="">Select Source</option>
-                        {incomeSources.map((source) => (
-                          <option key={source} value={source}>
-                            {source}
+                        {income_source.map((source) => (
+                          <option key={source._id} value={source._id}>
+                            {source.lookup_value}
                           </option>
                         ))}
                       </select>
@@ -3412,6 +3527,16 @@ const AddContactModal = ({
                     >
                       <select
                         value={loan.loanType}
+                                     onFocus={async () => {
+    if (loan_type.length === 0) {
+      setLoading("loan-type");
+
+      const data = await fetchLookup("Loan Type");
+
+      setloan_type(data);
+      setLoading("");
+    }
+  }}
                         onChange={(e) => {
                           const newLoans = [...formData.loans];
                           newLoans[index].loanType = e.target.value;
@@ -3420,12 +3545,24 @@ const AddContactModal = ({
                         style={customSelectStyle}
                       >
                         <option value="">Type</option>
-                        <option value="Home">Home Loan</option>
-                        <option value="Car">Car Loan</option>
-                        <option value="Personal">Personal Loan</option>
+                         {loan_type.map((l) => (
+                          <option key={l._id} value={l._id}>
+                            {l.lookup_value}
+                          </option>
+                        ))}
                       </select>
                       <select
                         value={loan.bank}
+                                        onFocus={async () => {
+    if (bank.length === 0) {
+      setLoading("bank");
+
+      const data = await fetchLookup("Bank");
+
+      setbank(data);
+      setLoading("");
+    }
+  }}
                         onChange={(e) => {
                           const newLoans = [...formData.loans];
                           newLoans[index].bank = e.target.value;
@@ -3434,9 +3571,9 @@ const AddContactModal = ({
                         style={customSelectStyle}
                       >
                         <option value="">Select Bank</option>
-                        {bankList.map((bank) => (
-                          <option key={bank} value={bank}>
-                            {bank}
+                        {bank.map((bank) => (
+                          <option key={bank._id} value={bank._id}>
+                            {bank.lookup_value}
                           </option>
                         ))}
                       </select>
@@ -3528,6 +3665,16 @@ const AddContactModal = ({
                     >
                       <select
                         value={social.platform}
+                                                            onFocus={async () => {
+    if (social_plateform.length === 0) {
+      setLoading("social-plateform");
+
+      const data = await fetchLookup("Social Plateform");
+
+      setsocial_plateform(data);
+      setLoading("");
+    }
+  }}
                         onChange={(e) => {
                           const newSocial = [...formData.socialMedia];
                           newSocial[index].platform = e.target.value;
@@ -3536,9 +3683,9 @@ const AddContactModal = ({
                         style={customSelectStyle}
                       >
                         <option value="">Select Platform</option>
-                        {socialPlatforms.map((p) => (
-                          <option key={p} value={p}>
-                            {p}
+                        {social_plateform.map((p) => (
+                          <option key={p._id} value={p._id}>
+                            {p.lookup_value}
                           </option>
                         ))}
                       </select>
