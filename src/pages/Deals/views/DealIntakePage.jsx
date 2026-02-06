@@ -13,6 +13,7 @@ import AddProjectModal from '../../../components/modals/AddProjectModal';
 import AddBlockModal from '../../../components/modals/AddBlockModal';
 import AddSizeModal from '../../../components/modals/AddSizeModal';
 import AddContactModal from '../../../components/AddContactModal'; // Imported AddContactModal
+import UploadSummaryModal from '../../../components/UploadSummaryModal';
 
 const DealIntakePage = () => {
     // Shared State
@@ -41,7 +42,138 @@ const DealIntakePage = () => {
     // Call Outcome State (Strict Gating)
     const [ownerCallOutcome, setOwnerCallOutcome] = useState(null); // 'Confirmed' | 'Follow-up' etc.
 
+    // Duplicate Detection & Data Retention State
+    const [intakeHistory, setIntakeHistory] = useState([]); // Last 30 days of all intakes
+    const [duplicateStats, setDuplicateStats] = useState({
+        new: 0,
+        repeat1x: 0,
+        repeat2x: 0,
+        repeat3x: 0,
+        repeat3plus: 0
+    });
+    const [showUploadSummary, setShowUploadSummary] = useState(false);
+    const [uploadSummaryData, setUploadSummaryData] = useState(null);
+    const [categoryFilter, setCategoryFilter] = useState('all'); // 'all' | 'new' | 'repeat1x' | 'repeat2x' | 'repeat3x' | 'repeat3plus'
+
     // ... (existing code) ...
+
+    // ===== DUPLICATE DETECTION & DATA PERSISTENCE UTILITIES =====
+
+    // Extract phone number from content
+    const extractPhoneNumber = (content) => {
+        if (!content) return null;
+        // Match Indian phone numbers: 10 digits, optionally with +91 or 0 prefix
+        const phoneRegex = /(?:\+91|91|0)?[6-9]\d{9}/g;
+        const matches = content.match(phoneRegex);
+        if (!matches) return null;
+        // Normalize: remove +91, 91, 0 prefix and keep only 10 digits
+        const normalized = matches[0].replace(/^(\+91|91|0)/, '').slice(-10);
+        return normalized.length === 10 ? normalized : null;
+    };
+
+    // Load intake history from localStorage
+    const loadIntakeHistory = () => {
+        try {
+            const stored = localStorage.getItem('dealIntakeHistory');
+            if (stored) {
+                const history = JSON.parse(stored);
+                // Filter out entries older than 30 days
+                const thirtyDaysAgo = new Date();
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                const filtered = history.filter(item =>
+                    new Date(item.receivedAt) > thirtyDaysAgo
+                );
+                return filtered;
+            }
+        } catch (error) {
+            console.error('Error loading intake history:', error);
+        }
+        return [];
+    };
+
+    // Save intake history to localStorage
+    const saveIntakeHistory = (history) => {
+        try {
+            localStorage.setItem('dealIntakeHistory', JSON.stringify(history));
+        } catch (error) {
+            console.error('Error saving intake history:', error);
+            // If localStorage is full, remove oldest entries
+            if (error.name === 'QuotaExceededError') {
+                const reduced = history.slice(0, Math.floor(history.length / 2));
+                localStorage.setItem('dealIntakeHistory', JSON.stringify(reduced));
+            }
+        }
+    };
+
+    // Cleanup old intakes (older than 30 days)
+    const cleanupOldIntakes = () => {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const filtered = intakeHistory.filter(item =>
+            new Date(item.receivedAt) > thirtyDaysAgo
+        );
+
+        if (filtered.length !== intakeHistory.length) {
+            setIntakeHistory(filtered);
+            saveIntakeHistory(filtered);
+        }
+    };
+
+    // Check if intake is duplicate and get frequency
+    const checkDuplicateAndFrequency = (newIntake, existingDeals = []) => {
+        const phone = extractPhoneNumber(newIntake.content);
+        if (!phone) return { isDuplicate: false, frequency: 0, category: 'new' };
+
+        // Check against existing deals (Deal List View)
+        const inDeals = existingDeals.some(deal => {
+            const dealPhone = extractPhoneNumber(deal.content || deal.description || '');
+            return dealPhone === phone;
+        });
+
+        // Check against intake history
+        const historyMatches = intakeHistory.filter(item => {
+            const itemPhone = extractPhoneNumber(item.content);
+            return itemPhone === phone;
+        });
+
+        const frequency = historyMatches.length;
+        const isDuplicate = inDeals || frequency > 0;
+
+        // Categorize by frequency
+        let category = 'new';
+        if (frequency === 1) category = 'repeat1x';
+        else if (frequency === 2) category = 'repeat2x';
+        else if (frequency === 3) category = 'repeat3x';
+        else if (frequency > 3) category = 'repeat3plus';
+
+        return {
+            isDuplicate,
+            frequency,
+            category,
+            phone,
+            lastSeen: historyMatches.length > 0 ? historyMatches[0].receivedAt : null
+        };
+    };
+
+    // Load history on component mount
+    useEffect(() => {
+        const history = loadIntakeHistory();
+        setIntakeHistory(history);
+
+        // Run cleanup daily
+        const cleanupInterval = setInterval(cleanupOldIntakes, 24 * 60 * 60 * 1000);
+        return () => clearInterval(cleanupInterval);
+    }, []);
+
+    // Cleanup on mount and periodically
+    useEffect(() => {
+        if (intakeHistory.length > 0) {
+            cleanupOldIntakes();
+        }
+    }, [intakeHistory.length]);
+
+    // ===== END DUPLICATE DETECTION UTILITIES =====
 
     const handleFileSelect = (e) => {
         if (e.target.files && e.target.files[0]) {
@@ -279,6 +411,7 @@ const DealIntakePage = () => {
 
     const handleAddIntake = () => {
         if (!newSourceContent.trim()) return;
+
         const newItem = {
             id: Date.now(),
             source: campaignSource || newSourceType,
@@ -288,13 +421,35 @@ const DealIntakePage = () => {
             campaignName: campaignName,
             campaignDate: campaignDate
         };
+
+        // Check for duplicates
+        const duplicateInfo = checkDuplicateAndFrequency(newItem, dealData);
+        newItem.duplicateInfo = duplicateInfo;
+        newItem.category = duplicateInfo.category;
+
+        // Add to intake items
         setIntakeItems([newItem, ...intakeItems]);
+
+        // Add to history and save to localStorage
+        const updatedHistory = [newItem, ...intakeHistory];
+        setIntakeHistory(updatedHistory);
+        saveIntakeHistory(updatedHistory);
+
+        // Clear form
         setNewSourceContent('');
         setCampaignName('');
         setCampaignSource('WhatsApp');
         setCampaignDate('');
         setIsAddModalOpen(false);
-        toast.success('New Intake Added');
+
+        // Show notification with duplicate info
+        if (duplicateInfo.isDuplicate) {
+            toast.warning(`Intake added - ${duplicateInfo.category.toUpperCase()} (seen ${duplicateInfo.frequency}x before)`, {
+                duration: 4000
+            });
+        } else {
+            toast.success('New Intake Added');
+        }
     };
 
     const handleFileUpload = async (e) => {
@@ -396,15 +551,64 @@ const DealIntakePage = () => {
             if (parsedItems.length === 0) {
                 toast.error('No valid messages found', { id: toastId });
             } else {
-                // Add campaign details to parsed items
-                const itemsWithCampaign = parsedItems.map(item => ({
-                    ...item,
-                    campaignName: campaignName,
-                    campaignDate: campaignDate,
-                    source: campaignSource || item.source
-                }));
+                // Add campaign details and check for duplicates
+                const stats = {
+                    new: 0,
+                    repeat1x: 0,
+                    repeat2x: 0,
+                    repeat3x: 0,
+                    repeat3plus: 0,
+                    total: parsedItems.length
+                };
 
+                const duplicatesList = [];
+
+                const itemsWithCampaign = parsedItems.map(item => {
+                    const enrichedItem = {
+                        ...item,
+                        campaignName: campaignName,
+                        campaignDate: campaignDate,
+                        source: campaignSource || item.source
+                    };
+
+                    // Check for duplicates
+                    const duplicateInfo = checkDuplicateAndFrequency(enrichedItem, dealData);
+                    enrichedItem.duplicateInfo = duplicateInfo;
+                    enrichedItem.category = duplicateInfo.category;
+
+                    // Update stats
+                    stats[duplicateInfo.category]++;
+
+                    // Track duplicates for summary
+                    if (duplicateInfo.isDuplicate) {
+                        duplicatesList.push({
+                            ...enrichedItem,
+                            duplicateInfo
+                        });
+                    }
+
+                    return enrichedItem;
+                });
+
+                // Add to intake items
                 setIntakeItems(prev => [...itemsWithCampaign, ...prev]);
+
+                // Add to history and save to localStorage
+                const updatedHistory = [...itemsWithCampaign, ...intakeHistory];
+                setIntakeHistory(updatedHistory);
+                saveIntakeHistory(updatedHistory);
+
+                // Update duplicate stats
+                setDuplicateStats(stats);
+
+                // Prepare upload summary data
+                setUploadSummaryData({
+                    stats,
+                    duplicatesList,
+                    totalUploaded: parsedItems.length,
+                    fileName: selectedFile.name
+                });
+
                 toast.success(`Imported ${parsedItems.length} items!`, { id: toastId });
 
                 // Close Add modal and reset form
@@ -414,6 +618,9 @@ const DealIntakePage = () => {
                 setCampaignDate('');
                 setContentInputMode('paste');
                 setSelectedFile(null);
+
+                // Show upload summary modal
+                setShowUploadSummary(true);
             }
 
         } catch (error) {
@@ -692,6 +899,12 @@ const DealIntakePage = () => {
         toast.success("Contact Added & Linked");
     };
 
+    // Filter intake items by category
+    const filteredIntakeItems = useMemo(() => {
+        if (categoryFilter === 'all') return intakeItems;
+        return intakeItems.filter(item => item.category === categoryFilter);
+    }, [intakeItems, categoryFilter]);
+
     return (
         <div style={{ display: 'flex', height: '100vh', background: '#f8fafc' }}>
             {/* Left Panel: Workflow Steps / Inbox */}
@@ -725,45 +938,125 @@ const DealIntakePage = () => {
                     </div>
                 </div>
 
-                <div style={{ flex: 1, overflowY: 'auto' }}>
-                    {intakeItems.length === 0 && <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>queue is empty</div>}
-                    {intakeItems.slice(0, visibleCount).map(item => (
-                        <div
-                            key={item.id}
-                            onClick={() => handleSelectIntake(item)}
-                            style={{
-                                padding: '15px',
-                                borderBottom: '1px solid #f1f5f9',
-                                cursor: 'pointer',
-                                background: currentItem?.id === item.id ? '#eff6ff' : '#fff',
-                                borderLeft: currentItem?.id === item.id ? '4px solid #3b82f6' : '4px solid transparent',
-                                transition: 'all 0.2s'
-                            }}
-                        >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                                <span style={{ fontSize: '0.7rem', fontWeight: 800, color: item.source === 'WhatsApp' ? '#22c55e' : '#f59e0b', background: item.source === 'WhatsApp' ? '#dcfce7' : '#fef3c7', padding: '2px 8px', borderRadius: '4px' }}>{item.source}</span>
-                                <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{new Date(item.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (window.confirm("Remove this item from queue?")) {
-                                            setIntakeItems(prev => prev.filter(i => i.id !== item.id));
-                                            if (currentItem?.id === item.id) setCurrentItem(null);
-                                        }
-                                    }}
-                                    className="delete-btn-hover"
-                                    style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', marginLeft: '6px', fontSize: '0.75rem', opacity: 0.8 }}
-                                    title="Dismiss"
-                                >
-                                    <i className="fas fa-trash-alt"></i>
-                                </button>
-                            </div>
-                            <div style={{ fontSize: '0.8rem', color: '#334155', lineHeight: '1.4', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                                {item.content}
-                            </div>
-                        </div>
+                {/* Category Filters */}
+                <div style={{ padding: '12px 16px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        {[
+                            { key: 'all', label: 'All', color: '#64748b' },
+                            { key: 'new', label: 'New', color: '#10b981' },
+                            { key: 'repeat1x', label: '1x', color: '#f59e0b' },
+                            { key: 'repeat2x', label: '2x', color: '#f97316' },
+                            { key: 'repeat3x', label: '3x', color: '#ef4444' },
+                            { key: 'repeat3plus', label: '3+', color: '#991b1b' }
+                        ].map(filter => {
+                            const count = filter.key === 'all'
+                                ? intakeItems.length
+                                : intakeItems.filter(item => item.category === filter.key).length;
 
-                    ))}
+                            return (
+                                <button
+                                    key={filter.key}
+                                    onClick={() => setCategoryFilter(filter.key)}
+                                    style={{
+                                        padding: '6px 12px',
+                                        borderRadius: '6px',
+                                        border: categoryFilter === filter.key ? `2px solid ${filter.color}` : '1px solid #e2e8f0',
+                                        background: categoryFilter === filter.key ? `${filter.color}15` : '#fff',
+                                        color: categoryFilter === filter.key ? filter.color : '#64748b',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px'
+                                    }}
+                                >
+                                    {filter.label}
+                                    <span style={{
+                                        background: filter.color,
+                                        color: '#fff',
+                                        borderRadius: '10px',
+                                        padding: '2px 6px',
+                                        fontSize: '0.7rem',
+                                        fontWeight: 700
+                                    }}>
+                                        {count}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div style={{ flex: 1, overflowY: 'auto' }}>
+                    {filteredIntakeItems.length === 0 && <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>
+                        {categoryFilter === 'all' ? 'queue is empty' : `No ${categoryFilter} intakes`}
+                    </div>}
+                    {filteredIntakeItems.slice(0, visibleCount).map(item => {
+                        const getCategoryColor = (category) => {
+                            const colors = {
+                                new: '#10b981',
+                                repeat1x: '#f59e0b',
+                                repeat2x: '#f97316',
+                                repeat3x: '#ef4444',
+                                repeat3plus: '#991b1b'
+                            };
+                            return colors[category] || '#64748b';
+                        };
+
+                        return (
+                            <div
+                                key={item.id}
+                                onClick={() => handleSelectIntake(item)}
+                                style={{
+                                    padding: '15px',
+                                    borderBottom: '1px solid #f1f5f9',
+                                    cursor: 'pointer',
+                                    background: currentItem?.id === item.id ? '#eff6ff' : '#fff',
+                                    borderLeft: currentItem?.id === item.id ? '4px solid #3b82f6' : '4px solid transparent',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                        <span style={{ fontSize: '0.7rem', fontWeight: 800, color: item.source === 'WhatsApp' ? '#22c55e' : '#f59e0b', background: item.source === 'WhatsApp' ? '#dcfce7' : '#fef3c7', padding: '2px 8px', borderRadius: '4px' }}>{item.source}</span>
+                                        {item.category && item.category !== 'new' && (
+                                            <span style={{
+                                                fontSize: '0.65rem',
+                                                fontWeight: 700,
+                                                color: '#fff',
+                                                background: getCategoryColor(item.category),
+                                                padding: '2px 6px',
+                                                borderRadius: '4px'
+                                            }}>
+                                                {item.category.toUpperCase()}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{new Date(item.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (window.confirm("Remove this item from queue?")) {
+                                                    setIntakeItems(prev => prev.filter(i => i.id !== item.id));
+                                                    if (currentItem?.id === item.id) setCurrentItem(null);
+                                                }
+                                            }}
+                                            className="delete-btn-hover"
+                                            style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.75rem', opacity: 0.8 }}
+                                            title="Dismiss"
+                                        >
+                                            <i className="fas fa-trash-alt"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div style={{ fontSize: '0.8rem', color: '#334155', lineHeight: '1.4', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                                    {item.content}
+                                </div>
+                            </div>
+                        );
+                    })}
 
                     {visibleCount < intakeItems.length && (
                         <div style={{ padding: '10px', textAlign: 'center' }}>
@@ -1707,6 +2000,13 @@ const DealIntakePage = () => {
                 onAdd={handleContactAdded}
                 initialData={prefilledContactData}
                 mode="add"
+            />
+
+            {/* Upload Summary Modal */}
+            <UploadSummaryModal
+                isOpen={showUploadSummary}
+                onClose={() => setShowUploadSummary(false)}
+                summaryData={uploadSummaryData}
             />
         </div >
     );
