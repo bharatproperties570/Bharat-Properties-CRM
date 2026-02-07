@@ -63,4 +63,31 @@ export const addLead = async (req, res, next) => {
         }
         next(error);
     }
+}
+
+/**
+ * @desc    Delete a lead
+ * @route   DELETE /leads/:id
+ * @access  Private
+ */
+export const deleteLead = async (req, res, next) => {
+    try {
+        const lead = await Lead.findById(req.params.id);
+
+        if (!lead) {
+            return res.status(404).json({
+                success: false,
+                message: "Lead not found"
+            });
+        }
+
+        await lead.remove();
+
+        res.status(200).json({
+            success: true,
+            data: {}
+        });
+    } catch (error) {
+        next(error);
+    }
 };

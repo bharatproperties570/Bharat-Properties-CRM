@@ -1,11 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Toast from "../../../components/Toast";
 import { api } from "../../../utils/api";
 import Swal from "sweetalert2";
 
-
-// Define the hierarchy and lookup_type per level
-const HIERARCHY_LEVELS = {
+// Define the hierarchy and lookup_type configuration
+const CONFIG_SECTIONS = {
   Professional: [
     { title: "Category", lookup_type: "ProfessionalCategory" },
     { title: "Sub Category", lookup_type: "ProfessionalSubCategory" },
@@ -20,157 +19,33 @@ const HIERARCHY_LEVELS = {
     { title: "Post Office", lookup_type: "PostOffice" },
     { title: "Pincode", lookup_type: "Pincode" },
   ],
-  Title: [
-    { title: "Title", lookup_type: "Title" },
-  ],
-  "Country Code": [
-    { title: "Country Code", lookup_type: "Country-Code" },
-  ],
-  Source: [
-    { title: "Source", lookup_type: "Source" },
-  ],
-  Team: [
-    { title: "Team", lookup_type: "Team" },
-  ],
-  VisibleTo: [
-    { title: "Visibility", lookup_type: "Visibility" },
-  ],
-  "Document Category": [
+  "Document": [ // Special handling for nested Document Type
     { title: "Document Category", lookup_type: "Document-Category" },
+    { title: "Document Type", lookup_type: "Document-Type", parent_type: "Document-Category" },
   ],
-  "Document Type": [
-    { title: "Document Type", lookup_type: "Document-Type" },
-  ],
-  "Education Level": [
+  Other: [
+    { title: "Title", lookup_type: "Title" },
+    { title: "Country Code", lookup_type: "Country-Code" },
+    { title: "Source", lookup_type: "Source" },
+    { title: "Team", lookup_type: "Team" },
+    { title: "Visible To", lookup_type: "Visibility" },
     { title: "Education Level", lookup_type: "Education-Level" },
-  ],
-  "Degree": [
     { title: "Degree", lookup_type: "Degree" },
-  ],
-  "Income Source": [
     { title: "Income Source", lookup_type: "Income-Source" },
-  ],
-  "Loan Type": [
     { title: "Loan Type", lookup_type: "Loan Type" },
-  ],
-  "Bank": [
     { title: "Bank", lookup_type: "Bank" },
-  ],
-  "Social Plateform": [
-    { title: "Social Plateform", lookup_type: "Social Plateform" },
-  ],
+    { title: "Social Platform", lookup_type: "Social Plateform" },
+  ]
 };
-
-
-
-
-
-// Column component
-const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onDelete }) => (
-  <div
-    style={{
-      minWidth: "250px",
-      width: "33%",
-      borderRight: "1px solid #e2e8f0",
-      display: "flex",
-      flexDirection: "column",
-      background: "#f8fafc",
-      flexShrink: 0,
-    }}
-  >
-    <div
-      style={{
-        padding: "12px 16px",
-        fontWeight: 600,
-        color: "#475569",
-        fontSize: "0.85rem",
-        textTransform: "uppercase",
-        letterSpacing: "0.05em",
-        borderBottom: "1px solid #e2e8f0",
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-      }}
-    >
-      {title}
-      <button
-        onClick={onAdd}
-        style={{
-          border: "none",
-          background: "#e2e8f0",
-          color: "#475569",
-          borderRadius: "4px",
-          width: "20px",
-          height: "20px",
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        +
-      </button>
-    </div>
-
-    <div style={{ overflowY: "auto", flex: 1 }}>
-      {items.length > 0 ? (
-        items.map((item) => {
-          const isSelected = selectedItem === item._id;
-          return (
-            <div
-              key={item._id}
-              onClick={() => onSelect(item)}
-              style={{
-                padding: "16px",
-                cursor: "pointer",
-                fontSize: "0.95rem",
-                fontWeight: isSelected ? 700 : 500,
-                color: isSelected ? "#2563eb" : "#334155",
-                background: isSelected ? "#fff" : "transparent",
-                borderLeft: isSelected
-                  ? "4px solid #2563eb"
-                  : "4px solid transparent",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              {item.lookup_value}
-
-              <div style={{ display: "flex", gap: "8px" }}>
-                <i
-                  className="fas fa-edit"
-                  style={{ cursor: "pointer", color: "#64748b" }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEdit(item);
-                  }}
-                ></i>
-                <i
-                  className="fas fa-trash"
-                  style={{ cursor: "pointer", color: "#ef4444" }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(item);
-                  }}
-                ></i>
-              </div>
-            </div>
-          );
-        })
-      ) : (
-        <div style={{ padding: "20px", textAlign: "center", color: "#94a3b8" }}>
-          No items added
-        </div>
-      )}
-    </div>
-  </div>
-);
 
 const ContactSettingsPage = () => {
   const [activeTab, setActiveTab] = useState("Professional");
-  const [lookups, setLookups] = useState({});
-  const [selectedPath, setSelectedPath] = useState([]);
+  const [activeSection, setActiveSection] = useState(null);
+  const [items, setItems] = useState([]);
+
+  // For nested navigation (Document Category -> Document Type)
+  const [parentItem, setParentItem] = useState(null);
+
   const [notification, setNotification] = useState({
     show: false,
     message: "",
@@ -181,103 +56,102 @@ const ContactSettingsPage = () => {
     setNotification({ show: true, message, type });
   };
 
-  const scrollRef = useRef();
-  const scrollLeft = () => {
-    scrollRef.current.scrollBy({
-      left: -200,
-      behavior: "smooth",
-    });
-  };
+  // Set default active section when tab changes
+  useEffect(() => {
+    const sections = CONFIG_SECTIONS[activeTab];
+    if (sections && sections.length > 0) {
+      setActiveSection(sections[0]);
+      setParentItem(null); // Reset parent on tab change
+    }
+  }, [activeTab]);
 
-  const scrollRight = () => {
-    scrollRef.current.scrollBy({
-      left: 200,
-      behavior: "smooth",
-    });
-  };
+  // Fetch items when section or parentItem changes
+  useEffect(() => {
+    if (activeSection) {
+      fetchLookups();
+    }
+  }, [activeSection, parentItem]);
 
-  // ---------------- FETCH DATA PER LEVEL ----------------
-  const fetchLookups = async (levelIndex) => {
-    const level = HIERARCHY_LEVELS[activeTab][levelIndex];
-    const parentId = levelIndex === 0 ? null : selectedPath[levelIndex - 1];
+  const fetchLookups = async () => {
+    if (!activeSection) return;
 
     try {
-      const res = await api.get("/lookups", {
-        params: {
-          lookup_type: level.lookup_type,
-          parent_lookup_id: parentId,
-          page: 1,
-          limit: 1000,
-        },
-      });
+      const params = {
+        lookup_type: activeSection.lookup_type,
+        page: 1,
+        limit: 1000,
+      };
 
+      // If this section depends on a parent (e.g., Document Type), filter by parent
+      if (activeSection.parent_type && parentItem) {
+        params.parent_lookup_id = parentItem._id;
+      }
+      // If it requires a parent but none is selected, don't fetch anything (or fetch empty)
+      else if (activeSection.parent_type && !parentItem) {
+        setItems([]);
+        return;
+      }
+
+      const res = await api.get("/lookups", { params });
       if (res.data.status === "success") {
-        setLookups((prev) => ({
-          ...prev,
-          [levelIndex]: res.data.data,
-        }));
+        setItems(res.data.data);
       }
     } catch (error) {
       console.error("Fetch Error:", error);
+      showToast("Failed to fetch items", "error");
     }
   };
 
-  useEffect(() => {
-    // fetch first level
-    fetchLookups(0);
-    setSelectedPath([]);
-    setLookups({});
-  }, [activeTab]);
-
-  // ---------------- ADD ----------------
-  const handleAdd = async (levelIndex) => {
-    const level = HIERARCHY_LEVELS[activeTab][levelIndex];
-    const parentId = levelIndex === 0 ? null : selectedPath[levelIndex - 1];
-
+  const handleAdd = async () => {
     const { value: name } = await Swal.fire({
-      title: `Enter ${level.title}`,
+      title: `Add ${activeSection.title}`,
       input: "text",
-      inputPlaceholder: `Enter ${level.title} name`,
+      inputPlaceholder: `Enter ${activeSection.title} name`,
       showCancelButton: true,
       confirmButtonText: "Add",
-      cancelButtonText: "Cancel",
       inputValidator: (value) => {
-        if (!value) {
-          return "Name is required!";
-        }
+        if (!value) return "Name is required!";
       },
     });
+
     if (!name) return;
 
     try {
-      const res = await api.post("/lookups", {
-        lookup_type: level.lookup_type,
+      const payload = {
+        lookup_type: activeSection.lookup_type,
         lookup_value: name,
-        parent_lookup_id: parentId,
-      });
+      };
+
+      if (activeSection.parent_type && parentItem) {
+        payload.parent_lookup_id = parentItem._id;
+      }
+
+      const res = await api.post("/lookups", payload);
 
       if (res.data.data) {
         showToast("Added Successfully");
-        fetchLookups(levelIndex);
-
-        // auto select newly added
-        const newPath = [...selectedPath.slice(0, levelIndex), res.data.data._id];
-        setSelectedPath(newPath);
-
-        // fetch next level empty
-        fetchLookups(levelIndex + 1);
+        fetchLookups();
       } else {
         showToast(res.data.message || "Failed to add", "error");
       }
     } catch (error) {
       console.error("Add Error:", error);
-      showToast("Something went wrong", "error");
+      showToast(error.response?.data?.message || "Something went wrong", "error");
     }
   };
 
-  // ---------------- EDIT ----------------
-  const handleEdit = async (item, levelIndex) => {
-    const newName = prompt("Rename to:", item.lookup_value);
+  const handleEdit = async (item) => {
+    const { value: newName } = await Swal.fire({
+      title: "Rename Item",
+      input: "text",
+      inputValue: item.lookup_value,
+      showCancelButton: true,
+      confirmButtonText: "Update",
+      inputValidator: (value) => {
+        if (!value) return "Name is required!";
+      },
+    });
+
     if (!newName) return;
 
     try {
@@ -287,62 +161,64 @@ const ContactSettingsPage = () => {
         parent_lookup_id: item.parent_lookup_id || null,
       });
 
-      if (res.data.data) {
+      if (res.data.status === "success" || res.data.data) {
         showToast("Updated Successfully");
-        fetchLookups(levelIndex);
+        fetchLookups();
       } else {
         showToast(res.data.message || "Update failed", "error");
       }
     } catch (error) {
       console.error("Edit Error:", error);
-      showToast("Something went wrong", "error");
+      showToast(error.response?.data?.message || "Something went wrong", "error");
     }
   };
 
-  // ---------------- DELETE ----------------
-  const handleDelete = async (item, levelIndex) => {
-    if (!window.confirm("Delete this item?")) return;
+  const handleDelete = async (item) => {
+    const result = await Swal.fire({
+      title: "Are you sure?",
+      text: "You won't be able to revert this!",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#d33",
+      cancelButtonColor: "#3085d6",
+      confirmButtonText: "Yes, delete it!",
+    });
+
+    if (!result.isConfirmed) return;
 
     try {
       const res = await api.delete(`/lookups/${item._id}`);
-
       if (res.data.status === "success") {
         showToast("Deleted Successfully");
-
-        // Remove deleted item from selected path if selected
-        const newPath = selectedPath.slice(0, levelIndex);
-        setSelectedPath(newPath);
-
-        // Refresh this and next level
-        fetchLookups(levelIndex);
-        fetchLookups(levelIndex + 1);
+        fetchLookups();
       } else {
-        showToast("Delete failed", "error");
+        showToast(res.data.message || "Delete failed", "error");
       }
     } catch (error) {
       console.error("Delete Error:", error);
-      showToast("Something went wrong", "error");
+      showToast(error.response?.data?.message || "Something went wrong", "error");
     }
   };
 
-  // ---------------- BUILD COLUMNS ----------------
-  const columns = [];
-  const levels = HIERARCHY_LEVELS[activeTab];
-  for (let i = 0; i < levels.length; i++) {
-    // Only render if first level or parent selected
-    if (i === 0 || selectedPath[i - 1]) {
-      columns.push({
-        index: i,
-        title: levels[i].title,
-        lookup_type: levels[i].lookup_type,
-        items: lookups[i] || [],
-      });
+  // Special handler for drilling down into Document Category -> Document Type
+  const handleItemClick = (item) => {
+    // If we are in "Document Category", clicking an item should switch to "Document Type" for that item
+    if (activeSection.lookup_type === "Document-Category") {
+      setParentItem(item);
+      // Find the child section (Document Type)
+      const childSection = CONFIG_SECTIONS["Document"].find(s => s.lookup_type === "Document-Type");
+      setActiveSection(childSection);
     }
-  }
+  };
+
+  const handleBackToParent = () => {
+    setParentItem(null);
+    const parentSection = CONFIG_SECTIONS["Document"].find(s => s.lookup_type === "Document-Category");
+    setActiveSection(parentSection);
+  };
 
   return (
-
-    <div style={{ flex: 1, background: "#f8fafc", padding: "24px" }}>
+    <div style={{ flex: 1, background: "#f8fafc", padding: "24px", overflowY: "auto" }}>
       {notification.show && (
         <Toast
           message={notification.message}
@@ -351,87 +227,139 @@ const ContactSettingsPage = () => {
         />
       )}
 
-      {/* Tabs */}
-      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-
-        {/* Left Arrow */}
-        <button
-          onClick={scrollLeft}
-          style={{
-            border: "none",
-            background: "#f1f5f9",
-            padding: "6px 10px",
-            cursor: "pointer",
-            borderRadius: "6px",
-          }}
-        >
-          ◀
-        </button>
-
-        {/* Slider Container */}
-        <div
-          ref={scrollRef}
-          style={{
-            display: "flex",
-            gap: "32px",
-            overflow: "hidden",
-            scrollBehavior: "smooth",
-            whiteSpace: "nowrap",
-            flex: 1,
-          }}
-        >
-          {Object.keys(HIERARCHY_LEVELS).map((tab) => (
-            <div
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              style={{
-                cursor: "pointer",
-                fontWeight: activeTab === tab ? 700 : 500,
-                color: activeTab === tab ? "#3b82f6" : "#64748b",
-                flexShrink: 0,
-              }}
-            >
-              {tab}
-            </div>
-          ))}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+        <div>
+          <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px 0' }}>Contact Configuration</h1>
+          <p style={{ margin: 0, color: '#64748b' }}>Manage contact fields, categories, and documents.</p>
         </div>
-
-        {/* Right Arrow */}
-        <button
-          onClick={scrollRight}
-          style={{
-            border: "none",
-            background: "#f1f5f9",
-            padding: "6px 10px",
-            cursor: "pointer",
-            borderRadius: "6px",
-          }}
-        >
-          ▶
-        </button>
       </div>
 
-
-      {/* Columns */}
-      <div style={{ display: "flex", background: "#fff", borderRadius: "12px", border: "1px solid #e2e8f0", overflowX: "auto" }}>
-        {columns.map((col) => (
-          <ConfigColumn
-            key={col.index}
-            title={col.title}
-            items={col.items}
-            selectedItem={selectedPath[col.index]}
-            onSelect={(item) => {
-              const newPath = [...selectedPath.slice(0, col.index), item._id];
-              setSelectedPath(newPath);
-
-              // fetch next level data
-              fetchLookups(col.index + 1);
+      {/* Top Tabs */}
+      <div style={{ display: "flex", gap: "32px", borderBottom: "1px solid #e2e8f0", marginBottom: "32px", overflowX: "auto" }}>
+        {Object.keys(CONFIG_SECTIONS).map((tab) => (
+          <div
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            style={{
+              padding: "12px 4px",
+              fontSize: "0.95rem",
+              fontWeight: activeTab === tab ? 700 : 500,
+              color: activeTab === tab ? "#3b82f6" : "#64748b",
+              borderBottom: activeTab === tab ? "2px solid #3b82f6" : "2px solid transparent",
+              cursor: "pointer",
+              transition: "all 0.2s",
+              whiteSpace: "nowrap"
             }}
-            onAdd={() => handleAdd(col.index)}
-            onEdit={(item) => handleEdit(item, col.index)}
-            onDelete={(item) => handleDelete(item, col.index)}
-          />
+          >
+            {tab}
+          </div>
         ))}
+      </div>
+
+      <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e2e8f0", padding: "32px", boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)", minHeight: "500px" }}>
+        {activeSection && (
+          <div style={{ display: "flex", gap: "32px", height: "100%" }}>
+
+            {/* Left Panel: Sections List (Sidebar) */}
+            {/* Don't show sidebar for Document tab if deep linked, or maybe show simplified */}
+            <div style={{ width: "240px", borderRight: "1px solid #e2e8f0", paddingRight: "16px" }}>
+              {CONFIG_SECTIONS[activeTab].map((section) => (
+                <div
+                  key={section.lookup_type}
+                  onClick={() => {
+                    // Prevent clicking child sections directly if they require a parent context
+                    if (section.parent_type && !parentItem) return;
+
+                    setActiveSection(section);
+                    if (!section.parent_type) setParentItem(null); // Reset parent if switching to root section
+                  }}
+                  style={{
+                    padding: "12px 16px",
+                    cursor: section.parent_type && !parentItem ? "not-allowed" : "pointer",
+                    borderRadius: "6px",
+                    fontSize: "0.9rem",
+                    fontWeight: activeSection === section ? 600 : 500,
+                    color: activeSection === section ? "#2563eb" : (section.parent_type && !parentItem ? "#cbd5e1" : "#475569"),
+                    background: activeSection === section ? "#eff6ff" : "transparent",
+                    marginBottom: "8px",
+                  }}
+                >
+                  {section.title}
+                </div>
+              ))}
+            </div>
+
+            {/* Right Panel: Value List */}
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  {parentItem && (
+                    <button onClick={handleBackToParent} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#64748b" }}>
+                      <i className="fas fa-arrow-left"></i>
+                    </button>
+                  )}
+                  <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "#1e293b" }}>
+                    {activeSection.title} List {parentItem ? `for "${parentItem.lookup_value}"` : ""}
+                  </h3>
+                </div>
+
+                <button
+                  className="btn-outline"
+                  onClick={handleAdd}
+                  style={{ padding: "6px 16px", fontSize: "0.85rem", fontWeight: 600, border: "1px solid #e2e8f0", borderRadius: "6px", background: "#fff", cursor: "pointer" }}
+                >
+                  + Add Item
+                </button>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "12px" }}>
+                {items.map((item) => (
+                  <div
+                    key={item._id}
+                    onClick={() => handleItemClick(item)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "10px 14px",
+                      background: parentItem && parentItem._id === item._id ? "#eff6ff" : "#f8fafc",
+                      borderRadius: "6px",
+                      border: "1px solid #e2e8f0",
+                      fontSize: "0.9rem",
+                      color: "#334155",
+                      cursor: activeSection.lookup_type === "Document-Category" ? "pointer" : "default"
+                    }}
+                  >
+                    <span style={{ fontWeight: 500 }}>{item.lookup_value}</span>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <i
+                        className="fas fa-edit"
+                        style={{ cursor: "pointer", color: "#64748b", fontSize: "0.8rem" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEdit(item);
+                        }}
+                      ></i>
+                      <i
+                        className="fas fa-trash"
+                        style={{ cursor: "pointer", color: "#ef4444", fontSize: "0.8rem" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(item);
+                        }}
+                      ></i>
+                    </div>
+                  </div>
+                ))}
+                {items.length === 0 && (
+                  <div style={{ gridColumn: "1/-1", padding: "32px", textAlign: "center", color: "#94a3b8", border: "2px dashed #e2e8f0", borderRadius: "8px" }}>
+                    No items found. Add one to get started.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
