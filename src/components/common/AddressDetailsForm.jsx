@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from "react";
-import api from "../../../api"; // adjust if needed
+import axios from 'axios';
+
+// Create axios instance for old backend API
+const api = axios.create({
+  baseURL: 'https://newapi.bharatproperties.co/'
+});
 
 // Helper dropdown styles (UNCHANGED)
 const getDropdownStyle = (disabled) => ({
@@ -13,13 +18,13 @@ const getDropdownStyle = (disabled) => ({
   backgroundColor: disabled ? "#f1f5f9" : "#fff",
   cursor: disabled ? "not-allowed" : "pointer",
 });
-  const labelStyle = {
-    fontSize: "0.9rem",
-    fontWeight: 600,
-    color: "#334155",
-    marginBottom: "12px",
-    display: "block",
-  };
+const labelStyle = {
+  fontSize: "0.9rem",
+  fontWeight: 600,
+  color: "#334155",
+  marginBottom: "12px",
+  display: "block",
+};
 
 const getDisabledStyle = () => ({
   ...getDropdownStyle(true),
@@ -140,23 +145,23 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
     loadPO();
   }, [address.tehsil]);
 
-// Post Office → Pin Code (auto-fill only)
-useEffect(() => {
-  if (!address.postOffice) {
-    return;
-  }
-
-  const loadPin = async () => {
-    const data = await fetchLookup("Pincode", address.postOffice);
-
-    // If only one pincode available → auto select
-    if (data.length === 1) {
-      handleAddressChange({ pinCode: data[0].lookup_value });
+  // Post Office → Pin Code (auto-fill only)
+  useEffect(() => {
+    if (!address.postOffice) {
+      return;
     }
-  };
 
-  loadPin();
-}, [address.postOffice]);
+    const loadPin = async () => {
+      const data = await fetchLookup("Pincode", address.postOffice);
+
+      // If only one pincode available → auto select
+      if (data.length === 1) {
+        handleAddressChange({ pinCode: data[0].lookup_value });
+      }
+    };
+
+    loadPin();
+  }, [address.postOffice]);
 
 
   return (
@@ -166,10 +171,10 @@ useEffect(() => {
       </h3>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-        
+
         {/* Row 1 */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "20px" }}>
-          
+
           {/* Country */}
           <div>
             <label style={labelStyle}>Country</label>
@@ -253,7 +258,7 @@ useEffect(() => {
 
         {/* Row 2 */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "20px" }}>
-          
+
           {/* Location */}
           <div>
             <label style={labelStyle}>Location/Sector</label>
@@ -326,30 +331,30 @@ useEffect(() => {
             </select>
           </div>
 
-        {/* Pin Code */}
-<div>
-  <label style={labelStyle}>Pin Code</label>
-  <input
-    type="text"
-    placeholder="Enter Pin Code"
-    value={address.pinCode || ""}
-    onChange={(e) =>
-      handleAddressChange({ pinCode: e.target.value })
-    }
-    disabled={!address.postOffice}
-    style={
-      !address.postOffice
-        ? getDisabledStyle()
-        : getDropdownStyle(false)
-    }
-  />
-</div>
+          {/* Pin Code */}
+          <div>
+            <label style={labelStyle}>Pin Code</label>
+            <input
+              type="text"
+              placeholder="Enter Pin Code"
+              value={address.pinCode || ""}
+              onChange={(e) =>
+                handleAddressChange({ pinCode: e.target.value })
+              }
+              disabled={!address.postOffice}
+              style={
+                !address.postOffice
+                  ? getDisabledStyle()
+                  : getDropdownStyle(false)
+              }
+            />
+          </div>
 
         </div>
 
         {/* Row 3 */}
         <div style={{ display: "grid", gridTemplateColumns: "120px 2fr 1fr", gap: "20px" }}>
-          
+
           <div>
             <label style={labelStyle}>House Number</label>
             <input

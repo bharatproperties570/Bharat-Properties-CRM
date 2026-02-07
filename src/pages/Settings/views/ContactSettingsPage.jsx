@@ -1,6 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import Toast from "../../../components/Toast";
-import api from "../../../../api";
+import axios from 'axios';
+
+// Create axios instance for old backend API
+const api = axios.create({
+  baseURL: 'https://newapi.bharatproperties.co/'
+});
 import Swal from "sweetalert2";
 
 
@@ -23,40 +28,40 @@ const HIERARCHY_LEVELS = {
   Title: [
     { title: "Title", lookup_type: "Title" },
   ],
-    "Country Code": [
+  "Country Code": [
     { title: "Country Code", lookup_type: "Country-Code" },
   ],
-    Source: [
+  Source: [
     { title: "Source", lookup_type: "Source" },
   ],
-      Team: [
+  Team: [
     { title: "Team", lookup_type: "Team" },
   ],
-       VisibleTo: [
+  VisibleTo: [
     { title: "Visibility", lookup_type: "Visibility" },
   ],
-         "Document Category": [
+  "Document Category": [
     { title: "Document Category", lookup_type: "Document-Category" },
   ],
-           "Document Type": [
+  "Document Type": [
     { title: "Document Type", lookup_type: "Document-Type" },
   ],
-             "Education Level": [
+  "Education Level": [
     { title: "Education Level", lookup_type: "Education-Level" },
   ],
-               "Degree": [
+  "Degree": [
     { title: "Degree", lookup_type: "Degree" },
   ],
-                 "Income Source": [
+  "Income Source": [
     { title: "Income Source", lookup_type: "Income-Source" },
   ],
-                   "Loan Type": [
+  "Loan Type": [
     { title: "Loan Type", lookup_type: "Loan Type" },
   ],
-                   "Bank": [
+  "Bank": [
     { title: "Bank", lookup_type: "Bank" },
   ],
-                   "Social Plateform": [
+  "Social Plateform": [
     { title: "Social Plateform", lookup_type: "Social Plateform" },
   ],
 };
@@ -182,19 +187,19 @@ const ContactSettingsPage = () => {
   };
 
   const scrollRef = useRef();
-const scrollLeft = () => {
-  scrollRef.current.scrollBy({
-    left: -200,
-    behavior: "smooth",
-  });
-};
+  const scrollLeft = () => {
+    scrollRef.current.scrollBy({
+      left: -200,
+      behavior: "smooth",
+    });
+  };
 
-const scrollRight = () => {
-  scrollRef.current.scrollBy({
-    left: 200,
-    behavior: "smooth",
-  });
-};
+  const scrollRight = () => {
+    scrollRef.current.scrollBy({
+      left: 200,
+      behavior: "smooth",
+    });
+  };
 
   // ---------------- FETCH DATA PER LEVEL ----------------
   const fetchLookups = async (levelIndex) => {
@@ -233,20 +238,20 @@ const scrollRight = () => {
   const handleAdd = async (levelIndex) => {
     const level = HIERARCHY_LEVELS[activeTab][levelIndex];
     const parentId = levelIndex === 0 ? null : selectedPath[levelIndex - 1];
-    
-     const { value: name } = await Swal.fire({
-    title: `Enter ${level.title}`,
-    input: "text",
-    inputPlaceholder: `Enter ${level.title} name`,
-    showCancelButton: true,
-    confirmButtonText: "Add",
-    cancelButtonText: "Cancel",
-    inputValidator: (value) => {
-      if (!value) {
-        return "Name is required!";
-      }
-    },
-  });
+
+    const { value: name } = await Swal.fire({
+      title: `Enter ${level.title}`,
+      input: "text",
+      inputPlaceholder: `Enter ${level.title} name`,
+      showCancelButton: true,
+      confirmButtonText: "Add",
+      cancelButtonText: "Cancel",
+      inputValidator: (value) => {
+        if (!value) {
+          return "Name is required!";
+        }
+      },
+    });
     if (!name) return;
 
     try {
@@ -353,64 +358,64 @@ const scrollRight = () => {
       )}
 
       {/* Tabs */}
-   <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-  
-  {/* Left Arrow */}
-  <button
-    onClick={scrollLeft}
-    style={{
-      border: "none",
-      background: "#f1f5f9",
-      padding: "6px 10px",
-      cursor: "pointer",
-      borderRadius: "6px",
-    }}
-  >
-    ◀
-  </button>
+      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
 
-  {/* Slider Container */}
-  <div
-    ref={scrollRef}
-    style={{
-      display: "flex",
-      gap: "32px",
-      overflow: "hidden",
-      scrollBehavior: "smooth",
-      whiteSpace: "nowrap",
-      flex: 1,
-    }}
-  >
-    {Object.keys(HIERARCHY_LEVELS).map((tab) => (
-      <div
-        key={tab}
-        onClick={() => setActiveTab(tab)}
-        style={{
-          cursor: "pointer",
-          fontWeight: activeTab === tab ? 700 : 500,
-          color: activeTab === tab ? "#3b82f6" : "#64748b",
-          flexShrink: 0,
-        }}
-      >
-        {tab}
+        {/* Left Arrow */}
+        <button
+          onClick={scrollLeft}
+          style={{
+            border: "none",
+            background: "#f1f5f9",
+            padding: "6px 10px",
+            cursor: "pointer",
+            borderRadius: "6px",
+          }}
+        >
+          ◀
+        </button>
+
+        {/* Slider Container */}
+        <div
+          ref={scrollRef}
+          style={{
+            display: "flex",
+            gap: "32px",
+            overflow: "hidden",
+            scrollBehavior: "smooth",
+            whiteSpace: "nowrap",
+            flex: 1,
+          }}
+        >
+          {Object.keys(HIERARCHY_LEVELS).map((tab) => (
+            <div
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              style={{
+                cursor: "pointer",
+                fontWeight: activeTab === tab ? 700 : 500,
+                color: activeTab === tab ? "#3b82f6" : "#64748b",
+                flexShrink: 0,
+              }}
+            >
+              {tab}
+            </div>
+          ))}
+        </div>
+
+        {/* Right Arrow */}
+        <button
+          onClick={scrollRight}
+          style={{
+            border: "none",
+            background: "#f1f5f9",
+            padding: "6px 10px",
+            cursor: "pointer",
+            borderRadius: "6px",
+          }}
+        >
+          ▶
+        </button>
       </div>
-    ))}
-  </div>
-
-  {/* Right Arrow */}
-  <button
-    onClick={scrollRight}
-    style={{
-      border: "none",
-      background: "#f1f5f9",
-      padding: "6px 10px",
-      cursor: "pointer",
-      borderRadius: "6px",
-    }}
-  >
-    ▶
-  </button>
-</div>
 
 
       {/* Columns */}

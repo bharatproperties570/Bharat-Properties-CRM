@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useCallback } from "react";
 import toast from "react-hot-toast";
-import api from "../../../api"; // Import API
+import axios from 'axios';
+
+// Create axios instance for old backend API
+const api = axios.create({
+  baseURL: 'https://newapi.bharatproperties.co/'
+});
 import { getInitials, getSourceBadgeClass } from "../../utils/helpers";
 import { useContactSync } from "../../hooks/useContactSync";
 import SendMailModal from "./components/SendMailModal";
@@ -100,7 +105,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   useEffect(() => {
     fetchContacts();
   }, [fetchContacts]);
-console.log(contacts);
+  console.log(contacts);
 
   // ==============delete contact======================
 

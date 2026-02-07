@@ -1,7 +1,12 @@
 // src/hooks/useLookup.js
 
 import { useState, useEffect, useCallback } from "react";
-import api from "../../api"; // adjust path if needed
+import axios from 'axios';
+
+// Create axios instance for old backend API
+const api = axios.create({
+  baseURL: 'https://newapi.bharatproperties.co/'
+});
 
 const useLookup = (lookup_type, parent_lookup_id = null, page = 1, limit = 1000) => {
   const [data, setData] = useState([]);
