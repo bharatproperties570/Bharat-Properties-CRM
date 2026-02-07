@@ -1,10 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import axios from 'axios';
-
-// Create axios instance for old backend API
-const api = axios.create({
-    baseURL: 'https://newapi.bharatproperties.co/'
-});
+import { api } from '../utils/api';
 
 const ContactConfigContext = createContext();
 
@@ -27,9 +22,9 @@ export const ContactConfigProvider = ({ children }) => {
             setLoading(true);
 
             const [profRes, addrRes, profiRes] = await Promise.all([
-                api.get('api/LookupList', { params: { lookup_type: 'Professional' } }),
-                api.get('api/LookupList', { params: { lookup_type: 'Address' } }),
-                api.get('api/LookupList', { params: { lookup_type: 'Profile' } })
+                api.get('/lookups', { params: { lookup_type: 'Professional' } }),
+                api.get('/lookups', { params: { lookup_type: 'Address' } }),
+                api.get('/lookups', { params: { lookup_type: 'Profile' } })
             ]);
 
 
@@ -95,7 +90,7 @@ export const ContactConfigProvider = ({ children }) => {
 
     const addLookup = async (type, value, parentValue) => {
         try {
-            await api.post('api/SaveLookup', {
+            await api.post('/lookups', {
                 lookup_type: type,
                 lookup_value: value,
                 parent_lookup_value: parentValue
@@ -111,8 +106,7 @@ export const ContactConfigProvider = ({ children }) => {
     const updateLookup = async (id, value, type, parentValue) => {
         try {
             // Backend uses SaveLookup for update if lookup_id is present
-            await api.post('api/SaveLookup', {
-                lookup_id: id,
+            await api.put(`/lookups/${id}`, {
                 lookup_value: value,
                 lookup_type: type,
                 parent_lookup_value: parentValue
@@ -128,7 +122,7 @@ export const ContactConfigProvider = ({ children }) => {
     const deleteLookup = async (id) => {
         try {
             // Using params object for cleaner query string construction
-            await api.delete(`api/RemoveLookup?id=${id}`);
+            await api.delete(`/lookups/${id}`);
             await fetchLookups(); // Refresh
             return true;
         } catch (error) {

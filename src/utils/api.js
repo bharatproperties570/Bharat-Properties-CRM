@@ -1,5 +1,15 @@
 // API Configuration
-const API_BASE_URL = 'http://localhost:5002/api';
+import axios from 'axios';
+
+export const API_BASE_URL = 'http://localhost:5002';
+
+// Create and export axios instance
+export const api = axios.create({
+    baseURL: API_BASE_URL,
+    headers: {
+        'Content-Type': 'application/json'
+    }
+});
 
 // Generic API request handler
 const apiRequest = async (endpoint, options = {}) => {
@@ -27,7 +37,7 @@ const apiRequest = async (endpoint, options = {}) => {
 // Lookups API
 export const lookupsAPI = {
     getAll: () => apiRequest('/lookups'),
-    getByCategory: (category) => apiRequest(`/lookups/category/${category}`),
+    getByCategory: (category) => apiRequest(`/lookups?lookup_type=${category}`),
     create: (data) => apiRequest('/lookups', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => apiRequest(`/lookups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => apiRequest(`/lookups/${id}`, { method: 'DELETE' }),

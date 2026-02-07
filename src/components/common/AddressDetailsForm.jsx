@@ -1,10 +1,5 @@
 import React, { useState, useEffect } from "react";
-import axios from 'axios';
-
-// Create axios instance for old backend API
-const api = axios.create({
-  baseURL: 'https://newapi.bharatproperties.co/'
-});
+import { api } from "../../utils/api";
 
 // Helper dropdown styles (UNCHANGED)
 const getDropdownStyle = (disabled) => ({
@@ -47,7 +42,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
   // Generic Fetch Function
   const fetchLookup = async (lookup_type, parent_lookup_id = null) => {
     try {
-      const res = await api.get("api/LookupList", {
+      const res = await api.get("/lookups", {
         params: {
           lookup_type,
           parent_lookup_id,

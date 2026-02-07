@@ -1,11 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import Toast from "../../../components/Toast";
-import axios from 'axios';
-
-// Create axios instance for old backend API
-const api = axios.create({
-  baseURL: 'https://newapi.bharatproperties.co/'
-});
+import { api } from "../../../utils/api";
 import Swal from "sweetalert2";
 
 
@@ -207,7 +202,7 @@ const ContactSettingsPage = () => {
     const parentId = levelIndex === 0 ? null : selectedPath[levelIndex - 1];
 
     try {
-      const res = await api.get("api/LookupList", {
+      const res = await api.get("/lookups", {
         params: {
           lookup_type: level.lookup_type,
           parent_lookup_id: parentId,
@@ -255,7 +250,7 @@ const ContactSettingsPage = () => {
     if (!name) return;
 
     try {
-      const res = await api.post("api/SaveLookup", {
+      const res = await api.post("/lookups", {
         lookup_type: level.lookup_type,
         lookup_value: name,
         parent_lookup_id: parentId,
@@ -286,8 +281,7 @@ const ContactSettingsPage = () => {
     if (!newName) return;
 
     try {
-      const res = await api.post("api/SaveLookup", {
-        lookup_id: item._id,
+      const res = await api.put(`/lookups/${item._id}`, {
         lookup_type: item.lookup_type,
         lookup_value: newName,
         parent_lookup_id: item.parent_lookup_id || null,
@@ -310,7 +304,7 @@ const ContactSettingsPage = () => {
     if (!window.confirm("Delete this item?")) return;
 
     try {
-      const res = await api.delete(`api/RemoveLookup?id=${item._id}`);
+      const res = await api.delete(`/lookups/${item._id}`);
 
       if (res.data.status === "success") {
         showToast("Deleted Successfully");

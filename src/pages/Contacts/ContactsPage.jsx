@@ -2,10 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import toast from "react-hot-toast";
 import axios from 'axios';
 
-// Create axios instance for old backend API
-const api = axios.create({
-  baseURL: 'https://newapi.bharatproperties.co/'
-});
+import { api } from "../../utils/api";
 import { getInitials, getSourceBadgeClass } from "../../utils/helpers";
 import { useContactSync } from "../../hooks/useContactSync";
 import SendMailModal from "./components/SendMailModal";
@@ -119,7 +116,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
       toast.loading("Deleting selected contacts...");
 
       for (const id of selectedIds) {
-        await api.delete(`delete-contact/${id}`);
+        await api.delete(`contacts/${id}`);
       }
 
       toast.dismiss();
@@ -132,6 +129,20 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
       toast.dismiss();
       toast.error("Failed to delete contacts");
       console.error("Delete error:", error);
+    }
+  };
+
+  const handleSingleDelete = async (e, id) => {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this contact?")) return;
+
+    try {
+      await api.delete(`contacts/${id}`);
+      toast.success("Contact deleted successfully");
+      fetchContacts(); // Refresh list instead of full reload
+    } catch (error) {
+      console.error("Delete error:", error);
+      toast.error("Failed to delete contact");
     }
   };
 
@@ -769,17 +780,17 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                         className="list-item contact-list-grid"
                         style={{
                           padding: "15px 2rem",
-                          background: isSelected(item?._id || item?.mobile)
+                          background: isSelected(item?._id)
                             ? "#f0f9ff"
                             : "#fff",
                           transition: "all 0.2s",
                         }}
                         onMouseOver={(e) => {
-                          if (!isSelected(item?._id || item?.mobile))
+                          if (!isSelected(item?._id))
                             e.currentTarget.style.background = "#fafbfc";
                         }}
                         onMouseOut={(e) => {
-                          if (!isSelected(item?._id || item?.mobile))
+                          if (!isSelected(item?._id))
                             e.currentTarget.style.background = "#fff";
                           else e.currentTarget.style.background = "#f0f9ff";
                         }}
@@ -787,8 +798,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                         <input
                           type="checkbox"
                           className="item-check"
-                          checked={isSelected(item?._id || item?.mobile)}
-                          onChange={() => toggleSelect(item?._id || item?.mobile)}
+                          checked={isSelected(item?._id)}
+                          onChange={() => toggleSelect(item?._id)}
                         />
                         <div className="col-identity">
                           <div
@@ -884,9 +895,9 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             >
                               {item?.personalAddress ? (
                                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                  <div>{`${item.personalAddress.hNo || ""}, ${item.personalAddress.street || ""}, ${item.personalAddress.location.lookup_value || ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}</div>
+                                  <div>{`${item.personalAddress?.hNo || ""}, ${item.personalAddress?.street || ""}, ${item.personalAddress?.location?.lookup_value || item.personalAddress?.location || ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}</div>
                                   <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                    {`${item.personalAddress.area || ""}, ${item.personalAddress.city.lookup_value || ""}, ${item.personalAddress.state.lookup_value || ""} ${item.personalAddress.pinCode || ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}
+                                    {`${item.personalAddress?.area || ""}, ${item.personalAddress?.city?.lookup_value || item.personalAddress?.city || ""}, ${item.personalAddress?.state?.lookup_value || item.personalAddress?.state || ""} ${item.personalAddress?.pinCode || ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}
                                   </div>
                                 </div>
                               ) : item?.address || "Address not listed"}
@@ -911,8 +922,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                               }}
                             >
                               {(
-                                item?.professionCategory.lookup_value ||
-                                item?.professional.lookup_value ||
+                                item?.professionCategory?.lookup_value ||
+                                item?.professionCategory ||
+                                item?.professional?.lookup_value ||
+                                item?.professional ||
                                 "N/A"
                               ).toUpperCase()}
                             </span>
@@ -923,7 +936,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 fontWeight: 700,
                               }}
                             >
-                              {item?.designation.lookup_value || "-"}
+                              {item?.designation?.lookup_value || item?.designation || "-"}
                             </div>
                             <div
                               style={{
@@ -973,7 +986,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                   fontSize: "0.6rem",
                                 }}
                               ></i>
-                              {item?.source.lookup_value || "N/A"}
+                              {item?.source?.lookup_value || item?.source || "N/A"}
                             </span>
                             {item?.tags && item?.tags?.length > 0 && (
                               <div
@@ -1094,13 +1107,6 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                   transform: "scaleX(-1) rotate(5deg)",
                                 }}
                               ></i>
-                              <i
-                                className="fab fa-whatsapp"
-                                style={{
-                                  color: "#25D366",
-                                  fontSize: "0.75rem",
-                                }}
-                              ></i>
                             </div>
                           </div>
                         </div>
@@ -1172,34 +1178,26 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                   <div
                     key={item._id || idx}
                     style={{
-                      background: isSelected(
-                        item?.phones?.[0]?.number || item.mobile,
-                      )
+                      background: isSelected(item?._id)
                         ? "#f0f9ff"
                         : "#fff",
-                      border: `2px solid ${isSelected(item?.phones?.[0]?.number || item.mobile) ? "#3b82f6" : "#e5e7eb"}`,
+                      border: `2px solid ${isSelected(item?._id) ? "#3b82f6" : "#e5e7eb"}`,
                       borderRadius: "10px",
                       overflow: "hidden",
                       transition: "all 0.2s",
-                      boxShadow: isSelected(
-                        item?.phones?.[0]?.number || item.mobile,
-                      )
+                      boxShadow: isSelected(item?._id)
                         ? "0 4px 12px rgba(59, 130, 246, 0.15)"
                         : "0 1px 3px rgba(0,0,0,0.1)",
                     }}
                     onMouseEnter={(e) => {
-                      if (
-                        !isSelected(item?.phones?.[0]?.number || item.mobile)
-                      ) {
+                      if (!isSelected(item?._id)) {
                         e.currentTarget.style.boxShadow =
                           "0 4px 12px rgba(0,0,0,0.15)";
                         e.currentTarget.style.transform = "translateY(-2px)";
                       }
                     }}
                     onMouseLeave={(e) => {
-                      if (
-                        !isSelected(item?.phones?.[0]?.number || item.mobile)
-                      ) {
+                      if (!isSelected(item?._id)) {
                         e.currentTarget.style.boxShadow =
                           "0 1px 3px rgba(0,0,0,0.1)";
                         e.currentTarget.style.transform = "translateY(0)";
@@ -1210,9 +1208,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                     <div
                       style={{
                         padding: "12px",
-                        background: isSelected(
-                          item?.phones?.[0]?.number || item.mobile,
-                        )
+                        background: isSelected(item?._id)
                           ? "#dbeafe"
                           : "#f9fafb",
                         borderBottom: "1px solid #e5e7eb",

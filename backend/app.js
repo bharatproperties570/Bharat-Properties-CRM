@@ -8,6 +8,8 @@ import inventoryRoutes from "./routes/inventory.routes.js";
 import projectRoutes from "./routes/project.routes.js";
 import lookupRoutes from "./routes/lookup.routes.js";
 import activityRoutes from "./routes/activity.routes.js";
+import fieldRuleRoutes from "./routes/fieldRule.routes.js";
+import distributionRuleRoutes from "./routes/distributionRule.routes.js";
 
 const app = express();
 
@@ -25,8 +27,11 @@ app.use("/leads", leadRoutes);
 app.use("/contacts", contactRoutes);
 app.use("/inventory", inventoryRoutes);
 app.use("/projects", projectRoutes);
-app.use("/lookup", lookupRoutes);
+app.use("/lookup", lookupRoutes); // This now supports legacy query params
+app.use("/lookups", lookupRoutes); // Alias for RESTful style
 app.use("/activities", activityRoutes);
+app.use("/field-rules", fieldRuleRoutes);
+app.use("/distribution-rules", distributionRuleRoutes);
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {

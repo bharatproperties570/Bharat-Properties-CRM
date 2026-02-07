@@ -98,3 +98,74 @@ export const getContact = async (req, res, next) => {
         next(error);
     }
 };
+
+/**
+ * @desc    Update contact
+     * @route   PUT /contacts/:id
+     * @access  Private
+     */
+export const updateContact = async (req, res, next) => {
+    try {
+        if (process.env.MOCK_MODE === 'true') {
+            const contact = mockStore.updateContact(req.params.id, req.body);
+            if (!contact) return res.status(404).json({ success: false, message: "Contact not found" });
+            return res.status(200).json({ success: true, data: contact });
+        }
+
+        const contact = await Contact.findByIdAndUpdate(req.params.id, req.body, {
+            new: true,
+            runValidators: true
+        });
+
+        if (!contact) {
+            return res.status(404).json({
+                success: false,
+                message: "Contact not found"
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: contact
+        });
+    } catch (error) {
+        if (error.code === 11000) {
+            return res.status(400).json({
+                success: false,
+                message: "Contact with this mobile already exists"
+            });
+        }
+        next(error);
+    }
+};
+
+/**
+ * @desc    Delete contact
+ * @route   DELETE /contacts/:id
+ * @access  Private
+ */
+export const deleteContact = async (req, res, next) => {
+    try {
+        if (process.env.MOCK_MODE === 'true') {
+            const success = mockStore.deleteContact(req.params.id);
+            if (!success) return res.status(404).json({ success: false, message: "Contact not found" });
+            return res.status(200).json({ success: true, data: {} });
+        }
+
+        const contact = await Contact.findByIdAndDelete(req.params.id);
+
+        if (!contact) {
+            return res.status(404).json({
+                success: false,
+                message: "Contact not found"
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {}
+        });
+    } catch (error) {
+        next(error);
+    }
+};

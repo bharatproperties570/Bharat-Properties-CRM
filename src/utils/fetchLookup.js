@@ -1,9 +1,6 @@
-import axios from 'axios';
+import { api } from "./api";
 
-// Create axios instance for old backend API
-const api = axios.create({
-  baseURL: 'https://newapi.bharatproperties.co/'
-});
+// Create axios instance for old backend API (REMOVED)
 
 export const fetchLookup = async (
   lookup_type,
@@ -14,7 +11,7 @@ export const fetchLookup = async (
   try {
 
 
-    const res = await api.get("api/LookupList", {
+    const res = await api.get("/lookups", {
       params: {
         lookup_type,
         parent_lookup_id,

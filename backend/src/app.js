@@ -11,6 +11,11 @@ import lookupRoutes from "../routes/lookup.routes.js";
 import activityRoutes from "../routes/activity.routes.js";
 
 // New settings module routes
+import myFieldRuleRoutes from "../routes/fieldRule.routes.js"; // My implementation
+import myDistributionRuleRoutes from "../routes/distributionRule.routes.js"; // My implementation
+
+// Existing structure (kept for safety)
+// import userRoutes from "./modules/users/user.routes.js"; (Not touching imports unless needed)
 import userRoutes from "./modules/users/user.routes.js";
 import roleRoutes from "./modules/roles/role.routes.js";
 import configLookupRoutes from "./modules/lookups/lookup.routes.js";
@@ -41,7 +46,10 @@ app.use("/contacts", contactRoutes);
 app.use("/inventory", inventoryRoutes);
 app.use("/projects", projectRoutes);
 app.use("/lookup", lookupRoutes);
+app.use("/lookups", lookupRoutes); // Alias for RESTful style
 app.use("/activities", activityRoutes);
+app.use("/field-rules", myFieldRuleRoutes);
+app.use("/distribution-rules", myDistributionRuleRoutes);
 
 // New settings API routes
 app.use("/api/users", userRoutes);

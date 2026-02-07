@@ -2,10 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import toast from "react-hot-toast";
 import axios from 'axios';
 
-// Create axios instance for old backend API
-const api = axios.create({
-  baseURL: 'https://newapi.bharatproperties.co/'
-});
+import { api } from "../utils/api";
 
 import { usePropertyConfig } from "../context/PropertyConfigContext";
 import { useContactConfig } from "../context/ContactConfigContext";
@@ -878,10 +875,15 @@ const AddContactModal = ({
         }
       }
 
-      const response = await api.post("contacts", formData);
+      let response;
+      if (mode === "edit" && initialData?._id) {
+        response = await api.put(`contacts/${initialData._id}`, formData);
+      } else {
+        response = await api.post("contacts", formData);
+      }
 
       if (response.data && response.data.success) {
-        toast.success("Contact added successfully!", { id: toastId });
+        toast.success(mode === "edit" ? "Contact updated successfully!" : "Contact added successfully!", { id: toastId });
         if (onAdd) onAdd(response.data.data); // Pass the created contact back
         onClose();
       } else {
