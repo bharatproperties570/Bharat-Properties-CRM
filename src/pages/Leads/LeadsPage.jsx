@@ -1,7 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import PipelineDashboard from '../../components/PipelineDashboard';
 import { leadData } from '../../data/mockData';
-import api from '../../../api';
+import axios from 'axios';
+
+// Create axios instance for old backend API
+const api = axios.create({
+    baseURL: 'https://newapi.bharatproperties.co/'
+});
 import { getInitials } from '../../utils/helpers';
 import SendMessageModal from '../../components/SendMessageModal';
 import ManageTagsModal from '../../components/ManageTagsModal';

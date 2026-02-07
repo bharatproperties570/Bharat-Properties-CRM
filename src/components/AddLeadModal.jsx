@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import api from '../../api'; // Import API for contact search
+import axios from 'axios';
+
+// Create axios instance for old backend API
+const api = axios.create({
+    baseURL: 'https://newapi.bharatproperties.co/'
+});
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useFieldRules } from '../context/FieldRulesContext';
 import { useDistribution } from '../context/DistributionContext';

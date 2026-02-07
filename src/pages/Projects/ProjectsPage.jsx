@@ -2,7 +2,12 @@ import React, { useState } from 'react';
 import { PROJECTS_LIST } from '../../data/projectData';
 import AddProjectModal from '../../components/AddProjectModal';
 import AddProjectPriceModal from '../../components/AddProjectPriceModal';
-import api from '../../../api';
+import axios from 'axios';
+
+// Create axios instance for old backend API
+const api = axios.create({
+    baseURL: 'https://newapi.bharatproperties.co/'
+});
 import UploadModal from '../../components/UploadModal';
 import AddDocumentModal from '../../components/AddDocumentModal';
 import ProjectFilterPanel from './components/ProjectFilterPanel';

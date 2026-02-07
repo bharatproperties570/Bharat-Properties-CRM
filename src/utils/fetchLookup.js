@@ -1,4 +1,9 @@
-import api from "../../api"; // adjust path
+import axios from 'axios';
+
+// Create axios instance for old backend API
+const api = axios.create({
+  baseURL: 'https://newapi.bharatproperties.co/'
+});
 
 export const fetchLookup = async (
   lookup_type,
@@ -8,7 +13,7 @@ export const fetchLookup = async (
 ) => {
   try {
 
-    
+
     const res = await api.get("api/LookupList", {
       params: {
         lookup_type,

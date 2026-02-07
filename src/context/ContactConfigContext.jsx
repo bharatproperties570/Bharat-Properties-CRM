@@ -1,5 +1,10 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import api from '../../api';
+import axios from 'axios';
+
+// Create axios instance for old backend API
+const api = axios.create({
+    baseURL: 'https://newapi.bharatproperties.co/'
+});
 
 const ContactConfigContext = createContext();
 

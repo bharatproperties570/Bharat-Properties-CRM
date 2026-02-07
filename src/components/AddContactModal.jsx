@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import toast from "react-hot-toast";
+import axios from 'axios';
+
+// Create axios instance for old backend API
+const api = axios.create({
+  baseURL: 'https://newapi.bharatproperties.co/'
+});
+
 import { usePropertyConfig } from "../context/PropertyConfigContext";
 import { useContactConfig } from "../context/ContactConfigContext";
 import { useFieldRules } from "../context/FieldRulesContext";
@@ -799,14 +806,14 @@ const AddContactModal = ({
   const [doc_type, setdoc_type] = useState([]);
   const [edu_level, setedu_level] = useState([]);
   const [degree, setdegree] = useState([]);
-   const [income_source, setincome_source] = useState([]);
-    const [loan_type, setloan_type] = useState([]);
-    const [bank, setbank] = useState([]);
-     const [social_plateform, setsocial_plateform] = useState([]);
-const [professionCategories, setProfessionCategories] = useState([]);
-const [professionSubCategories, setProfessionSubCategories] = useState([]);
-const [designation, setDesignation] = useState([]);
-const [loading, setLoading] = useState("");
+  const [income_source, setincome_source] = useState([]);
+  const [loan_type, setloan_type] = useState([]);
+  const [bank, setbank] = useState([]);
+  const [social_plateform, setsocial_plateform] = useState([]);
+  const [professionCategories, setProfessionCategories] = useState([]);
+  const [professionSubCategories, setProfessionSubCategories] = useState([]);
+  const [designation, setDesignation] = useState([]);
+  const [loading, setLoading] = useState("");
 
 
   // Populate Initial Data if provided
@@ -1209,16 +1216,16 @@ const [loading, setLoading] = useState("");
                         </label>
                         <select
                           value={formData.title}
-                                                         onFocus={async () => {
-    if (title.length === 0) {
-      setLoading("title");
+                          onFocus={async () => {
+                            if (title.length === 0) {
+                              setLoading("title");
 
-      const data = await fetchLookup("Title");
+                              const data = await fetchLookup("Title");
 
-      setTitle(data);
-      setLoading("");
-    }
-  }}
+                              setTitle(data);
+                              setLoading("");
+                            }
+                          }}
                           onChange={(e) =>
                             handleInputChange("title", e.target.value)
                           }
@@ -1384,16 +1391,16 @@ const [loading, setLoading] = useState("");
                       >
                         <select
                           value={formData.countryCode}
-                                  onFocus={async () => {
-    if (countrycode.length === 0) {
-      setLoading("countrycode");
+                          onFocus={async () => {
+                            if (countrycode.length === 0) {
+                              setLoading("countrycode");
 
-      const data = await fetchLookup("Country-Code");
+                              const data = await fetchLookup("Country-Code");
 
-      setCountrycode(data);
-      setLoading("");
-    }
-  }}
+                              setCountrycode(data);
+                              setLoading("");
+                            }
+                          }}
                           onChange={(e) =>
                             handleInputChange("countryCode", e.target.value)
                           }
@@ -1768,27 +1775,27 @@ const [loading, setLoading] = useState("");
                             </label>
                             <select
                               value={formData.source}
-                               onFocus={async () => {
-    if (source.length === 0) {
-      setLoading("source");
+                              onFocus={async () => {
+                                if (source.length === 0) {
+                                  setLoading("source");
 
-      const data = await fetchLookup("Source");
+                                  const data = await fetchLookup("Source");
 
-      setsource(data);
-      setLoading("");
-    }
-  }}
+                                  setsource(data);
+                                  setLoading("");
+                                }
+                              }}
                               onChange={(e) =>
                                 handleInputChange("source", e.target.value)
                               }
                               style={customSelectStyle}
                             >
                               <option value="">Select Source</option>
-                             {source.map((c) => (
-                            <option key={c._id} value={c._id}>
-                              {c.lookup_value}
-                            </option>
-                          ))}
+                              {source.map((c) => (
+                                <option key={c._id} value={c._id}>
+                                  {c.lookup_value}
+                                </option>
+                              ))}
                             </select>
                           </div>
                         )}
@@ -1979,16 +1986,16 @@ const [loading, setLoading] = useState("");
                               </label>
                               <select
                                 value={formData.professionCategory}
-                                 onFocus={async () => {
-    if (professionCategories.length === 0) {
-      setLoading("category");
+                                onFocus={async () => {
+                                  if (professionCategories.length === 0) {
+                                    setLoading("category");
 
-      const data = await fetchLookup("ProfessionalCategory");
+                                    const data = await fetchLookup("ProfessionalCategory");
 
-      setProfessionCategories(data);
-      setLoading("");
-    }
-  }}
+                                    setProfessionCategories(data);
+                                    setLoading("");
+                                  }
+                                }}
                                 onChange={(e) => {
                                   handleInputChange(
                                     "professionCategory",
@@ -2026,16 +2033,16 @@ const [loading, setLoading] = useState("");
                               </label>
                               <select
                                 value={formData.professionSubCategory}
-                                                                 onFocus={async () => {
-    if (professionSubCategories.length === 0) {
-      setLoading("subcategory");
+                                onFocus={async () => {
+                                  if (professionSubCategories.length === 0) {
+                                    setLoading("subcategory");
 
-      const data = await fetchLookup("ProfessionalSubCategory",formData.professionCategory);
+                                    const data = await fetchLookup("ProfessionalSubCategory", formData.professionCategory);
 
-      setProfessionSubCategories(data);
-      setLoading("");
-    }
-  }}
+                                    setProfessionSubCategories(data);
+                                    setLoading("");
+                                  }
+                                }}
                                 onChange={(e) => {
                                   handleInputChange(
                                     "professionSubCategory",
@@ -2075,16 +2082,16 @@ const [loading, setLoading] = useState("");
                               </label>
                               <select
                                 value={formData.designation}
-                                                                                                 onFocus={async () => {
-    if (designation.length === 0) {
-      setLoading("designation");
+                                onFocus={async () => {
+                                  if (designation.length === 0) {
+                                    setLoading("designation");
 
-      const data = await fetchLookup("ProfessionalDesignation",formData.professionSubCategory);
+                                    const data = await fetchLookup("ProfessionalDesignation", formData.professionSubCategory);
 
-      setDesignation(data);
-      setLoading("");
-    }
-  }}
+                                    setDesignation(data);
+                                    setLoading("");
+                                  }
+                                }}
                                 onChange={(e) =>
                                   handleInputChange(
                                     "designation",
@@ -2101,10 +2108,10 @@ const [loading, setLoading] = useState("");
                                 <option value="">Select Designation</option>
                                 {formData.professionCategory &&
                                   designation.map((d) => (
-                                      <option key={d._id} value={d._id}>
-                                        {d.lookup_value}
-                                      </option>
-                                    ))}
+                                    <option key={d._id} value={d._id}>
+                                      {d.lookup_value}
+                                    </option>
+                                  ))}
                               </select>
                             </div>
 
@@ -2401,30 +2408,30 @@ const [loading, setLoading] = useState("");
                       </label>
                       <select
                         value={formData.team}
-                                                     onFocus={async () => {
-    if (team.length === 0) {
-      setLoading("team");
+                        onFocus={async () => {
+                          if (team.length === 0) {
+                            setLoading("team");
 
-      const data = await fetchLookup("Team");
+                            const data = await fetchLookup("Team");
 
-      setteam(data);
-      setLoading("");
-    }
-  }}
+                            setteam(data);
+                            setLoading("");
+                          }
+                        }}
                         onChange={(e) =>
                           handleInputChange("team", e.target.value)
                         }
                         style={customSelectStyle}
                       >
                         <option value="">Select Team</option>
-                     {
-                      team?.map((c)=>
-                      (
-                        <option key={c._id} value={c._id}>
-                          {c.lookup_value}
-                        </option>
-                      ))
-                     }
+                        {
+                          team?.map((c) =>
+                          (
+                            <option key={c._id} value={c._id}>
+                              {c.lookup_value}
+                            </option>
+                          ))
+                        }
                       </select>
                     </div>
                     <div>
@@ -2465,30 +2472,30 @@ const [loading, setLoading] = useState("");
                       </label>
                       <select
                         value={formData.visibleTo}
-                      onFocus={async () => {
-    if (visible.length === 0) {
-      setLoading("visible");
+                        onFocus={async () => {
+                          if (visible.length === 0) {
+                            setLoading("visible");
 
-      const data = await fetchLookup("Visibility");
+                            const data = await fetchLookup("Visibility");
 
-      setvisible(data);
-      setLoading("");
-    }
-  }}
+                            setvisible(data);
+                            setLoading("");
+                          }
+                        }}
                         onChange={(e) =>
                           handleInputChange("visibleTo", e.target.value)
                         }
                         style={customSelectStyle}
                       >
                         <option value="">Select Visibility</option>
-                     {
-                      visible?.map((c)=>
-                      (
-                        <option key={c._id} value={c._id}>
-                          {c.lookup_value}
-                        </option>
-                      ))
-                     }
+                        {
+                          visible?.map((c) =>
+                          (
+                            <option key={c._id} value={c._id}>
+                              {c.lookup_value}
+                            </option>
+                          ))
+                        }
                       </select>
                     </div>
                   </div>
@@ -2858,16 +2865,16 @@ const [loading, setLoading] = useState("");
                             <label style={labelStyle}>Category</label>
                             <select
                               value={doc.documentName}
-                onFocus={async () => {
-    if (doc_category.length === 0) {
-      setLoading("doc_category");
+                              onFocus={async () => {
+                                if (doc_category.length === 0) {
+                                  setLoading("doc_category");
 
-      const data = await fetchLookup("Document-Category");
+                                  const data = await fetchLookup("Document-Category");
 
-      setdoc_category(data);
-      setLoading("");
-    }
-  }}
+                                  setdoc_category(data);
+                                  setLoading("");
+                                }
+                              }}
                               onChange={(e) => {
                                 const newDocs = [...formData.documents];
                                 newDocs[index].documentName = e.target.value;
@@ -2892,16 +2899,16 @@ const [loading, setLoading] = useState("");
                             <label style={labelStyle}>Document Type</label>
                             <select
                               value={doc.documentType}
-                                             onFocus={async () => {
-    if (doc_type.length === 0) {
-      setLoading("doc_type");
+                              onFocus={async () => {
+                                if (doc_type.length === 0) {
+                                  setLoading("doc_type");
 
-      const data = await fetchLookup("Document-Type");
+                                  const data = await fetchLookup("Document-Type");
 
-      setdoc_type(data);
-      setLoading("");
-    }
-  }}
+                                  setdoc_type(data);
+                                  setLoading("");
+                                }
+                              }}
                               onChange={(e) => {
                                 const newDocs = [...formData.documents];
                                 newDocs[index].documentType = e.target.value;
@@ -3251,16 +3258,16 @@ const [loading, setLoading] = useState("");
                           </label>
                           <select
                             value={edu.education}
-                    onFocus={async () => {
-    if (edu_level.length === 0) {
-      setLoading("edu_level");
+                            onFocus={async () => {
+                              if (edu_level.length === 0) {
+                                setLoading("edu_level");
 
-      const data = await fetchLookup("Education-Level");
+                                const data = await fetchLookup("Education-Level");
 
-      setedu_level(data);
-      setLoading("");
-    }
-  }}
+                                setedu_level(data);
+                                setLoading("");
+                              }
+                            }}
                             onChange={(e) => {
                               const newEdu = [...formData.educations];
                               newEdu[index].education = e.target.value;
@@ -3290,16 +3297,16 @@ const [loading, setLoading] = useState("");
                           </label>
                           <select
                             value={edu.degree}
-                                               onFocus={async () => {
-    if (degree.length === 0) {
-      setLoading("degree");
+                            onFocus={async () => {
+                              if (degree.length === 0) {
+                                setLoading("degree");
 
-      const data = await fetchLookup("Degree");
+                                const data = await fetchLookup("Degree");
 
-      setdegree(data);
-      setLoading("");
-    }
-  }}
+                                setdegree(data);
+                                setLoading("");
+                              }
+                            }}
                             onChange={(e) => {
                               const newEdu = [...formData.educations];
                               newEdu[index].degree = e.target.value;
@@ -3433,16 +3440,16 @@ const [loading, setLoading] = useState("");
                     >
                       <select
                         value={inc.incomeType}
-              onFocus={async () => {
-    if (income_source.length === 0) {
-      setLoading("incomeSource");
+                        onFocus={async () => {
+                          if (income_source.length === 0) {
+                            setLoading("incomeSource");
 
-      const data = await fetchLookup("Income-Source");
+                            const data = await fetchLookup("Income-Source");
 
-      setincome_source(data);
-      setLoading("");
-    }
-  }}
+                            setincome_source(data);
+                            setLoading("");
+                          }
+                        }}
                         onChange={(e) => {
                           const newInc = [...formData.incomes];
                           newInc[index].incomeType = e.target.value;
@@ -3527,16 +3534,16 @@ const [loading, setLoading] = useState("");
                     >
                       <select
                         value={loan.loanType}
-                                     onFocus={async () => {
-    if (loan_type.length === 0) {
-      setLoading("loan-type");
+                        onFocus={async () => {
+                          if (loan_type.length === 0) {
+                            setLoading("loan-type");
 
-      const data = await fetchLookup("Loan Type");
+                            const data = await fetchLookup("Loan Type");
 
-      setloan_type(data);
-      setLoading("");
-    }
-  }}
+                            setloan_type(data);
+                            setLoading("");
+                          }
+                        }}
                         onChange={(e) => {
                           const newLoans = [...formData.loans];
                           newLoans[index].loanType = e.target.value;
@@ -3545,7 +3552,7 @@ const [loading, setLoading] = useState("");
                         style={customSelectStyle}
                       >
                         <option value="">Type</option>
-                         {loan_type.map((l) => (
+                        {loan_type.map((l) => (
                           <option key={l._id} value={l._id}>
                             {l.lookup_value}
                           </option>
@@ -3553,16 +3560,16 @@ const [loading, setLoading] = useState("");
                       </select>
                       <select
                         value={loan.bank}
-                                        onFocus={async () => {
-    if (bank.length === 0) {
-      setLoading("bank");
+                        onFocus={async () => {
+                          if (bank.length === 0) {
+                            setLoading("bank");
 
-      const data = await fetchLookup("Bank");
+                            const data = await fetchLookup("Bank");
 
-      setbank(data);
-      setLoading("");
-    }
-  }}
+                            setbank(data);
+                            setLoading("");
+                          }
+                        }}
                         onChange={(e) => {
                           const newLoans = [...formData.loans];
                           newLoans[index].bank = e.target.value;
@@ -3665,16 +3672,16 @@ const [loading, setLoading] = useState("");
                     >
                       <select
                         value={social.platform}
-                                                            onFocus={async () => {
-    if (social_plateform.length === 0) {
-      setLoading("social-plateform");
+                        onFocus={async () => {
+                          if (social_plateform.length === 0) {
+                            setLoading("social-plateform");
 
-      const data = await fetchLookup("Social Plateform");
+                            const data = await fetchLookup("Social Plateform");
 
-      setsocial_plateform(data);
-      setLoading("");
-    }
-  }}
+                            setsocial_plateform(data);
+                            setLoading("");
+                          }
+                        }}
                         onChange={(e) => {
                           const newSocial = [...formData.socialMedia];
                           newSocial[index].platform = e.target.value;
