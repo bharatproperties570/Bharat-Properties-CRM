@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Toast from "../../../components/Toast";
 import api from "../../../../api";
 import Swal from "sweetalert2";
@@ -20,10 +20,50 @@ const HIERARCHY_LEVELS = {
     { title: "Post Office", lookup_type: "PostOffice" },
     { title: "Pincode", lookup_type: "Pincode" },
   ],
-  Profile: [
+  Title: [
     { title: "Title", lookup_type: "Title" },
   ],
+    "Country Code": [
+    { title: "Country Code", lookup_type: "Country-Code" },
+  ],
+    Source: [
+    { title: "Source", lookup_type: "Source" },
+  ],
+      Team: [
+    { title: "Team", lookup_type: "Team" },
+  ],
+       VisibleTo: [
+    { title: "Visibility", lookup_type: "Visibility" },
+  ],
+         "Document Category": [
+    { title: "Document Category", lookup_type: "Document-Category" },
+  ],
+           "Document Type": [
+    { title: "Document Type", lookup_type: "Document-Type" },
+  ],
+             "Education Level": [
+    { title: "Education Level", lookup_type: "Education-Level" },
+  ],
+               "Degree": [
+    { title: "Degree", lookup_type: "Degree" },
+  ],
+                 "Income Source": [
+    { title: "Income Source", lookup_type: "Income-Source" },
+  ],
+                   "Loan Type": [
+    { title: "Loan Type", lookup_type: "Loan Type" },
+  ],
+                   "Bank": [
+    { title: "Bank", lookup_type: "Bank" },
+  ],
+                   "Social Plateform": [
+    { title: "Social Plateform", lookup_type: "Social Plateform" },
+  ],
 };
+
+
+
+
 
 // Column component
 const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onDelete }) => (
@@ -140,6 +180,21 @@ const ContactSettingsPage = () => {
   const showToast = (message, type = "success") => {
     setNotification({ show: true, message, type });
   };
+
+  const scrollRef = useRef();
+const scrollLeft = () => {
+  scrollRef.current.scrollBy({
+    left: -200,
+    behavior: "smooth",
+  });
+};
+
+const scrollRight = () => {
+  scrollRef.current.scrollBy({
+    left: 200,
+    behavior: "smooth",
+  });
+};
 
   // ---------------- FETCH DATA PER LEVEL ----------------
   const fetchLookups = async (levelIndex) => {
@@ -287,6 +342,7 @@ const ContactSettingsPage = () => {
   }
 
   return (
+
     <div style={{ flex: 1, background: "#f8fafc", padding: "24px" }}>
       {notification.show && (
         <Toast
@@ -297,23 +353,65 @@ const ContactSettingsPage = () => {
       )}
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: "32px", marginBottom: "20px" }}>
-        {Object.keys(HIERARCHY_LEVELS).map((tab) => (
-          <div
-            key={tab}
-            onClick={() => {
-              setActiveTab(tab);
-            }}
-            style={{
-              cursor: "pointer",
-              fontWeight: activeTab === tab ? 700 : 500,
-              color: activeTab === tab ? "#3b82f6" : "#64748b",
-            }}
-          >
-            {tab}
-          </div>
-        ))}
+   <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+  
+  {/* Left Arrow */}
+  <button
+    onClick={scrollLeft}
+    style={{
+      border: "none",
+      background: "#f1f5f9",
+      padding: "6px 10px",
+      cursor: "pointer",
+      borderRadius: "6px",
+    }}
+  >
+    ◀
+  </button>
+
+  {/* Slider Container */}
+  <div
+    ref={scrollRef}
+    style={{
+      display: "flex",
+      gap: "32px",
+      overflow: "hidden",
+      scrollBehavior: "smooth",
+      whiteSpace: "nowrap",
+      flex: 1,
+    }}
+  >
+    {Object.keys(HIERARCHY_LEVELS).map((tab) => (
+      <div
+        key={tab}
+        onClick={() => setActiveTab(tab)}
+        style={{
+          cursor: "pointer",
+          fontWeight: activeTab === tab ? 700 : 500,
+          color: activeTab === tab ? "#3b82f6" : "#64748b",
+          flexShrink: 0,
+        }}
+      >
+        {tab}
       </div>
+    ))}
+  </div>
+
+  {/* Right Arrow */}
+  <button
+    onClick={scrollRight}
+    style={{
+      border: "none",
+      background: "#f1f5f9",
+      padding: "6px 10px",
+      cursor: "pointer",
+      borderRadius: "6px",
+    }}
+  >
+    ▶
+  </button>
+</div>
+
 
       {/* Columns */}
       <div style={{ display: "flex", background: "#fff", borderRadius: "12px", border: "1px solid #e2e8f0", overflowX: "auto" }}>
