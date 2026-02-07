@@ -1592,7 +1592,7 @@ const AddContactModal = ({
 
                 {!showOnlyRequired && (
                   <>
-                    {/* Tags & Source Card */}
+                    {/* Campaign & Source Card */}
                     <div
                       style={{
                         background: "#fff",
@@ -1630,136 +1630,6 @@ const AddContactModal = ({
                           marginBottom: "20px",
                         }}
                       >
-                        {/* Company Name */}
-                        {!hiddenFields.includes("company") && (
-                          <div>
-                            {/* Hidden check applied */}
-                            <label
-                              style={{
-                                display: "block",
-                                fontSize: "0.85rem",
-                                fontWeight: 500,
-                                color: "#64748b",
-                                marginBottom: "8px",
-                              }}
-                            >
-                              Company Name
-                            </label>
-                            <div style={{ position: "relative" }}>
-                              <input
-                                type="text"
-                                placeholder="Select Company"
-                                value={formData.company}
-                                onChange={(e) => {
-                                  handleInputChange("company", e.target.value);
-                                  setCompanySearch(e.target.value);
-                                  setShowCompanyDropdown(true);
-                                }}
-                                onFocus={() => setShowCompanyDropdown(true)}
-                                style={inputStyle}
-                              />
-                              {formData.company && (
-                                <i
-                                  className="fas fa-times"
-                                  onClick={() =>
-                                    handleInputChange("company", "")
-                                  }
-                                  style={{
-                                    position: "absolute",
-                                    right: "35px",
-                                    top: "50%",
-                                    transform: "translateY(-50%)",
-                                    color: "#94a3b8",
-                                    cursor: "pointer",
-                                  }}
-                                ></i>
-                              )}
-                              <i
-                                className={`fas fa-chevron-down ${showCompanyDropdown ? "fa-rotate-180" : ""}`}
-                                style={{
-                                  position: "absolute",
-                                  right: "12px",
-                                  top: "50%",
-                                  transform: "translateY(-50%)",
-                                  color: "#94a3b8",
-                                  cursor: "pointer",
-                                  transition: "transform 0.2s",
-                                }}
-                                onClick={() =>
-                                  setShowCompanyDropdown(!showCompanyDropdown)
-                                }
-                              ></i>
-
-                              {showCompanyDropdown && (
-                                <div
-                                  style={{
-                                    position: "absolute",
-                                    top: "100%",
-                                    left: 0,
-                                    right: 0,
-                                    background: "#fff",
-                                    border: "1px solid #e2e8f0",
-                                    borderRadius: "6px",
-                                    marginTop: "4px",
-                                    zIndex: 10,
-                                    maxHeight: "200px",
-                                    overflowY: "auto",
-                                    boxShadow:
-                                      "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-                                  }}
-                                >
-                                  {companyList
-                                    .filter((c) =>
-                                      c
-                                        .toLowerCase()
-                                        .includes(companySearch.toLowerCase()),
-                                    )
-                                    .map((company, index) => (
-                                      <div
-                                        key={index}
-                                        onClick={() => {
-                                          handleInputChange("company", company);
-                                          setShowCompanyDropdown(false);
-                                        }}
-                                        style={{
-                                          padding: "10px 12px",
-                                          cursor: "pointer",
-                                          borderBottom: "1px solid #f1f5f9",
-                                          fontSize: "0.9rem",
-                                          color: "#334155",
-                                        }}
-                                        onMouseEnter={(e) =>
-                                        (e.target.style.background =
-                                          "#f8fafc")
-                                        }
-                                        onMouseLeave={(e) =>
-                                          (e.target.style.background = "#fff")
-                                        }
-                                      >
-                                        {company}
-                                      </div>
-                                    ))}
-                                  {companyList.filter((c) =>
-                                    c
-                                      .toLowerCase()
-                                      .includes(companySearch.toLowerCase()),
-                                  ).length === 0 && (
-                                      <div
-                                        style={{
-                                          padding: "12px",
-                                          textAlign: "center",
-                                          color: "#94a3b8",
-                                          fontSize: "0.85rem",
-                                        }}
-                                      >
-                                        No companies found
-                                      </div>
-                                    )}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
                         {/* Source */}
                         {!hiddenFields.includes("source") && (
                           <div>
