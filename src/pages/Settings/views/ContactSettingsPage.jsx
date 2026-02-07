@@ -7,7 +7,7 @@ import Swal from "sweetalert2";
 const TABS = [
   { id: "Professional", label: "Professional", type: "hierarchy" },
   { id: "Document", label: "Document", type: "hierarchy" },
-  { id: "Address", label: "Address", type: "flat" },
+  { id: "Address", label: "Address", type: "hierarchy" },
   { id: "Other", label: "Other", type: "flat" },
 ];
 
@@ -20,19 +20,22 @@ const HIERARCHY_CONFIG = {
   Document: [ // Document Category -> Document Type
     { title: "Document Category", lookup_type: "Document-Category" },
     { title: "Document Type", lookup_type: "Document-Type" },
-  ]
-};
-
-const FLAT_CONFIG = {
+  ],
   Address: [
     { title: "Country", lookup_type: "Country" },
     { title: "State", lookup_type: "State" },
     { title: "City", lookup_type: "City" },
-    { title: "Location", lookup_type: "Location" },
-    { title: "Tehsil", lookup_type: "Tehsil" },
+    {
+      title: "Location / Tehsil",
+      lookup_type: "Location", // Default type
+      mixed_types: ["Location", "Tehsil"] // Supports both
+    },
     { title: "Post Office", lookup_type: "PostOffice" },
-    { title: "Pincode", lookup_type: "Pincode" },
-  ],
+    { title: "Pin Code", lookup_type: "Pincode" },
+  ]
+};
+
+const FLAT_CONFIG = {
   Other: [ // Grouping all other tabs here as requested or implied by "Other"
     { title: "Title", lookup_type: "Title" },
     { title: "Country Code", lookup_type: "Country-Code" },
@@ -55,7 +58,8 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
   <div
     style={{
       minWidth: "280px",
-      width: "33%",
+      minWidth: "280px",
+      // width: "33%", // REMOVED fixed width
       borderRight: "1px solid #e2e8f0",
       display: "flex",
       flexDirection: "column",
@@ -125,7 +129,15 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
                 transition: "all 0.2s"
               }}
             >
-              <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "200px" }}>{item.lookup_value}</span>
+              <div style={{ display: 'flex', flexDirection: 'column', maxWidth: "200px" }}>
+                <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.lookup_value}</span>
+                {/* Show Type if mixed column (e.g. Location vs Tehsil) */}
+                {["Location", "Tehsil"].includes(item.lookup_type) && (
+                  <span style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "2px" }}>
+                    {item.lookup_type}
+                  </span>
+                )}
+              </div>
 
               <div style={{ display: "flex", gap: "8px", opacity: isSelected ? 1 : 0.4 }}>
                 <i
@@ -201,13 +213,17 @@ const ContactSettingsPage = () => {
     if (!levels[levelIndex]) return;
 
     try {
-      const res = await api.get("/lookups", {
-        params: {
-          lookup_type: levels[levelIndex].lookup_type,
-          parent_lookup_id: parentId,
-          page: 1, limit: 1000
-        }
-      });
+      const params = {
+        parent_lookup_id: parentId,
+        page: 1, limit: 1000
+      };
+
+      // If NOT mixed types, filter by specific lookup_type
+      if (!levels[levelIndex].mixed_types) {
+        params.lookup_type = levels[levelIndex].lookup_type;
+      }
+
+      const res = await api.get("/lookups", { params });
       if (res.data.status === "success") {
         setHierarchyData(prev => ({
           ...prev,
@@ -264,6 +280,39 @@ const ContactSettingsPage = () => {
         inputValue = formValues.name;
         inputCode = formValues.code;
       }
+    } else if (section.mixed_types) {
+      // Mixed Types Modal (Radio Selection)
+      const { value: formValues } = await Swal.fire({
+        title: `Add ${section.title}`,
+        html: `
+          <input id="swal-input1" class="swal2-input" placeholder="Enter Name">
+          <div style="margin-top: 15px; text-align: left; display: flex; justify-content: center; gap: 20px;">
+            ${section.mixed_types.map(type => `
+              <label style="cursor: pointer;">
+                <input type="radio" name="swal-radio" value="${type}" ${type === section.lookup_type ? 'checked' : ''}>
+                ${type}
+              </label>
+            `).join('')}
+          </div>
+        `,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText: "Add",
+        preConfirm: () => {
+          const name = document.getElementById('swal-input1').value;
+          const type = document.querySelector('input[name="swal-radio"]:checked')?.value;
+          if (!name) return Swal.showValidationMessage('Name is required');
+          if (!type) return Swal.showValidationMessage('Please select a type');
+          return { name, type };
+        }
+      });
+
+      if (formValues) {
+        inputValue = formValues.name;
+        // Override the section.lookup_type with the selected type for this item
+        section = { ...section, lookup_type: formValues.type };
+      }
+
     } else {
       // Standard Modal
       const { value: name } = await Swal.fire({
@@ -387,8 +436,20 @@ const ContactSettingsPage = () => {
       <div style={{ display: "flex", background: "#fff", borderRadius: "12px", border: "1px solid #e2e8f0", overflowX: "auto", height: "calc(100vh - 200px)", minHeight: "500px" }}>
         {levels.map((level, index) => {
           // Show column if index is 0 OR parent is selected
-          const shouldShow = index === 0 || selectedPath[index - 1];
-          if (!shouldShow) return <div key={index} style={{ width: "33%", background: "#f9fafb", borderRight: "1px dashed #e2e8f0" }}></div>;
+          const parentItem = index > 0 ? selectedPath[index - 1] : null;
+
+          // HIERARCHY RULE:
+          // If Level 3 is "Tehsil", hide ALL subsequent columns (Post Office, Pin Code)
+          const level3Item = selectedPath[3];
+          if (level3Item && level3Item.lookup_type === "Tehsil" && index > 3) {
+            return null;
+          }
+
+          const shouldShow = index === 0 || parentItem;
+          // Use minWidth instead of width% to allow scrolling
+          const colStyle = { minWidth: "280px", flexShrink: 0, borderRight: "1px solid #e2e8f0" };
+
+          if (!shouldShow) return <div key={index} style={{ ...colStyle, background: "#f9fafb", borderRight: "1px dashed #e2e8f0", display: "flex", alignItems: "center", justifyContent: "center", color: "#cbd5e1" }}>Pending Selection</div>;
 
           // Parent ID for Adding New Items
           const parentId = index === 0 ? null : selectedPath[index - 1]._id;

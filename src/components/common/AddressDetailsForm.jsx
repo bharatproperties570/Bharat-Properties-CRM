@@ -31,9 +31,9 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
   const [states, setStates] = useState([]);
   const [cities, setCities] = useState([]);
   const [locations, setLocations] = useState([]);
-  const [tehsils, setTehsils] = useState([]);
   const [postOffices, setPostOffices] = useState([]);
   const [pincodes, setPincodes] = useState([]);
+  const [tehsils, setTehsils] = useState([]);
 
   const handleAddressChange = (updates) => {
     onChange({ ...address, ...updates });
@@ -112,33 +112,33 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
     loadLocations();
   }, [address.city]);
 
-  // Location → Tehsil
+  // City → Tehsil (Parallel to Location)
   useEffect(() => {
-    if (!address.location) {
+    if (!address.city) {
       setTehsils([]);
       return;
     }
 
-    const loadTehsil = async () => {
-      const data = await fetchLookup("Tehsil", address.location);
+    const loadTehsils = async () => {
+      const data = await fetchLookup("Tehsil", address.city);
       setTehsils(data);
     };
-    loadTehsil();
-  }, [address.location]);
+    loadTehsils();
+  }, [address.city]);
 
-  // Tehsil → Post Office
+  // Location / Tehsil (Same Level)
   useEffect(() => {
-    if (!address.tehsil) {
+    if (!address.location) {
       setPostOffices([]);
       return;
     }
 
     const loadPO = async () => {
-      const data = await fetchLookup("PostOffice", address.tehsil);
+      const data = await fetchLookup("PostOffice", address.location);
       setPostOffices(data);
     };
     loadPO();
-  }, [address.tehsil]);
+  }, [address.location]);
 
   // Post Office → Pin Code (auto-fill only)
   useEffect(() => {
@@ -256,13 +256,12 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
 
           {/* Location */}
           <div>
-            <label style={labelStyle}>Location/Sector</label>
+            <label style={labelStyle}>Location</label>
             <select
               value={address.location || ""}
               onChange={(e) =>
                 handleAddressChange({
                   location: e.target.value,
-                  tehsil: "",
                   postOffice: "",
                   pinCode: "",
                 })
@@ -287,12 +286,10 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
               onChange={(e) =>
                 handleAddressChange({
                   tehsil: e.target.value,
-                  postOffice: "",
-                  pinCode: "",
                 })
               }
-              disabled={!address.location}
-              style={!address.location ? getDisabledStyle() : getDropdownStyle(false)}
+              disabled={!address.city}
+              style={!address.city ? getDisabledStyle() : getDropdownStyle(false)}
             >
               <option value="">Select Tehsil</option>
               {tehsils.map((t) => (
@@ -314,8 +311,8 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
                   pinCode: "",
                 })
               }
-              disabled={!address.tehsil}
-              style={!address.tehsil ? getDisabledStyle() : getDropdownStyle(false)}
+              disabled={!address.location}
+              style={!address.location ? getDisabledStyle() : getDropdownStyle(false)}
             >
               <option value="">Select Post Office</option>
               {postOffices.map((po) => (

@@ -806,6 +806,8 @@ const AddContactModal = ({
   const [loan_type, setloan_type] = useState([]);
   const [bank, setbank] = useState([]);
   const [social_plateform, setsocial_plateform] = useState([]);
+
+
   const [professionCategories, setProfessionCategories] = useState([]);
   const [professionSubCategories, setProfessionSubCategories] = useState([]);
   const [designation, setDesignation] = useState([]);
@@ -856,6 +858,8 @@ const AddContactModal = ({
       setReadOnlyFields(result.readonlyFields || []);
     }
   }, [formData, validate]);
+
+
 
   const handleSave = async () => {
     setIsSaving(true);
