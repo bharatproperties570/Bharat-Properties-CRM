@@ -13,7 +13,6 @@ import { useFieldRules } from "../context/FieldRulesContext";
 import AddressDetailsForm from "./common/AddressDetailsForm";
 import { PROJECTS_LIST, PROJECT_DATA, CITIES } from "../data/projectData";
 import { companyData } from "../data/companyData";
-import api from "../../api";
 import { fetchLookup } from "../utils/fetchLookup";
 
 // Simple Custom Multi-Select Component
