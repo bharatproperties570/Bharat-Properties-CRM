@@ -73,19 +73,45 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
 
 
     useEffect(() => {
-        const isLeadSource = leadData.some(l => l.mobile === contactId);
-        const foundContact = isLeadSource ? leadData.find(l => l.mobile === contactId) : contactData.find(c => c.mobile === contactId);
+        const fetchData = async () => {
+            if (!contactId) return;
 
-        if (foundContact) {
-            setContact(foundContact);
-            setRecordType(isLeadSource ? 'lead' : 'contact');
+            try {
+                // Try fetching as contact first
+                let response = await api.get(`contacts/${contactId}`);
+                let foundType = 'contact';
 
-            // Simulate Auto Deal Stage Progression
-            const timer = setTimeout(() => {
-                showNotification('Deal moved to "Negotiation" based on recent pricing discussions.');
-            }, 5000);
-            return () => clearTimeout(timer);
-        }
+                if (!response.data || !response.data.success) {
+                    // Try fetching as lead
+                    response = await api.get(`leads/${contactId}`);
+                    foundType = 'lead';
+                }
+
+                if (response.data && response.data.success) {
+                    const data = response.data.data;
+                    setContact(data);
+                    setRecordType(foundType);
+                } else {
+                    setContact(null);
+                }
+            } catch (error) {
+                // If it fails, try lead if it was contact or vice versa
+                try {
+                    const leadRes = await api.get(`leads/${contactId}`);
+                    if (leadRes.data && leadRes.data.success) {
+                        setContact(leadRes.data.data);
+                        setRecordType('lead');
+                    } else {
+                        setContact(null);
+                    }
+                } catch (e) {
+                    console.error("Error fetching record details:", e);
+                    setContact(null);
+                }
+            }
+        };
+
+        fetchData();
     }, [contactId]);
 
     const toggleSection = (section) => {

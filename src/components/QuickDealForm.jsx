@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
+import QuickInventoryForm from './common/QuickInventoryForm';
 
 const QuickDealForm = ({
     currentItem,
@@ -10,6 +11,7 @@ const QuickDealForm = ({
     onSkip,
     onBack,
     onOpenAddContact,
+    onTriggerModal,
     startCall,
     startWhatsAppCall
 }) => {
@@ -20,6 +22,17 @@ const QuickDealForm = ({
     const [dealPrice, setDealPrice] = useState('');
     const [showAdvanced, setShowAdvanced] = useState(false);
     const [verificationStatus, setVerificationStatus] = useState(null); // null | 'confirmed' | 'follow-up' | 'not-interested'
+
+    // Manual Property Addition State
+    const [isAddingNewProperty, setIsAddingNewProperty] = useState(false);
+    const [newPropertyForm, setNewPropertyForm] = useState({
+        city: '',
+        projectName: '',
+        block: '',
+        unitNo: '',
+        type: 'Residential',
+        size: ''
+    });
 
     // Handle call outcome
     const handleCallOutcome = (callLog) => {
@@ -91,6 +104,30 @@ const QuickDealForm = ({
             price: dealPrice,
             verificationStatus: verificationStatus || 'unverified'
         });
+    };
+
+    const handleConfirmNewProperty = () => {
+        if (!newPropertyForm.projectName || !newPropertyForm.unitNo) {
+            toast.error('Project and Unit Number are required');
+            return;
+        }
+
+        const newInv = {
+            id: 'temp-' + Date.now(),
+            unitNo: newPropertyForm.unitNo,
+            location: newPropertyForm.block,
+            area: `${newPropertyForm.projectName}, ${newPropertyForm.city}`,
+            type: newPropertyForm.type,
+            size: newPropertyForm.size,
+            status: 'Active',
+            ownerName: selectedOwner?.name || 'Unknown',
+            ownerPhone: selectedOwner?.mobile || '',
+            isNew: true
+        };
+
+        setSelectedProperty(newInv);
+        setIsAddingNewProperty(false);
+        toast.success(`Unit ${newPropertyForm.unitNo} linked for this deal`);
     };
 
     const confidenceColor = (score) => {
@@ -375,22 +412,55 @@ const QuickDealForm = ({
                         </div>
                     )}
 
-                    <button
-                        style={{
-                            width: '100%',
-                            padding: '8px',
-                            borderRadius: '6px',
-                            border: '1px solid #cbd5e1',
-                            background: '#fff',
-                            cursor: 'pointer',
-                            fontSize: '0.8rem',
-                            fontWeight: 600,
-                            color: '#64748b'
-                        }}
-                    >
-                        <i className="fas fa-plus" style={{ marginRight: '6px' }}></i>
-                        Add New Property
-                    </button>
+                    {isAddingNewProperty ? (
+                        <div style={{ animation: 'fadeIn 0.2s' }}>
+                            <QuickInventoryForm
+                                formData={newPropertyForm}
+                                setFormData={setNewPropertyForm}
+                                onTriggerModal={onTriggerModal}
+                            />
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                                <button
+                                    onClick={() => setIsAddingNewProperty(false)}
+                                    style={{
+                                        flex: 1, padding: '8px', borderRadius: '6px',
+                                        border: '1px solid #cbd5e1', background: '#fff',
+                                        fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer'
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleConfirmNewProperty}
+                                    style={{
+                                        flex: 2, padding: '8px', borderRadius: '6px',
+                                        border: 'none', background: '#3b82f6', color: '#fff',
+                                        fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer'
+                                    }}
+                                >
+                                    Confirm Property
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <button
+                            onClick={() => setIsAddingNewProperty(true)}
+                            style={{
+                                width: '100%',
+                                padding: '8px',
+                                borderRadius: '6px',
+                                border: '1px solid #cbd5e1',
+                                background: '#fff',
+                                cursor: 'pointer',
+                                fontSize: '0.8rem',
+                                fontWeight: 600,
+                                color: '#64748b'
+                            }}
+                        >
+                            <i className="fas fa-plus" style={{ marginRight: '6px' }}></i>
+                            Add New Property
+                        </button>
+                    )}
                 </div>
             </div>
 

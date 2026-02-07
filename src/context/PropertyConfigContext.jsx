@@ -1,6 +1,7 @@
-import React, { createContext, useState, useContext } from 'react';
+import React, { createContext, useState, useContext, useEffect } from 'react';
 import { PROPERTY_CATEGORIES } from '../data/propertyData';
 import { PROJECTS_LIST } from '../data/projectData';
+import { lookupsAPI } from '../utils/api';
 
 const PropertyConfigContext = createContext();
 
@@ -234,8 +235,23 @@ export const PropertyConfigProvider = ({ children }) => {
     }, []);
 
     // CRUD Operations exposed to the app
-    const updateConfig = (newConfig) => {
+    const updateConfig = async (newConfig) => {
         setPropertyConfig(newConfig);
+        // Save to localStorage as backup
+        localStorage.setItem('propertyConfig', JSON.stringify(newConfig));
+
+        // Save to backend
+        try {
+            // Use upsert approach - try to update first, create if doesn't exist
+            await lookupsAPI.create({
+                category: 'property_configuration',
+                key: 'global_config',
+                value: newConfig,
+                description: 'Global property configuration (categories, subcategories, types)'
+            });
+        } catch (error) {
+            console.error('Failed to save property config to backend:', error);
+        }
     };
 
     const updateMasterFields = (field, newValues) => {

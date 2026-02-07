@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { PROJECTS_LIST } from '../../data/projectData';
 import AddProjectModal from '../../components/AddProjectModal';
 import AddProjectPriceModal from '../../components/AddProjectPriceModal';
+import api from '../../../api';
 import UploadModal from '../../components/UploadModal';
 import AddDocumentModal from '../../components/AddDocumentModal';
 import ProjectFilterPanel from './components/ProjectFilterPanel';
@@ -14,7 +15,8 @@ function ProjectsPage() {
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
 
-    const [projectsData, setProjectsData] = useState(PROJECTS_LIST);
+    const [projectsData, setProjectsData] = useState([]);
+    const [loading, setLoading] = useState(false);
 
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isPriceModalOpen, setIsPriceModalOpen] = useState(false);
@@ -22,12 +24,30 @@ function ProjectsPage() {
     const [editProjectData, setEditProjectData] = useState(null);
     const [initialModalTab, setInitialModalTab] = useState('Basic');
 
+    React.useEffect(() => {
+        fetchProjects();
+    }, []);
+
+    const fetchProjects = async () => {
+        setLoading(true);
+        try {
+            const response = await api.get('projects');
+            if (response.data.success) {
+                setProjectsData(response.data.data);
+            }
+        } catch (error) {
+            console.error("Error fetching projects:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const [viewMode, setViewMode] = useState('list');
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
 
     const handleUploadClick = () => {
-        const project = projectsData.find(p => p.id === selectedIds[0]);
+        const project = projectsData.find(p => p._id === selectedIds[0]);
         if (project) {
             setEditProjectData(project);
             setIsUploadModalOpen(true);
@@ -35,7 +55,7 @@ function ProjectsPage() {
     };
 
     const handleDocumentClick = () => {
-        const project = projectsData.find(p => p.id === selectedIds[0]);
+        const project = projectsData.find(p => p._id === selectedIds[0]);
         if (project) {
             setEditProjectData(project);
             setIsDocumentModalOpen(true);
@@ -57,7 +77,7 @@ function ProjectsPage() {
     };
 
     const handlePriceClick = () => {
-        const project = projectsData.find(p => p.id === selectedIds[0]);
+        const project = projectsData.find(p => p._id === selectedIds[0]);
         if (project) {
             setEditProjectData(project);
             setIsPriceModalOpen(true);
@@ -65,7 +85,7 @@ function ProjectsPage() {
     };
 
     const handleEditProject = () => {
-        const project = projectsData.find(p => p.id === selectedIds[0]);
+        const project = projectsData.find(p => p._id === selectedIds[0]);
         if (project) {
             setEditProjectData(project);
             setInitialModalTab('Basic');
@@ -75,19 +95,47 @@ function ProjectsPage() {
 
     const handleSavePrice = (updatedProjectData) => {
         console.log("Saving Price Data:", updatedProjectData);
-        setProjectsData(prev => prev.map(p => p.id === updatedProjectData.id ? updatedProjectData : p));
+        setProjectsData(prev => prev.map(p => p._id === updatedProjectData._id ? updatedProjectData : p));
         setIsPriceModalOpen(false);
     };
 
-    const handleSaveProject = (projectData) => {
-        console.log("Saving project:", projectData);
-        if (projectData.id) {
-            setProjectsData(prev => prev.map(p => p.id === projectData.id ? projectData : p));
-        } else {
-            // Basic add logic for new projects (if needed later)
-            // setProjectsData(prev => [...prev, { ...projectData, id: Date.now() }]);
+    const handleSaveProject = async (projectData) => {
+        setLoading(true);
+        try {
+            if (projectData._id) {
+                const response = await api.put(`projects/${projectData._id}`, projectData);
+                if (response.data.success) {
+                    setProjectsData(prev => prev.map(p => p._id === projectData._id ? response.data.data : p));
+                }
+            } else {
+                const response = await api.post('projects', projectData);
+                if (response.data.success) {
+                    setProjectsData(prev => [response.data.data, ...prev]);
+                }
+            }
+            setIsAddModalOpen(false);
+            setEditProjectData(null);
+        } catch (error) {
+            console.error("Error saving project:", error);
+            alert("Failed to save project. Please check backend.");
+        } finally {
+            setLoading(true);
+            // Re-fetch to be safe and update counts
+            fetchProjects();
         }
-        setIsAddModalOpen(false);
+    };
+
+    const handleDeleteProject = async (id) => {
+        if (!window.confirm("Are you sure you want to delete this project?")) return;
+        try {
+            const response = await api.delete(`projects/${id}`);
+            if (response.data.success) {
+                setProjectsData(prev => prev.filter(p => p._id !== id));
+                setSelectedIds([]);
+            }
+        } catch (error) {
+            console.error("Error deleting project:", error);
+        }
     };
 
     // Filter Logic
@@ -162,7 +210,7 @@ function ProjectsPage() {
 
                         <div style={{ flex: 1, overflowY: 'auto' }}>
                             {filteredProjects.map(project => (
-                                <div key={project.id} style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.2s' }} onMouseOver={e => e.currentTarget.style.background = '#f8fafc'} onMouseOut={e => e.currentTarget.style.background = '#fff'}>
+                                <div key={project._id} style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.2s' }} onMouseOver={e => e.currentTarget.style.background = '#f8fafc'} onMouseOut={e => e.currentTarget.style.background = '#fff'}>
                                     <div style={{ display: 'flex', gap: '12px' }}>
                                         <div style={{ width: '50px', height: '50px', background: '#f1f5f9', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                             <i className="fas fa-building" style={{ color: '#cbd5e1' }}></i>
@@ -204,7 +252,7 @@ function ProjectsPage() {
 
                             return (
                                 <div
-                                    key={project.id}
+                                    key={project._id}
                                     style={{
                                         position: 'absolute',
                                         left: `calc(50% + ${lngDiff}px)`,
@@ -337,7 +385,7 @@ function ProjectsPage() {
                                     )}
 
                                     <div style={{ marginLeft: 'auto' }}>
-                                        <button className="action-btn danger" title="Delete"><i className="fas fa-trash-alt"></i></button>
+                                        <button className="action-btn danger" title="Delete" onClick={() => handleDeleteProject(selectedIds[0])}><i className="fas fa-trash-alt"></i></button>
                                     </div>
                                 </div>
                             ) : (
@@ -397,12 +445,12 @@ function ProjectsPage() {
                                         {city.toUpperCase()} PROJECTS <span style={{ marginLeft: '8px', background: '#e2e8f0', padding: '1px 6px', borderRadius: '4px', fontSize: '0.7rem' }}>{projects.length}</span>
                                     </div>
                                     {projects.map((project, index) => (
-                                        <div key={project.id} className="list-item project-list-grid" style={{ padding: '15px 1.5rem', borderBottom: '1px solid #f1f5f9', transition: 'all 0.2s ease' }}>
+                                        <div key={project._id} className="list-item project-list-grid" style={{ padding: '15px 1.5rem', borderBottom: '1px solid #f1f5f9', transition: 'all 0.2s ease' }}>
                                             <input
                                                 type="checkbox"
                                                 className="item-check"
-                                                checked={selectedIds.includes(project.id)}
-                                                onChange={() => toggleSelect(project.id)}
+                                                checked={selectedIds.includes(project._id)}
+                                                onChange={() => toggleSelect(project._id)}
                                             />
 
                                             {/* Col 2: Project Identity */}
@@ -413,7 +461,7 @@ function ProjectsPage() {
                                                 <div>
                                                     <div style={{ fontWeight: 800, color: 'var(--primary-color)', fontSize: '0.95rem', cursor: 'pointer', lineHeight: 1.2 }}>{project.name}</div>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
-                                                        <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>ID: PRJ-{project.id}</span>
+                                                        <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>ID: PRJ-{project._id}</span>
                                                         <i className="fas fa-check-circle" style={{ color: 'var(--primary-color)', fontSize: '0.7rem' }} title="Verified Project"></i>
                                                     </div>
                                                 </div>

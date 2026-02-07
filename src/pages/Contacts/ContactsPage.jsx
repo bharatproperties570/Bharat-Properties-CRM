@@ -54,6 +54,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [recordsPerPage, setRecordsPerPage] = useState(25);
+  const [refreshTrigger, setRefreshTrigger] = useState(0); // Add refresh trigger
   const [viewMode, setViewMode] = useState("list"); // 'list' or 'card'
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSendMailOpen, setIsSendMailOpen] = useState(false);
@@ -74,22 +75,27 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
       });
 
       const response = await api.get(
-        `get-all-contact?${queryParams.toString()}`,
+        `contacts?${queryParams.toString()}`,
       );
 
       if (response.data && response.data.success) {
-        setContacts(response.data.data);
-        setTotalRecords(response.data.pagination.total);
+        // API returns 'records' not 'docs', and 'totalCount' not 'totalDocs'
+        setContacts(response.data.records || []);
+        setTotalRecords(response.data.totalCount || 0);
       } else {
         toast.error("Failed to fetch contacts");
+        setContacts([]);
+        setTotalRecords(0);
       }
     } catch (error) {
       console.error("Error fetching contacts:", error);
       toast.error("Error loading contacts");
+      setContacts([]);
+      setTotalRecords(0);
     } finally {
       setLoading(false);
     }
-  }, [currentPage, recordsPerPage, debouncedSearchTerm]);
+  }, [currentPage, recordsPerPage, debouncedSearchTerm, refreshTrigger]);
 
   useEffect(() => {
     fetchContacts();
@@ -97,26 +103,30 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
 
   // ==============delete contact======================
 
-  const delete_contact = () => {
+  const delete_contact = async () => {
     if (!selectedIds?.length) return;
 
-    confirmToast({
-      message: `Delete ${selectedIds.length} contact(s)?`,
-      confirmText: "Delete",
-      loadingText: "Deleting selected contacts...",
-      successText: "Contacts deleted successfully",
-      errorText: "Failed to delete contacts",
+    const confirmed = window.confirm(`Delete ${selectedIds.length} contact(s)? This action cannot be undone.`);
+    if (!confirmed) return;
 
-      onConfirm: async () => {
-        for (const id of selectedIds) {
-          await api.delete(`delete-contact/${id}`);
-        }
+    try {
+      toast.loading("Deleting selected contacts...");
 
-        setTimeout(() => {
-          window.location.reload();
-        }, 1000); // 1s is perfect
-      },
-    });
+      for (const id of selectedIds) {
+        await api.delete(`delete-contact/${id}`);
+      }
+
+      toast.dismiss();
+      toast.success("Contacts deleted successfully");
+
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+    } catch (error) {
+      toast.dismiss();
+      toast.error("Failed to delete contacts");
+      console.error("Delete error:", error);
+    }
   };
 
   // ==============delete contact======================
@@ -174,7 +184,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
     if (selectedIds.length === contacts.length && contacts.length > 0) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(contacts.map((c) => c._id || c.mobile));
+      setSelectedIds(contacts.map((c) => c._id));
     }
   };
 
@@ -196,11 +206,13 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
 
   // Regrouping paginated results
   const groups = {};
-  paginatedContacts.forEach((c) => {
-    const group = c.group || "Others"; // Fallback if group is missing
-    if (!groups[group]) groups[group] = [];
-    groups[group].push(c);
-  });
+  if (Array.isArray(paginatedContacts)) {
+    paginatedContacts.forEach((c) => {
+      const group = c?.group || "Others"; // Fallback if group is missing
+      if (!groups[group]) groups[group] = [];
+      groups[group].push(c);
+    });
+  }
 
   const goToNextPage = () => {
     if (currentPage < totalPages) setCurrentPage(currentPage + 1);
@@ -225,14 +237,14 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   // Handle Edit Click
   const handleEditClick = () => {
     // Find the selected contact object
-    const selectedContact = contacts.find((c) => (c._id || c.mobile) === selectedIds[0]);
+    const selectedContact = contacts.find((c) => (c._id) === selectedIds[0]);
     if (selectedContact && onEdit) {
       onEdit(selectedContact);
     }
   };
 
   const getSelectedContacts = () => {
-    return contacts.filter((c) => selectedIds.includes(c._id || c.mobile));
+    return contacts.filter((c) => selectedIds.includes(c._id));
   };
 
   const handleSendMail = () => {
@@ -421,7 +433,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                       title="Create Lead"
                       onClick={() => {
                         const selectedContact = contacts.find(
-                          (c) => (c._id || c.mobile) === selectedIds[0],
+                          (c) => (c._id) === selectedIds[0],
                         );
                         if (selectedContact) {
                           setContactForLead(selectedContact);
@@ -440,10 +452,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                   title="Activities"
                   onClick={() => {
                     const selectedContacts = contacts.filter((c) =>
-                      selectedIds.includes(c._id || c.mobile),
+                      selectedIds.includes(c._id),
                     );
                     const relatedTo = selectedContacts.map((c) => ({
-                      id: c._id || c.mobile,
+                      id: c._id,
                       name: c.name,
                       mobile: c.mobile,
                     }));
@@ -747,7 +759,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                     </div>
                     {groups[groupName].map((item, idx) => (
                       <div
-                        key={item._id || item.mobile || idx}
+                        key={item._id || idx}
                         className="list-item contact-list-grid"
                         style={{
                           padding: "15px 2rem",
@@ -799,13 +811,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                   cursor: "pointer",
                                 }}
                                 onClick={() =>
-                                  onNavigate(
-                                    "contact-detail",
-                                    item?.phones?.[0]?.number || item.mobile,
-                                  )
+                                  onNavigate("contact-detail", item._id)
                                 }
                               >
-                                {item?.name || "Unknown Name"}
+                                {item.name || (item.firstName ? `${item.firstName} ${item.surname || ""}` : "Unknown Name")}
                               </div>
                               <div
                                 style={{
@@ -1155,7 +1164,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
               >
                 {paginatedContacts.map((item, idx) => (
                   <div
-                    key={item._id || item.mobile || idx}
+                    key={item._id || idx}
                     style={{
                       background: isSelected(
                         item?.phones?.[0]?.number || item.mobile,
@@ -1239,10 +1248,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                               cursor: "pointer",
                             }}
                             onClick={() =>
-                              onNavigate(
-                                "contact-detail",
-                                item?.phones?.[0]?.number || item.mobile,
-                              )
+                              onNavigate("contact-detail", item._id)
                             }
                           >
                             {item?.name || "Unknown Name"}
@@ -1834,9 +1840,11 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
             );
           }
 
-          alert("Lead Created Successfully!");
+          toast.success("Lead Created Successfully!");
           setIsAddLeadModalOpen(false);
           setContactForLead(null);
+          // Trigger refresh to show updated lead count
+          setRefreshTrigger(prev => prev + 1);
         }}
       />
 

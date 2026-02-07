@@ -633,9 +633,9 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     const handleContactSearch = async (query) => {
         setIsContactSearchLoading(true);
         try {
-            const response = await api.get(`get-all-contact?search=${query}`);
+            const response = await api.get(`contacts?search=${query}`);
             if (response.data && response.data.success) {
-                setContactSearchResults(response.data.data);
+                setContactSearchResults(response.data.docs);
             } else {
                 setContactSearchResults([]);
             }
@@ -739,7 +739,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
                 // Call Add Contact API
                 try {
-                    const response = await api.post("add-contact", contactPayload);
+                    const response = await api.post("contacts", contactPayload);
                     if (response.data && response.data.success) {
                         finalContactId = response.data.data._id; // Assuming response.data.data is the created object
                         // console.log("Created new contact:", finalContactId);
@@ -762,19 +762,11 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             // Optimization: If linking to an existing contact, we don't need to save redundant contact details (phones/emails) on the lead itself,
             // as they are fetched via populate. We keep 'name' for the Lead Title/Display purposes.
             if (finalContactId) {
-                delete leadPayload.phones;
-                delete leadPayload.emails;
-                delete leadPayload.title;
-                delete leadPayload.name;
-                delete leadPayload.surname;
-                delete leadPayload.source;
-                delete leadPayload.campaign;
-                delete leadPayload.team;
-                delete leadPayload.owner;
-                delete leadPayload.visibleTo;
-                delete leadPayload.tags;
-                delete leadPayload.countryCode;
-
+                // Keep name and phones on the lead for display optimization
+                leadPayload.firstName = formData.name;
+                leadPayload.lastName = formData.surname;
+                leadPayload.salutation = formData.title;
+                leadPayload.mobile = formData.phones?.[0]?.number || "";
             }
             // --- DISTRIBUTION ENGINE EXECUTION ---
             if (!formData.owner) {
@@ -798,7 +790,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
             // Call Add Lead API (from origin/main)
             try {
-                const response = await api.post("api/lead/create-lead", leadPayload);
+                const response = await api.post("leads", leadPayload);
                 if (!response.data || !response.data.success) {
                     throw new Error("Failed to create lead: " + (response.data?.message || "Unknown error"));
                 }

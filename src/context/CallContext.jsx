@@ -74,12 +74,18 @@ export const CallProvider = ({ children }) => {
         }
 
         // Trigger WhatsApp call (works on desktop with WhatsApp Desktop app)
-        const phoneNumber = contact.mobile.replace(/[^0-9+]/g, ''); // Clean number
+        let phoneNumber = contact.mobile.replace(/[^0-9]/g, ''); // Remove all non-digits
+
+        // Ensure country code (91 for India if not present)
+        if (!phoneNumber.startsWith('91') && phoneNumber.length === 10) {
+            phoneNumber = '91' + phoneNumber;
+        }
         // WhatsApp call URL scheme
-        window.open(`https://wa.me/${phoneNumber}?text=`, '_blank');
+        const whatsappUrl = `https://wa.me/${phoneNumber}`;
+        window.open(whatsappUrl, '_blank');
 
         // Show success toast
-        toast.success(`Opening WhatsApp to call ${contact.name || phoneNumber}...`);
+        toast.success(`Opening WhatsApp for ${contact.name || phoneNumber}...`);
 
         // Open modal for call outcome logging after brief delay
         setTimeout(() => {

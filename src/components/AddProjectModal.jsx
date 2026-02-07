@@ -1290,7 +1290,7 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                         {activeTab !== 'Basic' && (
                             <button onClick={handlePrev} style={buttonStyle.secondary}>Previous</button>
                         )}
-                        {activeTab !== 'Price' ? (
+                        {activeTab !== TABS[TABS.length - 1] ? (
                             <button onClick={handleNext} style={buttonStyle.primary}>Next</button>
                         ) : (
                             <button onClick={handleSave} disabled={isLoading || !hasPermission} style={buttonStyle.success}>{projectToEdit ? 'Update Project' : 'Save Project'}</button>

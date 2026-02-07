@@ -12,6 +12,7 @@ import {
     validateAssignment,
     getFallbackAssignment
 } from '../utils/distributionEngine';
+import { distributionRulesAPI } from '../utils/api';
 
 const DistributionContext = createContext();
 
@@ -24,69 +25,112 @@ export const useDistribution = () => {
 };
 
 export const DistributionProvider = ({ children }) => {
-    // Load from localStorage
-    const [distributionRules, setDistributionRules] = useState(() => {
-        try {
-            const saved = localStorage.getItem('distributionRules');
-            return saved ? JSON.parse(saved) : [];
-        } catch (e) {
-            console.error('Error parsing distributionRules', e);
-            return [];
-        }
-    });
-
-    const [distributionLog, setDistributionLog] = useState(() => {
-        try {
-            const saved = localStorage.getItem('distributionLog');
-            return saved ? JSON.parse(saved) : [];
-        } catch (e) {
-            console.error('Error parsing distributionLog', e);
-            return [];
-        }
-    });
-
+    const [distributionRules, setDistributionRules] = useState([]);
+    const [distributionLog, setDistributionLog] = useState([]);
     const [agentWorkload, setAgentWorkload] = useState({});
     const [roundRobinState, setRoundRobinState] = useState({});
+    const [isLoading, setIsLoading] = useState(true);
 
-    // Persist to localStorage
+    // Load distribution rules from backend on mount
     useEffect(() => {
-        localStorage.setItem('distributionRules', JSON.stringify(distributionRules));
-    }, [distributionRules]);
+        const loadRules = async () => {
+            try {
+                const data = await distributionRulesAPI.getAll();
+                setDistributionRules(data || []);
+            } catch (error) {
+                console.error('Failed to load distribution rules from backend:', error);
+                // Fall back to localStorage
+                try {
+                    const saved = localStorage.getItem('distributionRules');
+                    if (saved) {
+                        setDistributionRules(JSON.parse(saved));
+                    }
+                } catch (e) {
+                    console.error('Error parsing distributionRules from localStorage', e);
+                }
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        loadRules();
+
+        // Load distribution log from localStorage (not persisted to backend)
+        try {
+            const saved = localStorage.getItem('distributionLog');
+            if (saved) {
+                setDistributionLog(JSON.parse(saved));
+            }
+        } catch (e) {
+            console.error('Error parsing distributionLog', e);
+        }
+    }, []);
+
+    // Persist to localStorage as backup
+    useEffect(() => {
+        if (!isLoading) {
+            localStorage.setItem('distributionRules', JSON.stringify(distributionRules));
+        }
+    }, [distributionRules, isLoading]);
 
     useEffect(() => {
         localStorage.setItem('distributionLog', JSON.stringify(distributionLog));
     }, [distributionLog]);
 
     /**
-     * Add new distribution rule
+     * Add new distribution rule with backend integration
      */
-    const addDistributionRule = (rule) => {
+    const addDistributionRule = async (rule) => {
         const newRule = {
             ...rule,
             id: `rule_${Date.now()}`,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
         };
-        setDistributionRules(prev => [...prev, newRule]);
-        return newRule;
+
+        try {
+            const saved = await distributionRulesAPI.create(newRule);
+            setDistributionRules(prev => [...prev, saved]);
+            return saved;
+        } catch (error) {
+            console.error('Failed to add distribution rule to backend:', error);
+            // Fallback to local state
+            setDistributionRules(prev => [...prev, newRule]);
+            return newRule;
+        }
     };
 
     /**
-     * Update existing distribution rule
+     * Update existing distribution rule with backend integration
      */
-    const updateDistributionRule = (id, updates) => {
-        setDistributionRules(prev => prev.map(rule =>
-            rule.id === id
-                ? { ...rule, ...updates, updatedAt: new Date().toISOString() }
-                : rule
-        ));
+    const updateDistributionRule = async (id, updates) => {
+        const updatedRule = { ...updates, updatedAt: new Date().toISOString() };
+
+        try {
+            await distributionRulesAPI.update(id, updatedRule);
+            setDistributionRules(prev => prev.map(rule =>
+                rule.id === id ? { ...rule, ...updatedRule } : rule
+            ));
+        } catch (error) {
+            console.error('Failed to update distribution rule on backend:', error);
+            // Fallback to local state
+            setDistributionRules(prev => prev.map(rule =>
+                rule.id === id ? { ...rule, ...updatedRule } : rule
+            ));
+        }
     };
 
     /**
-     * Delete distribution rule
+     * Delete distribution rule with backend integration
      */
-    const deleteDistributionRule = (id) => {
-        setDistributionRules(prev => prev.filter(rule => rule.id !== id));
+    const deleteDistributionRule = async (id) => {
+        try {
+            await distributionRulesAPI.delete(id);
+            setDistributionRules(prev => prev.filter(rule => rule.id !== id));
+        } catch (error) {
+            console.error('Failed to delete distribution rule from backend:', error);
+            // Fallback to local state
+            setDistributionRules(prev => prev.filter(rule => rule.id !== id));
+        }
     };
 
     /**

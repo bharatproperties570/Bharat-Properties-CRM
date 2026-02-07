@@ -58,6 +58,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(10);
+    const [refreshTrigger, setRefreshTrigger] = useState(0); // Add refresh trigger
 
     // Filter State
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
@@ -107,18 +108,32 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         setTimeout(() => setToast(null), 3000);
     };
 
-    // Server-side Pagination & Search (Mocked for Demo)
+    // Server-side Pagination & Search
     useEffect(() => {
         const fetchLeads = async () => {
             setLoading(true);
             try {
-                // MOCK DATA OVERRIDE for Demo of Buyer Detection Engine
-                const sourceData = leadData;
+                const response = await api.get(`leads`, {
+                    params: {
+                        page: currentPage,
+                        limit: recordsPerPage,
+                        search: searchTerm
+                    }
+                });
+
+                if (!response.data || !response.data.success) {
+                    throw new Error("Failed to fetch leads");
+                }
+
+                // Backend returns 'records' not 'docs', and 'totalCount' not 'totalDocs'
+                const sourceData = response.data.records || [];
+                const totalDocs = response.data.totalCount || 0;
+                const pages = response.data.totalPages || 0;
 
                 const mappedLeads = sourceData.map((lead, index) => {
-                    // Handle both Mock Data shape and API shape
+                    // Handle both API shape and Fallback
                     const contact = lead.contactDetails || {};
-                    const name = lead.name || `${contact.name || ""} ${contact.surname || ""}`.trim();
+                    const name = lead.firstName ? `${lead.salutation || ""} ${lead.firstName} ${lead.lastName || ""}`.trim() : (lead.name || "Unknown");
 
                     // EXPIRY LOGIC
                     let expiryBadge = null;
@@ -132,14 +147,14 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     }
 
                     return {
-                        _id: lead._id || `mock-${index}`,
+                        _id: lead._id || `lead-${index}`,
 
                         // Pass raw data for accurate filtering
-                        req: lead.req,
+                        req: lead.req || { type: lead.requirement, size: `${lead.areaMin || ""}-${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim() },
                         budgetMin: lead.budgetMin,
                         budgetMax: lead.budgetMax,
                         propertyType: lead.propertyType,
-                        stage: lead.stage,
+                        stage: lead.stage || "New",
 
                         // ===== BASIC INFO =====
                         name: name,
@@ -148,7 +163,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                         // ===== REQUIREMENT =====
                         reqDisplay: lead.req || {
-                            type: `${lead.requirement || ""} ${lead.subType?.[0] || ""}`.trim(),
+                            type: `${lead.requirement || ""} ${Array.isArray(lead.subType) ? lead.subType[0] : (lead.subType || "")}`.trim(),
                             size: `${lead.areaMin || ""}-${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
                         },
 
@@ -167,8 +182,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                         // ===== SOURCE & ASSIGNMENT =====
                         source: lead.source || contact.source || "Direct",
-                        owner: lead.owner || contact.owner || "Unassigned",
-                        team: contact.team || "",
+                        owner: lead.owner || contact.owner || (lead.assignment?.assignedTo) || "Unassigned",
+                        team: contact.team || lead.assignment?.team || "",
 
                         // ===== STATUS =====
                         status: lead.status || { label: "New", class: "new" },
@@ -176,20 +191,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         // ===== META =====
                         lastAct: lead.lastAct || "Today",
                         activity: lead.activity || "None",
-                        remarks: lead.remarks || "",
-                        matched: (() => {
-                            // FAST MATCH COUNT for Badge
-                            const baseBudget = parseBudget(lead.budget || "");
-                            const leadContext = {
-                                baseBudget,
-                                leadSize: lead.req?.size ? parseSizeSqYard(lead.req.size) : 0,
-                                leadType: lead.req?.type ? lead.req.type.toLowerCase() : '',
-                                leadLocation: (lead.location || "").toLowerCase(),
-                                leadLocationSectors: (lead.location ? lead.location.toLowerCase() : "").split(',').map(s => s.trim()).filter(Boolean)
-                            };
-                            return calculateMatch(lead, leadContext, { location: 30, type: 20, budget: 1, size: 1 }, { minMatchScore: 40 }).length;
-                        })(),
-                        addOn: lead.addOn || `Added ${new Date().toLocaleDateString()}`,
+                        remarks: lead.notes || lead.remarks || "",
+                        matched: 0, // Simplified for now
+                        addOn: lead.addOn || `Added ${new Date(lead.createdAt || Date.now()).toLocaleDateString()}`,
 
                         // ===== TEMPORARY LEAD META =====
                         isTemporary: lead.isTemporary || false,
@@ -197,24 +201,13 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     };
                 });
 
-                // Client-side Filter for Mock
-                let filtered = mappedLeads;
-
-                // 1. Search Filter
-                if (searchTerm) {
-                    const lower = searchTerm.toLowerCase();
-                    filtered = filtered.filter(l => l.name.toLowerCase().includes(lower) || l.mobile.includes(lower));
-                }
-
-                // 2. Advanced Filters
-                filtered = applyLeadFilters(filtered, filters);
-
-                setLeads(filtered);
-                setTotalCount(filtered.length);
-                setTotalPages(1);
+                setLeads(mappedLeads);
+                setTotalCount(totalDocs);
+                setTotalPages(pages);
 
             } catch (error) {
                 console.error("Error fetching leads:", error);
+                toast.error("Error loading leads");
             } finally {
                 setLoading(false);
             }
@@ -222,26 +215,26 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
         const timer = setTimeout(fetchLeads, 500);
         return () => clearTimeout(timer);
-    }, [currentPage, recordsPerPage, searchTerm, filters]); // Added filters to dependency
+    }, [currentPage, recordsPerPage, searchTerm, filters, refreshTrigger]);
 
 
-    const toggleSelect = (name) => {
-        if (selectedIds.includes(name)) {
-            setSelectedIds(selectedIds.filter(id => id !== name));
+    const toggleSelect = (id) => {
+        if (selectedIds.includes(id)) {
+            setSelectedIds(selectedIds.filter(itemId => itemId !== id));
         } else {
-            setSelectedIds([...selectedIds, name]);
+            setSelectedIds([...selectedIds, id]);
         }
     }
 
     const getSelectedLeads = () => {
         // Use leads state instead of leadData
-        return leads.filter(l => selectedIds.includes(l.name)).map(l => ({
+        return leads.filter(l => selectedIds.includes(l._id)).map(l => ({
             ...l,
             id: l.mobile // Ensure ID exists for shared components
         }));
     };
 
-    const isSelected = (name) => selectedIds.includes(name);
+    const isSelected = (id) => selectedIds.includes(id);
     const selectedCount = selectedIds.length;
     // const totalCount = leadData.length; // Removed, using state
 
@@ -326,7 +319,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             className="action-btn"
                                             title="Edit Lead"
                                             onClick={() => {
-                                                const selectedLead = leads.find(l => l.name === selectedIds[0]);
+                                                console.log('Edit Button Clicked - selectedIds:', selectedIds);
+                                                const selectedLead = leads.find(l => l._id === selectedIds[0]);
+                                                console.log('Found Lead:', selectedLead);
                                                 if (selectedLead) {
                                                     setEditingLead(selectedLead);
                                                     setIsAddLeadModalOpen(true);
@@ -339,7 +334,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             className="action-btn"
                                             title="Call Lead"
                                             onClick={() => {
-                                                const selectedLead = leads.find(l => l.name === selectedIds[0]);
+                                                const selectedLead = leads.find(l => l._id === selectedIds[0]);
                                                 if (selectedLead) {
                                                     startCall({
                                                         name: selectedLead.name,
@@ -359,7 +354,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             className="action-btn"
                                             title="Email Lead"
                                             onClick={() => {
-                                                const selectedLead = leads.find(l => l.name === selectedIds[0]);
+                                                const selectedLead = leads.find(l => l._id === selectedIds[0]);
                                                 if (selectedLead) {
                                                     setSelectedLeadsForMail([{
                                                         id: selectedLead.mobile,
@@ -376,7 +371,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             className="action-btn"
                                             title="Send Message"
                                             onClick={() => {
-                                                const selectedLead = leads.find(l => l.name === selectedIds[0]);
+                                                const selectedLead = leads.find(l => l._id === selectedIds[0]);
                                                 if (selectedLead) {
                                                     setSelectedLeadsForMessage([{
                                                         id: selectedLead.mobile,
@@ -393,7 +388,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             className="action-btn"
                                             title="Add Activity"
                                             onClick={() => {
-                                                const selectedLead = leads.find(l => l.name === selectedIds[0]);
+                                                const selectedLead = leads.find(l => l._id === selectedIds[0]);
                                                 if (selectedLead && onAddActivity) {
                                                     const relatedAccount = [{
                                                         id: selectedLead.mobile, // Using mobile as ID for now since leadData doesn't have ID
@@ -410,7 +405,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             className="action-btn"
                                             title="Start Sequence"
                                             onClick={() => {
-                                                const selectedLead = leads.find(l => l.name === selectedIds[0]);
+                                                const selectedLead = leads.find(l => l._id === selectedIds[0]);
                                                 if (selectedLead) {
                                                     setSelectedLeadForSequence({ ...selectedLead, id: selectedLead.mobile });
                                                     setIsEnrollModalOpen(true);
@@ -458,7 +453,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             onClick={() => {
                                                 const selected = getSelectedLeads();
                                                 if (selected.length > 0) {
-                                                    onNavigate('lead-matching', selected[0].mobile);
+                                                    onNavigate('lead-matching', selected[0]._id);
                                                 }
                                             }}
                                         >
@@ -641,7 +636,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         <div className="list-header lead-list-grid" style={{ position: 'sticky', top: '45px', background: '#f8fafc', zIndex: 99, borderBottom: '2px solid #e2e8f0', fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                             <div><input type="checkbox" onChange={() => {
                                 if (selectedCount === leads.length) setSelectedIds([]);
-                                else setSelectedIds(leads.map(l => l.name));
+                                else setSelectedIds(leads.map(l => l._id));
                             }} checked={selectedCount === leads.length && leads.length > 0} /></div>
                             <div>Lead Profile</div>
                             <div>Match</div>
@@ -664,7 +659,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         style={{
                                             backgroundColor: '#fff',
                                             borderRadius: '12px',
-                                            border: isSelected(lead.name) ? '2px solid var(--primary-color)' : '1px solid #e2e8f0',
+                                            border: isSelected(lead._id) ? '2px solid var(--primary-color)' : '1px solid #e2e8f0',
                                             padding: '16px',
                                             position: 'relative',
                                             transition: 'all 0.2s',
@@ -673,7 +668,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         }}
                                         onClick={(e) => {
                                             if (!e.target.closest('button') && !e.target.closest('input')) {
-                                                toggleSelect(lead.name);
+                                                toggleSelect(lead._id);
                                             }
                                         }}
                                     >
@@ -685,7 +680,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                     <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{lead.mobile}</div>
                                                 </div>
                                             </div>
-                                            <input type="checkbox" checked={isSelected(lead.name)} onChange={() => toggleSelect(lead.name)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
+                                            <input type="checkbox" checked={isSelected(lead._id)} onChange={() => toggleSelect(lead._id)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
                                         </div>
                                         {/* Simplified Card Content for brevity in fix */}
                                         <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', marginBottom: '12px' }}>
@@ -728,10 +723,10 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             transition: 'all 0.2s',
                                         }}
                                         onMouseOver={(e) => {
-                                            if (!isSelected(c.name)) e.currentTarget.style.background = '#fafbfc';
+                                            if (!isSelected(c._id)) e.currentTarget.style.background = '#fafbfc';
                                         }}
                                         onMouseOut={(e) => {
-                                            if (!isSelected(c.name)) e.currentTarget.style.background = '#fff';
+                                            if (!isSelected(c._id)) e.currentTarget.style.background = '#fff';
                                             else e.currentTarget.style.background = '#f0f9ff';
                                         }}
                                     >
@@ -739,8 +734,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             <input
                                                 type="checkbox"
                                                 className="item-check"
-                                                checked={isSelected(c.name)}
-                                                onChange={() => toggleSelect(c.name)}
+                                                checked={isSelected(c._id)}
+                                                onChange={() => toggleSelect(c._id)}
                                             />
                                         </div>
                                         <div className="col-profile">
@@ -790,7 +785,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                             className="primary-text text-ellipsis"
                                                             onClick={(e) => {
                                                                 e.preventDefault();
-                                                                if (onNavigate) onNavigate('contact-detail', c.mobile);
+                                                                if (onNavigate) onNavigate('contact-detail', c._id);
                                                             }}
                                                             style={{ color: '#0f172a', fontWeight: 800, fontSize: '0.95rem', textDecoration: 'none', display: 'block' }}
                                                         >
@@ -819,7 +814,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                         ) : (
                                                             LeadConversionService.isConverted(c.mobile) || c.isConverted ? (
                                                                 <span
-                                                                    onClick={() => onNavigate('contact-detail', c.mobile)}
+                                                                    onClick={() => onNavigate('contact-detail', c._id)}
                                                                     style={{ background: '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
                                                                 >
                                                                     <i className="fas fa-check-circle"></i> CONVERTED
@@ -985,7 +980,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 isOpen={isAddLeadModalOpen}
                 onClose={() => setIsAddLeadModalOpen(false)}
                 contactData={editingLead} // Pass selected lead data
-                title={editingLead ? "Edit Update Lead" : "Add New Lead"}
+                title={editingLead ? "Update Lead" : "Add New Lead"}
                 saveLabel={editingLead ? "Update" : "Save"}
                 mode="edit"
                 onAdd={(updatedData) => {
@@ -993,7 +988,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     setIsAddLeadModalOpen(false);
                     setEditingLead(null);
                     setSelectedIds([]);
-                    // Trigger refresh if needed
+                    // Trigger refresh by incrementing refreshTrigger
+                    setRefreshTrigger(prev => prev + 1);
                 }}
             />
             {/* Score Breakdown Popover for Lead Scoring Engine */}

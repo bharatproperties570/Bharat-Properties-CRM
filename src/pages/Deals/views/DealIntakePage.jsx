@@ -1411,6 +1411,7 @@ const DealIntakePage = () => {
                                             onSkip={handleQuickDealSkip}
                                             onBack={handleQuickDealBack}
                                             onOpenAddContact={handleOpenAddContact}
+                                            onTriggerModal={handleTriggerModal}
                                             startCall={startCall}
                                             startWhatsAppCall={startWhatsAppCall}
                                         />

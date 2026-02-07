@@ -875,7 +875,7 @@ const AddContactModal = ({
         }
       }
 
-      const response = await api.post("add-contact", formData);
+      const response = await api.post("contacts", formData);
 
       if (response.data && response.data.success) {
         toast.success("Contact added successfully!", { id: toastId });
@@ -1704,8 +1704,8 @@ const AddContactModal = ({
                                           color: "#334155",
                                         }}
                                         onMouseEnter={(e) =>
-                                          (e.target.style.background =
-                                            "#f8fafc")
+                                        (e.target.style.background =
+                                          "#f8fafc")
                                         }
                                         onMouseLeave={(e) =>
                                           (e.target.style.background = "#fff")
@@ -1719,17 +1719,17 @@ const AddContactModal = ({
                                       .toLowerCase()
                                       .includes(companySearch.toLowerCase()),
                                   ).length === 0 && (
-                                    <div
-                                      style={{
-                                        padding: "12px",
-                                        textAlign: "center",
-                                        color: "#94a3b8",
-                                        fontSize: "0.85rem",
-                                      }}
-                                    >
-                                      No companies found
-                                    </div>
-                                  )}
+                                      <div
+                                        style={{
+                                          padding: "12px",
+                                          textAlign: "center",
+                                          color: "#94a3b8",
+                                          fontSize: "0.85rem",
+                                        }}
+                                      >
+                                        No companies found
+                                      </div>
+                                    )}
                                 </div>
                               )}
                             </div>
@@ -1935,15 +1935,15 @@ const AddContactModal = ({
                         const officeOptions = [
                           ...(Array.isArray(branchOffices)
                             ? branchOffices.map((b) => ({
-                                label: b.branchName || "Branch",
-                                value: b.branchName || "Branch",
-                              }))
+                              label: b.branchName || "Branch",
+                              value: b.branchName || "Branch",
+                            }))
                             : []),
                           ...(Array.isArray(siteOffices)
                             ? siteOffices.map((s) => ({
-                                label: s.branchName || "Site",
-                                value: s.branchName || "Site",
-                              }))
+                              label: s.branchName || "Site",
+                              value: s.branchName || "Site",
+                            }))
                             : []),
                         ];
 

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { validateEntity } from '../utils/fieldRuleEngine';
+import { fieldRulesAPI } from '../utils/api';
 
 const FieldRulesContext = createContext();
 
@@ -8,74 +9,121 @@ export const useFieldRules = () => {
 };
 
 export const FieldRulesProvider = ({ children }) => {
-    // Initial Seed Rules or Load from LocalStorage
-    const [rules, setRules] = useState(() => {
-        const saved = localStorage.getItem('fieldRules');
-        if (saved) {
-            return JSON.parse(saved);
-        }
-        return [
-            // --- LEAD MODULE RULES ---
-            {
-                id: 'lr-1',
-                module: 'lead',
-                ruleName: 'Requirement is Mandatory',
-                field: 'requirement',
-                ruleType: 'MANDATORY',
-                isActive: true,
-                conditions: [], // Always applies
-                message: 'Requirement type (Buy/Rent) is required.'
-            },
-            {
-                id: 'lr-2',
-                module: 'lead',
-                ruleName: 'Budget Mandatory for Prospects',
-                field: 'budgetMin', // Simplified for demo
-                ruleType: 'MANDATORY',
-                isActive: true,
-                matchType: 'AND',
-                conditions: [
-                    { field: 'stage', operator: 'not_equals', value: 'New' }, // If not New (i.e. Prospect or higher)
-                    { field: 'stage', operator: 'not_equals', value: 'Contacted' }
-                    // In a real app we'd use greater_than on stage index, but string compare for now
-                ],
-                message: 'Budget is required for leads in Prospect stage or higher.'
-            },
+    const [rules, setRules] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
 
-            // --- DEAL MODULE RULES ---
-            {
-                id: 'dr-1',
-                module: 'deal',
-                ruleName: 'Expected Price Mandatory',
-                field: 'expectedPrice',
-                ruleType: 'MANDATORY',
-                isActive: true,
-                conditions: [],
-                message: 'Expected Price is critical for deal tracking.'
-            }
-        ];
-    });
-
-    // Persist to LocalStorage
+    // Load rules from backend on mount
     useEffect(() => {
-        localStorage.setItem('fieldRules', JSON.stringify(rules));
-    }, [rules]);
+        const loadRules = async () => {
+            try {
+                const data = await fieldRulesAPI.getAll();
+                setRules(data || []);
+            } catch (error) {
+                console.error('Failed to load field rules from backend:', error);
+                // Fall back to localStorage
+                const saved = localStorage.getItem('fieldRules');
+                if (saved) {
+                    setRules(JSON.parse(saved));
+                } else {
+                    // Use default seed rules
+                    setRules([
+                        {
+                            id: 'lr-1',
+                            module: 'lead',
+                            ruleName: 'Requirement is Mandatory',
+                            field: 'requirement',
+                            ruleType: 'MANDATORY',
+                            isActive: true,
+                            conditions: [],
+                            message: 'Requirement type (Buy/Rent) is required.'
+                        },
+                        {
+                            id: 'lr-2',
+                            module: 'lead',
+                            ruleName: 'Budget Mandatory for Prospects',
+                            field: 'budgetMin',
+                            ruleType: 'MANDATORY',
+                            isActive: true,
+                            matchType: 'AND',
+                            conditions: [
+                                { field: 'stage', operator: 'not_equals', value: 'New' },
+                                { field: 'stage', operator: 'not_equals', value: 'Contacted' }
+                            ],
+                            message: 'Budget is required for leads in Prospect stage or higher.'
+                        },
+                        {
+                            id: 'dr-1',
+                            module: 'deal',
+                            ruleName: 'Expected Price Mandatory',
+                            field: 'expectedPrice',
+                            ruleType: 'MANDATORY',
+                            isActive: true,
+                            conditions: [],
+                            message: 'Expected Price is critical for deal tracking.'
+                        }
+                    ]);
+                }
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        loadRules();
+    }, []);
 
-    // Actions
-    const addRule = (newRule) => {
-        setRules(prev => [...prev, { ...newRule, id: Date.now().toString() }]);
+    // Persist to LocalStorage as backup
+    useEffect(() => {
+        if (!isLoading) {
+            localStorage.setItem('fieldRules', JSON.stringify(rules));
+        }
+    }, [rules, isLoading]);
+
+    // Actions with backend integration
+    const addRule = async (newRule) => {
+        try {
+            const saved = await fieldRulesAPI.create(newRule);
+            setRules(prev => [...prev, saved]);
+        } catch (error) {
+            console.error('Failed to add rule to backend:', error);
+            // Fallback to local state
+            setRules(prev => [...prev, { ...newRule, id: Date.now().toString() }]);
+        }
     };
 
-    const updateRule = (id, updatedRule) => {
-        setRules(prev => prev.map(r => r.id === id ? updatedRule : r));
+    const updateRule = async (id, updatedRule) => {
+        try {
+            await fieldRulesAPI.update(id, updatedRule);
+            setRules(prev => prev.map(r => r.id === id ? { ...updatedRule, id } : r));
+        } catch (error) {
+            console.error('Failed to update rule on backend:', error);
+            // Fallback to local state
+            setRules(prev => prev.map(r => r.id === id ? updatedRule : r));
+        }
     };
 
-    const deleteRule = (id) => {
-        setRules(prev => prev.filter(r => r.id !== id));
+    const deleteRule = async (id) => {
+        try {
+            await fieldRulesAPI.delete(id);
+            setRules(prev => prev.filter(r => r.id !== id));
+        } catch (error) {
+            console.error('Failed to delete rule from backend:', error);
+            // Fallback to local state
+            setRules(prev => prev.filter(r => r.id !== id));
+        }
     };
 
-    const toggleRuleStatus = (id) => {
-        setRules(prev => prev.map(r => r.id === id ? { ...r, isActive: !r.isActive } : r));
+    const toggleRuleStatus = async (id) => {
+        const rule = rules.find(r => r.id === id);
+        if (rule) {
+            const updated = { ...rule, isActive: !rule.isActive };
+            try {
+                await fieldRulesAPI.update(id, updated);
+                setRules(prev => prev.map(r => r.id === id ? updated : r));
+            } catch (error) {
+                console.error('Failed to toggle rule status on backend:', error);
+                // Fallback to local state
+                setRules(prev => prev.map(r => r.id === id ? { ...r, isActive: !r.isActive } : r));
+            }
+        }
     };
 
     // Wrapper for Validation Engine (Sync)
