@@ -16,6 +16,34 @@ export const usePropertyConfig = () => {
 export const PropertyConfigProvider = ({ children }) => {
     // Initialize state with the static data
     const [propertyConfig, setPropertyConfig] = useState(PROPERTY_CATEGORIES);
+    const [isLoading, setIsLoading] = useState(true);
+
+    // Load property configuration from backend on mount
+    useEffect(() => {
+        const loadConfig = async () => {
+            try {
+                const lookups = await lookupsAPI.getByCategory('property_configuration');
+                if (lookups && lookups.length > 0) {
+                    const config = lookups[0].value || PROPERTY_CATEGORIES;
+                    setPropertyConfig(config);
+                }
+            } catch (error) {
+                console.error('Failed to load property config from backend:', error);
+                // Fall back to localStorage
+                const saved = localStorage.getItem('propertyConfig');
+                if (saved) {
+                    try {
+                        setPropertyConfig(JSON.parse(saved));
+                    } catch (e) {
+                        console.error('Error parsing saved config:', e);
+                    }
+                }
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        loadConfig();
+    }, []);
 
     // Initialize Projects State (Dynamic)
     const [projects, setProjects] = useState(PROJECTS_LIST);
