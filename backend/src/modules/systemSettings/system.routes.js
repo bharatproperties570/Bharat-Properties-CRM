@@ -9,8 +9,8 @@ import {
 const router = express.Router();
 
 router.get("/", getSystemSettings);
+router.post("/upsert", upsertSystemSetting);
 router.get("/:key", getSettingByKey);
-router.post("/", upsertSystemSetting);
 router.delete("/:key", deleteSystemSetting);
 
 export default router;

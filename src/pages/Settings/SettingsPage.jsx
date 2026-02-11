@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
+import Toast from '../../components/Toast';
 import AddUserModal from '../../components/AddUserModal';
 import CreateRoleModal from '../../components/CreateRoleModal';
+import { usePropertyConfig } from '../../context/PropertyConfigContext';
+import { useUserContext } from '../../context/UserContext';
 import SalesGoalsSettingsPage from './views/SalesGoalsSettingsPage';
 import NotificationSettingsPage from './views/NotificationSettingsPage';
 import EmailSettingsPage from './views/EmailSettingsPage';
@@ -198,7 +201,7 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAddUser }) => {
     );
 };
 
-const UserList = ({ searchTerm, setSearchTerm, onNewUser, users }) => {
+const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser }) => {
     const [openActionId, setOpenActionId] = useState(null);
 
     return (
@@ -209,9 +212,10 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users }) => {
                         <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '0.8rem' }}></i>
                         <input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ width: '240px', padding: '8px 12px 8px 32px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '0.8rem' }} />
                     </div>
+                    {/* Status filters can be reactive later */}
                     <div style={{ display: 'flex', border: '1px solid var(--primary-color)', borderRadius: '4px', overflow: 'hidden' }}>
-                        {['Active (2)', 'Deactivated (0)', 'Pending actions (0)'].map((label, i) => (
-                            <div key={i} style={{ padding: '8px 16px', fontSize: '0.75rem', fontWeight: 600, background: i === 0 ? '#e0f2fe' : '#fff', color: 'var(--primary-color)', cursor: 'pointer', borderRight: i < 2 ? '1px solid var(--primary-color)' : 'none' }}>{label}</div>
+                        {['Active', 'Inactive'].map((label, i) => (
+                            <div key={i} style={{ padding: '8px 16px', fontSize: '0.75rem', fontWeight: 600, background: i === 0 ? '#e0f2fe' : '#fff', color: 'var(--primary-color)', cursor: 'pointer', borderRight: i < 1 ? '1px solid var(--primary-color)' : 'none' }}>{label}</div>
                         ))}
                     </div>
                 </div>
@@ -226,39 +230,50 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users }) => {
                             <th style={{ padding: '12px 16px', textAlign: 'left' }}>Department</th>
                             <th style={{ padding: '12px 16px', textAlign: 'left' }}>Designation</th>
                             <th style={{ padding: '12px 16px', textAlign: 'left' }}>User Name</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'left' }}>Call Log Sync</th>
+                            {/* <th style={{ padding: '12px 16px', textAlign: 'left' }}>Call Log Sync</th> */}
                             <th style={{ padding: '12px 16px', textAlign: 'left' }}>Last Login</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'center' }}>Location</th>
                             <th style={{ padding: '12px 16px', textAlign: 'left' }}>Status</th>
                             <th style={{ padding: '12px 16px', width: '40px' }}></th>
                         </tr>
                     </thead>
                     <tbody>
                         {users.filter(u => u.name.toLowerCase().includes(searchTerm.toLowerCase())).map(user => (
-                            <tr key={user.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <tr key={user._id || user.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                 <td style={{ padding: '16px', fontWeight: 700 }}>{user.name}</td>
                                 <td style={{ padding: '16px' }}>{user.email}<br />{user.phone}</td>
                                 <td style={{ padding: '16px', fontWeight: 700 }}>{user.department}</td>
                                 <td style={{ padding: '16px', fontWeight: 700 }}>{user.designation}</td>
-                                <td style={{ padding: '16px', color: 'var(--primary-color)', fontWeight: 600 }}>{user.userName}</td>
-                                <td style={{ padding: '16px' }}>{user.callSync} ({user.lastSync})</td>
-                                <td style={{ padding: '16px' }}>{user.lastLogin}</td>
-                                <td style={{ padding: '16px', textAlign: 'center' }}><i className="fas fa-map-marker-alt" style={{ color: 'var(--primary-color)' }}></i></td>
+                                <td style={{ padding: '16px', color: 'var(--primary-color)', fontWeight: 600 }}>{user.username}</td>
+                                {/* <td style={{ padding: '16px' }}>{user.callSync} ({user.lastSync})</td> */}
+                                <td style={{ padding: '16px' }}>{user.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : 'Never'}</td>
                                 <td style={{ padding: '16px' }}>
-                                    <span style={{ background: user.status === 'Active' ? '#22c55e' : '#ef4444', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '0.65rem' }}>{user.status}</span>
+                                    <span style={{
+                                        background: user.status === 'Active' ? '#22c55e' : '#ef4444',
+                                        color: '#fff',
+                                        padding: '2px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '0.65rem'
+                                    }}>{user.status}</span>
                                 </td>
                                 <td style={{ padding: '16px', position: 'relative' }}>
                                     <button
-                                        onClick={() => setOpenActionId(openActionId === user.id ? null : user.id)}
+                                        onClick={() => setOpenActionId(openActionId === (user._id || user.id) ? null : (user._id || user.id))}
                                         style={{ background: 'var(--primary-color)', color: '#fff', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
                                     >
                                         <i className="fas fa-caret-down"></i>
                                     </button>
-                                    {openActionId === user.id && (
+                                    {openActionId === (user._id || user.id) && (
                                         <div style={{ position: 'absolute', top: '100%', right: 0, width: '160px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', zIndex: 100 }}>
                                             <div style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }} onMouseOver={e => e.target.style.background = '#f8fafc'} onMouseOut={e => e.target.style.background = 'transparent'}>Edit User</div>
                                             <div style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }} onMouseOver={e => e.target.style.background = '#f8fafc'} onMouseOut={e => e.target.style.background = 'transparent'}>Reset Password</div>
-                                            <div style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#ef4444' }} onMouseOver={e => e.target.style.background = '#fef2f2'} onMouseOut={e => e.target.style.background = 'transparent'}>{user.status === 'Active' ? 'Deactivate' : 'Activate'}</div>
+                                            <div
+                                                style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#ef4444' }}
+                                                onMouseOver={e => e.target.style.background = '#fef2f2'}
+                                                onMouseOut={e => e.target.style.background = 'transparent'}
+                                                onClick={() => { onDeleteUser(user._id || user.id); setOpenActionId(null); }}
+                                            >
+                                                Delete User
+                                            </div>
                                         </div>
                                     )}
                                 </td>
@@ -271,7 +286,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users }) => {
     );
 };
 
-const RolesList = ({ onNewRole, roles }) => {
+const RolesList = ({ onNewRole, roles, onDeleteRole }) => {
     return (
         <div style={{ flex: 1, background: '#fff', padding: '32px 40px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -287,15 +302,21 @@ const RolesList = ({ onNewRole, roles }) => {
                         <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
                             <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Role name</th>
                             <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Description</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>Assigned users</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Action</th>
                         </tr>
                     </thead>
                     <tbody>
                         {roles.map(role => (
-                            <tr key={role.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <tr key={role._id || role.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                 <td style={{ padding: '16px', fontWeight: 700, color: '#1e293b' }}>{role.name}</td>
                                 <td style={{ padding: '16px', color: '#64748b' }}>{role.description}</td>
-                                <td style={{ padding: '16px', textAlign: 'right', fontWeight: 700, color: '#1e293b' }}>{role.assignedUsers}</td>
+                                <td style={{ padding: '16px', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>
+                                    {!role.isSystem && (
+                                        <button onClick={() => onDeleteRole(role._id || role.id)} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer' }}>
+                                            <i className="fas fa-trash"></i>
+                                        </button>
+                                    )}
+                                </td>
                             </tr>
                         ))}
                     </tbody>
@@ -319,6 +340,7 @@ const EmptyState = ({ title }) => (
 // --- Main Settings Hub Component ---
 
 const SettingsHubPage = () => {
+    const { users, roles, loading, error, addUser, addRole, deleteUser, deleteRole } = useUserContext();
     const [activeTab, setActiveTab] = useState('users');
     const [subTab, setSubTab] = useState('user-list');
     const [searchTerm, setSearchTerm] = useState('');
@@ -326,31 +348,70 @@ const SettingsHubPage = () => {
     const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
     const [isCreateRoleModalOpen, setIsCreateRoleModalOpen] = useState(false);
     const [prefilledManager, setPrefilledManager] = useState('');
+    const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
+    const [isSyncing, setIsSyncing] = useState(false);
 
-    const [users, setUsers] = useState([
-        { id: 1, name: 'Ramesh', email: 'ramesh@bharatproperties.com', phone: '9876543210', department: 'Sale Team Chandigrah', designation: 'Sales Manager', userName: 'rames_admin', callSync: 'Connected', lastSync: '10 min ago', lastLogin: 'Today, 10:30 AM', status: 'Active' },
-        { id: 2, name: 'Suraj', email: 'suraj@bharatproperties.com', phone: '9876543211', department: 'Inventory Management', designation: 'Inventory Head', userName: 'suraj_inv', callSync: 'Connected', lastSync: '1 hour ago', lastLogin: 'Yesterday, 4:45 PM', status: 'Active' }
-    ]);
-
-    const [roles, setRoles] = useState([
-        { id: 1, name: 'Manager (Sales)', description: 'Sales group manager with full pipeline access', assignedUsers: 1 }
-    ]);
-
-    const handleAddUser = (userData) => {
-        setUsers([...users, { ...userData, id: users.length + 1, callSync: 'Connected', lastSync: 'Just now', lastLogin: 'Never', status: 'Active' }]);
-        setIsAddUserModalOpen(false);
+    const showToast = (message, type = 'success') => {
+        setNotification({ show: true, message, type });
+        setTimeout(() => setNotification(prev => ({ ...prev, show: false })), 3000);
     };
 
-    const handleSaveRole = (roleData) => {
-        setRoles([...roles, { ...roleData, id: roles.length + 1, assignedUsers: 0 }]);
-        setIsCreateRoleModalOpen(false);
+    const handleAddUser = async (userData) => {
+        const result = await addUser(userData);
+        if (result.success) {
+            showToast('User created successfully');
+            setIsAddUserModalOpen(false);
+        } else {
+            showToast('Failed to create user: ' + result.error, 'error');
+        }
+    };
+
+    const handleDeleteUser = async (id) => {
+        if (window.confirm('Are you sure you want to delete this user?')) {
+            const result = await deleteUser(id);
+            if (result.success) {
+                showToast('User deleted successfully');
+            } else {
+                showToast('Failed to delete user: ' + result.error, 'error');
+            }
+        }
+    };
+
+    const handleSaveRole = async (roleData) => {
+        const result = await addRole(roleData);
+        if (result.success) {
+            showToast('Role created successfully');
+            setIsCreateRoleModalOpen(false);
+        } else {
+            showToast('Failed to create role: ' + result.error, 'error');
+        }
+    };
+
+    const handleDeleteRole = async (id) => {
+        if (window.confirm('Are you sure you want to delete this role?')) {
+            const result = await deleteRole(id);
+            if (result.success) {
+                showToast('Role deleted successfully');
+            } else {
+                showToast('Failed to delete role: ' + result.error, 'error');
+            }
+        }
+    };
+
+    const handleCloudSync = async () => {
+        setIsSyncing(true);
+        // Simulate sync for now
+        setTimeout(() => {
+            setIsSyncing(false);
+            showToast('Settings synced successfully', 'success');
+        }, 1000);
     };
 
     const sidebarSections = [
         { title: 'Manage', items: [{ id: 'users', label: 'Users' }, { id: 'notifications', label: 'Notifications' }, { id: 'sales-goals', label: 'Sales goals' }] },
         { title: 'Data', items: [{ id: 'import', label: 'Import' }, { id: 'bulk-update', label: 'Bulk update' }, { id: 'export', label: 'Export' }, { id: 'lead-capture', label: 'Lead capture' }, { id: 'duplicate-mgt', label: 'Duplicate management' }, { id: 'enrichment', label: 'Prospecting and enrichment' }] },
         { title: 'Communication channels', items: [{ id: 'email', label: 'Email' }, { id: 'calls', label: 'Calls' }, { id: 'messaging', label: 'Messaging' }, { id: 'feedback-templates', label: 'Message Templates' }] },
-        { title: 'Customize', items: [{ id: 'company-c', label: 'Company' }, { id: 'project-c', label: 'Project' }, { id: 'leads-c', label: 'Leads' }, { id: 'contacts-c', label: 'Contacts' }, { id: 'properties-c', label: 'Properties' }, { id: 'deals-c', label: 'Deals' }, { id: 'task-c', label: 'Activities' }, { id: 'parsing-rules', label: 'Parsing Rules' }] },
+        { title: 'Customize', items: [{ id: 'company-c', label: 'Company' }, { id: 'project-c', label: 'Project' }, { id: 'leads-c', label: 'Leads' }, { id: 'contacts-c', label: 'Contacts' }, { id: 'properties-c', label: 'Properties' }, { id: 'parsing-rules', label: 'Parsing Rules' }, { id: 'deals-c', label: 'Deals' }, { id: 'task-c', label: 'Activities' }] },
         { title: 'Notes', items: [{ id: 'post-sales', label: 'Post Sales' }, { id: 'layouts', label: 'Layouts' }] },
         { title: 'Integrations', items: [{ id: 'integrations', label: 'Integrations' }, { id: 'api', label: 'API' }] },
         { title: 'Business rules', items: [{ id: 'field-rules', label: 'Field rules' }, { id: 'distributions', label: 'Distributions' }, { id: 'sequences', label: 'Sequences' }, { id: 'automated-actions', label: 'Automated actions' }, { id: 'triggers', label: 'Triggers' }, { id: 'scoring', label: 'Scoring' }] }
@@ -358,8 +419,45 @@ const SettingsHubPage = () => {
 
     const currentLabel = sidebarSections.flatMap(s => s.items).find(i => i.id === activeTab)?.label || 'Settings';
 
+    if (loading) {
+        return (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', flex: 1 }}>
+                <div style={{ textAlign: 'center' }}>
+                    <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', color: 'var(--primary-color)', marginBottom: '16px' }}></i>
+                    <p style={{ color: '#64748b' }}>Loading settings...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', flex: 1, padding: '20px' }}>
+                <div style={{ textAlign: 'center', maxWidth: '400px', background: '#fff', padding: '32px', borderRadius: '12px', border: '1px solid #fee2e2' }}>
+                    <i className="fas fa-exclamation-triangle" style={{ fontSize: '2rem', color: '#ef4444', marginBottom: '16px' }}></i>
+                    <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>Failed to load users</h2>
+                    <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '24px' }}>{error}</p>
+                    <button
+                        className="btn-primary"
+                        onClick={() => window.location.reload()}
+                        style={{ width: '100%', padding: '10px', borderRadius: '6px' }}
+                    >
+                        Try Again
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <section id="settingsHubView" className="view-section active" style={{ display: 'flex', flexDirection: 'row', overflow: 'hidden', height: '100%', flex: 1 }}>
+        <section id="settingsHubView" className="view-section active" style={{ display: 'flex', flexDirection: 'row', overflow: 'hidden', height: '100%', flex: 1, position: 'relative' }}>
+            {notification.show && (
+                <Toast
+                    message={notification.message}
+                    type={notification.type}
+                    onClose={() => setNotification({ ...notification, show: false })}
+                />
+            )}
             {/* Sidebar */}
             <div className="profile-side-nav" style={{ width: '240px', background: '#f8fafc', borderRight: '1px solid #e2e8f0', height: '100%', overflowY: 'auto', padding: '24px 0', flexShrink: 0 }}>
                 {sidebarSections.map((section, idx) => (
@@ -397,9 +495,9 @@ const SettingsHubPage = () => {
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                     {activeTab === 'users' ? (
                         <>
-                            {subTab === 'user-list' && <UserList searchTerm={searchTerm} setSearchTerm={setSearchTerm} users={users} onNewUser={() => { setPrefilledManager(''); setIsAddUserModalOpen(true); }} />}
+                            {subTab === 'user-list' && <UserList searchTerm={searchTerm} setSearchTerm={setSearchTerm} users={users} onDeleteUser={handleDeleteUser} onNewUser={() => { setPrefilledManager(''); setIsAddUserModalOpen(true); }} />}
                             {subTab === 'user-hierarchy' && <UserHierarchy showPermissions={showPermissions} setShowPermissions={setShowPermissions} onAddUser={(ctx) => { setPrefilledManager(ctx?.manager || ''); setIsAddUserModalOpen(true); }} />}
-                            {subTab === 'roles' && <RolesList onNewRole={() => setIsCreateRoleModalOpen(true)} roles={roles} />}
+                            {subTab === 'roles' && <RolesList onNewRole={() => setIsCreateRoleModalOpen(true)} roles={roles} onDeleteRole={handleDeleteRole} />}
                         </>
                     ) : activeTab === 'sales-goals' ? (
                         <SalesGoalsSettingsPage />
@@ -443,18 +541,26 @@ const SettingsHubPage = () => {
                         <ImportDataPage />
                     ) : activeTab === 'bulk-update' ? (
                         <BulkUpdatePage />
-                    ) : activeTab === 'export' ? (
-                        <ExportDataPage />
                     ) : activeTab === 'parsing-rules' ? (
                         <ParsingRulesPage />
+                    ) : activeTab === 'export' ? (
+                        <ExportDataPage />
                     ) : (
                         <EmptyState title={currentLabel} />
                     )}
                 </div>
 
                 {/* Fixed Footer */}
-                <div style={{ padding: '16px 40px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', background: '#fff' }}>
-                    <button className="btn-primary" style={{ padding: '10px 32px', borderRadius: '6px', fontWeight: 700 }}>Save</button>
+                <div style={{ padding: '16px 40px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', background: '#fff', gap: '12px', alignItems: 'center' }}>
+                    {isSyncing && <span style={{ fontSize: '0.8rem', color: '#64748b' }}><i className="fas fa-spinner fa-spin"></i> Syncing to Cloud...</span>}
+                    <button
+                        className="btn-primary"
+                        onClick={handleCloudSync}
+                        disabled={isSyncing}
+                        style={{ padding: '10px 32px', borderRadius: '6px', fontWeight: 700, opacity: isSyncing ? 0.7 : 1 }}
+                    >
+                        {isSyncing ? 'Syncing...' : 'Sync All to Cloud'}
+                    </button>
                 </div>
             </div>
 

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { INDIAN_ADDRESS_DATA } from '../data/locationData';
 import AddressDetailsForm from './common/AddressDetailsForm';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
+import { useUserContext } from '../context/UserContext';
+import { api } from '../utils/api';
+import toast from 'react-hot-toast';
 import { contactData } from '../data/mockData';
 
 const COUNTRY_CODES = [
@@ -11,16 +13,10 @@ const COUNTRY_CODES = [
     { name: 'Australia', dial_code: '+61', code: 'AU' },
 ];
 
-const COMPANY_TYPES = ['Private Limited', 'Public Limited', 'Partnership', 'Proprietorship', 'LLP', 'NGO', 'Other'];
-const INDUSTRIES = ['Real Estate', 'Technology', 'Healthcare', 'Finance', 'Manufacturing', 'Retail', 'Education', 'Other'];
-const SOURCES = []; // Removed
+// Constants replaced by lookups
 const TEAMS = ['Sales', 'Marketing', 'Operations', 'Finance', 'Support'];
-const OWNER_EMPLOYEES = ['Suresh Kumar', 'Ramesh Sharma', 'Anjali Gupta', 'Vikram Singh'];
 
-const SUB_CATEGORIES = ['Sales Person', 'Real Estate Agent', 'Real Estate', 'IT & Software', 'Banking & Finance', 'Manufacturing', 'Retail', 'Healthcare', 'Education', 'Legal', 'Construction', 'Government', 'Other'];
-const DESIGNATIONS = ['Owner', 'CEO / Founder', 'Director', 'Manager', 'Team Lead', 'Senior Executive', 'Associate', 'Developer', 'Consultant', 'HR', 'Accountant', 'Other'];
-
-const AnimatedSegmentControl = ({ options, value, onChange }) => {
+const AnimatedSegmentControl = ({ options, labels, value, onChange }) => {
     const [activeIndex, setActiveIndex] = useState(options.indexOf(value));
 
     useEffect(() => {
@@ -77,33 +73,51 @@ const AnimatedSegmentControl = ({ options, value, onChange }) => {
                         justifyContent: 'center'
                     }}
                 >
-                    {option}
+                    {labels ? labels[option] : option}
                 </button>
             ))}
         </div>
     );
 };
 
-const ADDRESS_TYPES = ['Registered Office', 'Branch Office', 'Corporate Office', 'Head Office', 'Site Office'];
+const ADDRESS_TYPES = ['registeredOffice', 'branchOffice', 'corporateOffice', 'headOffice', 'siteOffice'];
+const ADDRESS_LABELS = {
+    registeredOffice: 'Registered Office',
+    branchOffice: 'Branch Office',
+    corporateOffice: 'Corporate Office',
+    headOffice: 'Head Office',
+    siteOffice: 'Site Office'
+};
 
 function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
     const { leadMasterFields } = usePropertyConfig();
+    const { users } = useUserContext();
     const isEdit = !!initialData;
     const [currentTab, setCurrentTab] = useState('basic');
-    const [currentAddressType, setCurrentAddressType] = useState('Registered Office');
+    const [currentAddressType, setCurrentAddressType] = useState('registeredOffice');
     const [showOnlyRequired, setShowOnlyRequired] = useState(false);
     const [currentTime, setCurrentTime] = useState(new Date());
     const [activeBranchIndex, setActiveBranchIndex] = useState(0);
     const [activeSiteIndex, setActiveSiteIndex] = useState(0);
 
+    // Lookup States
+    const [lookupData, setLookupData] = useState({
+        companyTypes: [],
+        industries: [],
+        sources: [],
+        subSources: [],
+        subCategories: [],
+        designations: []
+    });
+
     // Employee Search States
     const [employeeSearch, setEmployeeSearch] = useState('');
     const [showSearchResults, setShowSearchResults] = useState(false);
     const [selectedContactToLink, setSelectedContactToLink] = useState(null);
-    const [linkData, setLinkData] = useState({ designation: '', subCategory: '' });
+    const [linkData, setLinkData] = useState({ designation: '', category: '', subCategory: '' });
 
     const initialAddress = {
-        branchName: '', hNo: '', street: '', city: '', state: '', tehsil: '', postOffice: '', pinCode: '', area: '', location: '', country: 'India'
+        branchName: '', hNo: '', street: '', city: null, state: null, tehsil: null, postOffice: null, pinCode: '', area: '', location: null, country: ''
     };
 
     const [formData, setFormData] = useState({
@@ -118,51 +132,102 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
         source: '',
         subSource: '',
         team: 'Sales',
-        owner: 'Suresh Kumar',
-        visibleTo: 'My Team',
+        owner: '',
+        visibleTo: 'Everyone',
         addresses: {
-            'Registered Office': { ...initialAddress },
-            'Branch Office': [{ ...initialAddress }],
-            'Corporate Office': { ...initialAddress },
-            'Head Office': { ...initialAddress },
-            'Site Office': [{ ...initialAddress }]
+            registeredOffice: { ...initialAddress },
+            branchOffice: [{ ...initialAddress }],
+            corporateOffice: { ...initialAddress },
+            headOffice: { ...initialAddress },
+            siteOffice: [{ ...initialAddress }]
         },
         employees: []
     });
 
+    // Load Lookups
+    useEffect(() => {
+        const loadLookups = async () => {
+            const fetchLookup = async (type) => {
+                try {
+                    const res = await api.get('/lookups', { params: { lookup_type: type, limit: 1000 } });
+                    return res.data?.status === 'success' ? res.data.data : [];
+                } catch (e) {
+                    console.error(`Failed to fetch ${type} lookups:`, e);
+                    return [];
+                }
+            };
+
+            const [types, industries, src, subSrc, subCats, desigs, profCats] = await Promise.all([
+                fetchLookup('CompanyType'),
+                fetchLookup('Industry'),
+                fetchLookup('Source'),
+                fetchLookup('SubSource'),
+                fetchLookup('ProfessionalSubCategory'),
+                fetchLookup('ProfessionalDesignation'),
+                fetchLookup('ProfessionalCategory')
+            ]);
+
+            setLookupData({
+                companyTypes: types,
+                industries: industries,
+                sources: src,
+                subSources: subSrc,
+                categories: profCats,
+                subCategories: subCats,
+                designations: desigs
+            });
+        };
+
+        if (isOpen) loadLookups();
+    }, [isOpen]);
+
+    // Helper to extract ID from potentially populated field
+    const getId = (field) => {
+        if (!field) return '';
+        if (typeof field === 'object') return field._id || '';
+        return field;
+    };
+
+    // Helper to map address with lookups to ID-based address
+    const mapAddress = (addr) => {
+        if (!addr) return { ...initialAddress };
+        return {
+            ...initialAddress,
+            ...addr,
+            city: getId(addr.city),
+            state: getId(addr.state),
+            tehsil: getId(addr.tehsil),
+            postOffice: getId(addr.postOffice),
+            location: getId(addr.location),
+            country: getId(addr.country)
+        };
+    };
+
     // Initialize form with initialData if editing
     useEffect(() => {
-        if (isEdit && isOpen) {
+        if (isEdit && isOpen && initialData) {
             setFormData({
                 name: initialData.name || '',
-                phones: initialData.phone ? [{ id: 'edit_phone', phoneCode: '+91', phoneNumber: initialData.phone, type: 'Work' }] : [{ id: 'edit_phone', phoneCode: '+91', phoneNumber: '', type: 'Work' }],
-                emails: initialData.email ? [{ id: 'edit_email', address: initialData.email, type: 'Work' }] : [{ id: 'edit_email', address: '', type: 'Work' }],
-                companyType: initialData.type || '',
-                industry: initialData.category || '', // Mapping industry
+                phones: initialData.phones?.length ? initialData.phones.map((p, i) => ({ ...p, id: p._id || i })) : [{ id: Date.now(), phoneCode: '+91', phoneNumber: '', type: 'Work' }],
+                emails: initialData.emails?.length ? initialData.emails.map((e, i) => ({ ...e, id: e._id || i })) : [{ id: Date.now() + 1, address: '', type: 'Work' }],
+                companyType: getId(initialData.companyType),
+                industry: getId(initialData.industry),
                 description: initialData.description || '',
                 gstNumber: initialData.gstNumber || '',
                 campaign: initialData.campaign || '',
-                source: initialData.source || '',
-                subSource: initialData.subSource || '',
+                source: getId(initialData.source),
+                subSource: getId(initialData.subSource),
                 team: initialData.team || 'Sales',
-                owner: initialData.ownership || 'Suresh Kumar',
+                owner: getId(initialData.owner),
                 visibleTo: initialData.visibleTo || 'Everyone',
-                addresses: initialData.addresses ? {
-                    ...initialData.addresses,
-                    'Branch Office': Array.isArray(initialData.addresses['Branch Office'])
-                        ? initialData.addresses['Branch Office']
-                        : [initialData.addresses['Branch Office'] || { ...initialAddress }],
-                    'Site Office': Array.isArray(initialData.addresses['Site Office'])
-                        ? initialData.addresses['Site Office']
-                        : [initialData.addresses['Site Office'] || { ...initialAddress }]
-                } : {
-                    'Registered Office': { ...initialAddress },
-                    'Branch Office': [{ ...initialAddress }],
-                    'Corporate Office': { ...initialAddress },
-                    'Head Office': { ...initialAddress },
-                    'Site Office': [{ ...initialAddress }]
+                addresses: {
+                    registeredOffice: mapAddress(initialData.addresses?.registeredOffice || initialData.addresses?.['Registered Office']),
+                    branchOffice: (initialData.addresses?.branchOffice || initialData.addresses?.['Branch Office'])?.map(mapAddress) || [{ ...initialAddress }],
+                    corporateOffice: mapAddress(initialData.addresses?.corporateOffice || initialData.addresses?.['Corporate Office']),
+                    headOffice: mapAddress(initialData.addresses?.headOffice || initialData.addresses?.['Head Office']),
+                    siteOffice: (initialData.addresses?.siteOffice || initialData.addresses?.['Site Office'])?.map(mapAddress) || [{ ...initialAddress }]
                 },
-                employees: initialData.employeesData || []
+                employees: initialData.employees || []
             });
         } else if (!isEdit && isOpen) {
             // Reset to default for new company
@@ -178,14 +243,14 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 source: '',
                 subSource: '',
                 team: 'Sales',
-                owner: 'Suresh Kumar',
+                owner: '',
                 visibleTo: 'Everyone',
                 addresses: {
-                    'Registered Office': { ...initialAddress },
-                    'Branch Office': [{ ...initialAddress }],
-                    'Corporate Office': { ...initialAddress },
-                    'Head Office': { ...initialAddress },
-                    'Site Office': [{ ...initialAddress }]
+                    registeredOffice: { ...initialAddress },
+                    branchOffice: [{ ...initialAddress }],
+                    corporateOffice: { ...initialAddress },
+                    headOffice: { ...initialAddress },
+                    siteOffice: [{ ...initialAddress }]
                 },
                 employees: []
             });
@@ -196,6 +261,40 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
         return () => clearInterval(timer);
     }, []);
+
+    const [filteredContacts, setFilteredContacts] = useState([]);
+    const [isSearching, setIsSearching] = useState(false);
+
+    useEffect(() => {
+        const searchContacts = async () => {
+            if (employeeSearch.length < 2) {
+                setFilteredContacts([]);
+                return;
+            }
+
+            setIsSearching(true);
+            try {
+                // Using searchDuplicates endpoint for high specificity
+                const res = await api.get('/contacts/search/duplicates', {
+                    params: { name: employeeSearch, phone: employeeSearch }
+                });
+
+                if (res.data?.success) {
+                    const results = res.data.data.filter(c =>
+                        !formData.employees.some(emp => (emp._id || emp.id) === (c._id || c.id))
+                    );
+                    setFilteredContacts(results);
+                }
+            } catch (err) {
+                console.error("Search failed:", err);
+            } finally {
+                setIsSearching(false);
+            }
+        };
+
+        const timer = setTimeout(searchContacts, 300);
+        return () => clearTimeout(timer);
+    }, [employeeSearch, formData.employees, isOpen]);
 
     if (!isOpen) return null;
 
@@ -244,6 +343,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
 
         const newEmployee = {
             ...selectedContactToLink,
+            category: linkData.category,
             designation: linkData.designation,
             professionSubCategory: linkData.subCategory,
             isNew: true
@@ -256,8 +356,9 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
 
         // Reset
         setSelectedContactToLink(null);
-        setLinkData({ designation: '', subCategory: '' });
+        setLinkData({ designation: '', category: '', subCategory: '' });
         setEmployeeSearch('');
+        setFilteredContacts([]);
     };
 
     const removeEmployee = (contactId) => {
@@ -272,19 +373,19 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
             ...prev,
             addresses: {
                 ...prev.addresses,
-                'Branch Office': [...prev.addresses['Branch Office'], { ...initialAddress }]
+                branchOffice: [...prev.addresses.branchOffice, { ...initialAddress }]
             }
         }));
-        setActiveBranchIndex(formData.addresses['Branch Office'].length);
+        setActiveBranchIndex(formData.addresses.branchOffice.length);
     };
 
     const removeBranchAddress = (index) => {
-        if (formData.addresses['Branch Office'].length <= 1) return;
+        if (formData.addresses.branchOffice.length <= 1) return;
         setFormData(prev => ({
             ...prev,
             addresses: {
                 ...prev.addresses,
-                'Branch Office': prev.addresses['Branch Office'].filter((_, i) => i !== index)
+                branchOffice: prev.addresses.branchOffice.filter((_, i) => i !== index)
             }
         }));
         if (activeBranchIndex >= index) {
@@ -297,19 +398,19 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
             ...prev,
             addresses: {
                 ...prev.addresses,
-                'Site Office': [...prev.addresses['Site Office'], { ...initialAddress }]
+                siteOffice: [...prev.addresses.siteOffice, { ...initialAddress }]
             }
         }));
-        setActiveSiteIndex(formData.addresses['Site Office'].length);
+        setActiveSiteIndex(formData.addresses.siteOffice.length);
     };
 
     const removeSiteOfficeAddress = (index) => {
-        if (formData.addresses['Site Office'].length <= 1) return;
+        if (formData.addresses.siteOffice.length <= 1) return;
         setFormData(prev => ({
             ...prev,
             addresses: {
                 ...prev.addresses,
-                'Site Office': prev.addresses['Site Office'].filter((_, i) => i !== index)
+                siteOffice: prev.addresses.siteOffice.filter((_, i) => i !== index)
             }
         }));
         if (activeSiteIndex >= index) {
@@ -319,8 +420,8 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
 
     const handleAddressChange = (type, field, value) => {
         setFormData(prev => {
-            if (type === 'Branch Office' || type === 'Site Office') {
-                const activeIndex = type === 'Branch Office' ? activeBranchIndex : activeSiteIndex;
+            if (type === 'branchOffice' || type === 'siteOffice') {
+                const activeIndex = type === 'branchOffice' ? activeBranchIndex : activeSiteIndex;
                 const newArray = [...prev.addresses[type]];
                 newArray[activeIndex] = {
                     ...newArray[activeIndex],
@@ -358,9 +459,46 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
         else if (currentTab === 'address') setCurrentTab('basic');
     };
 
-    const handleSave = () => {
-        onAdd(formData);
-        onClose();
+    const handleSave = async () => {
+        if (!formData.name || !formData.name.trim()) {
+            toast.error('Company name is required');
+            return;
+        }
+
+        const toastId = toast.loading(isEdit ? 'Updating company...' : 'Creating company...');
+        try {
+            // Prepare data for backend
+            const payload = {
+                ...formData,
+                // Only send non-empty phones/emails and strip helper IDs
+                phones: formData.phones
+                    .filter(p => p.phoneNumber && p.phoneNumber.trim())
+                    .map(({ id, ...rest }) => rest),
+                emails: formData.emails
+                    .filter(e => e.address && e.address.trim())
+                    .map(({ id, ...rest }) => rest),
+                // Map employees to IDs
+                employees: formData.employees.map(emp => emp._id || emp.id)
+            };
+
+            let response;
+            if (isEdit && initialData._id) {
+                response = await api.put(`/companies/${initialData._id}`, payload);
+            } else {
+                response = await api.post('/companies', payload);
+            }
+
+            if (response.data && response.data.success) {
+                toast.success(isEdit ? 'Company updated!' : 'Company created!', { id: toastId });
+                onAdd && onAdd(response.data.data);
+                onClose();
+            } else {
+                throw new Error(response.data?.error || 'Failed to save company');
+            }
+        } catch (error) {
+            console.error("Save Error:", error);
+            toast.error(error.message || "Failed to save company", { id: toastId });
+        }
     };
 
     // Style Constants
@@ -491,14 +629,14 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                                 <label style={labelStyle}>Company Type</label>
                                 <select style={customSelectStyle} value={formData.companyType} onChange={(e) => handleInputChange('companyType', e.target.value)}>
                                     <option value="">---Select Type---</option>
-                                    {COMPANY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                    {lookupData.companyTypes.map(t => <option key={t._id} value={t._id}>{t.lookup_value}</option>)}
                                 </select>
                             </div>
                             <div>
                                 <label style={labelStyle}>Industry</label>
                                 <select style={customSelectStyle} value={formData.industry} onChange={(e) => handleInputChange('industry', e.target.value)}>
                                     <option value="">---Choose Industry---</option>
-                                    {INDUSTRIES.map(i => <option key={i} value={i}>{i}</option>)}
+                                    {lookupData.industries.map(i => <option key={i._id} value={i._id}>{i.lookup_value}</option>)}
                                 </select>
                             </div>
                         </div>
@@ -534,24 +672,29 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                             onChange={(e) => handleInputChange('source', e.target.value)}
                         >
                             <option value="">Select Source</option>
-                            {(() => {
-                                const allSources = [];
-                                (leadMasterFields?.campaigns || []).forEach(c => {
-                                    (c.sources || []).forEach(s => {
-                                        if (!allSources.includes(s.name)) {
-                                            allSources.push(s.name);
-                                        }
-                                    });
-                                });
-                                return allSources.map(s => <option key={s} value={s}>{s}</option>);
-                            })()}
+                            {lookupData.sources.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style={labelStyle}>Sub Source</label>
+                        <select
+                            style={customSelectStyle}
+                            value={formData.subSource}
+                            onChange={(e) => handleInputChange('subSource', e.target.value)}
+                        >
+                            <option value="">Select Sub Source</option>
+                            {lookupData.subSources.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
                         </select>
                     </div>
 
                     <div>
                         <label style={labelStyle}>Assign</label>
                         <select style={customSelectStyle} value={formData.owner} onChange={(e) => handleInputChange('owner', e.target.value)}>
-                            {OWNER_EMPLOYEES.map(emp => <option key={emp} value={emp}>{emp}</option>)}
+                            <option value="">Select Owner</option>
+                            {users.map(user => (
+                                <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
+                            ))}
                         </select>
                     </div>
 
@@ -577,39 +720,36 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
 
     const getActiveAddress = () => {
         const base = formData.addresses[currentAddressType];
-        if (currentAddressType === 'Branch Office') {
+        if (currentAddressType === 'branchOffice') {
             return base[activeBranchIndex] || { ...initialAddress };
         }
-        if (currentAddressType === 'Site Office') {
+        if (currentAddressType === 'siteOffice') {
             return base[activeSiteIndex] || { ...initialAddress };
         }
         return base;
     };
 
     const addr = getActiveAddress();
-    const states = Object.keys(INDIAN_ADDRESS_DATA.India).sort();
-    const cities = addr.state ? Object.keys(INDIAN_ADDRESS_DATA.India[addr.state] || {}).sort() : [];
-    const tehsils = (addr.state && addr.city) ? (INDIAN_ADDRESS_DATA.India[addr.state][addr.city]?.tehsils || []) : [];
-    const postOffices = (addr.state && addr.city) ? (INDIAN_ADDRESS_DATA.India[addr.state][addr.city]?.postOffices || []) : [];
 
     const renderAddress = () => (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div style={{ marginBottom: '10px' }}>
                 <AnimatedSegmentControl
                     options={ADDRESS_TYPES}
+                    labels={ADDRESS_LABELS}
                     value={currentAddressType}
                     onChange={setCurrentAddressType}
                 />
             </div>
 
-            {(currentAddressType === 'Branch Office' || currentAddressType === 'Site Office') && (
+            {(currentAddressType === 'branchOffice' || currentAddressType === 'siteOffice') && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', padding: '12px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                     {formData.addresses[currentAddressType].map((item, idx) => {
-                        const isActive = (currentAddressType === 'Branch Office' ? activeBranchIndex : activeSiteIndex) === idx;
+                        const isActive = (currentAddressType === 'branchOffice' ? activeBranchIndex : activeSiteIndex) === idx;
                         return (
                             <div key={idx} style={{ display: 'flex', alignItems: 'center' }}>
                                 <button
-                                    onClick={() => currentAddressType === 'Branch Office' ? setActiveBranchIndex(idx) : setActiveSiteIndex(idx)}
+                                    onClick={() => currentAddressType === 'branchOffice' ? setActiveBranchIndex(idx) : setActiveSiteIndex(idx)}
                                     style={{
                                         padding: '8px 16px',
                                         borderRadius: '8px 0 0 8px',
@@ -622,11 +762,11 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                                         transition: 'all 0.2s'
                                     }}
                                 >
-                                    {item.branchName || `${currentAddressType === 'Branch Office' ? 'Branch' : 'Site'} ${idx + 1}`}
+                                    {item.branchName || `${currentAddressType === 'branchOffice' ? 'Branch' : 'Site'} ${idx + 1}`}
                                 </button>
                                 {formData.addresses[currentAddressType].length > 1 && (
                                     <button
-                                        onClick={() => currentAddressType === 'Branch Office' ? removeBranchAddress(idx) : removeSiteOfficeAddress(idx)}
+                                        onClick={() => currentAddressType === 'branchOffice' ? removeBranchAddress(idx) : removeSiteOfficeAddress(idx)}
                                         style={{
                                             padding: '8px 10px',
                                             borderRadius: '0 8px 8px 0',
@@ -637,7 +777,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                                             cursor: 'pointer',
                                             transition: 'all 0.2s'
                                         }}
-                                        title={`Remove ${currentAddressType === 'Branch Office' ? 'branch' : 'site'}`}
+                                        title={`Remove ${currentAddressType === 'branchOffice' ? 'branch' : 'site'}`}
                                     >
                                         <i className="fas fa-times"></i>
                                     </button>
@@ -646,7 +786,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                         );
                     })}
                     <button
-                        onClick={currentAddressType === 'Branch Office' ? addBranchAddress : addSiteOfficeAddress}
+                        onClick={currentAddressType === 'branchOffice' ? addBranchAddress : addSiteOfficeAddress}
                         style={{
                             padding: '8px 14px',
                             borderRadius: '8px',
@@ -662,7 +802,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                             gap: '6px'
                         }}
                     >
-                        <i className="fas fa-plus"></i> Add {currentAddressType === 'Branch Office' ? 'Branch' : 'Site'}
+                        <i className="fas fa-plus"></i> Add {currentAddressType === 'branchOffice' ? 'Branch' : 'Site'}
                     </button>
                 </div>
             )}
@@ -670,15 +810,15 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
             <div style={{ background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
                 <div style={{ padding: '24px', borderBottom: '1px solid #f1f5f9' }}>
                     <h3 style={{ ...labelStyle, fontSize: '1.1rem', color: '#10b981', marginBottom: '0', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <i className="fas fa-map-marked-alt"></i> {(currentAddressType === 'Branch Office' || currentAddressType === 'Site Office') ? (addr.branchName || `${currentAddressType === 'Branch Office' ? 'Branch' : 'Site'} ${(currentAddressType === 'Branch Office' ? activeBranchIndex : activeSiteIndex) + 1}`) : currentAddressType} Details
+                        <i className="fas fa-map-marked-alt"></i> {(currentAddressType === 'branchOffice' || currentAddressType === 'siteOffice') ? (addr.branchName || `${currentAddressType === 'branchOffice' ? 'Branch' : 'Site'} ${(currentAddressType === 'branchOffice' ? activeBranchIndex : activeSiteIndex) + 1}`) : ADDRESS_LABELS[currentAddressType]} Details
                     </h3>
                 </div>
 
                 <div style={{ padding: '24px' }}>
-                    {(currentAddressType === 'Branch Office' || currentAddressType === 'Site Office') && (
+                    {(currentAddressType === 'branchOffice' || currentAddressType === 'siteOffice') && (
                         <div style={{ marginBottom: '24px' }}>
-                            <label style={labelStyle}>{currentAddressType === 'Branch Office' ? 'Branch' : 'Site'} Name</label>
-                            <input style={inputStyle} placeholder={`e.g. ${currentAddressType === 'Branch Office' ? 'City Center Branch' : 'Main Project Site'}, Alpha Square Office`} value={addr.branchName} onChange={(e) => handleAddressChange(currentAddressType, 'branchName', e.target.value)} />
+                            <label style={labelStyle}>{currentAddressType === 'branchOffice' ? 'Branch' : 'Site'} Name</label>
+                            <input style={inputStyle} placeholder={`e.g. ${currentAddressType === 'branchOffice' ? 'City Center Branch' : 'Main Project Site'}, Alpha Square Office`} value={addr.branchName} onChange={(e) => handleAddressChange(currentAddressType, 'branchName', e.target.value)} />
                         </div>
                     )}
 
@@ -686,25 +826,10 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                         title="" // Title handled by parent header
                         address={addr}
                         onChange={(newAddr) => {
-                            // Map flat address back to specific fields if needed, or update bulk
-                            // handleAddressChange expects (type, field, value) usually, but here we might need a bulk update helper or loop
-                            // Existing handleAddressChange updates ONE field.
-                            // We need to update multiple fields.
-                            // Let's create a bulk updater or call handleAddressChange for each changed field.
-                            // Efficient way: modify local state and setFormData.
-
-                            // actually, let's look at handleAddressChange again. It's: setFormData(...)
-                            // We can create a specific bulk update handler or update handleAddressChange to accept object.
-                            // For now, I will assume I can pass individual updates or refactor handleAddressChange below.
-
-                            // Retaining original logic: We need to update state, city, tehsil etc.
-                            // AddressDetailsForm returns the FULL updated address object 'newAddr'.
-                            // We should simply update the specific entry in formData with 'newAddr'.
-
                             setFormData(prev => {
                                 let newAddresses = { ...prev.addresses };
-                                if (currentAddressType === 'Branch Office' || currentAddressType === 'Site Office') {
-                                    const activeIndex = currentAddressType === 'Branch Office' ? activeBranchIndex : activeSiteIndex;
+                                if (currentAddressType === 'branchOffice' || currentAddressType === 'siteOffice') {
+                                    const activeIndex = currentAddressType === 'branchOffice' ? activeBranchIndex : activeSiteIndex;
                                     const list = [...newAddresses[currentAddressType]];
                                     list[activeIndex] = { ...list[activeIndex], ...newAddr };
                                     newAddresses[currentAddressType] = list;
@@ -727,12 +852,6 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
         </div>
     );
 
-    const filteredContacts = employeeSearch.length > 1
-        ? contactData.filter(c =>
-            c.name.toLowerCase().includes(employeeSearch.toLowerCase()) ||
-            c.mobile.includes(employeeSearch)
-        ).filter(c => !formData.employees.some(emp => emp.mobile === c.mobile))
-        : [];
 
     const renderEmployees = () => (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -753,7 +872,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                         <div style={{ flex: 1, position: 'relative' }}>
                             <i className="fas fa-search" style={{ position: 'absolute', left: '14px', top: '13px', color: '#94a3b8', fontSize: '0.9rem' }}></i>
                             <input
-                                style={{ ...inputStyle, paddingLeft: '40px', background: '#f8fafc' }}
+                                style={{ ...inputStyle, paddingLeft: '40px', paddingRight: '40px', background: '#f8fafc' }}
                                 placeholder="Search by name or mobile number..."
                                 value={employeeSearch}
                                 onChange={(e) => {
@@ -762,6 +881,11 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                                 }}
                                 onFocus={() => setShowSearchResults(true)}
                             />
+                            {isSearching && (
+                                <div style={{ position: 'absolute', right: '14px', top: '13px' }}>
+                                    <i className="fas fa-spinner fa-spin" style={{ color: '#10b981' }}></i>
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -773,7 +897,11 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                                     onClick={() => {
                                         setSelectedContactToLink(contact);
                                         setShowSearchResults(false);
-                                        setLinkData({ designation: contact.designation || '', subCategory: contact.professionSubCategory || '' });
+                                        setLinkData({
+                                            designation: contact.designation?.lookup_value || contact.designation || '',
+                                            category: contact.professionCategory?.lookup_value || contact.professionCategory || '',
+                                            subCategory: contact.professionSubCategory?.lookup_value || contact.professionSubCategory || ''
+                                        });
                                     }}
                                     style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '12px' }}
                                     className="hover-bg-f8fafc"
@@ -810,7 +938,18 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                             </button>
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
+                            <div>
+                                <label style={{ ...labelStyle, color: '#065f46' }}>Professional Category <span style={{ color: '#ef4444' }}>*</span></label>
+                                <select
+                                    style={{ ...customSelectStyle, background: '#fff' }}
+                                    value={linkData.category}
+                                    onChange={(e) => setLinkData(prev => ({ ...prev, category: e.target.value }))}
+                                >
+                                    <option value="">Select Category</option>
+                                    {lookupData.categories.map(cat => <option key={cat._id} value={cat.lookup_value}>{cat.lookup_value}</option>)}
+                                </select>
+                            </div>
                             <div>
                                 <label style={{ ...labelStyle, color: '#065f46' }}>Professional Sub Category <span style={{ color: '#ef4444' }}>*</span></label>
                                 <select
@@ -818,8 +957,8 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                                     value={linkData.subCategory}
                                     onChange={(e) => setLinkData(prev => ({ ...prev, subCategory: e.target.value }))}
                                 >
-                                    <option value="">Select Category</option>
-                                    {SUB_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                    <option value="">Select Sub-Category</option>
+                                    {lookupData.subCategories.map(cat => <option key={cat._id} value={cat.lookup_value}>{cat.lookup_value}</option>)}
                                 </select>
                             </div>
                             <div>
@@ -830,7 +969,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                                     onChange={(e) => setLinkData(prev => ({ ...prev, designation: e.target.value }))}
                                 >
                                     <option value="">Select Designation</option>
-                                    {DESIGNATIONS.map(des => <option key={des} value={des}>{des}</option>)}
+                                    {lookupData.designations.map(des => <option key={des._id} value={des.lookup_value}>{des.lookup_value}</option>)}
                                 </select>
                             </div>
                         </div>
@@ -838,15 +977,15 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                         <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
                             <button
                                 onClick={handleLinkEmployee}
-                                disabled={!linkData.designation || !linkData.subCategory}
+                                disabled={!linkData.designation || !linkData.subCategory || !linkData.category}
                                 style={{
                                     padding: '10px 20px',
                                     borderRadius: '10px',
-                                    background: (linkData.designation && linkData.subCategory) ? '#10b981' : '#cbd5e1',
+                                    background: (linkData.designation && linkData.subCategory && linkData.category) ? '#10b981' : '#cbd5e1',
                                     color: '#fff',
                                     border: 'none',
                                     fontWeight: 700,
-                                    cursor: (linkData.designation && linkData.subCategory) ? 'pointer' : 'not-allowed',
+                                    cursor: (linkData.designation && linkData.subCategory && linkData.category) ? 'pointer' : 'not-allowed',
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '8px'
@@ -887,10 +1026,10 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                                     <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b' }}>{emp.name}</div>
                                     <div style={{ display: 'flex', gap: '12px', marginTop: '4px' }}>
                                         <span style={{ fontSize: '0.75rem', color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px' }}>
-                                            <i className="fas fa-briefcase" style={{ marginRight: '4px', fontSize: '0.7rem' }}></i> {emp.designation}
+                                            <i className="fas fa-briefcase" style={{ marginRight: '4px', fontSize: '0.7rem' }}></i> {emp.designation?.lookup_value || emp.designation}
                                         </span>
                                         <span style={{ fontSize: '0.75rem', color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px' }}>
-                                            <i className="fas fa-id-badge" style={{ marginRight: '4px', fontSize: '0.7rem' }}></i> {emp.professionSubCategory}
+                                            <i className="fas fa-id-badge" style={{ marginRight: '4px', fontSize: '0.7rem' }}></i> {emp.professionSubCategory?.lookup_value || emp.professionSubCategory}
                                         </span>
                                     </div>
                                 </div>

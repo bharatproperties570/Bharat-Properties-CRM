@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useDistribution } from '../context/DistributionContext';
-import { users } from '../data/mockData';
+import { useUserContext } from '../context/UserContext';
 
 const CreateDistributionRuleModal = ({ isOpen, onClose, editingRule = null }) => {
     const { addDistributionRule, updateDistributionRule } = useDistribution();
+    const { users } = useUserContext();
 
     const [activeTab, setActiveTab] = useState('basic');
     const [formData, setFormData] = useState({
@@ -442,91 +443,94 @@ const CreateDistributionRuleModal = ({ isOpen, onClose, editingRule = null }) =>
                                     borderRadius: '8px',
                                     padding: '12px'
                                 }}>
-                                    {users.map(user => (
-                                        <div
-                                            key={user.id}
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'space-between',
-                                                padding: '10px',
-                                                borderRadius: '6px',
-                                                marginBottom: '8px',
-                                                background: formData.assignmentTarget.ids.includes(user.id) ? '#eff6ff' : 'transparent',
-                                                border: formData.assignmentTarget.ids.includes(user.id) ? '1px solid #bfdbfe' : '1px solid transparent'
-                                            }}
-                                        >
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={formData.assignmentTarget.ids.includes(user.id)}
-                                                    onChange={() => toggleAssignmentTarget(user.id)}
-                                                />
-                                                <div>
-                                                    <div style={{ fontSize: '14px', fontWeight: '500' }}>{user.name}</div>
-                                                    <div style={{ fontSize: '12px', color: user.availability === 'Available' ? '#10b981' : '#6b7280' }}>
-                                                        {user.role} • {user.availability}
+                                    {users.map(user => {
+                                        const userId = user._id || user.id;
+                                        return (
+                                            <div
+                                                key={userId}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                    padding: '10px',
+                                                    borderRadius: '6px',
+                                                    marginBottom: '8px',
+                                                    background: formData.assignmentTarget.ids.includes(userId) ? '#eff6ff' : 'transparent',
+                                                    border: formData.assignmentTarget.ids.includes(userId) ? '1px solid #bfdbfe' : '1px solid transparent'
+                                                }}
+                                            >
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={formData.assignmentTarget.ids.includes(userId)}
+                                                        onChange={() => toggleAssignmentTarget(userId)}
+                                                    />
+                                                    <div>
+                                                        <div style={{ fontSize: '14px', fontWeight: '500' }}>{user.name}</div>
+                                                        <div style={{ fontSize: '12px', color: (user.availability || 'Available') === 'Available' ? '#10b981' : '#6b7280' }}>
+                                                            {user.role || 'User'} • {user.availability || 'Available'}
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
 
-                                            {formData.assignmentTarget.ids.includes(user.id) && (
-                                                <div style={{ display: 'flex', gap: '12px' }}>
-                                                    <div>
-                                                        <label style={{ display: 'block', fontSize: '10px', color: '#6b7280' }}>Weight</label>
-                                                        <input
-                                                            type="number"
-                                                            value={formData.assignmentTarget.weights?.[user.id]?.weight || 1}
-                                                            onChange={(e) => {
-                                                                const val = parseInt(e.target.value) || 1;
-                                                                setFormData({
-                                                                    ...formData,
-                                                                    assignmentTarget: {
-                                                                        ...formData.assignmentTarget,
-                                                                        weights: {
-                                                                            ...formData.assignmentTarget.weights,
-                                                                            [user.id]: {
-                                                                                ...formData.assignmentTarget.weights?.[user.id],
-                                                                                weight: val
+                                                {formData.assignmentTarget.ids.includes(userId) && (
+                                                    <div style={{ display: 'flex', gap: '12px' }}>
+                                                        <div>
+                                                            <label style={{ display: 'block', fontSize: '10px', color: '#6b7280' }}>Weight</label>
+                                                            <input
+                                                                type="number"
+                                                                value={formData.assignmentTarget.weights?.[userId]?.weight || 1}
+                                                                onChange={(e) => {
+                                                                    const val = parseInt(e.target.value) || 1;
+                                                                    setFormData({
+                                                                        ...formData,
+                                                                        assignmentTarget: {
+                                                                            ...formData.assignmentTarget,
+                                                                            weights: {
+                                                                                ...formData.assignmentTarget.weights,
+                                                                                [userId]: {
+                                                                                    ...formData.assignmentTarget.weights?.[userId],
+                                                                                    weight: val
+                                                                                }
                                                                             }
                                                                         }
-                                                                    }
-                                                                });
-                                                            }}
-                                                            min="1"
-                                                            max="10"
-                                                            style={{ width: '50px', padding: '4px', fontSize: '12px', borderRadius: '4px', border: '1px solid #e5e7eb' }}
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <label style={{ display: 'block', fontSize: '10px', color: '#6b7280' }}>Cap</label>
-                                                        <input
-                                                            type="number"
-                                                            value={formData.assignmentTarget.weights?.[user.id]?.cap || 50}
-                                                            onChange={(e) => {
-                                                                const val = parseInt(e.target.value) || 0;
-                                                                setFormData({
-                                                                    ...formData,
-                                                                    assignmentTarget: {
-                                                                        ...formData.assignmentTarget,
-                                                                        weights: {
-                                                                            ...formData.assignmentTarget.weights,
-                                                                            [user.id]: {
-                                                                                ...formData.assignmentTarget.weights?.[user.id],
-                                                                                cap: val
+                                                                    });
+                                                                }}
+                                                                min="1"
+                                                                max="10"
+                                                                style={{ width: '50px', padding: '4px', fontSize: '12px', borderRadius: '4px', border: '1px solid #e5e7eb' }}
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label style={{ display: 'block', fontSize: '10px', color: '#6b7280' }}>Cap</label>
+                                                            <input
+                                                                type="number"
+                                                                value={formData.assignmentTarget.weights?.[userId]?.cap || 50}
+                                                                onChange={(e) => {
+                                                                    const val = parseInt(e.target.value) || 0;
+                                                                    setFormData({
+                                                                        ...formData,
+                                                                        assignmentTarget: {
+                                                                            ...formData.assignmentTarget,
+                                                                            weights: {
+                                                                                ...formData.assignmentTarget.weights,
+                                                                                [userId]: {
+                                                                                    ...formData.assignmentTarget.weights?.[userId],
+                                                                                    cap: val
+                                                                                }
                                                                             }
                                                                         }
-                                                                    }
-                                                                });
-                                                            }}
-                                                            min="0"
-                                                            style={{ width: '60px', padding: '4px', fontSize: '12px', borderRadius: '4px', border: '1px solid #e5e7eb' }}
-                                                        />
+                                                                    });
+                                                                }}
+                                                                min="0"
+                                                                style={{ width: '60px', padding: '4px', fontSize: '12px', borderRadius: '4px', border: '1px solid #e5e7eb' }}
+                                                            />
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
+                                                )}
+                                            </div>
+                                        )
+                                    })}
                                 </div>
                             </div>
 
@@ -553,7 +557,7 @@ const CreateDistributionRuleModal = ({ isOpen, onClose, editingRule = null }) =>
                                 >
                                     <option value="">No fallback</option>
                                     {users.map(user => (
-                                        <option key={user.id} value={user.id}>{user.name}</option>
+                                        <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
                                     ))}
                                 </select>
                             </div>
@@ -597,9 +601,10 @@ const CreateDistributionRuleModal = ({ isOpen, onClose, editingRule = null }) =>
                                         if (!matches) {
                                             alert('Simulation: This lead DOES NOT MATCH the current conditions.');
                                         } else {
-                                            const availAgents = users.filter(u =>
-                                                formData.assignmentTarget.ids.includes(u.id) && u.availability === 'Available'
-                                            );
+                                            const availAgents = users.filter(u => {
+                                                const uid = u._id || u.id;
+                                                return formData.assignmentTarget.ids.includes(uid) && (u.availability || 'Available') === 'Available';
+                                            });
                                             if (availAgents.length === 0) {
                                                 alert(`Simulation: Lead matches, but NO AGENTS are Available.`);
                                             } else {
@@ -698,8 +703,8 @@ const CreateDistributionRuleModal = ({ isOpen, onClose, editingRule = null }) =>
                                             }}
                                         >
                                             <option value="">Select user</option>
-                                            {users.filter(u => u.role === 'Manager' || u.role === 'Admin').map(user => (
-                                                <option key={user.id} value={user.id}>{user.name}</option>
+                                            {users.filter(u => !u.role || u.role === 'Manager' || u.role === 'Admin').map(user => (
+                                                <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
                                             ))}
                                         </select>
                                     </div>

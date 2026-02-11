@@ -1383,11 +1383,11 @@ body {
     /* Ensure it fills available space but allows compression */
 
     /* Explicitly sizing columns for platform consistency - 1st col 48px fixed */
-    grid-template-columns: 48px 250px 280px 170px 140px 170px 180px 160px;
+    grid-template-columns: 48px 250px 280px 170px 140px 170px 180px 160px 100px;
     gap: 16px;
     align-items: center;
     padding: 12px var(--row-padding);
-    min-width: 1420px;
+    min-width: 1520px;
     transition: background 0.2s ease;
 }
 

@@ -150,7 +150,10 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         _id: lead._id || `lead-${index}`,
 
                         // Pass raw data for accurate filtering
-                        req: lead.req || { type: lead.requirement, size: `${lead.areaMin || ""}-${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim() },
+                        req: lead.req || {
+                            type: lead.requirement?.lookup_value || lead.requirement,
+                            size: `${lead.areaMin || ""}-${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim()
+                        },
                         budgetMin: lead.budgetMin,
                         budgetMax: lead.budgetMax,
                         propertyType: lead.propertyType,
@@ -163,30 +166,32 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                         // ===== REQUIREMENT =====
                         reqDisplay: lead.req || {
-                            type: `${lead.requirement || ""} ${Array.isArray(lead.subType) ? lead.subType[0] : (lead.subType || "")}`.trim(),
+                            type: `${lead.requirement?.lookup_value || lead.requirement || ""} ${Array.isArray(lead.subRequirement) ? (lead.subRequirement[0]?.lookup_value || lead.subRequirement[0] || "") : (lead.subRequirement?.lookup_value || lead.subRequirement || "")}`.trim(),
                             size: `${lead.areaMin || ""}-${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
                         },
 
                         // ===== BUDGET =====
-                        budget: lead.budget || (lead.budgetMin || lead.budgetMax
+                        budget: lead.budget?.lookup_value || lead.budget || (lead.budgetMin || lead.budgetMax
                             ? `₹${Number(lead.budgetMin || 0).toLocaleString()} - ₹${Number(lead.budgetMax || 0).toLocaleString()}`
                             : "—"),
 
                         // ===== LOCATION =====
-                        location: lead.location || [
-                            Array.isArray(lead.projectName) ? lead.projectName.join(", ") : lead.projectName,
+                        location: lead.location?.lookup_value || lead.location || [
+                            lead.project?.name || lead.projectName,
                             Array.isArray(lead.locBlock) ? lead.locBlock.join(", ") : lead.locBlock,
                             lead.locArea,
                             lead.locCity
-                        ].filter(Boolean).map(s => s.trim()).filter(s => s.length > 0).join(", "),
+                        ].filter(Boolean).map(s => s?.toString().trim()).filter(s => s && s.length > 0).join(", "),
 
                         // ===== SOURCE & ASSIGNMENT =====
-                        source: lead.source || contact.source || "Direct",
+                        source: lead.source?.lookup_value || lead.source || contact.source || "Direct",
                         owner: lead.owner || contact.owner || (lead.assignment?.assignedTo) || "Unassigned",
                         team: contact.team || lead.assignment?.team || "",
 
                         // ===== STATUS =====
-                        status: lead.status || { label: "New", class: "new" },
+                        status: lead.status?.lookup_value
+                            ? { label: lead.status.lookup_value, class: lead.status.lookup_value.toLowerCase() }
+                            : (lead.status || { label: "New", class: "new" }),
 
                         // ===== META =====
                         lastAct: lead.lastAct || "Today",
@@ -253,6 +258,31 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const handleRecordsPerPageChange = (e) => {
         setRecordsPerPage(Number(e.target.value));
         setCurrentPage(1);
+    };
+
+    const handleDelete = async () => {
+        if (selectedIds.length === 0) return;
+
+        const confirmMsg = selectedIds.length === 1
+            ? "Are you sure you want to delete this lead?"
+            : `Are you sure you want to delete ${selectedIds.length} selected leads?`;
+
+        if (!window.confirm(confirmMsg)) return;
+
+        try {
+            if (selectedIds.length === 1) {
+                await api.delete(`leads/${selectedIds[0]}`);
+            } else {
+                await api.post(`leads/bulk-delete`, { ids: selectedIds });
+            }
+
+            toast.success(`${selectedIds.length} lead(s) deleted successfully`);
+            setSelectedIds([]);
+            setRefreshTrigger(prev => prev + 1);
+        } catch (error) {
+            console.error("Error deleting leads:", error);
+            toast.error("Failed to delete leads");
+        }
     };
 
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'grid'
@@ -521,12 +551,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                     <button
                                         className="action-btn danger"
                                         title="Delete"
-                                        onClick={() => {
-                                            if (window.confirm(`Permanently delete ${selectedCount} leads?`)) {
-                                                showToast(`Deleted ${selectedCount} leads.`);
-                                                setSelectedIds([]);
-                                            }
-                                        }}
+                                        onClick={handleDelete}
                                     >
                                         <i className="fas fa-trash-alt"></i>
                                     </button>

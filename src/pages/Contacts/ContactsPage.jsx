@@ -760,6 +760,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                 <div>CRM Linkage</div>
                 <div>Last Interaction</div>
                 <div style={{ paddingLeft: "10px" }}>Assign</div>
+                <div style={{ textAlign: "center" }}>Action</div>
               </div>
 
               <div id="contactListContent">
@@ -1129,7 +1130,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 color: "#64748b",
                               }}
                             >
-                              {(item?.ownership || "Admin").charAt(0)}
+                              {(item?.owner?.firstName ? item.owner.firstName.charAt(0) : (item?.ownership || "Admin").charAt(0))}
                             </div>
                             <div>
                               <div
@@ -1139,7 +1140,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                   color: "#0f172a",
                                 }}
                               >
-                                {item?.ownership || "Admin"}
+                                {item?.owner ? `${item.owner.firstName} ${item.owner.lastName || ''}` : (item?.ownership || "Admin")}
                               </div>
                               <div
                                 style={{
@@ -1149,14 +1150,33 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 }}
                               >
                                 Added{" "}
-                                {item?.addOnDate
+                                {item?.createdAt
                                   ? new Date(
-                                    item.addOnDate,
+                                    item.createdAt,
                                   ).toLocaleDateString()
                                   : "-"}
                               </div>
                             </div>
                           </div>
+                        </div>
+                        <div style={{ textAlign: "center" }}>
+                          <button
+                            onClick={(e) => handleSingleDelete(e, item._id)}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              color: "#ef4444",
+                              cursor: "pointer",
+                              padding: "8px",
+                              borderRadius: "6px",
+                              transition: "all 0.2s"
+                            }}
+                            title="Delete Contact"
+                            onMouseOver={(e) => e.currentTarget.style.background = "#fee2e2"}
+                            onMouseOut={(e) => e.currentTarget.style.background = "transparent"}
+                          >
+                            <i className="fas fa-trash-alt"></i>
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -1360,8 +1380,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                           }}
                         >
                           {(
-                            item?.professionCategory.lookup_value ||
-                            item?.professional.lookup_value ||
+                            item?.professionCategory?.lookup_value ||
+                            item?.professional?.lookup_value ||
                             "N/A"
                           ).toUpperCase()}
                         </span>
@@ -1373,7 +1393,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             marginBottom: "3px",
                           }}
                         >
-                          {item?.designation.lookup_value || "-"}
+                          {item?.designation?.lookup_value || item?.designation || "-"}
                         </div>
                         <div
                           style={{
@@ -1449,7 +1469,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             }}
                           >
                             {item?.personalAddress?.city
-                              ? `${item.personalAddress.city.lookup_value}, ${item.personalAddress.state.lookup_value}`
+                              ? `${item.personalAddress?.city?.lookup_value || item.personalAddress?.city || ''}, ${item.personalAddress?.state?.lookup_value || item.personalAddress?.state || ''}`
                               : item?.address || "Address not listed"}
                           </div>
                         </div>
@@ -1492,7 +1512,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             className="fas fa-tag"
                             style={{ fontSize: "0.6rem" }}
                           ></i>
-                          {item?.source.lookup_value || "N/A"}
+                          {item?.source?.lookup_value || item?.source || "N/A"}
                         </span>
                       </div>
 

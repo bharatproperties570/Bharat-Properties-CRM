@@ -1,14 +1,15 @@
 import { dealsData, inventoryData } from '../data/mockData';
 
 export const parsePrice = (priceStr) => {
-    if (!priceStr) return 0;
+    if (!priceStr && priceStr !== 0) return 0;
     if (typeof priceStr === 'number') return priceStr;
-    return parseFloat(priceStr.replace(/,/g, '').replace(/[^\d.]/g, '')) || 0;
+    return parseFloat(String(priceStr).replace(/,/g, '').replace(/[^\d.]/g, '')) || 0;
 };
 
 export const parseBudget = (budgetStr) => {
-    if (!budgetStr) return { min: 0, max: 0 };
-    const numbers = budgetStr.replace(/[^\d-]/g, '').split('-').map(n => parseFloat(n) || 0);
+    if (!budgetStr && budgetStr !== 0) return { min: 0, max: 0 };
+    if (typeof budgetStr === 'number') return { min: budgetStr, max: budgetStr };
+    const numbers = String(budgetStr).replace(/[^\d-]/g, '').split('-').map(n => parseFloat(n) || 0);
     if (numbers.length === 1) return { min: numbers[0], max: numbers[0] };
     return { min: numbers[0], max: numbers[1] };
 };
@@ -23,21 +24,20 @@ export const parseSizeSqYard = (sizeStr) => {
     return parseFloat(sizeStr.replace(/[^\d.]/g, '')) || 0;
 };
 
-// PRE-PROCESS DATA ONCE
-export const ALL_ITEMS_NORMALIZED = [
-    ...dealsData.map(d => ({ ...d, itemType: 'Deal' })),
-    ...(inventoryData || []).map(i => ({ ...i, itemType: 'Inventory' }))
-].map(item => ({
+// Utility to normalize items for matching
+export const normalizeCandidate = (item) => ({
     ...item,
     _normalizedPrice: parsePrice(item.price),
     _normalizedSize: parseSizeSqYard(item.size),
-    _lowerLocation: (item.location || '').toLowerCase(),
-    _lowerProject: (item.projectName || '').toLowerCase(),
-    _lowerType: (item.propertyType || '').toLowerCase()
-}));
+    _lowerLocation: (item.location?.lookup_value || item.location || '').toLowerCase(),
+    _lowerProject: (item.projectName || item.project?.name || '').toLowerCase(),
+    _lowerType: (item.propertyType?.lookup_value || item.propertyType || item.type?.lookup_value || item.type || '').toLowerCase()
+});
 
-export const calculateMatch = (lead, leadContext, weights, options = { includeNearby: true, minMatchScore: 20 }) => {
+export const calculateMatch = (lead, leadContext, weights, options = { includeNearby: true, minMatchScore: 20 }, candidates = []) => {
     if (!lead || !leadContext) return [];
+
+    const normalizedCandidates = candidates.map(normalizeCandidate);
 
     const { baseBudget, leadSize, leadType, leadLocation, leadLocationSectors } = leadContext;
     const budgetFlexibility = options.budgetFlexibility || 10;
@@ -49,7 +49,7 @@ export const calculateMatch = (lead, leadContext, weights, options = { includeNe
 
     const totalPossibleScore = (weights.location || 0) + (weights.type || 0) + (weights.budget || 0) + (weights.size || 0);
 
-    return ALL_ITEMS_NORMALIZED.map((item, index) => {
+    return normalizedCandidates.map((item, index) => {
         let score = 0;
         const details = { location: 'mismatch', type: 'mismatch', budget: 'mismatch', size: 'mismatch' };
         const gaps = [];
@@ -75,9 +75,11 @@ export const calculateMatch = (lead, leadContext, weights, options = { includeNe
         } else if (options.isTypeFlexible) {
             score += (weights.type * 0.5); // 50% score for type flexibility
             details.type = 'partial';
-            gaps.push(`${item.propertyType} (Type Flex)`);
+            gaps.push(`${item.propertyType?.lookup_value || item.propertyType || item.type} (Type Flex)`);
         } else {
-            gaps.push(`${item.propertyType} vs ${lead.req?.type}`);
+            const itemTypeName = item.propertyType?.lookup_value || item.propertyType || item.type?.lookup_value || item.type;
+            const leadTypeName = lead.req?.type?.lookup_value || lead.req?.type;
+            gaps.push(`${itemTypeName} vs ${leadTypeName}`);
         }
 
         // Price/Budget Match
@@ -128,7 +130,7 @@ export const calculateMatch = (lead, leadContext, weights, options = { includeNe
             matchDetails: details,
             gaps,
             marketStatus: score > (totalPossibleScore * 0.6) ? (index % 3 === 0 ? 'Below Market' : 'Fair Price') : 'Premium',
-            thumbnail: `https://picsum.photos/seed/${item.id || item.unitNo}/200/150`
+            thumbnail: `https://picsum.photos/seed/${item._id || item.id || item.unitNo}/200/150`
         };
     }).filter(Boolean)
         .sort((a, b) => b.matchPercentage - a.matchPercentage);

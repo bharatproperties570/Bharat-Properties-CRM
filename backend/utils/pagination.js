@@ -1,8 +1,14 @@
-export const paginate = async (model, query, page, limit, sort = {}) => {
+export const paginate = async (model, query, page, limit, sort = {}, populate = "") => {
     const skip = (page - 1) * limit;
 
+    let mongoQuery = model.find(query).sort(sort).skip(skip).limit(limit);
+
+    if (populate) {
+        mongoQuery = mongoQuery.populate(populate);
+    }
+
     const [records, total] = await Promise.all([
-        model.find(query).sort(sort).skip(skip).limit(limit).lean(),
+        mongoQuery.lean(),
         model.countDocuments(query)
     ]);
 
@@ -13,3 +19,4 @@ export const paginate = async (model, query, page, limit, sort = {}) => {
         currentPage: page
     };
 };
+

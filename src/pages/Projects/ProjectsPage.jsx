@@ -2,16 +2,13 @@ import React, { useState } from 'react';
 import { PROJECTS_LIST } from '../../data/projectData';
 import AddProjectModal from '../../components/AddProjectModal';
 import AddProjectPriceModal from '../../components/AddProjectPriceModal';
-import axios from 'axios';
+import { api } from '../../utils/api';
 
-// Create axios instance for old backend API
-const api = axios.create({
-    baseURL: 'https://newapi.bharatproperties.co/'
-});
 import UploadModal from '../../components/UploadModal';
 import AddDocumentModal from '../../components/AddDocumentModal';
 import ProjectFilterPanel from './components/ProjectFilterPanel';
 import { applyProjectFilters } from '../../utils/projectFilterLogic';
+import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
 
 function ProjectsPage() {
     const [searchTerm, setSearchTerm] = useState('');
@@ -28,6 +25,10 @@ function ProjectsPage() {
 
     const [editProjectData, setEditProjectData] = useState(null);
     const [initialModalTab, setInitialModalTab] = useState('Basic');
+
+    // Pagination State
+    const [currentPage, setCurrentPage] = useState(1);
+    const [recordsPerPage, setRecordsPerPage] = useState(25);
 
     React.useEffect(() => {
         fetchProjects();
@@ -153,10 +154,32 @@ function ProjectsPage() {
         const lowerTerm = searchTerm.toLowerCase();
         return baseFiltered.filter(p =>
             p.name.toLowerCase().includes(lowerTerm) ||
-            (p.location && p.location.toLowerCase().includes(lowerTerm)) ||
+            (p.locationSearch && p.locationSearch.toLowerCase().includes(lowerTerm)) ||
+            (p.address?.location && p.address.location.toLowerCase().includes(lowerTerm)) ||
             (p.units && p.units.some(u => u.toLowerCase().includes(lowerTerm)))
         );
     }, [projectsData, filters, searchTerm]);
+
+    // Pagination Logic
+    const totalRecords = filteredProjects.length;
+    const totalPages = Math.ceil(totalRecords / recordsPerPage);
+    const paginatedProjects = filteredProjects.slice(
+        (currentPage - 1) * recordsPerPage,
+        currentPage * recordsPerPage
+    );
+
+    const goToNextPage = () => {
+        if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+    };
+
+    const goToPreviousPage = () => {
+        if (currentPage > 1) setCurrentPage(currentPage - 1);
+    };
+
+    const handleRecordsPerPageChange = (e) => {
+        setRecordsPerPage(Number(e.target.value));
+        setCurrentPage(1);
+    };
 
     const renderHeader = () => (
         <div className="page-header">
@@ -222,7 +245,7 @@ function ProjectsPage() {
                                         </div>
                                         <div>
                                             <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>{project.name}</div>
-                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{project.location}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{project.locationSearch || project.address?.location || 'No Location'}</div>
                                             <span style={{ fontSize: '0.65rem', background: '#ecfdf5', color: '#059669', padding: '2px 6px', borderRadius: '4px', fontWeight: 600, marginTop: '4px', display: 'inline-block' }}>Active</span>
                                         </div>
                                     </div>
@@ -243,25 +266,19 @@ function ProjectsPage() {
                         ></iframe>
 
                         {/* Project Pin Markers Overlay */}
-                        {/* Project Pin Markers Overlay */}
                         {filteredProjects.map((project, idx) => {
-                            if (!project.lat || !project.lng) return null;
+                            const coords = getCoordinates(project);
+                            if (!coords) return null;
 
-                            // Convert lat/lng to approximate pixel position for demo purposes
-                            // Center of our demo map region (Mohali/Chandigarh)
-                            const centerLat = 30.6985;
-                            const centerLng = 76.7112;
-                            // Scaling factor to spread pins visibly
-                            const latDiff = (project.lat - centerLat) * 3000;
-                            const lngDiff = (project.lng - centerLng) * 3000;
+                            const position = getPinPosition(coords.lat, coords.lng);
 
                             return (
                                 <div
                                     key={project._id}
                                     style={{
                                         position: 'absolute',
-                                        left: `calc(50% + ${lngDiff}px)`,
-                                        top: `calc(50% - ${latDiff}px)`,
+                                        left: position.left,
+                                        top: position.top,
                                         transform: 'translate(-50%, -100%)',
                                         cursor: 'pointer',
                                         zIndex: 10,
@@ -409,13 +426,102 @@ function ProjectsPage() {
                                     </div>
 
                                     <div className="toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                        <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
-                                            Displaying <strong>{filteredProjects.length}</strong> of <strong>{projectsData.length}</strong> Projects
-                                        </div>
-                                        <div className="pagination-nums" style={{ display: 'flex', gap: '8px' }}>
-                                            <span className="page-num active">1</span>
-                                            <span className="page-num">2</span>
-                                            <span className="page-num">Next <i className="fas fa-chevron-right" style={{ fontSize: '0.6rem' }}></i></span>
+                                        <div
+                                            style={{ display: 'flex', alignItems: 'center', gap: '15px' }}
+                                        >
+                                            <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
+                                                Showing: <strong>{paginatedProjects.length}</strong> /{" "}
+                                                <strong>{totalRecords}</strong>
+                                            </div>
+
+                                            {/* Records Per Page */}
+                                            <div
+                                                style={{
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    gap: "8px",
+                                                    fontSize: "0.8rem",
+                                                    color: "#64748b",
+                                                }}
+                                            >
+                                                <span>Show:</span>
+                                                <select
+                                                    value={recordsPerPage}
+                                                    onChange={handleRecordsPerPageChange}
+                                                    style={{
+                                                        padding: "4px 8px",
+                                                        border: "1px solid #e2e8f0",
+                                                        borderRadius: "6px",
+                                                        fontSize: "0.8rem",
+                                                        fontWeight: 600,
+                                                        color: "#0f172a",
+                                                        outline: "none",
+                                                        cursor: "pointer",
+                                                    }}
+                                                >
+                                                    <option value={10}>10</option>
+                                                    <option value={25}>25</option>
+                                                    <option value={50}>50</option>
+                                                    <option value={100}>100</option>
+                                                    <option value={300}>300</option>
+                                                </select>
+                                            </div>
+
+                                            {/* Pagination Controls */}
+                                            <div
+                                                style={{
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    gap: "8px",
+                                                }}
+                                            >
+                                                <button
+                                                    onClick={goToPreviousPage}
+                                                    disabled={currentPage === 1}
+                                                    style={{
+                                                        padding: "6px 12px",
+                                                        border: "1px solid #e2e8f0",
+                                                        borderRadius: "6px",
+                                                        background: currentPage === 1 ? "#f8fafc" : "#fff",
+                                                        color: currentPage === 1 ? "#cbd5e1" : "#0f172a",
+                                                        cursor: currentPage === 1 ? "not-allowed" : "pointer",
+                                                        fontSize: "0.75rem",
+                                                        fontWeight: 600,
+                                                    }}
+                                                >
+                                                    <i className="fas fa-chevron-left"></i> Prev
+                                                </button>
+                                                <span
+                                                    style={{
+                                                        fontSize: "0.8rem",
+                                                        fontWeight: 600,
+                                                        color: "#0f172a",
+                                                        minWidth: "80px",
+                                                        textAlign: "center",
+                                                    }}
+                                                >
+                                                    {currentPage} / {totalPages || 1}
+                                                </span>
+                                                <button
+                                                    onClick={goToNextPage}
+                                                    disabled={currentPage >= totalPages}
+                                                    style={{
+                                                        padding: "6px 12px",
+                                                        border: "1px solid #e2e8f0",
+                                                        borderRadius: "6px",
+                                                        background:
+                                                            currentPage >= totalPages ? "#f8fafc" : "#fff",
+                                                        color:
+                                                            currentPage >= totalPages ? "#cbd5e1" : "#0f172a",
+                                                        cursor:
+                                                            currentPage >= totalPages ? "not-allowed" : "pointer",
+                                                        fontSize: "0.75rem",
+                                                        fontWeight: 600,
+                                                    }}
+                                                >
+                                                    Next <i className="fas fa-chevron-right"></i>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -435,11 +541,12 @@ function ProjectsPage() {
 
                         <div className="list-content">
                             {Object.entries(
-                                filteredProjects.reduce((acc, project) => {
+                                paginatedProjects.reduce((acc, project) => {
                                     // Simple city extraction or default to 'Other'
-                                    const city = project.location.includes('Mohali') ? 'Mohali' :
-                                        project.location.includes('Chandigarh') ? 'Chandigarh' :
-                                            project.location.includes('Kurukshetra') ? 'Kurukshetra' : 'Other Locations';
+                                    const locString = (project.locationSearch || project.address?.location || project.address?.city || '').toLowerCase();
+                                    const city = locString.includes('mohali') ? 'Mohali' :
+                                        locString.includes('chandigarh') ? 'Chandigarh' :
+                                            locString.includes('kurukshetra') ? 'Kurukshetra' : 'Other Locations';
                                     if (!acc[city]) acc[city] = [];
                                     acc[city].push(project);
                                     return acc;
@@ -476,7 +583,7 @@ function ProjectsPage() {
                                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                                                 <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.8rem', marginTop: '3px' }}></i>
                                                 <div className="address-clamp" style={{ fontSize: '0.8rem', color: '#475569', lineHeight: '1.4', fontWeight: 500 }}>
-                                                    {project.location}
+                                                    {project.locationSearch || project.address?.location || 'No Location Details'}
                                                 </div>
                                             </div>
 
@@ -513,7 +620,7 @@ function ProjectsPage() {
                                                 <div className="profile-circle" style={{ width: '28px', height: '28px', fontSize: '0.65rem', background: '#f1f5f9', color: '#64748b' }}>AD</div>
                                                 <div>
                                                     <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>Admin</div>
-                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Updated {project.date}</div>
+                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Updated {project.updatedAt ? new Date(project.updatedAt).toLocaleDateString() : project.date || 'N/A'}</div>
                                                 </div>
                                             </div>
                                         </div>

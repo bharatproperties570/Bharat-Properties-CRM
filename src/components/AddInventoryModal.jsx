@@ -1,16 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
+import { useUserContext } from '../context/UserContext';
 import { useContactConfig } from '../context/ContactConfigContext';
 import { useFieldRules } from '../context/FieldRulesContext';
-import { PROJECTS_LIST } from '../data/projectData';
 import { INDIAN_ADDRESS_DATA } from '../data/locationData';
 import AddressDetailsForm from './common/AddressDetailsForm';
 import { useTriggers } from '../context/TriggersContext';
 import { useDistribution } from '../context/DistributionContext';
 import { useSequences } from '../context/SequenceContext';
+import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 
-import { contactData } from '../data/mockData';
+// import { contactData } from '../data/mockData';
 
 // Helper: Get YouTube Thumbnail
 const getYouTubeThumbnail = (url) => {
@@ -23,93 +24,26 @@ const getYouTubeThumbnail = (url) => {
     return null;
 };
 
-const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
-    const { masterFields, propertyConfig } = usePropertyConfig();
+const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = null, property = null }) => {
+    // 1. Get projects from PropertyConfigContext
+    const { projects: allProjects, masterFields = {}, propertyConfig, sizes } = usePropertyConfig();
+    const { users } = useUserContext();
     const { profileConfig = {} } = useContactConfig();
     const { validateAsync } = useFieldRules();
     const { fireEvent } = useTriggers();
     const { executeDistribution } = useDistribution();
     const { evaluateAndEnroll } = useSequences();
+    const [searchResults, setSearchResults] = useState([]);
     const [activeTab, setActiveTab] = useState('Unit');
     const [isLoading, setIsLoading] = useState(true);
     const [currentTime, setCurrentTime] = useState(new Date());
     const [isSaving, setIsSaving] = useState(false);
 
-    useEffect(() => {
-        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    }, []);
-
-    // Pre-fill form data if editing
-    useEffect(() => {
-        if (property) {
-            setFormData(prev => ({
-                ...prev,
-                projectName: property.project || '',
-                unitNumber: property.unitNo || '',
-                unitType: property.unitType || '',
-                category: property.type || 'Residential',
-                // Map other fields as needed... simplistic mapping for now
-                block: property.block || '',
-                size: property.size || '',
-                locationSearch: property.location || '',
-                status: property.status || 'Active',
-                // Add more mappings based on actual data structure match
-            }));
-            // If project name exists, try to find matching project to set presets?
-            // For now, just pre-fill basic fields to show it works
-        } else {
-            // Reset or default? (Ideally reset form)
-        }
-    }, [property, isOpen]);
-
-    // Use Flat List directly
-    const allProjects = PROJECTS_LIST;
-
-    // Owner / Associate Search State
-    const [ownerSearch, setOwnerSearch] = useState('');
-    const [showOwnerResults, setShowOwnerResults] = useState(false);
-    const [selectedContactToLink, setSelectedContactToLink] = useState(null);
-    const [linkData, setLinkData] = useState({ role: 'Property Owner', relationship: '' }); // role: 'Property Owner' | 'Associate'
-
-    // Additional state for Owner tab
-    const [showProjectDropdown, setShowProjectDropdown] = useState(false);
-
-    // Hidden fields configuration (empty array means no fields are hidden)
-    const hiddenFields = [];
-
-    // Helper function to update form data
-    const handleInputChange = (field, value) => {
-        setFormData(prev => ({ ...prev, [field]: value }));
-    };
-
-    // --- Furnished Items Chip Logic ---
-    const [currentFurnishedItem, setCurrentFurnishedItem] = useState('');
-
-    const handleFurnishedItemKeyDown = (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            const val = currentFurnishedItem.trim();
-            if (val) {
-                const currentItems = formData.furnishedItems ? formData.furnishedItems.split(',').map(s => s.trim()).filter(Boolean) : [];
-                if (!currentItems.includes(val)) {
-                    const newItems = [...currentItems, val];
-                    setFormData({ ...formData, furnishedItems: newItems.join(', ') });
-                }
-                setCurrentFurnishedItem('');
-            }
-        }
-    };
-
-    const removeFurnishedItem = (itemToRemove) => {
-        const currentItems = formData.furnishedItems ? formData.furnishedItems.split(',').map(s => s.trim()).filter(Boolean) : [];
-        const newItems = currentItems.filter(item => item !== itemToRemove);
-        setFormData({ ...formData, furnishedItems: newItems.join(', ') });
-    };
-
     const [formData, setFormData] = useState({
         // Unit Details
-        projectName: '',
-        unitNumber: '',
+        projectName: initialProject || '',
+        projectId: '',
+        unitNo: '',
         unitType: '', // From settings (Ordinary, Corner, etc.)
         category: 'Residential',
         subCategory: '', // Lifted out
@@ -135,6 +69,7 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
         ],
         occupationDate: '',
         ageOfConstruction: '',
+        possessionStatus: '', // Task 18
         furnishType: '',
         furnishedItems: '',
 
@@ -169,6 +104,210 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
         inventoryImages: [{ title: '', category: 'Main', file: null }],
         inventoryVideos: [{ title: '', type: 'YouTube', url: '', file: null }]
     });
+
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, [isOpen]);
+
+
+    // Initial project setup
+    useEffect(() => {
+        if (initialProject) {
+            setFormData(prev => ({ ...prev, projectName: initialProject }));
+        }
+    }, [initialProject]);
+
+    // Pre-fill form data if editing
+    useEffect(() => {
+        if (property) {
+            setFormData(prev => ({
+                ...prev,
+                projectName: property.projectName || property.project || '',
+                projectId: property.projectId || '',
+                unitNo: property.unitNo || property.unitNumber || '',
+                unitType: property.unitType || '',
+                category: property.category || property.type || 'Residential',
+                block: property.block || '',
+                size: property.size || '',
+                locationSearch: property.locationSearch || property.location || '',
+                status: property.status || 'Active',
+            }));
+        }
+    }, [property, isOpen]);
+
+
+    // Owner / Associate Search State
+    const [ownerSearch, setOwnerSearch] = useState('');
+    const [showOwnerResults, setShowOwnerResults] = useState(false);
+    const hiddenFields = propertyConfig?.hiddenFields || [];
+
+    // Debounced Search for Contacts
+    useEffect(() => {
+        const timer = setTimeout(async () => {
+            if (ownerSearch.length > 1) {
+                try {
+                    const response = await api.get(`/contacts?search=${ownerSearch}&limit=10`);
+                    if (response.data && response.data.success) {
+                        setSearchResults(response.data.records || []);
+                    }
+                } catch (error) {
+                    console.error("Contact search error:", error);
+                }
+            } else {
+                setSearchResults([]);
+            }
+        }, 500);
+
+        return () => clearTimeout(timer);
+    }, [ownerSearch]);
+    const [selectedContactToLink, setSelectedContactToLink] = useState(null);
+    const [linkData, setLinkData] = useState({ role: 'Property Owner', relationship: '' }); // role: 'Property Owner' | 'Associate'
+
+    // Additional state for Owner tab
+    const [showProjectDropdown, setShowProjectDropdown] = useState(false);
+
+    // Address Auto-fill State
+    const [disabledAddressFields, setDisabledAddressFields] = useState([]);
+
+    const handleProjectChange = async (e) => {
+        const name = e.target.value;
+        const project = allProjects.find(p => p.name === name);
+        const projectId = project?._id || project?.id || '';
+
+        setFormData(prev => ({ ...prev, projectName: name, projectId }));
+
+        // Auto-assign agent based on distribution rules
+        const result = executeDistribution('inventory', { ...formData, projectName: name, projectId });
+        if (result && result.success) {
+            setFormData(prev => ({
+                ...prev,
+                projectName: name,
+                assignedTo: result.assignedTo,
+                team: result.team || prev.team,
+                // Also prepopulate location search with project location if variable available
+                locationSearch: project?.location || prev.locationSearch
+            }));
+            toast.success(`Inventory automatically assigned to ${result.assignedTo}`);
+        }
+
+        // Auto-fill City/Location Logic
+        if (project) {
+            let targetState = '';
+            let targetCity = '';
+
+            // Simple string matching based on project location content
+            const locLower = (project.location || '').toLowerCase();
+            if (locLower.includes('mohali')) { targetState = 'Punjab'; targetCity = 'Mohali'; }
+            else if (locLower.includes('chandigarh')) { targetState = 'Chandigarh'; targetCity = 'Chandigarh'; }
+            else if (locLower.includes('kurukshetra')) { targetState = 'Haryana'; targetCity = 'Kurukshetra'; }
+            else if (locLower.includes('panchkula')) { targetState = 'Haryana'; targetCity = 'Panchkula'; }
+            else if (locLower.includes('zirakpur')) { targetState = 'Punjab'; targetCity = 'Zirakpur'; }
+
+            if (targetState && targetCity) {
+                try {
+                    // 1. Fetch Country (India)
+                    const countryRes = await api.get("/lookups?lookup_type=Country&limit=10");
+                    const countryObj = (countryRes.data.data || []).find(c => c.lookup_value === 'India');
+
+                    if (countryObj) {
+                        // 2. Fetch State
+                        const stateRes = await api.get(`/lookups?lookup_type=State&parent_lookup_id=${countryObj._id}&limit=100`);
+                        const stateObj = (stateRes.data.data || []).find(s => s.lookup_value.toLowerCase() === targetState.toLowerCase());
+
+                        if (stateObj) {
+                            // 3. Fetch City
+                            const cityRes = await api.get(`/lookups?lookup_type=City&parent_lookup_id=${stateObj._id}&limit=100`);
+                            const cityObj = (cityRes.data.data || []).find(c => c.lookup_value.toLowerCase() === targetCity.toLowerCase());
+
+                            if (cityObj) {
+                                let newAddress = {
+                                    ...prev.address,
+                                    country: countryObj._id,
+                                    state: stateObj._id,
+                                    city: cityObj._id,
+                                    // Default values, will try to refine below
+                                    location: '', tehsil: '', postOffice: '', pinCode: ''
+                                };
+                                let disabled = ['country', 'state', 'city'];
+
+                                // Optional: Try to match Location if possible (Project "Sector 71" -> Location "Sector 71")
+                                if (project.name) {
+                                    // fetching locations for the city
+                                    const locRes = await api.get(`/lookups?lookup_type=Location&parent_lookup_id=${cityObj._id}&limit=200`);
+                                    const locations = locRes.data.data || [];
+
+                                    // Try to find a location that is contained in project name
+                                    const matchedLoc = locations.find(l => project.name.toLowerCase().includes(l.lookup_value.toLowerCase()));
+                                    if (matchedLoc) {
+                                        newAddress.location = matchedLoc._id; // Store ID for backend
+                                        // Also store the human readable location name in locationSearch or area for UI display fallback
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            locationSearch: matchedLoc.lookup_value + ", " + cityObj.lookup_value,
+                                            // Ensure top-level location/area fields are also populated for the list view
+                                            address: newAddress
+                                        }));
+                                        disabled.push('location');
+                                    } else {
+                                        // Fallback: Use project location string if no lookup match
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            locationSearch: project.location || '',
+                                            address: newAddress
+                                        }));
+                                    }
+                                } else {
+                                    setFormData(prev => ({ ...prev, address: newAddress }));
+                                }
+                                setDisabledAddressFields(disabled);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error("Error auto-filling location:", err);
+                }
+            } else {
+                setDisabledAddressFields([]);
+            }
+        } else {
+            setDisabledAddressFields([]);
+        }
+    };
+
+
+    // Helper function to update form data
+    const handleInputChange = (field, value) => {
+        setFormData(prev => ({ ...prev, [field]: value }));
+    };
+
+    // --- Furnished Items Chip Logic ---
+    const [currentFurnishedItem, setCurrentFurnishedItem] = useState('');
+
+    const handleFurnishedItemKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const val = currentFurnishedItem.trim();
+            if (val) {
+                const currentItems = formData.furnishedItems ? formData.furnishedItems.split(',').map(s => s.trim()).filter(Boolean) : [];
+                if (!currentItems.includes(val)) {
+                    const newItems = [...currentItems, val];
+                    setFormData({ ...formData, furnishedItems: newItems.join(', ') });
+                }
+                setCurrentFurnishedItem('');
+            }
+        }
+    };
+
+    const removeFurnishedItem = (itemToRemove) => {
+        const currentItems = formData.furnishedItems ? formData.furnishedItems.split(',').map(s => s.trim()).filter(Boolean) : [];
+        const newItems = currentItems.filter(item => item !== itemToRemove);
+        setFormData({ ...formData, furnishedItems: newItems.join(', ') });
+    };
+
 
     // Derived Data for Cascading Address
     const countryData = INDIAN_ADDRESS_DATA['India'];
@@ -482,8 +621,8 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                         <input
                             type="text"
                             style={inputStyle}
-                            value={formData.unitNumber}
-                            onChange={e => setFormData({ ...formData, unitNumber: e.target.value })}
+                            value={formData.unitNo}
+                            onChange={e => setFormData({ ...formData, unitNo: e.target.value })}
                             placeholder="Enter Unit No."
                         />
                     </div>
@@ -507,22 +646,8 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                         <select
                             style={customSelectStyle}
                             value={formData.projectName}
-                            onChange={e => {
-                                const name = e.target.value;
-                                setFormData(prev => ({ ...prev, projectName: name }));
+                            onChange={handleProjectChange}
 
-                                // Auto-assign agent based on distribution rules
-                                const result = executeDistribution('inventory', { ...formData, projectName: name });
-                                if (result && result.success) {
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        projectName: name,
-                                        assignedTo: result.assignedTo,
-                                        team: result.team || prev.team
-                                    }));
-                                    toast.success(`Inventory automatically assigned to ${result.assignedTo}`);
-                                }
-                            }}
                         >
                             <option value="">Select Project</option>
                             {allProjects.map(proj => (
@@ -543,7 +668,10 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                                 const selectedProj = allProjects.find(p => p.name === formData.projectName);
                                 const blocks = selectedProj?.blocks || [];
                                 return blocks.length > 0 ? (
-                                    blocks.map(b => <option key={b} value={b}>{b}</option>)
+                                    blocks.map(b => {
+                                        const blockName = typeof b === 'object' ? b.name : b;
+                                        return <option key={blockName} value={blockName}>{blockName}</option>;
+                                    })
                                 ) : (
                                     <option value="Open">Open Campus</option>
                                 );
@@ -563,8 +691,8 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                             </option>
                             {(() => {
                                 if (!formData.projectName || !formData.block) return null;
-                                const sizes = masterFields.projectSizes?.[formData.projectName]?.[formData.block] || [];
-                                return sizes.map(sz => <option key={sz} value={sz}>{sz}</option>);
+                                const filteredSizes = sizes.filter(s => s.project === formData.projectName && s.block === formData.block);
+                                return filteredSizes.map(sz => <option key={sz.id} value={sz.name}>{sz.name}</option>);
                             })()}
                         </select>
                     </div>
@@ -700,6 +828,18 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                         <input type="text" style={inputStyle} placeholder="e.g. 5 Years" value={formData.ageOfConstruction} onChange={e => setFormData({ ...formData, ageOfConstruction: e.target.value })} />
                     </div>
                     <div>
+                        <label style={labelStyle}>Possession Status</label>
+                        <select
+                            style={customSelectStyle}
+                            value={formData.possessionStatus}
+                            onChange={e => setFormData({ ...formData, possessionStatus: e.target.value })}
+                        >
+                            <option value="">Select Status</option>
+                            <option value="Ready to Move">Ready to Move</option>
+                            <option value="Under Construction">Under Construction</option>
+                        </select>
+                    </div>
+                    <div>
                         <label style={labelStyle}>Furnish Status</label>
                         <select style={customSelectStyle} value={formData.furnishType} onChange={e => setFormData({ ...formData, furnishType: e.target.value })}>
                             <option value="">Select</option>
@@ -790,27 +930,26 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                     title=""
                     address={formData.address}
                     onChange={(newAddr) => setFormData(prev => ({ ...prev, address: newAddr }))}
+                    disabledFields={disabledAddressFields}
                 />
             </div>
         </div>
     );
 
-    const filteredOwners = ownerSearch.length > 1
-        ? contactData.filter(c =>
-            c.name.toLowerCase().includes(ownerSearch.toLowerCase()) ||
-            c.mobile.includes(ownerSearch)
-        ).filter(c => !formData.owners.some(o => o.mobile === c.mobile))
-        : [];
+    const filteredOwners = searchResults.filter(c => !formData.owners.some(o => o.mobile === c.mobile));
 
     const handleLinkOwner = () => {
         if (!selectedContactToLink || (linkData.role === 'Associate' && !linkData.relationship)) return;
 
         const newOwner = {
-            ...selectedContactToLink,
+            id: selectedContactToLink._id,
+            name: selectedContactToLink.name,
+            mobile: selectedContactToLink.mobile,
             role: linkData.role,
             relationship: linkData.role === 'Property Owner' ? 'Owner' : linkData.relationship
         };
 
+        // Append new owner to existing list instead of replacing or checking for duplicates here (duplicates filtered in search)
         setFormData(prev => ({
             ...prev,
             owners: [newOwner, ...prev.owners]
@@ -929,22 +1068,6 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                                 </select>
                             </div>
                         )}
-                        {!hiddenFields.includes('category') && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                <label style={{ fontSize: '13px', fontWeight: 600, color: '#374151' }}>Category</label>
-                                <select
-                                    value={formData.category}
-                                    onChange={(e) => handleInputChange('category', e.target.value)}
-                                    style={inputStyle}
-                                >
-                                    <option value="Residential">Residential</option>
-                                    <option value="Commercial">Commercial</option>
-                                    <option value="Plot">Plot</option>
-                                    <option value="Industrial">Industrial</option>
-                                    <option value="Agricultural">Agricultural</option>
-                                </select>
-                            </div>
-                        )}
                     </div>
 
                     <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
@@ -1017,10 +1140,9 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                             onChange={e => handleInputChange('assignedTo', e.target.value)}
                         >
                             <option value="">Select Salesperson</option>
-                            <option value="Self">Self (Admin)</option>
-                            <option value="Agent 1">Agent 1</option>
-                            <option value="Agent 2">Agent 2</option>
-                            <option value="Agent 3">Agent 3</option>
+                            {users.map(user => (
+                                <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
+                            ))}
                         </select>
                     </div>
                     <div>
@@ -1061,26 +1183,60 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                 }
             }
 
-            // Simulate API call or real save
-            await new Promise(resolve => setTimeout(resolve, 800));
+            // Sanitize payload: Strip File objects and empty fields
+            const payload = { ...formData };
+
+            // Clean up files which shouldn't be in JSON
+            if (payload.inventoryDocuments) {
+                payload.inventoryDocuments = payload.inventoryDocuments.map(doc => {
+                    const { file, ...rest } = doc;
+                    return rest;
+                });
+            }
+            if (payload.inventoryImages) {
+                payload.inventoryImages = payload.inventoryImages.map(img => {
+                    const { file, ...rest } = img;
+                    return rest;
+                });
+            }
+            if (payload.inventoryVideos) {
+                payload.inventoryVideos = payload.inventoryVideos.map(vid => {
+                    const { file, ...rest } = vid;
+                    return rest;
+                });
+            }
+
+            // Real API call
+            let response;
+            if (property && property._id) {
+                response = await api.put(`/inventory/${property._id}`, payload);
+            } else {
+                response = await api.post('/inventory', payload);
+            }
+
+            if (!response.data || !response.data.success) {
+                throw new Error(response.data?.error || 'Failed to save inventory');
+            }
+
+            const savedData = response.data.data;
 
             toast.success('Inventory Saved!', { id: toastId });
 
             // Fire Global Triggers
             if (property) {
                 // Update
-                fireEvent('inventory_updated', formData, {
+                fireEvent('inventory_updated', savedData, {
                     entityType: 'inventory',
                     previousEntity: property
                 });
             } else {
                 // New
-                fireEvent('inventory_created', formData, { entityType: 'inventory' });
+                fireEvent('inventory_created', savedData, { entityType: 'inventory' });
 
                 // Trigger lead matching search
-                fireEvent('inventory_matching_requested', formData, {
+                fireEvent('inventory_matching_requested', savedData, {
                     entityType: 'inventory',
-                    recommendationDepth: 'high'
+                    recommendation_depth: 'high'
                 });
 
                 // Enroll linked Owners/Associates into Sequences
@@ -1092,7 +1248,7 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, property = null }) => {
                 }
             }
 
-            onSave && onSave(formData);
+            onSave && onSave(savedData);
             onClose();
 
         } catch (error) {

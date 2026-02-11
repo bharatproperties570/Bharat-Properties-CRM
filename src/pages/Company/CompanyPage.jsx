@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { companyData, companyTypes } from '../../data/companyData';
+import React, { useState, useEffect, useCallback } from 'react';
 import { getInitials } from '../../utils/helpers';
 import CompanyFilterPanel from './components/CompanyFilterPanel';
-import { applyCompanyFilters } from '../../utils/companyFilterLogic';
+import { api } from '../../utils/api';
+import toast from 'react-hot-toast';
 
 function CompanyPage({ onEdit }) {
     const [selectedIds, setSelectedIds] = useState([]);
@@ -14,6 +14,42 @@ function CompanyPage({ onEdit }) {
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
 
+    // API Data States
+    const [companies, setCompanies] = useState([]);
+    const [totalCount, setTotalCount] = useState(0);
+    const [totalPages, setTotalPages] = useState(0);
+    const [loading, setLoading] = useState(false);
+
+    const fetchData = useCallback(async () => {
+        setLoading(true);
+        try {
+            const params = {
+                page: currentPage,
+                limit: recordsPerPage,
+                search: searchTerm,
+                ...filters
+            };
+            const response = await api.get('/companies', { params });
+            if (response.data && response.data.success) {
+                setCompanies(response.data.records || []);
+                setTotalCount(response.data.totalCount || 0);
+                setTotalPages(response.data.totalPages || 0);
+            }
+        } catch (error) {
+            console.error("Error fetching companies:", error);
+            toast.error("Failed to load companies");
+        } finally {
+            setLoading(false);
+        }
+    }, [currentPage, recordsPerPage, searchTerm, filters]);
+
+    useEffect(() => {
+        const timeoutId = setTimeout(() => {
+            fetchData();
+        }, 500); // Debounce search
+        return () => clearTimeout(timeoutId);
+    }, [fetchData]);
+
     const toggleSelect = (id) => {
         if (selectedIds.includes(id)) {
             setSelectedIds(selectedIds.filter(selectedId => selectedId !== id));
@@ -24,28 +60,6 @@ function CompanyPage({ onEdit }) {
 
     const isSelected = (id) => selectedIds.includes(id);
     const selectedCount = selectedIds.length;
-
-    // Filter companies
-    // Filter companies
-    const filteredCompanies = React.useMemo(() => {
-        const baseFiltered = applyCompanyFilters(companyData, filters);
-
-        return baseFiltered.filter(company => {
-            const matchesSearch = company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                company.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                company.phone.includes(searchTerm) ||
-                (company.address && company.address.toLowerCase().includes(searchTerm.toLowerCase()));
-            return matchesSearch;
-        });
-    }, [filters, searchTerm]);
-
-    const totalCount = companyData.length;
-
-    // Pagination
-    const indexOfLastRecord = currentPage * recordsPerPage;
-    const indexOfFirstRecord = indexOfLastRecord - recordsPerPage;
-    const currentRecords = filteredCompanies.slice(indexOfFirstRecord, indexOfLastRecord);
-    const totalPages = Math.ceil(filteredCompanies.length / recordsPerPage);
 
     const goToNextPage = () => {
         if (currentPage < totalPages) setCurrentPage(currentPage + 1);
@@ -62,16 +76,39 @@ function CompanyPage({ onEdit }) {
 
     // Select All Handler
     const toggleSelectAll = () => {
-        if (selectedIds.length === currentRecords.length && currentRecords.length > 0) {
+        if (selectedIds.length === companies.length && companies.length > 0) {
             setSelectedIds([]);
         } else {
-            setSelectedIds(currentRecords.map(c => c.id));
+            setSelectedIds(companies.map(c => c._id));
         }
     };
 
     // Check if all visible companies are selected
-    const isAllSelected = currentRecords.length > 0 && selectedIds.length === currentRecords.length;
-    const isIndeterminate = selectedIds.length > 0 && selectedIds.length < currentRecords.length;
+    const isAllSelected = companies.length > 0 && selectedIds.length === companies.length;
+    const isIndeterminate = selectedIds.length > 0 && selectedIds.length < companies.length;
+
+    const renderLookup = (field, fallback = '-') => {
+        if (!field) return fallback;
+        if (typeof field === 'object' && field.lookup_value) return field.lookup_value;
+        if (typeof field === 'object' && field.name) return field.name; // For user refs
+        if (typeof field === 'object') return fallback;
+        return field || fallback;
+    };
+
+    const getFirstAddress = (company) => {
+        if (!company.addresses) return '-';
+        const reg = company.addresses['Registered Office'];
+        if (reg) {
+            const components = [
+                reg.hNo,
+                reg.street,
+                renderLookup(reg.city),
+                renderLookup(reg.state)
+            ].filter(Boolean);
+            return components.join(', ') || '-';
+        }
+        return '-';
+    };
 
     return (
         <section id="companyView" className="view-section active">
@@ -88,8 +125,8 @@ function CompanyPage({ onEdit }) {
                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                         {/* Sync Status Indicator */}
                         <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 border border-green-200 rounded-lg">
-                            <i className="fas fa-check-circle text-green-600 text-sm"></i>
-                            <span className="text-xs font-semibold text-green-700">Synced</span>
+                            <i className={`fas ${loading ? 'fa-spinner fa-spin' : 'fa-check-circle'} text-green-600 text-sm`}></i>
+                            <span className="text-xs font-semibold text-green-700">{loading ? 'Syncing...' : 'Synced'}</span>
                         </div>
                         {/* View Toggle Button */}
                         <button
@@ -141,7 +178,7 @@ function CompanyPage({ onEdit }) {
                                         className="action-btn"
                                         title="Edit Business"
                                         onClick={() => {
-                                            const companyToEdit = companyData.find(c => c.id === selectedIds[0]);
+                                            const companyToEdit = companies.find(c => c._id === selectedIds[0]);
                                             if (companyToEdit) onEdit(companyToEdit);
                                         }}
                                         style={{ color: '#10b981', borderColor: '#10b981', background: '#f0fdf4' }}
@@ -196,7 +233,7 @@ function CompanyPage({ onEdit }) {
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                     <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                                        Items: <strong>{filteredCompanies.length}</strong> / <strong>{totalCount}</strong>
+                                        Items: <strong>{companies.length}</strong> / <strong>{totalCount}</strong>
                                     </div>
 
                                     {/* Records Per Page */}
@@ -222,7 +259,6 @@ function CompanyPage({ onEdit }) {
                                             <option value={100}>100</option>
                                             <option value={300}>300</option>
                                             <option value={500}>500</option>
-                                            <option value={700}>700</option>
                                             <option value={1000}>1000</option>
                                         </select>
                                     </div>
@@ -313,9 +349,9 @@ function CompanyPage({ onEdit }) {
                     {/* List Content - Only in List View */}
                     {viewMode === 'list' && (
                         <div id="companyListContent" style={{ background: '#fff' }}>
-                            {currentRecords.map((company, idx) => (
+                            {companies.map((company, idx) => (
                                 <div
-                                    key={company.id}
+                                    key={company._id}
                                     className="list-item"
                                     style={{
                                         display: 'grid',
@@ -323,26 +359,26 @@ function CompanyPage({ onEdit }) {
                                         padding: '16px 2rem',
                                         borderBottom: '1px solid #f1f5f9',
                                         alignItems: 'center',
-                                        background: isSelected(company.id) ? '#f0f9ff' : '#fff',
+                                        background: isSelected(company._id) ? '#f0f9ff' : '#fff',
                                         transition: 'all 0.2s',
                                         cursor: 'pointer'
                                     }}
                                     onMouseOver={(e) => {
-                                        if (!isSelected(company.id)) e.currentTarget.style.background = '#fafbfc';
+                                        if (!isSelected(company._id)) e.currentTarget.style.background = '#fafbfc';
                                     }}
                                     onMouseOut={(e) => {
-                                        if (!isSelected(company.id)) e.currentTarget.style.background = '#fff';
+                                        if (!isSelected(company._id)) e.currentTarget.style.background = '#fff';
                                         else e.currentTarget.style.background = '#f0f9ff';
                                     }}
-                                    onClick={() => toggleSelect(company.id)}
+                                    onClick={() => toggleSelect(company._id)}
                                 >
                                     <input
                                         type="checkbox"
                                         className="item-check"
-                                        checked={isSelected(company.id)}
+                                        checked={isSelected(company._id)}
                                         onChange={(e) => {
                                             e.stopPropagation();
-                                            toggleSelect(company.id);
+                                            toggleSelect(company._id);
                                         }}
                                         style={{ cursor: 'pointer' }}
                                     />
@@ -364,12 +400,12 @@ function CompanyPage({ onEdit }) {
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
                                                 <span style={{ fontSize: '0.7rem', color: '#8e44ad', fontWeight: 600 }}>
                                                     <i className="fas fa-envelope" style={{ marginRight: '4px', fontSize: '0.65rem' }}></i>
-                                                    {company.email}
+                                                    {company.emails?.[0]?.address || '-'}
                                                 </span>
                                             </div>
                                             <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '2px' }}>
                                                 <i className="fas fa-phone-alt" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>
-                                                {company.phone}
+                                                {company.phones?.[0]?.phoneNumber ? `${company.phones[0].phoneCode} ${company.phones[0].phoneNumber}` : '-'}
                                             </div>
                                         </div>
                                     </div>
@@ -377,18 +413,18 @@ function CompanyPage({ onEdit }) {
                                     {/* Address */}
                                     <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.4, overflow: 'hidden' }}>
                                         <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.7rem', marginRight: '6px' }}></i>
-                                        <span className="address-clamp" style={{ fontSize: '0.75rem' }}>{company.address}</span>
+                                        <span className="address-clamp" style={{ fontSize: '0.75rem' }}>{getFirstAddress(company)}</span>
                                     </div>
 
                                     {/* Employees */}
                                     <div style={{ fontSize: '0.8rem', color: '#0f172a', fontWeight: 700, textAlign: 'center' }}>
                                         <i className="fas fa-users" style={{ marginRight: '6px', color: '#64748b', fontSize: '0.75rem' }}></i>
-                                        {company.employees}
+                                        {company.employees?.length || 0}
                                     </div>
 
-                                    {/* Category */}
+                                    {/* Category / Industry */}
                                     <div style={{ fontSize: '0.75rem', color: '#64748b', lineHeight: 1.3 }}>
-                                        {company.category}
+                                        {renderLookup(company.industry)}
                                     </div>
 
                                     {/* Source */}
@@ -398,16 +434,10 @@ function CompanyPage({ onEdit }) {
                                             borderRadius: '12px',
                                             fontSize: '0.65rem',
                                             fontWeight: 800,
-                                            background: company.source === 'Direct' ? '#dbeafe' :
-                                                company.source === 'Government' ? '#fef3c7' :
-                                                    company.source === 'Referral' ? '#dcfce7' :
-                                                        company.source === 'Partnership' ? '#ede9fe' : '#f1f5f9',
-                                            color: company.source === 'Direct' ? '#1e40af' :
-                                                company.source === 'Government' ? '#92400e' :
-                                                    company.source === 'Referral' ? '#166534' :
-                                                        company.source === 'Partnership' ? '#5b21b6' : '#475569'
+                                            background: '#f1f5f9',
+                                            color: '#475569'
                                         }}>
-                                            {company.source}
+                                            {renderLookup(company.source)}
                                         </span>
                                     </div>
 
@@ -415,11 +445,11 @@ function CompanyPage({ onEdit }) {
                                     <div style={{ fontSize: '0.75rem', lineHeight: 1.6 }}>
                                         <div style={{ color: '#0f172a', fontWeight: 700 }}>
                                             <i className="fas fa-user" style={{ marginRight: '6px', color: '#64748b', fontSize: '0.7rem' }}></i>
-                                            {company.ownership}
+                                            {renderLookup(company.owner)}
                                         </div>
                                         <div style={{ color: '#94a3b8', fontWeight: 600, marginTop: '4px', fontSize: '0.7rem' }}>
                                             <i className="far fa-calendar" style={{ marginRight: '6px' }}></i>
-                                            {company.addedOn}
+                                            {company.createdAt ? new Date(company.createdAt).toLocaleDateString() : '-'}
                                         </div>
                                     </div>
                                 </div>
@@ -435,37 +465,37 @@ function CompanyPage({ onEdit }) {
                                 gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))',
                                 gap: '1.5rem'
                             }}>
-                                {currentRecords.map((company, idx) => (
+                                {companies.map((company, idx) => (
                                     <div
-                                        key={company.id}
+                                        key={company._id}
                                         style={{
                                             background: '#fff',
-                                            border: isSelected(company.id) ? '2px solid var(--primary-color)' : '1px solid #e2e8f0',
+                                            border: isSelected(company._id) ? '2px solid var(--primary-color)' : '1px solid #e2e8f0',
                                             borderRadius: '12px',
                                             padding: '20px',
                                             cursor: 'pointer',
                                             transition: 'all 0.2s',
                                             position: 'relative',
-                                            boxShadow: isSelected(company.id) ? '0 4px 6px -1px rgba(0,0,0,0.1)' : '0 1px 3px 0 rgba(0,0,0,0.05)'
+                                            boxShadow: isSelected(company._id) ? '0 4px 6px -1px rgba(0,0,0,0.1)' : '0 1px 3px 0 rgba(0,0,0,0.05)'
                                         }}
                                         onMouseOver={(e) => {
                                             e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.1)';
                                             e.currentTarget.style.transform = 'translateY(-2px)';
                                         }}
                                         onMouseOut={(e) => {
-                                            if (!isSelected(company.id)) {
+                                            if (!isSelected(company._id)) {
                                                 e.currentTarget.style.boxShadow = '0 1px 3px 0 rgba(0,0,0,0.05)';
                                             }
                                             e.currentTarget.style.transform = 'translateY(0)';
                                         }}
-                                        onClick={() => toggleSelect(company.id)}
+                                        onClick={() => toggleSelect(company._id)}
                                     >
                                         <input
                                             type="checkbox"
-                                            checked={isSelected(company.id)}
+                                            checked={isSelected(company._id)}
                                             onChange={(e) => {
                                                 e.stopPropagation();
-                                                toggleSelect(company.id);
+                                                toggleSelect(company._id);
                                             }}
                                             style={{
                                                 position: 'absolute',
@@ -490,7 +520,7 @@ function CompanyPage({ onEdit }) {
                                                     {company.name}
                                                 </div>
                                                 <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
-                                                    {company.category}
+                                                    {renderLookup(company.industry)}
                                                 </div>
                                             </div>
                                         </div>
@@ -498,36 +528,36 @@ function CompanyPage({ onEdit }) {
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <i className="fas fa-envelope" style={{ fontSize: '0.75rem', color: '#8e44ad', width: '16px' }}></i>
                                                 <span style={{ fontSize: '0.8rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                    {company.email}
+                                                    {company.emails?.[0]?.address || '-'}
                                                 </span>
                                             </div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <i className="fas fa-phone-alt" style={{ fontSize: '0.75rem', color: '#3498db', width: '16px', transform: 'scaleX(-1) rotate(5deg)' }}></i>
                                                 <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                                                    {company.phone}
+                                                    {company.phones?.[0]?.phoneNumber ? `${company.phones[0].phoneCode} ${company.phones[0].phoneNumber}` : '-'}
                                                 </span>
                                             </div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <i className="fas fa-map-marker-alt" style={{ fontSize: '0.75rem', color: '#e74c3c', width: '16px' }}></i>
                                                 <span style={{ fontSize: '0.8rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                    {company.address}
+                                                    {getFirstAddress(company)}
                                                 </span>
                                             </div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <i className="fas fa-users" style={{ fontSize: '0.75rem', color: '#27ae60', width: '16px' }}></i>
                                                 <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                                                    {company.employees} Employees
+                                                    {company.employees?.length || 0} Employees
                                                 </span>
                                             </div>
                                         </div>
                                         <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <div>
                                                 <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Source</div>
-                                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a' }}>{company.source}</div>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a' }}>{renderLookup(company.source)}</div>
                                             </div>
                                             <div style={{ textAlign: 'right' }}>
                                                 <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Owner</div>
-                                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a' }}>{company.ownership}</div>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a' }}>{renderLookup(company.owner)}</div>
                                             </div>
                                         </div>
                                     </div>
@@ -537,7 +567,7 @@ function CompanyPage({ onEdit }) {
                     )}
 
                     {/* No Results */}
-                    {filteredCompanies.length === 0 && (
+                    {!loading && companies.length === 0 && (
                         <div style={{ padding: '4rem 2rem', textAlign: 'center' }}>
                             <i className="fas fa-building" style={{ fontSize: '3rem', color: '#cbd5e1', marginBottom: '1rem' }}></i>
                             <div style={{ fontSize: '1rem', fontWeight: 700, color: '#64748b' }}>No companies found</div>
@@ -563,19 +593,8 @@ function CompanyPage({ onEdit }) {
                         boxShadow: '0 -4px 6px -1px rgba(0, 0, 0, 0.02)'
                     }}>
                         <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.95rem' }}>
-                            Total Company: <span style={{ color: 'var(--primary-color)' }}>{companyData.length}</span>
+                            Total Companies: <span style={{ color: 'var(--primary-color)' }}>{totalCount}</span>
                         </div>
-                        <div style={{ width: '2px', height: '20px', background: '#cbd5e1' }}></div>
-                        {companyTypes.map((type, idx) => {
-                            const count = companyData.filter(c => c.type === type).length;
-                            if (count === 0) return null;
-                            return (
-                                <div key={type} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <span style={{ color: '#64748b', fontSize: '0.85rem' }}>{type}:</span>
-                                    <span style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9rem' }}>{count}</span>
-                                </div>
-                            );
-                        })}
                     </div>
                 </div>
             </div>

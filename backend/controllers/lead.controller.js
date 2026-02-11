@@ -29,7 +29,9 @@ export const getLeads = async (req, res, next) => {
             }
             : {};
 
-        const results = await paginate(Lead, query, Number(page), Number(limit), { createdAt: -1 });
+        const populateFields = "requirement subRequirement project budget location source status";
+        const results = await paginate(Lead, query, Number(page), Number(limit), { createdAt: -1 }, populateFields);
+
 
         res.status(200).json({
             success: true,
@@ -87,6 +89,75 @@ export const deleteLead = async (req, res, next) => {
             success: true,
             data: {}
         });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * @desc    Get lead by ID or Mobile
+ * @route   GET /leads/:id
+ * @access  Private
+ */
+export const getLeadById = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+
+        let lead;
+        if (isObjectId) {
+            lead = await Lead.findById(id);
+        }
+
+        if (!lead) {
+            lead = await Lead.findOne({ mobile: id });
+        }
+
+        if (!lead) {
+            return res.status(404).json({
+                success: false,
+                message: "Lead not found"
+            });
+        }
+
+        // Map flat backend fields to the structured format expected by LeadMatchingPage.jsx
+        const leadObj = lead.toObject();
+
+        // Ensure name exists
+        if (!leadObj.name) {
+            leadObj.name = `${leadObj.firstName || ''} ${leadObj.lastName || ''}`.trim();
+        }
+
+        // Construct req object
+        if (!leadObj.req) {
+            leadObj.req = {
+                type: Array.isArray(leadObj.propertyType) ? leadObj.propertyType.join(', ') : (leadObj.propertyType || leadObj.requirement || ''),
+                size: (leadObj.areaMin || leadObj.areaMax) ? `${leadObj.areaMin || 0} - ${leadObj.areaMax || 0} ${leadObj.areaMetric || 'Sq Yard'}` : (leadObj.subRequirement || '')
+            };
+        }
+
+        // Ensure budget is a formatted string for parseBudget
+        if (!leadObj.budget && (leadObj.budgetMin || leadObj.budgetMax)) {
+            leadObj.budget = `₹${leadObj.budgetMin || 0} - ₹${leadObj.budgetMax || 0}`;
+        }
+
+        res.status(200).json({
+            success: true,
+            lead: leadObj
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const bulkDeleteLeads = async (req, res, next) => {
+    try {
+        const { ids } = req.body;
+        if (!ids || !Array.isArray(ids)) {
+            return res.status(400).json({ success: false, error: "Invalid IDs provided" });
+        }
+        await Lead.deleteMany({ _id: { $in: ids } });
+        res.json({ success: true, message: `${ids.length} leads deleted successfully` });
     } catch (error) {
         next(error);
     }

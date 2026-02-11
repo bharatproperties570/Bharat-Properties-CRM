@@ -218,7 +218,8 @@ const extractContacts = (text) => {
             role: existing?.role || (existing?.category === 'Broker' ? 'Broker' : 'New Contact'),
             id: existing?.id,
             category: existing?.category,
-            isDbMatch: !!existing
+            isDbMatch: !!existing,
+            isNew: !existing // Explicitly set isNew
         };
     });
 };
@@ -389,15 +390,16 @@ export const parseDealContent = (originalText, customPatterns = null) => {
         address: {
             city: cityResult?.value || null,
             sector: locResult?.value || null,
-            unitNumber: unitResult?.value || null
+            unitNumber: unitResult?.value || null,
+            unitNo: unitResult?.value || null
         },
         specs: {
             size: sizeResult?.value || null,
             price: priceResult?.value || null
         },
         remarks: remarks || null, // The "Remainder" content
-        contact: contacts.length > 0 ? contacts[0] : null,
-        allContacts: contacts,
+        contact: contacts.length > 0 ? { ...contacts[0], unitNo: unitResult?.value || null } : null,
+        allContacts: contacts.map(c => ({ ...c, unitNo: unitResult?.value || null })),
         tags: tags, // New Smart Tags
 
         // Metadata for UI

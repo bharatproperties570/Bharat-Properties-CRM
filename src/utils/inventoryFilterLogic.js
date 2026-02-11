@@ -16,7 +16,7 @@ export function calculateDistance(lat1, lon1, lat2, lon2) {
 // Helper: Parse numerical size from string (e.g. "10 Marla" -> 10)
 const parseSize = (sizeStr) => {
     if (!sizeStr) return 0;
-    const num = parseFloat(sizeStr.replace(/,/g, ''));
+    const num = parseFloat(String(sizeStr).replace(/,/g, ''));
     return isNaN(num) ? 0 : num;
 };
 
@@ -33,20 +33,22 @@ export const applyInventoryFilters = (items, filters, PROJECTS_LIST) => {
 
         // 1. Status Filter
         // ------------------------------------------------------------------------------
-        if (filters.status && item.status !== filters.status) return false;
+        const itemStatus = item.status?.lookup_value || item.status;
+        if (filters.status && itemStatus !== filters.status) return false;
 
         // 2. Category Filter (e.g., "Residential", "Commercial")
         // ------------------------------------------------------------------------------
         if (filters.category && filters.category.length > 0) {
-            // Check if any selected category matches the item type string
-            const categoryMatch = filters.category.some(cat => item.type && item.type.includes(cat));
+            const itemType = item.category?.lookup_value || item.type;
+            const categoryMatch = filters.category.some(cat => itemType && itemType.includes(cat));
             if (!categoryMatch) return false;
         }
 
         // 3. Sub-Category Filter (e.g., "Plot", "Flat", "SCO")
         // ------------------------------------------------------------------------------
         if (filters.subCategory && filters.subCategory.length > 0) {
-            const subMatch = filters.subCategory.some(sub => item.type && item.type.includes(sub));
+            const itemSubType = item.subCategory?.lookup_value || item.type;
+            const subMatch = filters.subCategory.some(sub => itemSubType && itemSubType.includes(sub));
             if (!subMatch) return false;
         }
 
@@ -90,7 +92,8 @@ export const applyInventoryFilters = (items, filters, PROJECTS_LIST) => {
         // 8. Orientation Filters (Facing, Direction, Road Width)
         // ------------------------------------------------------------------------------
         if (filters.facing && filters.facing.length > 0) {
-            if (!filters.facing.includes(item.facing)) return false;
+            const itemFacing = item.facing?.lookup_value || item.facing;
+            if (!filters.facing.includes(itemFacing)) return false;
         }
         if (filters.direction && filters.direction.length > 0) {
             if (!filters.direction.includes(item.direction)) return false;

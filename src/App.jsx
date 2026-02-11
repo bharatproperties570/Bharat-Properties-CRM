@@ -13,7 +13,9 @@ import { TriggersProvider } from './context/TriggersContext';
 import { AutomatedActionsProvider } from './context/AutomatedActionsContext';
 import { CallProvider, useCall } from './context/CallContext'; // Import CallProvider and hook
 import { ParsingProvider } from './context/ParsingContext'; // Import ParsingProvider
+import { UserProvider } from './context/UserContext';
 import CallModal from './components/CallModal'; // Import CallModal
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Helper Wrapper to connect Context to Modal
 const CallModalWrapper = () => {
@@ -111,38 +113,42 @@ function App() {
     }, []);
 
     return (
-        <ContactConfigProvider>
-            <FieldRulesProvider>
-                <PropertyConfigProvider>
-                    <ParsingProvider>
-                        <ActivityProvider>
-                            <DistributionProvider>
-                                <SequenceProvider>
-                                    <AutomatedActionsProvider>
-                                        <TriggersProvider>
-                                            <CallProvider>
-                                                <Toaster position="top-right" />
-                                                <MainLayout currentView={currentView} onNavigate={handleNavigate}>
-                                                    {(modalHandlers) => (
-                                                        <AppRouter
-                                                            currentView={currentView}
-                                                            currentContactId={currentContactId}
-                                                            onNavigate={handleNavigate}
-                                                            {...modalHandlers}
-                                                        />
-                                                    )}
-                                                </MainLayout>
-                                                <CallModalWrapper />
-                                            </CallProvider>
-                                        </TriggersProvider>
-                                    </AutomatedActionsProvider>
-                                </SequenceProvider>
-                            </DistributionProvider>
-                        </ActivityProvider>
-                    </ParsingProvider>
-                </PropertyConfigProvider>
-            </FieldRulesProvider>
-        </ContactConfigProvider>
+        <ErrorBoundary>
+            <ContactConfigProvider>
+                <FieldRulesProvider>
+                    <PropertyConfigProvider>
+                        <ParsingProvider>
+                            <ActivityProvider>
+                                <DistributionProvider>
+                                    <SequenceProvider>
+                                        <AutomatedActionsProvider>
+                                            <TriggersProvider>
+                                                <UserProvider>
+                                                    <CallProvider>
+                                                        <Toaster position="top-right" />
+                                                        <MainLayout currentView={currentView} onNavigate={handleNavigate}>
+                                                            {(modalHandlers) => (
+                                                                <AppRouter
+                                                                    currentView={currentView}
+                                                                    currentContactId={currentContactId}
+                                                                    onNavigate={handleNavigate}
+                                                                    {...modalHandlers}
+                                                                />
+                                                            )}
+                                                        </MainLayout>
+                                                        <CallModalWrapper />
+                                                    </CallProvider>
+                                                </UserProvider>
+                                            </TriggersProvider>
+                                        </AutomatedActionsProvider>
+                                    </SequenceProvider>
+                                </DistributionProvider>
+                            </ActivityProvider>
+                        </ParsingProvider>
+                    </PropertyConfigProvider>
+                </FieldRulesProvider>
+            </ContactConfigProvider >
+        </ErrorBoundary>
     );
 }
 

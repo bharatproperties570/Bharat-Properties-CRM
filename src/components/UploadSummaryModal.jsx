@@ -123,7 +123,7 @@ const UploadSummaryModal = ({ isOpen, onClose, summaryData }) => {
                                 {duplicatesList.map((item, index) => {
                                     const details = item.duplicateInfo?.matchDetails || {};
                                     const displayText = [
-                                        details.unitNumber ? `Unit: ${details.unitNumber}` : '',
+                                        details.unitNo ? `Unit: ${details.unitNo}` : '',
                                         details.project ? `Project: ${details.project}` : '',
                                         details.location ? `Location: ${details.location}` : '',
                                         details.category || details.type ? `${details.category || ''} ${details.type || ''}`.trim() : ''

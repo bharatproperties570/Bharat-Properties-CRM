@@ -2,7 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { companyData } from '../data/companyData';
 import { INDIAN_ADDRESS_DATA } from '../data/locationData';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
+import { useUserContext } from '../context/UserContext';
 import AddressDetailsForm from './common/AddressDetailsForm';
+import { api } from '../utils/api';
+import toast from 'react-hot-toast';
 
 // Mock Permission Hook
 const usePermission = (permission) => {
@@ -111,7 +114,7 @@ const DEFAULT_FORM_DATA = {
     subCategory: ['Flat/Apartment'],
 
     // System Details (Multi-select)
-    assign: ['Suraj Keshwar'],
+    assign: [],
     team: ['Sales'],
 
     // Project Stats
@@ -193,6 +196,7 @@ const DEFAULT_FORM_DATA = {
 
 function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projectToEdit = null }) {
     const { projectMasterFields: masterFieldsFromContext, projectAmenities, sizes } = usePropertyConfig();
+    const { users: contextUsers } = useUserContext();
 
     if (!companyData) {
         console.error('companyData is undefined!');
@@ -353,7 +357,7 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
     const categories = ['Residential', 'Commercial', 'Agricultural', 'Industrial', 'Institutional'];
     const subCategories = ['Plot', 'House', 'Flat/Apartment', 'Builder Floor', 'Villa', 'Penthouse', 'SCO', 'Office Space', 'Shop'];
     const teams = ['Sales', 'Marketing', 'Post Sales', 'Pre Sales', 'Finance', 'HR'];
-    const users = ['Suraj Keshwar', 'Demo User', 'Admin', 'Manager'];
+    const userOptions = contextUsers.map(u => u.name);
     const developers = companyData.map(c => c.name).sort();
 
     // Cascading Address Logic handled by AddressDetailsForm
@@ -527,9 +531,28 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
         }
     };
 
-    const handleSave = () => {
-        console.log("Saving Consolidated Project Data:", formData);
-        onSave(formData);
+    const handleSave = async () => {
+        const toastId = toast.loading(projectToEdit ? 'Updating project...' : 'Creating project...');
+        try {
+            let response;
+            if (projectToEdit && projectToEdit._id) {
+                response = await api.put(`/projects/${projectToEdit._id}`, formData);
+            } else {
+                response = await api.post('/projects', formData);
+            }
+
+            if (response.data && response.data.success) {
+                toast.success(projectToEdit ? 'Project updated!' : 'Project created!', { id: toastId });
+                onSave && onSave(response.data.data);
+                onClose();
+            } else {
+                throw new Error(response.data?.error || 'Failed to save project');
+            }
+        } catch (error) {
+            console.error("Save Error:", error);
+            const errorMsg = error.response?.data?.error || error.response?.data?.message || error.message || "Failed to save project";
+            toast.error(errorMsg, { id: toastId });
+        }
     };
 
     if (!isOpen) return null;
@@ -723,7 +746,7 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                     <div>
                         <label style={labelStyle}>Assign</label>
                         <MultiSelect
-                            options={users}
+                            options={userOptions}
                             selected={formData.assign}
                             onChange={(val) => setFormData({ ...formData, assign: val })}
                             placeholder="Assign User(s)"

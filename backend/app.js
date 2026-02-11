@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 
 import authRoutes from "./routes/auth.routes.js";
+import userRoutes from "./routes/user.routes.js";
 import leadRoutes from "./routes/lead.routes.js";
 import contactRoutes from "./routes/contact.routes.js";
 import inventoryRoutes from "./routes/inventory.routes.js";
@@ -10,6 +11,10 @@ import lookupRoutes from "./routes/lookup.routes.js";
 import activityRoutes from "./routes/activity.routes.js";
 import fieldRuleRoutes from "./routes/fieldRule.routes.js";
 import distributionRuleRoutes from "./routes/distributionRule.routes.js";
+import systemSettingRoutes from "./routes/systemSetting.routes.js";
+import roleRoutes from "./routes/role.routes.js";
+import dealRoutes from "./routes/deal.routes.js";
+import companyRoutes from "./routes/company.routes.js";
 
 const app = express();
 
@@ -23,15 +28,20 @@ app.use((req, res, next) => {
 });
 
 app.use("/auth", authRoutes);
+app.use("/users", userRoutes);
+app.use("/roles", roleRoutes);
 app.use("/leads", leadRoutes);
 app.use("/contacts", contactRoutes);
 app.use("/inventory", inventoryRoutes);
 app.use("/projects", projectRoutes);
+app.use("/deals", dealRoutes);
 app.use("/lookup", lookupRoutes); // This now supports legacy query params
 app.use("/lookups", lookupRoutes); // Alias for RESTful style
 app.use("/activities", activityRoutes);
 app.use("/field-rules", fieldRuleRoutes);
 app.use("/distribution-rules", distributionRuleRoutes);
+app.use("/system-settings", systemSettingRoutes);
+app.use("/companies", companyRoutes);
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {

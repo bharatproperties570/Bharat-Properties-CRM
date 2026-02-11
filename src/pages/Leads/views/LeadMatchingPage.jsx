@@ -1,20 +1,43 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { dealsData, leadData, inventoryData, whatsappTemplates } from '../../../data/mockData';
+import { whatsappTemplates } from '../../../data/mockData';
 import SendMailModal from '../../Contacts/components/SendMailModal';
 import SendMessageModal from '../../../components/SendMessageModal';
 import CreateActivityModal from '../../../components/CreateActivityModal';
 import AlgorithmSettingsModal from '../components/AlgorithmSettingsModal';
 import { PROJECTS_LIST } from '../../../data/projectData';
 import toast from 'react-hot-toast';
+import { api } from '../../../utils/api';
 import { parseBudget, parseSizeSqYard, calculateMatch } from '../../../utils/matchingLogic';
 
 const LeadMatchingPage = ({ onNavigate, leadId }) => {
-    const lead = useMemo(() => {
-        const found = leadData.find(l => l.mobile === leadId);
-        if (found && !found.email) {
-            found.email = `${found.name.toLowerCase().replace(/\s+/g, '.')}@example.com`; // Dummy email for matches
-        }
-        return found;
+    const [lead, setLead] = useState(null);
+    const [inventoryItems, setInventoryItems] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchData = async () => {
+            setLoading(true);
+            try {
+                // Fetch specific lead
+                const leadRes = await api.get(`leads/${leadId}`);
+                if (leadRes.data && leadRes.data.success) {
+                    setLead(leadRes.data.lead);
+                }
+
+                // Fetch all inventory for matching
+                const inventoryRes = await api.get('inventory', { params: { limit: 1000 } });
+                if (inventoryRes.data && inventoryRes.data.success) {
+                    setInventoryItems(inventoryRes.data.records || []);
+                }
+            } catch (error) {
+                console.error("Error fetching match data:", error);
+                toast.error("Failed to load match data");
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchData();
     }, [leadId]);
 
     // Selection State
@@ -61,6 +84,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
     // 3. Optimize regions with Centralized Logic
     const matchedItems = useMemo(() => {
+        if (!lead || inventoryItems.length === 0) return [];
         return calculateMatch(lead, leadContext, weights, {
             budgetFlexibility,
             sizeFlexibility,
@@ -68,8 +92,8 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             isTypeFlexible,
             isSizeFlexible,
             minMatchScore
-        });
-    }, [lead, leadContext, budgetFlexibility, sizeFlexibility, includeNearby, isTypeFlexible, isSizeFlexible, minMatchScore, weights]);
+        }, inventoryItems);
+    }, [lead, leadContext, budgetFlexibility, sizeFlexibility, includeNearby, isTypeFlexible, isSizeFlexible, minMatchScore, weights, inventoryItems]);
 
     // Progressive Rendering
     const [visibleCount, setVisibleCount] = useState(15);
@@ -108,6 +132,15 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         window.open(`https://wa.me/91${lead.mobile}?text=${encodeURIComponent(message)}`, '_blank');
         logActivity('WhatsApp Sent', item);
     };
+
+    if (loading) {
+        return (
+            <div style={{ padding: '40px', textAlign: 'center' }}>
+                <div className="loading-spinner"></div>
+                <p>Loading matching properties...</p>
+            </div>
+        );
+    }
 
     const handleSendPortfolio = () => {
         const selectedDeals = matchedItems.filter(item => selectedItems.includes(item.id || item.unitNo));

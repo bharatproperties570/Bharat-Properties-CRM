@@ -6,11 +6,29 @@ function MarketingPage({ onNavigate }) {
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const [showAIInsights, setShowAIInsights] = useState(true);
     const [expandedCampaign, setExpandedCampaign] = useState(null);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [recordsPerPage, setRecordsPerPage] = useState(10);
 
     const globalKPIs = useMemo(() =>
         calculateGlobalKPIs(marketingData.online, marketingData.offline, marketingData.organic),
         []
     );
+
+    const formatINR = (amount) => `₹${amount.toLocaleString('en-IN')}`;
+
+    const globalKPIsCombined = [
+        { label: 'Total Spend', value: formatINR(globalKPIs.totalSpend), icon: 'fas fa-rupee-sign', color: '#ef4444' },
+        { label: 'Revenue', value: formatINR(globalKPIs.totalRevenue), icon: 'fas fa-coins', color: '#10b981' },
+        { label: 'ROI', value: `${globalKPIs.roi}%`, icon: 'fas fa-percentage', color: parseFloat(globalKPIs.roi) > 0 ? '#10b981' : '#ef4444' },
+        { label: 'CAC', value: formatINR(globalKPIs.globalCAC), icon: 'fas fa-user-tag', color: '#f59e0b' },
+        { label: 'LTV:CAC', value: globalKPIs.ltvCacRatio, icon: 'fas fa-balance-scale', color: parseFloat(globalKPIs.ltvCacRatio) >= 3 ? '#10b981' : '#f59e0b' },
+        { label: 'Total Leads', value: globalKPIs.totalLeads, icon: 'fas fa-users', color: '#10b981' },
+        { label: 'Avg CPL', value: formatINR(globalKPIs.avgCPL), icon: 'fas fa-chart-line', color: '#f59e0b' },
+        { label: 'Site Visits', value: globalKPIs.totalSiteVisits, icon: 'fas fa-eye', color: '#8b5cf6' },
+        { label: 'Deals Closed', value: globalKPIs.totalDeals, icon: 'fas fa-handshake', color: '#06b6d4' },
+        { label: 'Budget Status', value: `₹${(globalKPIs.budgetRemaining || 0).toLocaleString('en-IN')}`, icon: 'fas fa-wallet', color: globalKPIs.budgetRemaining > 0 ? '#10b981' : '#ef4444' }
+    ];
 
     const aiInsights = useMemo(() =>
         generateAIInsights(marketingData.online, marketingData.offline),
@@ -50,8 +68,29 @@ function MarketingPage({ onNavigate }) {
         { id: 'organic', label: 'ORGANIC CAMPAIGN', icon: 'fas fa-seedling' }
     ];
 
-    const formatINR = (amount) => `₹${amount.toLocaleString('en-IN')}`;
-    const filteredCampaigns = marketingData[activeTab] || [];
+
+    const filteredCampaigns = (marketingData[activeTab] || []).filter(c =>
+        c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (c.platform && c.platform.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (c.source && c.source.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (c.type && c.type.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+
+
+    const totalPages = Math.ceil(filteredCampaigns.length / recordsPerPage);
+    const paginatedCampaigns = filteredCampaigns.slice(
+        (currentPage - 1) * recordsPerPage,
+        currentPage * recordsPerPage
+    );
+
+    const handleRecordsPerPageChange = (e) => {
+        setRecordsPerPage(Number(e.target.value));
+        setCurrentPage(1);
+    };
+
+    React.useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery, activeTab]);
 
     return (
         <section id="marketingView" className="view-section active">
@@ -62,106 +101,59 @@ function MarketingPage({ onNavigate }) {
                     top: 0,
                     zIndex: 1000,
                     background: 'linear-gradient(135deg, #1273eb 0%, #0d5bb9 100%)',
-                    padding: '18px 2rem 20px',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                    padding: '8px 0', // Reduced padding
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                    overflow: 'hidden'
                 }}>
-                    {/* Row 1: Primary Financial Metrics */}
-                    <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(5, 1fr)',
-                        gap: '12px',
-                        marginBottom: '12px'
+                    <style>
+                        {`
+                        @keyframes marquee {
+                            0% { transform: translateX(0); }
+                            100% { transform: translateX(-50%); }
+                        }
+                        .marquee-content:hover {
+                            animation-play-state: paused;
+                        }
+                        `}
+                    </style>
+                    <div className="marquee-content" style={{
+                        display: 'flex',
+                        gap: '20px',
+                        animation: 'marquee 120s linear infinite', // Slowed down from 40s
+                        width: 'max-content',
+                        paddingLeft: '20px'
                     }}>
-                        {[
-                            { label: 'Total Spend', value: formatINR(globalKPIs.totalSpend), icon: 'fas fa-rupee-sign', color: '#ef4444', sub: `${globalKPIs.budgetUtilization}% of budget` },
-                            { label: 'Revenue', value: formatINR(globalKPIs.totalRevenue), icon: 'fas fa-coins', color: '#10b981', sub: `₹${(globalKPIs.avgDealSize || 0).toLocaleString('en-IN')} avg` },
-                            { label: 'ROI', value: `${globalKPIs.roi}%`, icon: 'fas fa-percentage', color: parseFloat(globalKPIs.roi) > 0 ? '#10b981' : '#ef4444', sub: globalKPIs.roi > 100 ? 'Excellent' : 'Good' },
-                            { label: 'CAC', value: formatINR(globalKPIs.globalCAC), icon: 'fas fa-user-tag', color: '#f59e0b', sub: 'Cost per customer' },
-                            { label: 'LTV:CAC', value: globalKPIs.ltvCacRatio, icon: 'fas fa-balance-scale', color: parseFloat(globalKPIs.ltvCacRatio) >= 3 ? '#10b981' : '#f59e0b', sub: parseFloat(globalKPIs.ltvCacRatio) >= 3 ? 'Healthy' : 'Needs work' }
-                        ].map((kpi, idx) => (
+                        {/* Duplicate content for seamless loop */}
+                        {[...globalKPIsCombined, ...globalKPIsCombined].map((kpi, idx) => (
                             <div key={idx} style={{
                                 background: 'rgba(255,255,255,0.15)',
                                 backdropFilter: 'blur(10px)',
-                                borderRadius: '10px',
-                                padding: '12px 14px',
-                                border: '1px solid rgba(255,255,255,0.2)'
+                                borderRadius: '12px',
+                                padding: '12px 16px', // Increased padding
+                                border: '1px solid rgba(255,255,255,0.2)',
+                                minWidth: '220px', // Increased width
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '14px' // Increased gap
                             }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                                    <div style={{
-                                        width: '32px',
-                                        height: '32px',
-                                        background: kpi.color,
-                                        borderRadius: '7px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        flexShrink: 0
-                                    }}>
-                                        <i className={kpi.icon} style={{ color: '#fff', fontSize: '0.85rem' }}></i>
-                                    </div>
-                                    <div style={{ flex: 1 }}>
-                                        <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.75)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                            {kpi.label}
-                                        </div>
-                                        <div style={{ fontSize: '1.3rem', color: '#fff', fontWeight: 900, marginTop: '1px', lineHeight: 1 }}>
-                                            {kpi.value}
-                                        </div>
-                                        {kpi.sub && (
-                                            <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.65)', marginTop: '2px' }}>
-                                                {kpi.sub}
-                                            </div>
-                                        )}
-                                    </div>
+                                <div style={{
+                                    width: '36px', // Increased size
+                                    height: '36px', // Increased size
+                                    background: kpi.color,
+                                    borderRadius: '8px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexShrink: 0
+                                }}>
+                                    <i className={kpi.icon} style={{ color: '#fff', fontSize: '1rem' }}></i> {/* Increased font size */}
                                 </div>
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* Row 2: Lead & Conversion Metrics */}
-                    <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(5, 1fr)',
-                        gap: '12px'
-                    }}>
-                        {[
-                            { label: 'Total Leads', value: globalKPIs.totalLeads, icon: 'fas fa-users', color: '#10b981', sub: `${globalKPIs.totalMQL} MQL / ${globalKPIs.totalSQL} SQL` },
-                            { label: 'Avg CPL', value: formatINR(globalKPIs.avgCPL), icon: 'fas fa-chart-line', color: '#f59e0b', sub: 'Per lead cost' },
-                            { label: 'Site Visits', value: globalKPIs.totalSiteVisits, icon: 'fas fa-eye', color: '#8b5cf6', sub: 'Property visits' },
-                            { label: 'Deals Closed', value: globalKPIs.totalDeals, icon: 'fas fa-handshake', color: '#06b6d4', sub: `${globalKPIs.conversionRate}% conversion` },
-                            { label: 'Budget Status', value: `₹${(globalKPIs.budgetRemaining || 0).toLocaleString('en-IN')}`, icon: 'fas fa-wallet', color: globalKPIs.budgetRemaining > 0 ? '#10b981' : '#ef4444', sub: 'Remaining' }
-                        ].map((kpi, idx) => (
-                            <div key={idx} style={{
-                                background: 'rgba(255,255,255,0.15)',
-                                backdropFilter: 'blur(10px)',
-                                borderRadius: '10px',
-                                padding: '12px 14px',
-                                border: '1px solid rgba(255,255,255,0.2)'
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                                    <div style={{
-                                        width: '32px',
-                                        height: '32px',
-                                        background: kpi.color,
-                                        borderRadius: '7px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        flexShrink: 0
-                                    }}>
-                                        <i className={kpi.icon} style={{ color: '#fff', fontSize: '0.85rem' }}></i>
+                                <div>
+                                    <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.9)', fontWeight: 600, textTransform: 'uppercase' }}>
+                                        {kpi.label}
                                     </div>
-                                    <div style={{ flex: 1 }}>
-                                        <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.75)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                            {kpi.label}
-                                        </div>
-                                        <div style={{ fontSize: '1.3rem', color: '#fff', fontWeight: 900, marginTop: '1px', lineHeight: 1 }}>
-                                            {kpi.value}
-                                        </div>
-                                        {kpi.sub && (
-                                            <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.65)', marginTop: '2px' }}>
-                                                {kpi.sub}
-                                            </div>
-                                        )}
+                                    <div style={{ fontSize: '1.25rem', color: '#fff', fontWeight: 900, lineHeight: 1 }}>
+                                        {kpi.value}
                                     </div>
                                 </div>
                             </div>
@@ -187,24 +179,33 @@ function MarketingPage({ onNavigate }) {
                             ))}
                         </div>
                     </div>
-                    <div className="header-actions">
+                    <div className="header-actions" style={{ display: 'flex', alignItems: 'center' }}>
                         <button
                             className="btn-outline"
                             onClick={() => setShowAIInsights(!showAIInsights)}
-                            style={{ marginRight: '10px' }}
+                            title="AI Insights"
+                            style={{ marginRight: '10px', padding: '6px 10px' }}
                         >
-                            <i className="fas fa-brain"></i> AI Insights
+                            <i className="fas fa-brain" style={{ fontSize: '1rem', color: '#8b5cf6' }}></i>
                         </button>
-                        <div className="create-campaign-dropdown">
+                        <div className="create-campaign-dropdown" style={{ position: 'relative' }}>
                             <button
                                 className="btn-primary create-campaign-btn"
                                 onClick={() => setDropdownOpen(!dropdownOpen)}
+                                style={{
+                                    padding: '8px 16px',
+                                    fontSize: '0.85rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '8px'
+                                }}
                             >
                                 CREATE CAMPAIGN <i className="fas fa-caret-down"></i>
                             </button>
                             {dropdownOpen && (
-                                <div className="dropdown-menu show" style={{ display: 'block' }}>
-                                    <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('wizard'); }}>
+                                <div className="dropdown-menu show" style={{ display: 'block', position: 'absolute', right: 0, left: 'auto', top: '100%', marginTop: '4px', minWidth: '220px', zIndex: 1000, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
+                                    <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('wizard'); }} style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none', color: '#334155', fontSize: '0.85rem' }}>
                                         <i className="fab fa-google" style={{ color: '#EA4335' }}></i> Create Google Ads
                                     </a>
                                     <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('wizard'); }}>
@@ -222,6 +223,127 @@ function MarketingPage({ onNavigate }) {
                                     </a>
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Secondary Header: Search & Pagination */}
+                <div style={{
+                    padding: '12px 2rem',
+                    background: '#fff',
+                    borderBottom: '1px solid #e2e8f0',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                }}>
+                    {/* Search & Records Per Page */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                        <div style={{ position: 'relative' }}>
+                            <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.9rem' }}></i>
+                            <input
+                                type="text"
+                                placeholder="Search campaigns..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                style={{
+                                    padding: '10px 12px 10px 36px',
+                                    borderRadius: '8px',
+                                    border: '1px solid #cbd5e1',
+                                    fontSize: '0.9rem',
+                                    width: '300px',
+                                    outline: 'none',
+                                    transition: 'all 0.2s',
+                                    backgroundColor: '#f8fafc'
+                                }}
+                                onFocus={(e) => {
+                                    e.target.style.background = '#fff';
+                                    e.target.style.borderColor = '#3b82f6';
+                                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                                }}
+                                onBlur={(e) => {
+                                    e.target.style.background = '#f8fafc';
+                                    e.target.style.borderColor = '#cbd5e1';
+                                    e.target.style.boxShadow = 'none';
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Pagination Info & Controls */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                        <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
+                            Showing: <strong>{paginatedCampaigns.length}</strong> /{" "}
+                            <strong>{filteredCampaigns.length}</strong>
+                        </div>
+
+                        {/* Records Per Page */}
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.8rem", color: "#64748b" }}>
+                            <span>Show:</span>
+                            <select
+                                value={recordsPerPage}
+                                onChange={handleRecordsPerPageChange}
+                                style={{
+                                    padding: "4px 8px",
+                                    border: "1px solid #e2e8f0",
+                                    borderRadius: "6px",
+                                    fontSize: "0.8rem",
+                                    fontWeight: 600,
+                                    color: "#0f172a",
+                                    outline: "none",
+                                    cursor: "pointer",
+                                }}
+                            >
+                                <option value={10}>10</option>
+                                <option value={25}>25</option>
+                                <option value={50}>50</option>
+                                <option value={100}>100</option>
+                            </select>
+                        </div>
+
+                        {/* Pagination Buttons */}
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                            <button
+                                disabled={currentPage === 1}
+                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                style={{
+                                    padding: '6px 10px',
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: '6px',
+                                    background: currentPage === 1 ? '#f1f5f9' : '#fff',
+                                    color: currentPage === 1 ? '#94a3b8' : '#334155',
+                                    cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                                    fontSize: '0.8rem'
+                                }}
+                            >
+                                <i className="fas fa-chevron-left"></i>
+                            </button>
+                            <span style={{
+                                padding: '6px 12px',
+                                background: '#eff6ff',
+                                color: '#1d4ed8',
+                                fontSize: '0.85rem',
+                                fontWeight: 600,
+                                borderRadius: '6px',
+                                minWidth: '32px',
+                                textAlign: 'center'
+                            }}>
+                                {currentPage}
+                            </span>
+                            <button
+                                disabled={currentPage === totalPages || totalPages === 0}
+                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                style={{
+                                    padding: '6px 10px',
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: '6px',
+                                    background: (currentPage === totalPages || totalPages === 0) ? '#f1f5f9' : '#fff',
+                                    color: (currentPage === totalPages || totalPages === 0) ? '#94a3b8' : '#334155',
+                                    cursor: (currentPage === totalPages || totalPages === 0) ? 'not-allowed' : 'pointer',
+                                    fontSize: '0.8rem'
+                                }}
+                            >
+                                <i className="fas fa-chevron-right"></i>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -284,7 +406,7 @@ function MarketingPage({ onNavigate }) {
 
                     {/* Simple Campaign Cards */}
                     <div style={{ padding: '0 2rem 2rem' }}>
-                        {filteredCampaigns.map((c, idx) => (
+                        {paginatedCampaigns.map((c, idx) => (
                             <div key={c.id} style={{
                                 background: '#fff',
                                 border: '1px solid #e2e8f0',

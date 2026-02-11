@@ -1,15 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
+import { api } from '../utils/api';
 
-// Create axios instance for old backend API
-const api = axios.create({
-    baseURL: 'https://newapi.bharatproperties.co/'
-});
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useFieldRules } from '../context/FieldRulesContext';
 import { useDistribution } from '../context/DistributionContext';
 import { useSequences } from '../context/SequenceContext';
 import { useTriggers } from '../context/TriggersContext';
+import { useUserContext } from '../context/UserContext';
 
 import { INDIAN_LOCATION_HIERARCHY } from '../data/detailedLocationData';
 import { PROJECT_DATA, CITIES } from '../data/projectData';
@@ -141,6 +138,18 @@ const companyList = [
     'Real Estate Co',
     'Alpha Corp',
     'Beta Industries'
+];
+
+const SOURCE_OPTIONS = [
+    "Walk-in",
+    "Reference",
+    "Google",
+    "Facebook",
+    "Instagram",
+    "Website",
+    "99Acres",
+    "MagicBricks",
+    "Other",
 ];
 
 // Duplicate Popup Component (Restyled for Side Panel)
@@ -400,6 +409,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     const { executeDistribution } = useDistribution(); // Get Distribution Engine
     const { evaluateAndEnroll } = useSequences();
     const { fireEvent } = useTriggers();
+    const { users } = useUserContext();
     const [currentTab, setCurrentTab] = useState('requirement');
     const [showOnlyRequired, setShowOnlyRequired] = useState(false);
 
@@ -502,6 +512,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         phones: [{ number: '', type: 'Personal' }],
         emails: [{ address: '', type: 'Personal' }],
         contactDetails: '',
+        description: '',
 
         // System Details
         // source: '',
@@ -728,32 +739,44 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             // If no existing contact selected, create new one first
             if (!finalContactId) {
                 // Prepare contact payload
-                // Minimal payload based on formData
+                // Filter out empty phones/emails and trim data
                 const contactPayload = {
-                    title: formData.title,
-                    name: formData.name,
-                    surname: formData.surname,
-                    phones: formData.phones,
-                    emails: formData.emails,
-                    source: formData.source,
-                    countryCode: formData.countryCode,
-                    team: formData.team,
-                    owner: formData.owner,
-                    visibleTo: formData.visibleTo,
+                    title: formData.title || "",
+                    name: (formData.name || "").trim(),
+                    surname: (formData.surname || "").trim(),
+                    phones: (formData.phones || []).filter(p => p.number && p.number.trim()),
+                    emails: (formData.emails || []).filter(e => e.address && e.address.trim()),
+                    source: formData.source || "",
+                    countryCode: formData.countryCode || "+91",
+                    team: formData.team || "",
+                    owner: formData.owner || "",
+                    visibleTo: formData.visibleTo || "Public",
                 };
+
+                // Basic validation before sending to API
+                if (!contactPayload.name) {
+                    alert("First Name is required for contact creation.");
+                    setIsSaving(false);
+                    return;
+                }
+                if (contactPayload.phones.length === 0) {
+                    alert("At least one mobile number is required.");
+                    setIsSaving(false);
+                    return;
+                }
 
                 // Call Add Contact API
                 try {
                     const response = await api.post("contacts", contactPayload);
                     if (response.data && response.data.success) {
-                        finalContactId = response.data.data._id; // Assuming response.data.data is the created object
-                        // console.log("Created new contact:", finalContactId);
+                        finalContactId = response.data.data._id;
                     } else {
-                        throw new Error("Failed to create new contact: " + (response.data?.message || "Unknown error"));
+                        throw new Error(response.data?.message || "Failed to create contact");
                     }
                 } catch (contactError) {
                     console.error("Error creating contact:", contactError);
-                    alert("Failed to save contact details. Please try again.");
+                    alert("Failed to save contact details: " + (contactError.response?.data?.message || contactError.message));
+                    setIsSaving(false);
                     return;
                 }
             }
@@ -764,14 +787,16 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 contactDetails: finalContactId // Changed from contactId to contactDetails
             };
 
-            // Optimization: If linking to an existing contact, we don't need to save redundant contact details (phones/emails) on the lead itself,
-            // as they are fetched via populate. We keep 'name' for the Lead Title/Display purposes.
+            // Ensure lead always has required identity fields for the Lead model
+            leadPayload.firstName = formData.name || "";
+            leadPayload.lastName = formData.surname || "";
+            leadPayload.salutation = formData.title || "Mr.";
+            leadPayload.mobile = formData.phones?.[0]?.number || "";
+            leadPayload.email = formData.emails?.[0]?.address || "";
+
+            // Optimization: If linking to an existing contact, we don't need to save redundant contact details (phones/emails) on the lead itself
             if (finalContactId) {
-                // Keep name and phones on the lead for display optimization
-                leadPayload.firstName = formData.name;
-                leadPayload.lastName = formData.surname;
-                leadPayload.salutation = formData.title;
-                leadPayload.mobile = formData.phones?.[0]?.number || "";
+                leadPayload.contactDetails = finalContactId;
             }
             // --- DISTRIBUTION ENGINE EXECUTION ---
             if (!formData.owner) {
@@ -857,7 +882,12 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     };
 
     // Placeholder for Populate
-    const handlePopulateForm = (data) => { console.log('Populate', data); };
+    const handlePopulateForm = (data) => {
+        if (!data) return;
+        handleSelectContact(data);
+        alert(`Linked to existing contact: ${data.name}`);
+    };
+
 
     // Styles (Reused from backup)
     const overlayStyle = {
@@ -892,27 +922,43 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
     // Duplication Check Effect
     useEffect(() => {
-        if (!formData.name && formData.phones[0].number === '' && formData.emails[0].address === '') {
-            setSimilarContacts([]);
-            return;
-        }
+        const searchDuplicates = async () => {
+            if (!formData.name && formData.phones[0].number === '' && formData.emails[0].address === '') {
+                setSimilarContacts([]);
+                return;
+            }
 
-        const matches = MOCK_CONTACTS.filter(contact => {
-            const nameMatch = formData.name && contact.name.toLowerCase().includes(formData.name.toLowerCase());
+            try {
+                const queryParams = new URLSearchParams();
+                if (formData.name && formData.name.length > 2) {
+                    queryParams.append("name", formData.name);
+                }
+                if (formData.phones[0].number && formData.phones[0].number.length > 3) {
+                    queryParams.append("phone", formData.phones[0].number);
+                }
+                if (formData.emails[0].address && formData.emails[0].address.length > 3) {
+                    queryParams.append("email", formData.emails[0].address);
+                }
 
-            // Mobile Match (Check if any entered phone matches any existing phone)
-            const phoneMatch = formData.phones.some(p =>
-                p.number && contact.phones.some(cp => cp.phoneNumber.includes(p.number))
-            );
+                if (queryParams.toString() === "") {
+                    setSimilarContacts([]);
+                    return;
+                }
 
-            // Email Match
-            const emailMatch = formData.emails.some(e =>
-                e.address && contact.emails.some(ce => ce.includes(e.address))
-            );
+                const response = await api.get(`contacts/search/duplicates?${queryParams.toString()}`);
+                if (response.data && response.data.success) {
+                    setSimilarContacts(response.data.data);
+                }
+            } catch (error) {
+                console.error("Error searching duplicates:", error);
+            }
+        };
 
-            return nameMatch || phoneMatch || emailMatch;
-        });
-        setSimilarContacts(matches);
+        const timer = setTimeout(() => {
+            searchDuplicates();
+        }, 500);
+
+        return () => clearTimeout(timer);
     }, [formData.name, formData.phones, formData.emails]);
 
     const searchInputRef = useRef(null);
@@ -1358,8 +1404,9 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                 style={customSelectStyle}
                                             >
                                                 <option value="">Select Owner</option>
-                                                <option value="Self">Self</option>
-                                                {/* Add more owners here or map from props */}
+                                                {users.map(user => (
+                                                    <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
+                                                ))}
                                             </select>
                                         </div>
                                         <div>
@@ -1638,17 +1685,11 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                     style={customSelectStyle}
                                                 >
                                                     <option value="">Select Source</option>
-                                                    {(() => {
-                                                        const allSources = [];
-                                                        (leadMasterFields?.campaigns || []).forEach(c => {
-                                                            (c.sources || []).forEach(s => {
-                                                                if (!allSources.includes(s.name)) {
-                                                                    allSources.push(s.name);
-                                                                }
-                                                            });
-                                                        });
-                                                        return allSources.map(s => <option key={s} value={s}>{s}</option>);
-                                                    })()}
+                                                    {SOURCE_OPTIONS.map((opt) => (
+                                                        <option key={opt} value={opt}>
+                                                            {opt}
+                                                        </option>
+                                                    ))}
                                                 </select>
                                             </div>
                                         </div>
@@ -1761,6 +1802,30 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         </select>
                                     </div>
                                 </div>
+                            </div>
+
+                            {/* Description Card */}
+                            <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                                    <i className="fas fa-sticky-note" style={{ color: '#8b5cf6' }}></i> Notes & Description
+                                </h3>
+                                <textarea
+                                    value={formData.description}
+                                    onChange={(e) => handleInputChange('description', e.target.value)}
+                                    placeholder="Enter any additional notes or comments..."
+                                    style={{
+                                        width: '100%',
+                                        minHeight: '100px',
+                                        padding: '12px',
+                                        borderRadius: '8px',
+                                        border: '1px solid #cbd5e1',
+                                        fontSize: '0.9rem',
+                                        outline: 'none',
+                                        color: '#1e293b',
+                                        resize: 'vertical',
+                                        fontFamily: 'inherit'
+                                    }}
+                                />
                             </div>
                         </div>
                         ) : currentTab === 'requirement' ? (

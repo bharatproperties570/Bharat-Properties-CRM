@@ -55,7 +55,7 @@ export const applyProjectFilters = (projects, filters) => {
 
         // 5. City (Multi-Select)
         if (filters.city && filters.city.length > 0) {
-            const projectLoc = (project.location || "").toLowerCase();
+            const projectLoc = (project.locationSearch || project.address?.location || project.location || "").toLowerCase();
             const hasCityMatch = filters.city.some(city => projectLoc.includes(city.toLowerCase()));
             if (!hasCityMatch) return false;
         }
@@ -69,7 +69,8 @@ export const applyProjectFilters = (projects, filters) => {
                 if (dist === null || dist > maxDist) return false;
             } else {
                 // Fallback to text match
-                if (!project.location.toLowerCase().includes(filters.location.toLowerCase())) {
+                const projectLoc = (project.locationSearch || project.address?.location || project.location || "").toLowerCase();
+                if (!projectLoc.includes(filters.location.toLowerCase())) {
                     // Try name match as well
                     if (!project.name.toLowerCase().includes(filters.location.toLowerCase())) return false;
                 }

@@ -12,6 +12,10 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
     const [selectedIds, setSelectedIds] = useState([]);
     const [showDocOptions, setShowDocOptions] = useState(false); // Dropdown toggle
 
+    // Pagination State
+    const [currentPage, setCurrentPage] = useState(1);
+    const [recordsPerPage, setRecordsPerPage] = useState(25);
+
     // Logic to handle specific deal navigation (Drill-down)
     const handleViewLedger = (dealId) => {
         setSearchTerm(dealId);
@@ -176,6 +180,27 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
             return matchesTab && matchesSearch;
         });
     }, [activeTab, searchTerm]);
+
+    // Pagination Helpers
+    const totalRecords = filteredData.length;
+    const totalPages = Math.ceil(totalRecords / recordsPerPage);
+    const paginatedData = filteredData.slice(
+        (currentPage - 1) * recordsPerPage,
+        currentPage * recordsPerPage
+    );
+
+    const goToNextPage = () => {
+        if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+    };
+
+    const goToPreviousPage = () => {
+        if (currentPage > 1) setCurrentPage(currentPage - 1);
+    };
+
+    const handleRecordsPerPageChange = (e) => {
+        setRecordsPerPage(Number(e.target.value));
+        setCurrentPage(1);
+    };
 
     const toggleSelect = (id) => {
         setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
@@ -364,40 +389,141 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     </div>
                 ) : (
                     // Default Tab & Search Toolbar
-                    <>
-                        <div style={{ display: 'flex', gap: '2px', background: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
-                            {['All', 'Pending', 'Booked', 'Agreement', 'Registry', 'Cancelled'].map(tab => (
-                                <button
-                                    key={tab}
-                                    onClick={() => setActiveTab(tab)}
+                    // Default Tab & Search Toolbar
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                        {/* Left: Search & Tabs */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                            <div style={{ position: 'relative', width: '300px' }}>
+                                <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
+                                <input
+                                    type="text"
+                                    placeholder="Search bookings, clients, properties..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    style={{ width: '100%', padding: '10px 10px 10px 36px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                                />
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '2px', background: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
+                                {['All', 'Pending', 'Booked', 'Agreement', 'Registry', 'Cancelled'].map(tab => (
+                                    <button
+                                        key={tab}
+                                        onClick={() => setActiveTab(tab)}
+                                        style={{
+                                            padding: '8px 16px',
+                                            border: 'none',
+                                            background: activeTab === tab ? '#fff' : 'transparent',
+                                            color: activeTab === tab ? '#0f172a' : '#64748b',
+                                            fontWeight: 700,
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontSize: '0.85rem',
+                                            boxShadow: activeTab === tab ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        {tab}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Right: Pagination */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                            <div style={{ fontSize: '0.85rem', color: '#68737d', fontWeight: 500 }}>
+                                Total: <strong>{totalRecords}</strong>
+                            </div>
+
+                            {/* Records Per Page */}
+                            <div
+                                style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "8px",
+                                    fontSize: "0.8rem",
+                                    color: "#64748b",
+                                }}
+                            >
+                                <span>Show:</span>
+                                <select
+                                    value={recordsPerPage}
+                                    onChange={handleRecordsPerPageChange}
                                     style={{
-                                        padding: '8px 16px',
-                                        border: 'none',
-                                        background: activeTab === tab ? '#fff' : 'transparent',
-                                        color: activeTab === tab ? '#0f172a' : '#64748b',
-                                        fontWeight: 700,
-                                        borderRadius: '6px',
-                                        cursor: 'pointer',
-                                        fontSize: '0.85rem',
-                                        boxShadow: activeTab === tab ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                                        transition: 'all 0.2s'
+                                        padding: "4px 8px",
+                                        border: "1px solid #e2e8f0",
+                                        borderRadius: "6px",
+                                        fontSize: "0.8rem",
+                                        fontWeight: 600,
+                                        color: "#0f172a",
+                                        outline: "none",
+                                        cursor: "pointer",
                                     }}
                                 >
-                                    {tab}
+                                    <option value={10}>10</option>
+                                    <option value={25}>25</option>
+                                    <option value={50}>50</option>
+                                    <option value={100}>100</option>
+                                    <option value={300}>300</option>
+                                </select>
+                            </div>
+
+                            {/* Pagination Controls */}
+                            <div
+                                style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "8px",
+                                }}
+                            >
+                                <button
+                                    onClick={goToPreviousPage}
+                                    disabled={currentPage === 1}
+                                    style={{
+                                        padding: "6px 12px",
+                                        border: "1px solid #e2e8f0",
+                                        borderRadius: "6px",
+                                        background: currentPage === 1 ? "#f8fafc" : "#fff",
+                                        color: currentPage === 1 ? "#cbd5e1" : "#0f172a",
+                                        cursor: currentPage === 1 ? "not-allowed" : "pointer",
+                                        fontSize: "0.75rem",
+                                        fontWeight: 600,
+                                    }}
+                                >
+                                    <i className="fas fa-chevron-left"></i> Prev
                                 </button>
-                            ))}
+                                <span
+                                    style={{
+                                        fontSize: "0.8rem",
+                                        fontWeight: 600,
+                                        color: "#0f172a",
+                                        minWidth: "80px",
+                                        textAlign: "center",
+                                    }}
+                                >
+                                    {currentPage} / {totalPages || 1}
+                                </span>
+                                <button
+                                    onClick={goToNextPage}
+                                    disabled={currentPage >= totalPages}
+                                    style={{
+                                        padding: "6px 12px",
+                                        border: "1px solid #e2e8f0",
+                                        borderRadius: "6px",
+                                        background:
+                                            currentPage >= totalPages ? "#f8fafc" : "#fff",
+                                        color:
+                                            currentPage >= totalPages ? "#cbd5e1" : "#0f172a",
+                                        cursor:
+                                            currentPage >= totalPages ? "not-allowed" : "pointer",
+                                        fontSize: "0.75rem",
+                                        fontWeight: 600,
+                                    }}
+                                >
+                                    Next <i className="fas fa-chevron-right"></i>
+                                </button>
+                            </div>
                         </div>
-                        <div style={{ position: 'relative', width: '300px' }}>
-                            <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
-                            <input
-                                type="text"
-                                placeholder="Search bookings, clients, properties..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                style={{ width: '100%', padding: '10px 10px 10px 36px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
-                            />
-                        </div>
-                    </>
+                    </div>
                 )}
             </div>
 
@@ -416,7 +542,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     </div>
 
                     {/* Table Rows */}
-                    {filteredData.map(item => {
+                    {paginatedData.map(item => {
                         const stageStyle = getStageColor(item.stage);
                         const healthColor = getHealthColor(item.health);
                         const isSelected = selectedIds.includes(item.id);

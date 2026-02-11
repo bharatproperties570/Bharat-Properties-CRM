@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import AddDealModal from '../../components/AddDealModal';
 import DealsFilterPanel from './components/DealsFilterPanel';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
@@ -11,10 +11,9 @@ import SendMailModal from '../Contacts/components/SendMailModal';
 import SendMessageModal from '../../components/SendMessageModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
 import toast from 'react-hot-toast';
-
-
-
-import { dealsData } from '../../data/mockData';
+import { api } from "../../utils/api";
+import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
+import { formatIndianCurrency, numberToIndianWords } from '../../utils/numberToWords';
 
 function DealsPage({ onNavigate }) {
     const { startCall } = useCall();
@@ -24,6 +23,45 @@ function DealsPage({ onNavigate }) {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
+    const [deals, setDeals] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [totalRecords, setTotalRecords] = useState(0);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [recordsPerPage, setRecordsPerPage] = useState(25);
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+    const fetchDeals = useCallback(async () => {
+        setLoading(true);
+        try {
+            const queryParams = new URLSearchParams({
+                page: currentPage,
+                limit: recordsPerPage,
+                search: searchTerm,
+            });
+
+            const response = await api.get(`deals?${queryParams.toString()}`);
+
+            if (response.data && response.data.success) {
+                setDeals(response.data.records || []);
+                setTotalRecords(response.data.totalCount || 0);
+            } else {
+                toast.error("Failed to fetch deals");
+                setDeals([]);
+                setTotalRecords(0);
+            }
+        } catch (error) {
+            console.error("Error fetching deals:", error);
+            toast.error("Error loading deals");
+            setDeals([]);
+            setTotalRecords(0);
+        } finally {
+            setLoading(false);
+        }
+    }, [currentPage, recordsPerPage, searchTerm, refreshTrigger]);
+
+    useEffect(() => {
+        fetchDeals();
+    }, [fetchDeals]);
 
     // Action Modal States
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -51,17 +89,22 @@ function DealsPage({ onNavigate }) {
     };
 
 
-    const [deals, setDeals] = useState(dealsData);
-
     const filteredDeals = deals.filter(deal => {
         const search = searchTerm.toLowerCase();
+
+        const dealId = deal.id || deal._id;
+        const ownerName = deal.owner?.name || deal.owner;
+        const location = deal.location?.lookup_value || deal.location;
+        const propertyType = deal.propertyType?.lookup_value || deal.propertyType;
+        const assigned = deal.assigned;
+
         // Basic Search
         const matchesSearch = (
-            (deal.id && deal.id.toLowerCase().includes(search)) ||
-            (deal.owner && deal.owner.name && deal.owner.name.toLowerCase().includes(search)) ||
-            (deal.location && deal.location.toLowerCase().includes(search)) ||
-            (deal.propertyType && deal.propertyType.toLowerCase().includes(search)) ||
-            (deal.assigned && deal.assigned.toLowerCase().includes(search))
+            (dealId && dealId.toString().toLowerCase().includes(search)) ||
+            (ownerName && ownerName.toString().toLowerCase().includes(search)) ||
+            (location && location.toString().toLowerCase().includes(search)) ||
+            (propertyType && propertyType.toString().toLowerCase().includes(search)) ||
+            (assigned && assigned.toString().toLowerCase().includes(search))
         );
 
         if (!matchesSearch) return false;
@@ -78,7 +121,7 @@ function DealsPage({ onNavigate }) {
         }
     };
 
-    const getSelectedDeal = () => deals.find(d => d.id === selectedIds[0]);
+    const getSelectedDeal = () => deals.find(d => d._id === selectedIds[0]);
 
     const handleEditClick = () => {
         const deal = getSelectedDeal();
@@ -105,7 +148,7 @@ function DealsPage({ onNavigate }) {
     };
 
     const getSelectedDealsFull = () => {
-        return deals.filter(d => selectedIds.includes(d.id));
+        return deals.filter(d => selectedIds.includes(d._id));
     };
 
     const handleEmailClick = () => {
@@ -172,6 +215,46 @@ function DealsPage({ onNavigate }) {
         toast.success('Documents updated successfully');
     };
 
+    const totalPages = Math.ceil(totalRecords / recordsPerPage);
+
+    const goToNextPage = () => {
+        if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+    };
+
+    const goToPreviousPage = () => {
+        if (currentPage > 1) setCurrentPage(currentPage - 1);
+    };
+
+    const handleRecordsPerPageChange = (e) => {
+        setRecordsPerPage(Number(e.target.value));
+        setCurrentPage(1);
+    };
+
+    const handleDelete = async () => {
+        if (selectedIds.length === 0) return;
+
+        const confirmMsg = selectedIds.length === 1
+            ? "Are you sure you want to delete this deal?"
+            : `Are you sure you want to delete ${selectedIds.length} selected deals?`;
+
+        if (!window.confirm(confirmMsg)) return;
+
+        try {
+            if (selectedIds.length === 1) {
+                await api.delete(`deals/${selectedIds[0]}`);
+            } else {
+                await api.post(`deals/bulk-delete`, { ids: selectedIds });
+            }
+
+            toast.success(`${selectedIds.length} deal(s) deleted successfully`);
+            setSelectedIds([]);
+            fetchDeals();
+        } catch (error) {
+            console.error("Error deleting deals:", error);
+            toast.error("Failed to delete deals");
+        }
+    };
+
     return (
         <section id="dealsView" className="view-section active">
             <div className="view-scroll-wrapper">
@@ -211,16 +294,7 @@ function DealsPage({ onNavigate }) {
                                 }}></span>
                             )}
                         </button>
-                        <button
-                            className="btn-primary"
-                            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-                            onClick={() => {
-                                setSelectedDealState(null);
-                                setIsAddModalOpen(true);
-                            }}
-                        >
-                            <i className="fas fa-plus"></i> New Deal
-                        </button>
+
                     </div>
                 </div>
 
@@ -275,7 +349,7 @@ function DealsPage({ onNavigate }) {
                                     title="Match"
                                     onClick={() => {
                                         const deal = getSelectedDeal();
-                                        if (deal) onNavigate('deal-matching', deal.id);
+                                        if (deal) onNavigate('deal-matching', deal._id);
                                     }}
                                 >
                                     <i className="fas fa-sync-alt"></i> Match
@@ -294,7 +368,7 @@ function DealsPage({ onNavigate }) {
                                 <button className="action-btn" title="Add Note"><i className="fas fa-sticky-note"></i> Note</button>
 
                                 <div style={{ marginLeft: 'auto' }}>
-                                    <button className="action-btn danger" title="Delete"><i className="fas fa-trash-alt"></i></button>
+                                    <button className="action-btn danger" title="Delete" onClick={handleDelete}><i className="fas fa-trash-alt"></i></button>
                                 </div>
                             </div>
                         ) : (
@@ -310,12 +384,104 @@ function DealsPage({ onNavigate }) {
                                     />
                                     <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
                                 </div>
-                                <div className="toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                    <div className="pagination-nums" style={{ display: 'flex', gap: '8px' }}>
-                                        <span style={{ fontSize: '0.8rem', color: '#64748b', marginRight: '10px' }}>Items: {filteredDeals.length}</span>
-                                        <span className="page-num active">1</span>
-                                        <span className="page-num">2</span>
-                                        <span className="page-num">Next</span>
+                                <div
+                                    style={{ display: 'flex', alignItems: 'center', gap: '15px' }}
+                                >
+                                    <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
+                                        Showing: <strong>{deals.length}</strong> /{" "}
+                                        <strong>{totalRecords}</strong>
+                                    </div>
+
+                                    {/* Records Per Page */}
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "8px",
+                                            fontSize: "0.8rem",
+                                            color: "#64748b",
+                                        }}
+                                    >
+                                        <span>Show:</span>
+                                        <select
+                                            value={recordsPerPage}
+                                            onChange={handleRecordsPerPageChange}
+                                            style={{
+                                                padding: "4px 8px",
+                                                border: "1px solid #e2e8f0",
+                                                borderRadius: "6px",
+                                                fontSize: "0.8rem",
+                                                fontWeight: 600,
+                                                color: "#0f172a",
+                                                outline: "none",
+                                                cursor: "pointer",
+                                            }}
+                                        >
+                                            <option value={10}>10</option>
+                                            <option value={25}>25</option>
+                                            <option value={50}>50</option>
+                                            <option value={100}>100</option>
+                                            <option value={300}>300</option>
+                                            <option value={500}>500</option>
+                                            <option value={700}>700</option>
+                                            <option value={1000}>1000</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Pagination Controls */}
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "8px",
+                                        }}
+                                    >
+                                        <button
+                                            onClick={goToPreviousPage}
+                                            disabled={currentPage === 1 || loading}
+                                            style={{
+                                                padding: "6px 12px",
+                                                border: "1px solid #e2e8f0",
+                                                borderRadius: "6px",
+                                                background: currentPage === 1 ? "#f8fafc" : "#fff",
+                                                color: currentPage === 1 ? "#cbd5e1" : "#0f172a",
+                                                cursor: currentPage === 1 ? "not-allowed" : "pointer",
+                                                fontSize: "0.75rem",
+                                                fontWeight: 600,
+                                            }}
+                                        >
+                                            <i className="fas fa-chevron-left"></i> Prev
+                                        </button>
+                                        <span
+                                            style={{
+                                                fontSize: "0.8rem",
+                                                fontWeight: 600,
+                                                color: "#0f172a",
+                                                minWidth: "80px",
+                                                textAlign: "center",
+                                            }}
+                                        >
+                                            {currentPage} / {totalPages || 1}
+                                        </span>
+                                        <button
+                                            onClick={goToNextPage}
+                                            disabled={currentPage >= totalPages || loading}
+                                            style={{
+                                                padding: "6px 12px",
+                                                border: "1px solid #e2e8f0",
+                                                borderRadius: "6px",
+                                                background:
+                                                    currentPage >= totalPages ? "#f8fafc" : "#fff",
+                                                color:
+                                                    currentPage >= totalPages ? "#cbd5e1" : "#0f172a",
+                                                cursor:
+                                                    currentPage >= totalPages ? "not-allowed" : "pointer",
+                                                fontSize: "0.75rem",
+                                                fontWeight: 600,
+                                            }}
+                                        >
+                                            Next <i className="fas fa-chevron-right"></i>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -351,17 +517,17 @@ function DealsPage({ onNavigate }) {
                     {currentView === 'list' ? (
                         <div className="list-content" style={{ background: '#fafbfc' }}>
                             <div className="list-group">
-                                {filteredDeals.map((deal, index) => (<div key={deal.id} className="list-item deals-list-grid" style={{ padding: '18px 1.5rem', borderBottom: '1px solid #e2e8f0', transition: 'all 0.2s ease', background: '#fff', marginBottom: '2px' }}>
+                                {filteredDeals.map((deal, index) => (<div key={deal._id} className="list-item deals-list-grid" style={{ padding: '18px 1.5rem', borderBottom: '1px solid #e2e8f0', transition: 'all 0.2s ease', background: '#fff', marginBottom: '2px' }}>
                                     <input
                                         type="checkbox"
                                         className="item-check"
-                                        checked={selectedIds.includes(deal.id)}
-                                        onChange={() => toggleSelect(deal.id)}
+                                        checked={selectedIds.includes(deal._id)}
+                                        onChange={() => toggleSelect(deal._id)}
                                     />
 
                                     {/* Col 1: Score */}
-                                    <div className={`score-indicator ${deal.score.class}`} style={{ width: '40px', height: '40px', fontSize: '0.9rem', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', border: '2px solid rgba(0,0,0,0.05)' }}>
-                                        {deal.score.val}
+                                    <div className={`score-indicator ${deal.score?.class || 'warm'}`} style={{ width: '40px', height: '40px', fontSize: '0.9rem', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', border: '2px solid rgba(0,0,0,0.05)' }}>
+                                        {deal.score?.val || 0}
                                     </div>
 
                                     {/* Col 2: Property Details */}
@@ -378,13 +544,20 @@ function DealsPage({ onNavigate }) {
                                                     aspectRatio: 'auto'
                                                 }}
                                             >
-                                                {deal.unitNo}
+                                                {deal.unitNo || 'N/A'}
                                             </div>
-                                            <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{deal.corner}</div>
+                                            <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                                {deal.unitType || deal.corner || ''}
+                                            </div>
                                         </div>
                                         <div style={{ paddingLeft: '2px' }}>
-                                            <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>{deal.propertyType}</div>
-                                            <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>{deal.size}</div>
+                                            <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>
+                                                {(deal.category?.lookup_value || deal.category || deal.propertyType?.lookup_value || deal.propertyType || 'N/A')}
+                                                {deal.subCategory ? ` - ${deal.subCategory?.lookup_value || deal.subCategory}` : ''}
+                                            </div>
+                                            <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>
+                                                {deal.size || 'N/A'}
+                                            </div>
                                         </div>
                                     </div>
 
@@ -392,7 +565,7 @@ function DealsPage({ onNavigate }) {
                                     <div className="super-cell">
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
                                             <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem' }}></i>
-                                            <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{deal.location}</span>
+                                            <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{deal.location?.lookup_value || deal.location}</span>
                                         </div>
                                         {deal.projectName && (
                                             <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px' }}>
@@ -407,7 +580,7 @@ function DealsPage({ onNavigate }) {
 
                                     {/* Col 4: Match */}
                                     <div style={{ lineHeight: 1.4, padding: '8px', background: '#f8fafc', borderRadius: '6px' }}>
-                                        <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', marginBottom: '4px' }}>{deal.intent}</div>
+                                        <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', marginBottom: '4px' }}>{deal.intent?.lookup_value || deal.intent}</div>
                                         <div style={{ fontSize: '0.7rem' }}>
                                             <span style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(102, 126, 234, 0.3)' }}>{deal.matched} Matches</span>
                                         </div>
@@ -415,24 +588,26 @@ function DealsPage({ onNavigate }) {
 
                                     {/* Col 5: Expectation */}
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '8px', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', borderRadius: '6px' }}>
-                                        <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#15803d' }}>₹{deal.price}</div>
-                                        <div style={{ fontSize: '0.7rem', color: '#64748b', lineHeight: 1.2 }}>{deal.priceWord}</div>
+                                        <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#15803d' }}>{formatIndianCurrency(deal.price)}</div>
+                                        <div style={{ fontSize: '0.65rem', color: '#64748b', lineHeight: 1.2, fontStyle: 'italic' }}>
+                                            {deal.priceInWords || deal.priceWord || numberToIndianWords(deal.price)}
+                                        </div>
                                     </div>
 
                                     {/* Col 6: Owner Details */}
                                     <div className="super-cell" style={{ background: '#fefce8', padding: '8px', borderRadius: '6px', borderLeft: '3px solid #eab308' }}>
-                                        <div className="text-ellipsis" style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.8rem', marginBottom: '4px' }}>{deal.owner.name}</div>
+                                        <div className="text-ellipsis" style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.8rem', marginBottom: '4px' }}>{deal.owner?.name || 'Unknown'}</div>
                                         <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600, marginBottom: '2px' }}>
-                                            <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>{deal.owner.phone}
+                                            <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>{deal.owner?.phone || 'N/A'}
                                         </div>
                                         <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                            <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>{deal.owner.email}
+                                            <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>{deal.owner?.email || 'N/A'}
                                         </div>
                                     </div>
 
                                     {/* Col 7: Associate */}
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                        {deal.associatedContact.name ? (
+                                        {deal.associatedContact?.name ? (
                                             <>
                                                 <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.8rem' }}>{deal.associatedContact.name}</div>
                                                 <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600 }}>
@@ -449,33 +624,59 @@ function DealsPage({ onNavigate }) {
 
                                     {/* Col 8: Status */}
                                     <div>
-                                        <span className={`status-badge ${deal.status === 'Open' ? 'hot' : deal.status === 'Quote' ? 'warm' : 'cold'}`} style={{ fontSize: '0.7rem', padding: '4px 10px', borderRadius: '12px', fontWeight: 700 }}>
-                                            {deal.status.toUpperCase()}
+                                        <span className={`status-badge ${(deal.status?.lookup_value || deal.status) === 'Open' ? 'hot' : (deal.status?.lookup_value || deal.status) === 'Quote' ? 'warm' : 'cold'}`} style={{ fontSize: '0.7rem', padding: '4px 10px', borderRadius: '12px', fontWeight: 700 }}>
+                                            {(deal.status?.lookup_value || deal.status || 'Unknown').toUpperCase()}
                                         </span>
                                     </div>
 
-                                    {/* Col 9: Interaction (Remarks + Follow Up) */}
+                                    {/* Col 9: Interaction (Remarks + Latest Activity) */}
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                        <div className="address-clamp" style={{ fontSize: '0.75rem', color: deal.remarks ? '#334155' : '#94a3b8', fontStyle: deal.remarks ? 'italic' : 'normal' }}>
-                                            {deal.remarks || '--'}
-                                        </div>
-                                        {deal.followUp && (
-                                            <div style={{ fontSize: '0.7rem', color: '#f59e0b', fontWeight: 600 }}>
-                                                <i className="far fa-calendar-alt" style={{ marginRight: '4px' }}></i>
-                                                {deal.followUp}
+                                        {deal.remarks ? (
+                                            <div className="address-clamp" style={{ fontSize: '0.78rem', color: '#1e293b', fontWeight: 600, borderLeft: '2px solid #3b82f6', paddingLeft: '6px' }}>
+                                                {deal.remarks}
                                             </div>
+                                        ) : (
+                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>No Remarks</div>
+                                        )}
+
+                                        {deal.lastActivity ? (
+                                            <div style={{ background: '#f8fafc', padding: '6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                                                <div style={{ fontSize: '0.65rem', color: '#6366f1', fontWeight: 800, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
+                                                    <i className="fas fa-history" style={{ fontSize: '0.6rem' }}></i>
+                                                    {deal.lastActivity.type}
+                                                </div>
+                                                <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 500 }}>
+                                                    {deal.lastActivity.content}
+                                                </div>
+                                                <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginTop: '2px' }}>
+                                                    {new Date(deal.lastActivity.performedAt).toLocaleDateString()} {new Date(deal.lastActivity.performedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div style={{ fontSize: '0.7rem', color: '#cbd5e1' }}>No Recent Activity</div>
                                         )}
                                     </div>
 
-                                    {/* Col 10: Assignment (Assigned To + Last Contacted) */}
+                                    {/* Col 10: Assignment (Assigned To + Time) */}
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                        <div style={{ fontSize: '0.8rem', color: '#334155', fontWeight: 600 }}>{deal.assigned}</div>
-                                        {deal.lastContacted && (
-                                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                                <i className="far fa-clock" style={{ marginRight: '4px' }}></i>
-                                                {deal.lastContacted}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', color: '#4338ca', fontWeight: 800 }}>
+                                                {(deal.assignedTo?.name || deal.assigned || 'U')[0].toUpperCase()}
                                             </div>
-                                        )}
+                                            <div style={{ fontSize: '0.8rem', color: '#0f172a', fontWeight: 700 }}>
+                                                {deal.assignedTo?.name || deal.assigned || 'Unassigned'}
+                                            </div>
+                                        </div>
+                                        <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600, paddingLeft: '26px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <i className="far fa-calendar-alt" style={{ fontSize: '0.6rem' }}></i>
+                                                {new Date(deal.createdAt || deal.date).toLocaleDateString()}
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '1px' }}>
+                                                <i className="far fa-clock" style={{ fontSize: '0.6rem' }}></i>
+                                                {new Date(deal.createdAt || deal.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                                 ))}
@@ -560,21 +761,19 @@ function DealsPage({ onNavigate }) {
                                 ></iframe>
 
                                 {/* Deal Pin Markers Overlay */}
-                                {dealsData.map((deal, idx) => {
-                                    // Convert lat/lng to approximate pixel position (simplified calculation)
-                                    // Center of map: lat 29.9457, lng 76.8780
-                                    const centerLat = 29.9457;
-                                    const centerLng = 76.8780;
-                                    const latDiff = (deal.lat - centerLat) * 5000; // Approximate pixels per degree
-                                    const lngDiff = (deal.lng - centerLng) * 5000;
+                                {filteredDeals.map((deal, idx) => {
+                                    const coords = getCoordinates(deal);
+                                    if (!coords) return null;
+
+                                    const position = getPinPosition(coords.lat, coords.lng);
 
                                     return (
                                         <div
                                             key={idx}
                                             style={{
                                                 position: 'absolute',
-                                                left: `calc(50% + ${lngDiff}px)`,
-                                                top: `calc(50% - ${latDiff}px)`,
+                                                left: position.left,
+                                                top: position.top,
                                                 transform: 'translate(-50%, -100%)',
                                                 cursor: 'pointer',
                                                 zIndex: 10,
@@ -653,7 +852,7 @@ function DealsPage({ onNavigate }) {
                     {/* Footer - Shows in both list and map view */}
                     <div className="list-footer" style={{ padding: '15px 2rem', background: '#fff', borderTop: '1px solid #eef2f5', display: 'flex', gap: '20px', alignItems: 'center' }}>
                         <div style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 600 }}>Summary</div>
-                        <div style={{ fontSize: '0.9rem', color: '#334155' }}>Total Deals <span style={{ fontWeight: 800, color: '#10b981', fontSize: '1rem', marginLeft: '5px' }}>66</span></div>
+                        <div style={{ fontSize: '0.9rem', color: '#334155' }}>Total Deals <span style={{ fontWeight: 800, color: '#10b981', fontSize: '1rem', marginLeft: '5px' }}>{totalRecords}</span></div>
                     </div>
                 </div>
             </div >
@@ -814,6 +1013,13 @@ function ClosedPipelineItem() {
                         <div className="sub-stats">
                             <span className="sub-val">0</span>
                             <span className="sub-percent">5%</span>
+                        </div>
+                    </div>
+                    <div className="sub-stage-item warning">
+                        <div className="sub-label">Reject</div>
+                        <div className="sub-stats">
+                            <span className="sub-val">0</span>
+                            <span className="sub-percent">0%</span>
                         </div>
                     </div>
                 </div>

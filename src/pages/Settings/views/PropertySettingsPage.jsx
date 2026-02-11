@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PROJECTS_LIST } from '../../../data/projectData';
+// PROJECTS_LIST import removed, using context instead
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import Toast from '../../../components/Toast';
 import CustomizeFeedbackPage from './CustomizeFeedbackPage';
@@ -41,7 +41,7 @@ const SizeItem = ({ size, onEdit, onDelete }) => (
     </tr>
 );
 
-const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) => {
+const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, allProjects }) => {
     const defaultState = {
         name: '',
         sizeType: '',
@@ -81,16 +81,15 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) =
     }, [isOpen, initialData, propertyConfig]);
 
     const [availableBlocks, setAvailableBlocks] = useState([]);
-    const allProjects = PROJECTS_LIST || [];
 
     useEffect(() => {
-        if (sizeData.project) {
+        if (sizeData.project && Array.isArray(allProjects)) {
             const project = allProjects.find(p => p.name === sizeData.project);
             setAvailableBlocks(project ? project.blocks : []);
         } else {
             setAvailableBlocks([]);
         }
-    }, [sizeData.project]);
+    }, [sizeData.project, allProjects]);
 
     useEffect(() => {
         const isPlot = ['Plot', 'Shop', 'Showroom', 'Industrial Land', 'Commercial Land'].includes(sizeData.subCategory);
@@ -135,7 +134,14 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) =
     const isResidentialType = !isPlotType;
 
     const handleSubmit = () => {
-        if (!sizeData.project || !sizeData.subCategory) return;
+        if (!sizeData.project) {
+            alert("Please select a Project.");
+            return;
+        }
+        if (!sizeData.subCategory) {
+            alert("Please select a Sub-Category.");
+            return;
+        }
         onAdd(sizeData);
         onClose();
     };
@@ -161,14 +167,17 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) =
                             <label style={labelStyle}>Project</label>
                             <select value={sizeData.project} onChange={e => setSizeData({ ...sizeData, project: e.target.value })} style={customSelectStyle}>
                                 <option value="">Select Project</option>
-                                {allProjects.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                                {Array.isArray(allProjects) && allProjects.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
                             </select>
                         </div>
                         <div>
                             <label style={labelStyle}>Block (Tower)</label>
                             <select value={sizeData.block} onChange={e => setSizeData({ ...sizeData, block: e.target.value })} style={customSelectStyle} disabled={!sizeData.project}>
                                 <option value="">Select Block</option>
-                                {availableBlocks.map(b => <option key={b} value={b}>{b}</option>)}
+                                {availableBlocks.map(b => {
+                                    const blockName = typeof b === 'object' ? b.name : b;
+                                    return <option key={blockName} value={blockName}>{blockName}</option>;
+                                })}
                             </select>
                         </div>
                     </div>
@@ -257,6 +266,61 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig }) =
     );
 };
 
+const InputModal = ({ isOpen, onClose, onConfirm, title, defaultValue = '', placeholder = '' }) => {
+    const [value, setValue] = useState(defaultValue);
+
+    useEffect(() => {
+        if (isOpen) setValue(defaultValue);
+    }, [isOpen, defaultValue]);
+
+    if (!isOpen) return null;
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        onConfirm(value);
+        onClose();
+    };
+
+    return (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 12000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ background: '#fff', width: '400px', borderRadius: '12px', padding: '24px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+                <h3 style={{ margin: '0 0 16px 0', fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>{title}</h3>
+                <form onSubmit={handleSubmit}>
+                    <input
+                        autoFocus
+                        type="text"
+                        value={value}
+                        onChange={(e) => setValue(e.target.value)}
+                        placeholder={placeholder}
+                        style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', marginBottom: '20px', outline: 'none' }}
+                    />
+                    <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                        <button type="button" onClick={onClose} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', background: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, color: '#64748b' }}>Cancel</button>
+                        <button type="submit" style={{ padding: '8px 16px', border: 'none', background: '#2563eb', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Confirm</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+const ConfirmationModal = ({ isOpen, onClose, onConfirm, message }) => {
+    if (!isOpen) return null;
+
+    return (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 12000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ background: '#fff', width: '400px', borderRadius: '12px', padding: '24px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+                <h3 style={{ margin: '0 0 16px 0', fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>Confirm Action</h3>
+                <p style={{ margin: '0 0 24px 0', color: '#64748b', fontSize: '0.95rem' }}>{message}</p>
+                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                    <button type="button" onClick={onClose} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', background: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, color: '#64748b' }}>Cancel</button>
+                    <button type="button" onClick={() => { onConfirm(); onClose(); }} style={{ padding: '8px 16px', border: 'none', background: '#ef4444', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Delete</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const PropertySettingsPage = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingSize, setEditingSize] = useState(null);
@@ -265,20 +329,19 @@ const PropertySettingsPage = () => {
 
     const context = usePropertyConfig();
 
-    // Explicitly handle potentially undefined context to prevent crash and show error
     if (!context) {
         return <div style={{ padding: '20px', color: 'red' }}>Error: PropertyConfigContext unavailable.</div>;
     }
 
     const {
         propertyConfig, updateConfig, masterFields, updateMasterFields,
-        sizes, addSize, updateSize, deleteSize
+        sizes, addSize, updateSize, deleteSize, projects
     } = context;
 
-    // Safe initialization using function to avoid object key access if config invalid
+    const safeProjects = React.useMemo(() => Array.isArray(projects) ? projects : [], [projects]);
+
     const [configCategory, setConfigCategory] = useState(() => propertyConfig && Object.keys(propertyConfig).length > 0 ? Object.keys(propertyConfig)[0] : null);
 
-    // Safety effect: Re-initialize category if it's null but configuration becomes available
     useEffect(() => {
         if (!configCategory && propertyConfig && Object.keys(propertyConfig).length > 0) {
             setConfigCategory(Object.keys(propertyConfig)[0]);
@@ -289,7 +352,35 @@ const PropertySettingsPage = () => {
     const [configType, setConfigType] = useState(null);
     const [activeOrientationField, setActiveOrientationField] = useState('facings');
 
-    // Notification State
+    const [inputModal, setInputModal] = useState({
+        isOpen: false,
+        title: '',
+        defaultValue: '',
+        onConfirm: () => { }
+    });
+
+    const openInputModal = (title, defaultValue, onConfirm) => {
+        setInputModal({ isOpen: true, title, defaultValue, onConfirm });
+    };
+
+    const closeInputModal = () => {
+        setInputModal({ ...inputModal, isOpen: false });
+    };
+
+    const [confirmModal, setConfirmModal] = useState({
+        isOpen: false,
+        message: '',
+        onConfirm: () => { }
+    });
+
+    const openConfirmModal = (message, onConfirm) => {
+        setConfirmModal({ isOpen: true, message, onConfirm });
+    };
+
+    const closeConfirmModal = () => {
+        setConfirmModal({ ...confirmModal, isOpen: false });
+    };
+
     const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
 
     const showToast = (message, type = 'success') => {
@@ -298,52 +389,55 @@ const PropertySettingsPage = () => {
     };
 
     const handleAddMasterItem = () => {
-        const value = prompt(`Enter new ${activeOrientationField.slice(0, -1)}:`);
-        if (value) {
-            const currentList = masterFields[activeOrientationField];
-            if (!currentList.includes(value)) {
-                updateMasterFields(activeOrientationField, [...currentList, value]);
-                showToast(`'${value}' added to ${activeOrientationField}`);
-            } else {
-                alert("Item already exists.");
+        openInputModal(`Enter new ${activeOrientationField.slice(0, -1)}`, '', (value) => {
+            if (value) {
+                const currentList = masterFields[activeOrientationField];
+                if (!currentList.includes(value)) {
+                    updateMasterFields(activeOrientationField, [...currentList, value]);
+                    showToast(`'${value}' added to ${activeOrientationField}`);
+                } else {
+                    alert("Item already exists.");
+                }
             }
-        }
+        });
     };
 
     const handleDeleteMasterItem = (item) => {
-        if (confirm(`Remove '${item}'?`)) {
+        openConfirmModal(`Remove '${item}'?`, () => {
             const currentList = masterFields[activeOrientationField];
             updateMasterFields(activeOrientationField, currentList.filter(i => i !== item));
             showToast(`'${item}' removed`);
-        }
+        });
     };
 
     const handleAddCategory = () => {
-        const name = prompt("Enter new Category name:");
-        if (name && !propertyConfig[name]) {
-            const newConfig = { ...propertyConfig, [name]: { subCategories: [] } };
-            updateConfig(newConfig);
-            showToast(`Category '${name}' added successfully`);
-        } else if (name) {
-            alert("Category already exists or invalid name.");
-        }
+        openInputModal("Enter new Category name:", '', async (name) => {
+            if (name && !propertyConfig[name]) {
+                const newConfig = { ...propertyConfig, [name]: { subCategories: [] } };
+                await updateConfig(newConfig);
+                showToast(`Category '${name}' added successfully`);
+            } else if (name) {
+                alert("Category already exists or invalid name.");
+            }
+        });
     };
 
     const handleEditCategory = (oldName) => {
-        const newName = prompt("Edit Category name:", oldName);
-        if (newName && newName !== oldName) {
-            const newConfig = { ...propertyConfig };
-            newConfig[newName] = newConfig[oldName];
-            delete newConfig[oldName];
-            updateConfig(newConfig);
-            if (configCategory === oldName) setConfigCategory(newName);
-            showToast(`Category updated to '${newName}'`);
-        }
+        openInputModal("Edit Category name:", oldName, (newName) => {
+            if (newName && newName !== oldName) {
+                const newConfig = JSON.parse(JSON.stringify(propertyConfig));
+                newConfig[newName] = newConfig[oldName];
+                delete newConfig[oldName];
+                updateConfig(newConfig);
+                if (configCategory === oldName) setConfigCategory(newName);
+                showToast(`Category updated to '${newName}'`);
+            }
+        });
     };
 
     const handleDeleteCategory = (name) => {
-        if (confirm(`Delete category '${name}' and all its contents?`)) {
-            const newConfig = { ...propertyConfig };
+        openConfirmModal(`Delete category '${name}' and all its contents?`, () => {
+            const newConfig = JSON.parse(JSON.stringify(propertyConfig));
             delete newConfig[name];
             updateConfig(newConfig);
             if (configCategory === name) {
@@ -351,88 +445,92 @@ const PropertySettingsPage = () => {
                 setConfigSubCategory(null);
             }
             showToast(`Category '${name}' deleted`);
-        }
+        });
     };
 
     const handleAddSubCategory = () => {
         if (!configCategory) return;
-        const name = prompt(`Enter new Sub-Category for ${configCategory}:`);
-        if (name) {
-            const newConfig = { ...propertyConfig };
-            if (newConfig[configCategory].subCategories.some(s => s.name === name)) {
-                alert("Sub-Category already exists.");
-                return;
+        openInputModal(`Enter new Sub-Category for ${configCategory}:`, '', async (name) => {
+            if (name) {
+                const newConfig = JSON.parse(JSON.stringify(propertyConfig));
+                if (newConfig[configCategory].subCategories.some(s => s.name === name)) {
+                    alert("Sub-Category already exists.");
+                    return;
+                }
+                newConfig[configCategory].subCategories.push({ name, types: [] });
+                await updateConfig(newConfig);
+                showToast(`Sub-Category '${name}' added`);
             }
-            newConfig[configCategory].subCategories.push({ name, types: [] });
-            updateConfig(newConfig);
-            showToast(`Sub-Category '${name}' added`);
-        }
+        });
     };
 
     const handleEditSubCategory = (oldName) => {
-        const newName = prompt("Edit Sub-Category name:", oldName);
-        if (newName && newName !== oldName) {
-            const newConfig = { ...propertyConfig };
-            const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === oldName);
-            if (subIndex > -1) {
-                newConfig[configCategory].subCategories[subIndex].name = newName;
-                updateConfig(newConfig);
-                if (configSubCategory === oldName) setConfigSubCategory(newName);
-                showToast(`Sub-Category updated to '${newName}'`);
+        openInputModal("Edit Sub-Category name:", oldName, (newName) => {
+            if (newName && newName !== oldName) {
+                const newConfig = JSON.parse(JSON.stringify(propertyConfig));
+                const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === oldName);
+                if (subIndex > -1) {
+                    newConfig[configCategory].subCategories[subIndex].name = newName;
+                    updateConfig(newConfig);
+                    if (configSubCategory === oldName) setConfigSubCategory(newName);
+                    showToast(`Sub-Category updated to '${newName}'`);
+                }
             }
-        }
+        });
     };
 
     const handleDeleteSubCategory = (name) => {
-        if (confirm(`Delete sub-category '${name}'?`)) {
-            const newConfig = { ...propertyConfig };
+        openConfirmModal(`Delete sub-category '${name}'?`, () => {
+            const newConfig = JSON.parse(JSON.stringify(propertyConfig));
             newConfig[configCategory].subCategories = newConfig[configCategory].subCategories.filter(s => s.name !== name);
             updateConfig(newConfig);
             if (configSubCategory === name) setConfigSubCategory(null);
             showToast(`Sub-Category '${name}' deleted`);
-        }
+        });
     };
 
     const handleAddType = () => {
         if (!configCategory || !configSubCategory) return;
-        const name = prompt(`Enter new Type for ${configSubCategory}:`);
-        if (name) {
-            const newConfig = { ...propertyConfig };
-            const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
-            if (subIndex > -1) {
-                const types = newConfig[configCategory].subCategories[subIndex].types;
-                if (!types.some(t => t.name === name)) {
-                    types.push({ name, builtupTypes: [] });
-                    updateConfig(newConfig);
-                    showToast(`Type '${name}' added`);
-                } else {
-                    alert("Type already exists.");
+        openInputModal(`Enter new Type for ${configSubCategory}:`, '', (name) => {
+            if (name) {
+                const newConfig = JSON.parse(JSON.stringify(propertyConfig));
+                const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
+                if (subIndex > -1) {
+                    const types = newConfig[configCategory].subCategories[subIndex].types;
+                    if (!types.some(t => t.name === name)) {
+                        types.push({ name, builtupTypes: [] });
+                        updateConfig(newConfig);
+                        showToast(`Type '${name}' added`);
+                    } else {
+                        alert("Type already exists.");
+                    }
                 }
             }
-        }
+        });
     };
 
     const handleEditType = (oldName) => {
-        const newName = prompt("Edit Type name:", oldName);
-        if (newName && newName !== oldName) {
-            const newConfig = { ...propertyConfig };
-            const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
-            if (subIndex > -1) {
-                const types = newConfig[configCategory].subCategories[subIndex].types;
-                const typeObj = types.find(t => t.name === oldName);
-                if (typeObj) {
-                    typeObj.name = newName;
-                    updateConfig(newConfig);
-                    if (configType === oldName) setConfigType(newName);
-                    showToast(`Type updated to '${newName}'`);
+        openInputModal("Edit Type name:", oldName, (newName) => {
+            if (newName && newName !== oldName) {
+                const newConfig = JSON.parse(JSON.stringify(propertyConfig));
+                const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
+                if (subIndex > -1) {
+                    const types = newConfig[configCategory].subCategories[subIndex].types;
+                    const typeObj = types.find(t => t.name === oldName);
+                    if (typeObj) {
+                        typeObj.name = newName;
+                        updateConfig(newConfig);
+                        if (configType === oldName) setConfigType(newName);
+                        showToast(`Type updated to '${newName}'`);
+                    }
                 }
             }
-        }
+        });
     };
 
     const handleDeleteType = (name) => {
-        if (confirm(`Delete type '${name}'?`)) {
-            const newConfig = { ...propertyConfig };
+        openConfirmModal(`Delete type '${name}'?`, () => {
+            const newConfig = JSON.parse(JSON.stringify(propertyConfig));
             const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
             if (subIndex > -1) {
                 const types = newConfig[configCategory].subCategories[subIndex].types;
@@ -441,65 +539,72 @@ const PropertySettingsPage = () => {
                 if (configType === name) setConfigType(null);
                 showToast(`Type '${name}' deleted`);
             }
-        }
+        });
     };
 
     const handleAddBuiltupType = () => {
         if (!configCategory || !configSubCategory || !configType) return;
-        const name = prompt(`Enter new Builtup Type for ${configType}:`);
-        if (name) {
-            const newConfig = { ...propertyConfig };
-            const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
-            if (subIndex > -1) {
-                const typeObj = newConfig[configCategory].subCategories[subIndex].types.find(t => t.name === configType);
-                if (typeObj) {
-                    if (!typeObj.builtupTypes.includes(name)) {
-                        typeObj.builtupTypes.push(name);
-                        updateConfig(newConfig);
-                        showToast(`Builtup Type '${name}' added`);
-                    } else {
-                        alert("Builtup Type already exists.");
+        openInputModal(`Enter new Builtup Type for ${configType}:`, '', (name) => {
+            if (name) {
+                const newConfig = JSON.parse(JSON.stringify(propertyConfig));
+                const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
+                if (subIndex > -1) {
+                    const typeObj = newConfig[configCategory].subCategories[subIndex].types.find(t => t.name === configType);
+                    if (typeObj) {
+                        if (!typeObj.builtupTypes.includes(name)) {
+                            typeObj.builtupTypes.push(name);
+                            updateConfig(newConfig);
+                            showToast(`Builtup Type '${name}' added`);
+                        } else {
+                            alert("Builtup Type already exists.");
+                        }
                     }
                 }
             }
-        }
+        });
     };
 
     const handleEditBuiltupType = (oldName) => {
-        const newName = prompt("Edit Builtup Type name:", oldName);
-        if (newName && newName !== oldName) {
-            const newConfig = { ...propertyConfig };
-            const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
-            const typeObj = newConfig[configCategory].subCategories[subIndex].types.find(t => t.name === configType);
-            const index = typeObj.builtupTypes.indexOf(oldName);
-            if (index > -1) {
-                typeObj.builtupTypes[index] = newName;
-                updateConfig(newConfig);
-                showToast(`Builtup Type updated to '${newName}'`);
+        openInputModal("Edit Builtup Type name:", oldName, (newName) => {
+            if (newName && newName !== oldName) {
+                const newConfig = JSON.parse(JSON.stringify(propertyConfig));
+                const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
+                const typeObj = newConfig[configCategory].subCategories[subIndex].types.find(t => t.name === configType);
+                const index = typeObj.builtupTypes.indexOf(oldName);
+                if (index > -1) {
+                    typeObj.builtupTypes[index] = newName;
+                    updateConfig(newConfig);
+                    showToast(`Builtup Type updated to '${newName}'`);
+                }
             }
-        }
+        });
     };
 
     const handleDeleteBuiltupType = (name) => {
-        if (confirm(`Delete Builtup Type '${name}'?`)) {
-            const newConfig = { ...propertyConfig };
+        openConfirmModal(`Delete Builtup Type '${name}'?`, () => {
+            const newConfig = JSON.parse(JSON.stringify(propertyConfig));
             const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
             const typeObj = newConfig[configCategory].subCategories[subIndex].types.find(t => t.name === configType);
             typeObj.builtupTypes = typeObj.builtupTypes.filter(b => b !== name);
             updateConfig(newConfig);
             showToast(`Builtup Type '${name}' deleted`);
-        }
+        });
     };
 
-    const handleSaveSize = (sizeData) => {
-        if (editingSize) {
-            updateSize({ ...sizeData, id: editingSize.id });
-            showToast('Property size updated successfully');
-        } else {
-            addSize(sizeData);
-            showToast('New property size added successfully');
+    const handleSaveSize = async (sizeData) => {
+        try {
+            if (editingSize) {
+                await updateSize({ ...sizeData, id: editingSize.id });
+                showToast('Property size updated successfully');
+            } else {
+                await addSize(sizeData);
+                showToast('New property size added successfully');
+            }
+            handleCloseModal();
+        } catch (error) {
+            console.error(error);
+            showToast('Failed to save size. Please try again.', 'error');
         }
-        handleCloseModal();
     };
 
     const handleEditOpen = (size) => {
@@ -544,7 +649,7 @@ const PropertySettingsPage = () => {
                 </div>
 
                 <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid #e2e8f0', marginBottom: '32px' }}>
-                    {['Sizes', 'Configuration', 'Feedback Outcomes', 'Orientation', 'Parsing Rules'].map(tab => (
+                    {['Sizes', 'Configuration', 'Feedback Outcomes', 'Orientation'].map(tab => (
                         <div
                             key={tab}
                             onClick={() => setActiveTab(tab)}
@@ -562,7 +667,7 @@ const PropertySettingsPage = () => {
                                 <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
                                 <input type="text" placeholder="Search sizes..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ width: '100%', padding: '10px 10px 10px 36px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem', outline: 'none' }} />
                             </div>
-                            <button className="btn-primary" onClick={() => setIsModalOpen(true)} style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer' }}>
+                            <button className="btn-primary" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsModalOpen(true); }} style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer' }}>
                                 <i className="fas fa-plus"></i> Add Size
                             </button>
                         </div>
@@ -597,7 +702,7 @@ const PropertySettingsPage = () => {
                         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
                             <div style={{ width: '280px', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    Category <button onClick={handleAddCategory} style={{ border: 'none', background: '#e2e8f0', color: '#475569', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Add Category"><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                    Category <button type="button" onClick={(e) => { e.preventDefault(); handleAddCategory(); }} style={{ border: 'none', background: '#e2e8f0', color: '#475569', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Add Category"><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
                                     {propertyConfig && Object.keys(propertyConfig).map(cat => (
@@ -612,8 +717,8 @@ const PropertySettingsPage = () => {
                                 </div>
                             </div>
                             <div style={{ width: '320px', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#fff' }}>
-                                <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', uppercase: 'true', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    Sub Category <button onClick={handleAddSubCategory} disabled={!configCategory} style={{ border: 'none', background: configCategory ? '#e2e8f0' : '#f1f5f9', color: configCategory ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    Sub Category <button type="button" onClick={(e) => { e.preventDefault(); handleAddSubCategory(); }} disabled={!configCategory} style={{ border: 'none', background: configCategory ? '#e2e8f0' : '#f1f5f9', color: configCategory ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
                                     {configCategory && propertyConfig[configCategory]?.subCategories.map(sub => (
@@ -629,7 +734,7 @@ const PropertySettingsPage = () => {
                             </div>
                             <div style={{ width: '320px', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#fff' }}>
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    Types <button onClick={handleAddType} disabled={!configSubCategory} style={{ border: 'none', background: configSubCategory ? '#e2e8f0' : '#f1f5f9', color: configSubCategory ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                    Types <button type="button" onClick={(e) => { e.preventDefault(); handleAddType(); }} disabled={!configSubCategory} style={{ border: 'none', background: configSubCategory ? '#e2e8f0' : '#f1f5f9', color: configSubCategory ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
                                     {configSubCategory && propertyConfig[configCategory]?.subCategories.find(s => s.name === configSubCategory)?.types.map(type => (
@@ -642,7 +747,7 @@ const PropertySettingsPage = () => {
                             </div>
                             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#fff' }}>
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    Builtup <button onClick={handleAddBuiltupType} disabled={!configType} style={{ border: 'none', background: configType ? '#e2e8f0' : '#f1f5f9', color: configType ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                    Builtup <button type="button" onClick={(e) => { e.preventDefault(); handleAddBuiltupType(); }} disabled={!configType} style={{ border: 'none', background: configType ? '#e2e8f0' : '#f1f5f9', color: configType ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1, padding: '16px' }}>
                                     {configType && (
@@ -661,8 +766,6 @@ const PropertySettingsPage = () => {
                     </div>
                 ) : activeTab === 'Feedback Outcomes' ? (
                     <CustomizeFeedbackPage isEmbedded={true} />
-                ) : activeTab === 'Parsing Rules' ? (
-                    <ParsingRulesPage isEmbedded={true} />
                 ) : (
                     <div style={{ height: 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.05)' }}>
                         <div style={{ background: '#fff', padding: '16px 24px', borderBottom: '1px solid #e2e8f0' }}><h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>Orientation & Fields</h2></div>
@@ -683,10 +786,10 @@ const PropertySettingsPage = () => {
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1, padding: '20px' }}>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
-                                        {masterFields && masterFields[activeOrientationField] && masterFields[activeOrientationField].map(item => (
-                                            <div key={item} style={{ padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', justifyContent: 'space-between' }} className="group">
+                                        {masterFields && masterFields[activeOrientationField].map(item => (
+                                            <div key={item} style={{ padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="group">
                                                 <span>{item}</span>
-                                                <button onClick={() => handleDeleteMasterItem(item)} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer' }}><i className="fas fa-trash"></i></button>
+                                                <button onClick={() => handleDeleteMasterItem(item)} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }}><i className="fas fa-trash-alt" style={{ fontSize: '0.85rem' }}></i></button>
                                             </div>
                                         ))}
                                     </div>
@@ -695,7 +798,30 @@ const PropertySettingsPage = () => {
                         </div>
                     </div>
                 )}
-                <AddSizeModal isOpen={isModalOpen} onClose={handleCloseModal} onAdd={handleSaveSize} initialData={editingSize} propertyConfig={propertyConfig} />
+
+                <AddSizeModal
+                    isOpen={isModalOpen}
+                    onClose={handleCloseModal}
+                    onAdd={handleSaveSize}
+                    initialData={editingSize}
+                    propertyConfig={propertyConfig}
+                    allProjects={safeProjects}
+                />
+
+                <InputModal
+                    isOpen={inputModal.isOpen}
+                    onClose={closeInputModal}
+                    onConfirm={inputModal.onConfirm}
+                    title={inputModal.title}
+                    defaultValue={inputModal.defaultValue}
+                />
+
+                <ConfirmationModal
+                    isOpen={confirmModal.isOpen}
+                    onClose={closeConfirmModal}
+                    onConfirm={confirmModal.onConfirm}
+                    message={confirmModal.message}
+                />
             </div>
         </div>
     );

@@ -31,14 +31,15 @@ export const applyDealsFilters = (deal, filters) => {
     // 1. Stage Filter (e.g. "Open", "Quote", "Negotiation")
     // ------------------------------------------------------------------------------
     if (filters.stage && filters.stage.length > 0) {
-        if (!filters.stage.includes(deal.status)) return false;
+        const dealStatus = deal.status?.lookup_value || deal.status;
+        if (!filters.stage.includes(dealStatus)) return false;
     }
 
     // 2. Category Filter (e.g. "Residential", "Commercial")
     // ------------------------------------------------------------------------------
     if (filters.category && filters.category.length > 0) {
-        // Check if deal.propertyType contains ANY of the selected categories
-        const catMatch = filters.category.some(cat => deal.propertyType.includes(cat));
+        const pType = deal.propertyType?.lookup_value || deal.propertyType || '';
+        const catMatch = filters.category.some(cat => pType.includes(cat));
         if (!catMatch) return false;
     }
 
@@ -47,7 +48,7 @@ export const applyDealsFilters = (deal, filters) => {
     if (filters.subCategory && filters.subCategory.length > 0) {
         const subCatMatch = filters.subCategory.some(sc => {
             const subCat = sc.toLowerCase();
-            const pType = deal.propertyType.toLowerCase();
+            const pType = (deal.propertyType?.lookup_value || deal.propertyType || '').toLowerCase();
             return pType.includes(subCat);
         });
         if (!subCatMatch) return false;
@@ -99,8 +100,9 @@ export const applyDealsFilters = (deal, filters) => {
         let matchFound = false;
         const searchLocation = filters.location.toLowerCase();
         const range = filters.range || 'Exact';
+        const dealLocation = (deal.location?.lookup_value || deal.location || '').toLowerCase();
 
-        const textMatch = deal.location.toLowerCase().includes(searchLocation);
+        const textMatch = dealLocation.includes(searchLocation);
 
         // Check Distance Match
         if (range !== 'Exact' && filters.locationCoords && deal.lat && deal.lng) {
@@ -147,19 +149,22 @@ export const applyDealsFilters = (deal, filters) => {
     // 9. Intent Filter (Sell/Rent/Lease)
     // ------------------------------------------------------------------------------
     if (filters.intent) {
-        if (deal.intent !== filters.intent) return false;
+        const dealIntent = deal.intent?.lookup_value || deal.intent;
+        if (dealIntent !== filters.intent) return false;
     }
 
     // 10. Price Filter
     // ------------------------------------------------------------------------------
     if (filters.minPrice || filters.maxPrice) {
-        const dealPrice = deal.price ? parseFloat(deal.price.replace(/,/g, '')) : 0;
+        const dealPriceStr = String(deal.price || '0').replace(/,/g, '');
+        const dealPrice = parseFloat(dealPriceStr) || 0;
+
         if (filters.minPrice) {
-            const minP = parseFloat(filters.minPrice.replace(/,/g, ''));
+            const minP = parseFloat(String(filters.minPrice).replace(/,/g, ''));
             if (!isNaN(minP) && dealPrice < minP) return false;
         }
         if (filters.maxPrice) {
-            const maxP = parseFloat(filters.maxPrice.replace(/,/g, ''));
+            const maxP = parseFloat(String(filters.maxPrice).replace(/,/g, ''));
             if (!isNaN(maxP) && dealPrice > maxP) return false;
         }
     }

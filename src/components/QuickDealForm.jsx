@@ -7,6 +7,7 @@ const QuickDealForm = ({
     detectedContacts,
     matchedInventory,
     intakeType,
+    extractedReq,
     onCreateDeal,
     onSkip,
     onBack,
@@ -64,13 +65,20 @@ const QuickDealForm = ({
             }
         }
 
-        // Auto-detect deal type from intent
+        // Auto-detect deal type from intent or extracted req
         if (intakeType === 'SELLER') {
             setDealType('Sell');
         } else if (intakeType === 'BUYER') {
             setDealType('Buy');
+        } else if (extractedReq?.type) {
+            setDealType(extractedReq.type.includes('Rent') ? 'Rent' : 'Sell');
         }
-    }, [detectedContacts, matchedInventory, intakeType]);
+
+        // Auto-fill Price from extracted req
+        if (extractedReq?.budget && !dealPrice) {
+            setDealPrice(extractedReq.budget);
+        }
+    }, [detectedContacts, matchedInventory, intakeType, extractedReq]); // Added extractedReq dependency
 
     const handleCreateDeal = () => {
         if (!selectedOwner) {
@@ -102,6 +110,7 @@ const QuickDealForm = ({
             property: selectedProperty,
             type: dealType,
             price: dealPrice,
+            source: currentItem?.source || 'Manual', // Auto-select source
             verificationStatus: verificationStatus || 'unverified'
         });
     };

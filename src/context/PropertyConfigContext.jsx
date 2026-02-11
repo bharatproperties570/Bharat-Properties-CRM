@@ -1,7 +1,8 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useMemo, useCallback } from 'react';
 import { PROPERTY_CATEGORIES } from '../data/propertyData';
 import { PROJECTS_LIST } from '../data/projectData';
-import { lookupsAPI } from '../utils/api';
+
+import { api, lookupsAPI, systemSettingsAPI } from '../utils/api';
 
 const PropertyConfigContext = createContext();
 
@@ -18,37 +19,75 @@ export const PropertyConfigProvider = ({ children }) => {
     const [propertyConfig, setPropertyConfig] = useState(PROPERTY_CATEGORIES);
     const [isLoading, setIsLoading] = useState(true);
 
-    // Load property configuration from backend on mount
+    // Initialize Projects State (Dynamic)
+    const [projects, setProjects] = useState([]);
+
+    // Load all configurations from backend on mount
     useEffect(() => {
-        const loadConfig = async () => {
+        const loadAllConfigs = async () => {
             try {
-                const lookups = await lookupsAPI.getByCategory('property_configuration');
-                if (lookups && lookups.length > 0) {
-                    const config = lookups[0].value || PROPERTY_CATEGORIES;
-                    setPropertyConfig(config);
+                // Fetch all system settings
+                const response = await systemSettingsAPI.getAll();
+                if (response && response.data) {
+                    const settings = response.data;
+
+                    // Map settings to state
+                    settings.forEach(setting => {
+                        switch (setting.key) {
+                            case 'property_config': setPropertyConfig(setting.value); break;
+                            case 'master_fields': setMasterFields(setting.value); break;
+                            case 'project_master_fields': setProjectMasterFields(setting.value); break;
+                            case 'project_amenities': setProjectAmenities(setting.value); break;
+                            case 'company_master_fields': setCompanyMasterFields(setting.value); break;
+                            case 'lead_master_fields': setLeadMasterFields(setting.value); break;
+                            case 'scoring_attributes': setScoringAttributes(setting.value); break;
+                            case 'scoring_config': setScoringConfig(setting.value); break;
+                            case 'behavioural_signals': setBehaviouralSignals(setting.value); break;
+                            case 'deal_fit_signals': setDealFitSignals(setting.value); break;
+                            case 'financial_signals': setFinancialSignals(setting.value); break;
+                            case 'decay_rules': setDecayRules(setting.value); break;
+                            case 'ai_signals': setAiSignals(setting.value); break;
+                            case 'source_quality_scores': setSourceQualityScores(setting.value); break;
+                            case 'inventory_fit_scores': setInventoryFitScores(setting.value); break;
+                            case 'stage_multipliers': setStageMultipliers(setting.value); break;
+                            case 'deal_scoring_rules': setDealScoringRules(setting.value); break;
+                            case 'score_bands': setScoreBands(setting.value); break;
+                            case 'property_sizes': setSizes(setting.value); break;
+                            case 'activity_master_fields': setActivityMasterFields(setting.value); break;
+                        }
+                    });
+                }
+
+                // FETCH REAL PROJECTS FROM BACKEND
+                const projectsRes = await api.get('/projects');
+                if (projectsRes.data && projectsRes.data.success) {
+                    setProjects(projectsRes.data.data);
+                } else if (Array.isArray(projectsRes.data)) {
+                    setProjects(projectsRes.data);
                 }
             } catch (error) {
-                console.error('Failed to load property config from backend:', error);
-                // Fall back to localStorage
-                const saved = localStorage.getItem('propertyConfig');
-                if (saved) {
-                    try {
-                        setPropertyConfig(JSON.parse(saved));
-                    } catch (e) {
-                        console.error('Error parsing saved config:', e);
+                console.error('Failed to load configs from backend:', error);
+                // Fallback for projects if backend is down - use static list if needed
+                setProjects(PROJECTS_LIST);
+
+                // Keep backward compatibility for propertyConfig if needed
+                try {
+                    const lookups = await lookupsAPI.getByCategory('property_configuration');
+                    if (lookups && lookups.length > 0) {
+                        const config = lookups[0].value;
+                        if (config) setPropertyConfig(config);
                     }
+                } catch (e) {
+                    console.error('Lookups fallback failed:', e);
                 }
             } finally {
                 setIsLoading(false);
             }
         };
-        loadConfig();
+        loadAllConfigs();
     }, []);
 
-    // Initialize Projects State (Dynamic)
-    const [projects, setProjects] = useState(PROJECTS_LIST);
-
-    const addProject = (newProject) => {
+    const addProject = useCallback(async (newProject) => {
         const project = {
             id: Date.now(),
             name: newProject.name,
@@ -57,17 +96,43 @@ export const PropertyConfigProvider = ({ children }) => {
             units: [],
             ...newProject
         };
-        setProjects(prev => [...prev, project]);
-        return project;
-    };
+        // Functional update to avoid dependency on 'projects' which changes
+        setProjects(prevProjects => {
+            const updatedProjects = [...prevProjects, project];
+            // Save to backend inside setter or using updated value?
+            // Better to trigger save effect or save here.
 
-    const addBlock = (projectId, blockName) => {
-        setProjects(prev => prev.map(p => {
+            // Saving here requires handling async properly, but we can fire and forget for UI consistency
+            systemSettingsAPI.upsert('dynamic_projects', {
+                category: 'property',
+                value: updatedProjects,
+                isPublic: true
+            }).catch(err => console.error('Failed to save projects:', err));
+
+            return updatedProjects;
+        });
+        return project;
+    }, []);
+
+    const addBlock = async (projectId, blockName) => {
+        const updatedProjects = projects.map(p => {
             if (p.id === projectId || p.name === projectId) { // Handle both ID or Name lookup
                 return { ...p, blocks: [...(p.blocks || []), blockName] };
             }
             return p;
-        }));
+        });
+        setProjects(updatedProjects);
+
+        // Save to backend
+        try {
+            await systemSettingsAPI.upsert('dynamic_projects', {
+                category: 'property',
+                value: updatedProjects,
+                isPublic: true
+            });
+        } catch (error) {
+            console.error('Failed to save projects to backend:', error);
+        }
     };
 
     // Helper Hook for Persistence
@@ -82,7 +147,7 @@ export const PropertyConfigProvider = ({ children }) => {
             }
         });
 
-        const setValue = (value) => {
+        const setValue = useCallback((value) => {
             try {
                 const valueToStore = value instanceof Function ? value(storedValue) : value;
                 setStoredValue(valueToStore);
@@ -90,9 +155,24 @@ export const PropertyConfigProvider = ({ children }) => {
             } catch (error) {
                 console.error(error);
             }
-        };
+        }, [key, storedValue]); // storedValue dependency is needed for functional updates, but might cause instability?
+        // Actually, for functional updates, we should use setStoredValue(prev => ...)
+        // Let's refactor slightly to avoid storedValue dependency if possible.
 
-        return [storedValue, setValue];
+        /* Refactored setValue to be stable */
+        const setValueStable = useCallback((value) => {
+            try {
+                setStoredValue(prev => {
+                    const valueToStore = value instanceof Function ? value(prev) : value;
+                    window.localStorage.setItem(key, JSON.stringify(valueToStore));
+                    return valueToStore;
+                });
+            } catch (error) {
+                console.error(error);
+            }
+        }, [key]);
+
+        return [storedValue, setValueStable];
     };
 
     // Master Fields State (Property Specific)
@@ -263,45 +343,63 @@ export const PropertyConfigProvider = ({ children }) => {
     }, []);
 
     // CRUD Operations exposed to the app
-    const updateConfig = async (newConfig) => {
+    const updateConfig = useCallback(async (newConfig) => {
         setPropertyConfig(newConfig);
-        // Save to localStorage as backup
         localStorage.setItem('propertyConfig', JSON.stringify(newConfig));
-
-        // Save to backend
         try {
-            // Use upsert approach - try to update first, create if doesn't exist
+            await systemSettingsAPI.upsert('property_config', {
+                category: 'property',
+                value: newConfig,
+                isPublic: true,
+                description: 'Global property configuration'
+            });
             await lookupsAPI.create({
                 category: 'property_configuration',
                 key: 'global_config',
                 value: newConfig,
-                description: 'Global property configuration (categories, subcategories, types)'
+                description: 'Global property configuration'
             });
         } catch (error) {
-            console.error('Failed to save property config to backend:', error);
+            console.error('Failed to save property config:', error);
+            throw error;
         }
-    };
+    }, [setPropertyConfig]);
 
-    const updateMasterFields = (field, newValues) => {
-        setMasterFields(prev => ({
-            ...prev,
-            [field]: newValues
-        }));
-    };
+    const updateMasterFields = useCallback(async (field, newValues) => {
+        setMasterFields(prevFields => {
+            const updated = { ...prevFields, [field]: newValues };
+            systemSettingsAPI.upsert('master_fields', {
+                category: 'property',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save master fields:', e));
+            return updated;
+        });
+    }, [setMasterFields]);
 
-    const updateProjectMasterFields = (field, newValues) => {
-        setProjectMasterFields(prev => ({
-            ...prev,
-            [field]: newValues
-        }));
-    };
+    const updateProjectMasterFields = useCallback(async (field, newValues) => {
+        setProjectMasterFields(prevFields => {
+            const updated = { ...prevFields, [field]: newValues };
+            systemSettingsAPI.upsert('project_master_fields', {
+                category: 'property',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save project master fields:', e));
+            return updated;
+        });
+    }, [setProjectMasterFields]);
 
-    const updateProjectAmenities = (category, newAmenities) => {
-        setProjectAmenities(prev => ({
-            ...prev,
-            [category]: newAmenities
-        }));
-    };
+    const updateProjectAmenities = useCallback(async (category, newAmenities) => {
+        setProjectAmenities(prevAmenities => {
+            const updated = { ...prevAmenities, [category]: newAmenities };
+            systemSettingsAPI.upsert('project_amenities', {
+                category: 'property',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save project amenities:', e));
+            return updated;
+        });
+    }, [setProjectAmenities]);
 
     // Company Master Fields
     const [companyMasterFields, setCompanyMasterFields] = useLocalStorage('companyMasterFields', {
@@ -313,12 +411,60 @@ export const PropertyConfigProvider = ({ children }) => {
         ]
     });
 
-    const updateCompanyMasterFields = (field, newValues) => {
-        setCompanyMasterFields(prev => ({
-            ...prev,
-            [field]: newValues
-        }));
-    };
+    const updateCompanyMasterFields = useCallback(async (field, newValues) => {
+        setCompanyMasterFields(prevFields => {
+            const oldValues = prevFields[field] || [];
+            const updated = { ...prevFields, [field]: newValues };
+
+            // 1. Save to system_settings blob
+            systemSettingsAPI.upsert('company_master_fields', {
+                category: 'general',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save company master fields:', e));
+
+            // 2. Sync individual Lookups
+            // Only sync if field is companyTypes or industries
+            const lookupTypeMap = {
+                companyTypes: 'CompanyType',
+                industries: 'Industry'
+            };
+
+            const lookupType = lookupTypeMap[field];
+            if (lookupType) {
+                // Find added values
+                const added = newValues.filter(v => !oldValues.includes(v));
+                // Find removed values
+                const removed = oldValues.filter(v => !newValues.includes(v));
+
+                // Create added lookups
+                added.forEach(val => {
+                    lookupsAPI.create({
+                        lookup_type: lookupType,
+                        lookup_value: val,
+                        is_active: true
+                    }).catch(err => console.error(`Failed to create lookup for ${val}:`, err));
+                });
+
+                // Delete removed lookups (Note: This assumes lookup_value is unique for the type)
+                // In a production app, we'd fetch by value first or have a delete-by-value endpoint.
+                // Since our lookupsAPI.delete requires ID, we'll fetch first.
+                removed.forEach(async (val) => {
+                    try {
+                        const existing = await lookupsAPI.getByCategory(lookupType);
+                        const match = existing.find(l => l.lookup_value === val);
+                        if (match && match._id) {
+                            await lookupsAPI.delete(match._id);
+                        }
+                    } catch (err) {
+                        console.error(`Failed to delete lookup for ${val}:`, err);
+                    }
+                });
+            }
+
+            return updated;
+        });
+    }, [setCompanyMasterFields]);
 
     // Lead & Campaign Master Fields
     const [leadMasterFields, setLeadMasterFields] = useLocalStorage('leadMasterFields', {
@@ -365,9 +511,17 @@ export const PropertyConfigProvider = ({ children }) => {
         source: { label: 'High Intent Source', points: 5 }
     });
 
-    const updateScoringAttributes = (newAttributes) => {
-        setScoringAttributes(prev => ({ ...prev, ...newAttributes }));
-    };
+    const updateScoringAttributes = useCallback(async (newAttributes) => {
+        setScoringAttributes(prev => {
+            const updated = { ...prev, ...newAttributes };
+            systemSettingsAPI.upsert('scoring_attributes', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save scoring attributes:', e));
+            return updated;
+        });
+    }, [setScoringAttributes]);
 
     // --- NEW: Phased Scoring Configuration ---
     const [scoringConfig, setScoringConfig] = useLocalStorage('scoringConfig', {
@@ -378,12 +532,20 @@ export const PropertyConfigProvider = ({ children }) => {
         ai: { enabled: false }
     });
 
-    const updateScoringConfig = (phase, newItem) => {
-        setScoringConfig(prev => ({
-            ...prev,
-            [phase]: { ...prev[phase], ...newItem }
-        }));
-    };
+    const updateScoringConfig = useCallback(async (phase, newItem) => {
+        setScoringConfig(prev => {
+            const updated = {
+                ...prev,
+                [phase]: { ...prev[phase], ...newItem }
+            };
+            systemSettingsAPI.upsert('scoring_config', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save scoring config:', e));
+            return updated;
+        });
+    }, [setScoringConfig]);
 
     // Phase 1: Behavioural Scoring Signals
     const [behaviouralSignals, setBehaviouralSignals] = useLocalStorage('behaviouralSignals', {
@@ -394,9 +556,17 @@ export const PropertyConfigProvider = ({ children }) => {
         repeatedNoResponse: { label: 'Repeated No Response', points: -10 }
     });
 
-    const updateBehaviouralSignals = (newSignals) => {
-        setBehaviouralSignals(prev => ({ ...prev, ...newSignals }));
-    };
+    const updateBehaviouralSignals = useCallback(async (newSignals) => {
+        setBehaviouralSignals(prev => {
+            const updated = { ...prev, ...newSignals };
+            systemSettingsAPI.upsert('behavioural_signals', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save behavioural signals:', e));
+            return updated;
+        });
+    }, [setBehaviouralSignals]);
 
     // Phase 2: Deal-Fit Intelligence (Skeleton)
     const [dealFitSignals, setDealFitSignals] = useLocalStorage('dealFitSignals', {
@@ -407,9 +577,17 @@ export const PropertyConfigProvider = ({ children }) => {
         ownerFlexible: { label: 'Owner Flexible', points: 15 }
     });
 
-    const updateDealFitSignals = (newSignals) => {
-        setDealFitSignals(prev => ({ ...prev, ...newSignals }));
-    };
+    const updateDealFitSignals = useCallback(async (newSignals) => {
+        setDealFitSignals(prev => {
+            const updated = { ...prev, ...newSignals };
+            systemSettingsAPI.upsert('deal_fit_signals', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save deal fit signals:', e));
+            return updated;
+        });
+    }, [setDealFitSignals]);
 
     // Phase 3: Financial Readiness (Skeleton)
     const [financialSignals, setFinancialSignals] = useLocalStorage('financialSignals', {
@@ -420,9 +598,17 @@ export const PropertyConfigProvider = ({ children }) => {
         flexiblePayment: { label: 'Flexible Payment Plan', points: 10 }
     });
 
-    const updateFinancialSignals = (newSignals) => {
-        setFinancialSignals(prev => ({ ...prev, ...newSignals }));
-    };
+    const updateFinancialSignals = useCallback(async (newSignals) => {
+        setFinancialSignals(prev => {
+            const updated = { ...prev, ...newSignals };
+            systemSettingsAPI.upsert('financial_signals', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save financial signals:', e));
+            return updated;
+        });
+    }, [setFinancialSignals]);
 
     // Phase 4: Time Decay Rules (Skeleton)
     const [decayRules, setDecayRules] = useLocalStorage('decayRules', {
@@ -431,9 +617,17 @@ export const PropertyConfigProvider = ({ children }) => {
         inactive30: { label: '30 Days Inactivity (Auto-Dormant)', points: -20 } // -20 effectively kills the score usually
     });
 
-    const updateDecayRules = (newRules) => {
-        setDecayRules(prev => ({ ...prev, ...newRules }));
-    };
+    const updateDecayRules = useCallback(async (newRules) => {
+        setDecayRules(prev => {
+            const updated = { ...prev, ...newRules };
+            systemSettingsAPI.upsert('decay_rules', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save decay rules:', e));
+            return updated;
+        });
+    }, [setDecayRules]);
 
     // Phase 5: AI Interpretation (Skeleton)
     const [aiSignals, setAiSignals] = useLocalStorage('aiSignals', {
@@ -443,9 +637,17 @@ export const PropertyConfigProvider = ({ children }) => {
         budgetConstraint: { label: 'Budget Constraint Mentioned', points: -10 }
     });
 
-    const updateAiSignals = (newSignals) => {
-        setAiSignals(prev => ({ ...prev, ...newSignals }));
-    };
+    const updateAiSignals = useCallback(async (newSignals) => {
+        setAiSignals(prev => {
+            const updated = { ...prev, ...newSignals };
+            systemSettingsAPI.upsert('ai_signals', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save AI signals:', e));
+            return updated;
+        });
+    }, [setAiSignals]);
 
     // --- C. SOURCE QUALITY SCORES ---
     const [sourceQualityScores, setSourceQualityScores] = useLocalStorage('sourceQualityScores', {
@@ -456,17 +658,37 @@ export const PropertyConfigProvider = ({ children }) => {
         portal: { label: 'Portal', points: 4 },
         coldCall: { label: 'Cold Call', points: 0 }
     });
-    const updateSourceQualityScores = (newScores) => setSourceQualityScores(prev => ({ ...prev, ...newScores }));
+    const updateSourceQualityScores = useCallback(async (newScores) => {
+        setSourceQualityScores(prev => {
+            const updated = { ...prev, ...newScores };
+            systemSettingsAPI.upsert('source_quality_scores', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save source quality scores:', e));
+            return updated;
+        });
+    }, [setSourceQualityScores]);
 
     // --- D. INVENTORY FIT SCORES ---
     const [inventoryFitScores, setInventoryFitScores] = useLocalStorage('inventoryFitScores', {
-        match5Plus: { label: 'Matching inventory ≥ 5', points: 10 },
+        match5Plus: { label: 'Matching inventory \u2265 5', points: 10 },
         priceDev5: { label: 'Price deviation < 5%', points: 10 },
         exactSize: { label: 'Exact size match', points: 5 },
         locked: { label: 'Inventory locked', points: -15 },
         none: { label: 'No inventory', points: -20 }
     });
-    const updateInventoryFitScores = (newScores) => setInventoryFitScores(prev => ({ ...prev, ...newScores }));
+    const updateInventoryFitScores = useCallback(async (newScores) => {
+        setInventoryFitScores(prev => {
+            const updated = { ...prev, ...newScores };
+            systemSettingsAPI.upsert('inventory_fit_scores', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save inventory fit scores:', e));
+            return updated;
+        });
+    }, [setInventoryFitScores]);
 
     // --- F. STAGE MULTIPLIERS ---
     const [stageMultipliers, setStageMultipliers] = useLocalStorage('stageMultipliers', {
@@ -475,7 +697,17 @@ export const PropertyConfigProvider = ({ children }) => {
         opportunity: { label: 'Opportunity', value: 1.3 },
         negotiation: { label: 'Negotiation', value: 1.5 }
     });
-    const updateStageMultipliers = (newMultipliers) => setStageMultipliers(prev => ({ ...prev, ...newMultipliers }));
+    const updateStageMultipliers = useCallback(async (newMultipliers) => {
+        setStageMultipliers(prev => {
+            const updated = { ...prev, ...newMultipliers };
+            systemSettingsAPI.upsert('stage_multipliers', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save stage multipliers:', e));
+            return updated;
+        });
+    }, [setStageMultipliers]);
 
     // --- DEAL SCORING ENGINE ---
     const [dealScoringRules, setDealScoringRules] = useLocalStorage('dealScoringRules', {
@@ -498,12 +730,20 @@ export const PropertyConfigProvider = ({ children }) => {
             delay15: { label: 'Delay > 15 days', points: -20 }
         }
     });
-    const updateDealScoringRules = (section, newRules) => {
-        setDealScoringRules(prev => ({
-            ...prev,
-            [section]: { ...prev[section], ...newRules }
-        }));
-    };
+    const updateDealScoringRules = useCallback(async (section, newRules) => {
+        setDealScoringRules(prev => {
+            const updated = {
+                ...prev,
+                [section]: { ...prev[section], ...newRules }
+            };
+            systemSettingsAPI.upsert('deal_scoring_rules', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save deal scoring rules:', e));
+            return updated;
+        });
+    }, [setDealScoringRules]);
 
     // --- SCORE BANDS ---
     const [scoreBands, setScoreBands] = useLocalStorage('scoreBands', {
@@ -512,14 +752,26 @@ export const PropertyConfigProvider = ({ children }) => {
         hot: { label: 'Hot', min: 61, max: 80, color: '#ef4444' },
         superHot: { label: 'Super Hot', min: 81, max: 100, color: '#7c3aed' }
     });
-    const updateScoreBands = (newBands) => setScoreBands(prev => ({ ...prev, ...newBands }));
+    const updateScoreBands = useCallback(async (newBands) => {
+        setScoreBands(newBands); // Direct set since argument is full new state
+        systemSettingsAPI.upsert('score_bands', {
+            category: 'sales_config',
+            value: newBands,
+            isPublic: true
+        }).catch(e => console.error('Failed to save score bands:', e));
+    }, [setScoreBands]);
 
-    const updateLeadMasterFields = (field, newValues) => {
-        setLeadMasterFields(prev => ({
-            ...prev,
-            [field]: newValues
-        }));
-    };
+    const updateLeadMasterFields = useCallback(async (field, newValues) => {
+        setLeadMasterFields(prevFields => {
+            const updated = { ...prevFields, [field]: newValues };
+            systemSettingsAPI.upsert('lead_master_fields', {
+                category: 'general',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save lead master fields:', e));
+            return updated;
+        });
+    }, [setLeadMasterFields]);
 
     // Activity Master Fields (Hierarchical: Activity -> Purpose -> Outcome { label, score })
     const [activityMasterFields, setActivityMasterFields] = useLocalStorage('activityMasterFields', {
@@ -675,140 +927,116 @@ export const PropertyConfigProvider = ({ children }) => {
                         ]
                     }
                 ]
-            },
-            {
-                name: 'Email',
-                purposes: [
-                    {
-                        name: 'Introductory / Welcome',
-                        outcomes: [
-                            { label: 'Opened', score: 5 },
-                            { label: 'Clicked', score: 8 },
-                            { label: 'Bounced', score: -5 },
-                            { label: 'No Action', score: 0 }
-                        ]
-                    },
-                    {
-                        name: 'Property Proposal',
-                        outcomes: [
-                            { label: 'Interested', score: 15 },
-                            { label: 'Request Breakdown', score: 10 },
-                            { label: 'Too Expensive', score: -5 },
-                            { label: 'Unsubscribe', score: -10 }
-                        ]
-                    },
-                    {
-                        name: 'Newsletter',
-                        outcomes: [
-                            { label: 'Engagement', score: 3 },
-                            { label: 'Ignored', score: 0 },
-                            { label: 'Unsubscribed', score: -3 }
-                        ]
-                    },
-                    {
-                        name: 'Payment Invoice',
-                        outcomes: [
-                            { label: 'Paid', score: 20 },
-                            { label: 'Viewed', score: 2 },
-                            { label: 'Overdue', score: -10 }
-                        ]
-                    },
-                    {
-                        name: 'Seasonal Greeting',
-                        outcomes: [
-                            { label: 'Appreciated', score: 5 },
-                            { label: 'No Response', score: 0 }
-                        ]
-                    }
-                ]
-            },
-            {
-                name: 'Task',
-                purposes: [
-                    {
-                        name: 'General Task',
-                        outcomes: [
-                            { label: 'Completed', score: 10 },
-                            { label: 'Deferred', score: 0 },
-                            { label: 'Cancelled', score: -5 },
-                            { label: 'Partially Completed', score: 5 }
-                        ]
-                    }
-                ]
             }
         ]
     });
 
-    // Property Sizes State (Moved from PropertySettingsPage)
-    const [sizes, setSizes] = useState([
-        { id: 1, project: 'DLF Cyber City', block: 'Building 8', category: 'Residential', subCategory: 'Flat/Apartment / Builder Floor', name: '3 BHK (1200 Sq Ft)', sizeType: '3 BHK', saleableArea: '1200', description: 'Sample Entry' }
+    // Project Property Sizes
+    const [sizes, setSizes] = useLocalStorage('property_sizes', [
+        { id: 1, name: '900 Sq. Ft.', category: 'Residential', project: 'AeroCity Mohali', block: 'Block A' },
+        { id: 2, name: '1200 Sq. Ft.', category: 'Residential', project: 'AeroCity Mohali', block: 'Block B' },
+        { id: 3, name: '1500 Sq. Ft.', category: 'Residential', project: 'AeroCity Mohali', block: 'Block C' }
     ]);
 
-    const addSize = (newSize) => {
-        setSizes(prev => [...prev, { ...newSize, id: Date.now() }]);
+    const addSize = async (newSize) => {
+        const sizeWithId = { ...newSize, id: Date.now() };
+        const updatedSizes = [...sizes, sizeWithId];
+        setSizes(updatedSizes);
+        try {
+            await systemSettingsAPI.upsert('property_sizes', {
+                category: 'property',
+                value: updatedSizes,
+                isPublic: true
+            });
+        } catch (error) {
+            console.error('Failed to save property sizes:', error);
+            throw error;
+        }
+        return sizeWithId;
     };
 
-    const updateSize = (updatedSize) => {
-        setSizes(prev => prev.map(s => s.id === updatedSize.id ? updatedSize : s));
+    const updateSize = async (updatedSize) => {
+        const updatedSizes = sizes.map(s => s.id === updatedSize.id ? updatedSize : s);
+        setSizes(updatedSizes);
+        try {
+            await systemSettingsAPI.upsert('property_sizes', {
+                category: 'property',
+                value: updatedSizes,
+                isPublic: true
+            });
+        } catch (error) {
+            console.error('Failed to update property sizes:', error);
+            throw error;
+        }
     };
 
-    const deleteSize = (id) => {
-        setSizes(prev => prev.filter(s => s.id !== id));
+    const deleteSize = async (id) => {
+        const updatedSizes = sizes.filter(s => s.id !== id);
+        setSizes(updatedSizes);
+        try {
+            await systemSettingsAPI.upsert('property_sizes', {
+                category: 'property',
+                value: updatedSizes,
+                isPublic: true
+            });
+        } catch (error) {
+            console.error('Failed to delete property size:', error);
+            throw error;
+        }
     };
 
-    const updateActivityMasterFields = (newActivities) => {
-        setActivityMasterFields({ activities: newActivities });
+    const value = {
+        propertyConfig,
+        updateConfig,
+        projects,
+        addProject,
+        addBlock,
+        isLoading,
+        masterFields,
+        updateMasterFields,
+        projectMasterFields,
+        updateProjectMasterFields,
+        projectAmenities,
+        updateProjectAmenities,
+        companyMasterFields,
+        updateCompanyMasterFields,
+        leadMasterFields,
+        updateLeadMasterFields,
+        scoringAttributes,
+        updateScoringAttributes,
+        scoringConfig,
+        updateScoringConfig,
+        behaviouralSignals,
+        updateBehaviouralSignals,
+        dealFitSignals,
+        updateDealFitSignals,
+        financialSignals,
+        updateFinancialSignals,
+        decayRules,
+        updateDecayRules,
+        aiSignals,
+        updateAiSignals,
+        sourceQualityScores,
+        updateSourceQualityScores,
+        inventoryFitScores,
+        updateInventoryFitScores,
+        stageMultipliers,
+        updateStageMultipliers,
+        dealScoringRules,
+        updateDealScoringRules,
+        scoreBands,
+        updateScoreBands,
+        activityMasterFields,
+        setActivityMasterFields,
+        sizes,
+        addSize,
+        updateSize,
+        deleteSize
     };
+
 
     return (
-        <PropertyConfigContext.Provider value={{
-            propertyConfig,
-            updateConfig,
-            masterFields,
-            updateMasterFields,
-            projectMasterFields,
-            updateProjectMasterFields,
-            projectAmenities,
-            updateProjectAmenities,
-            sizes,
-            addSize,
-            updateSize,
-            deleteSize,
-            projects, // Export dynamic projects
-            addProject,
-            addBlock,
-            companyMasterFields,
-            updateCompanyMasterFields,
-            leadMasterFields,
-            updateLeadMasterFields,
-            activityMasterFields,
-            updateActivityMasterFields,
-            scoringAttributes,
-            updateScoringAttributes,
-            scoringConfig,
-            updateScoringConfig,
-            behaviouralSignals,
-            updateBehaviouralSignals,
-            dealFitSignals,
-            updateDealFitSignals,
-            financialSignals,
-            updateFinancialSignals,
-            decayRules,
-            updateDecayRules,
-            aiSignals,
-            updateAiSignals,
-            // New Final Model Exports
-            sourceQualityScores,
-            updateSourceQualityScores,
-            inventoryFitScores,
-            updateInventoryFitScores,
-            stageMultipliers,
-            updateStageMultipliers,
-            dealScoringRules,
-            updateDealScoringRules,
-            scoreBands,
-            updateScoreBands
-        }}>
+        <PropertyConfigContext.Provider value={value}>
             {children}
         </PropertyConfigContext.Provider>
     );

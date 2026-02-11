@@ -1,12 +1,47 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { dealsData, leadData } from '../../../data/mockData';
 import SendMailModal from '../../Contacts/components/SendMailModal';
 import SendMessageModal from '../../../components/SendMessageModal';
 import CreateActivityModal from '../../../components/CreateActivityModal';
 import toast from 'react-hot-toast';
+import { api } from '../../../utils/api';
 
 const DealMatchingPage = ({ onNavigate, dealId }) => {
-    const deal = useMemo(() => dealsData.find(d => d.id === dealId), [dealId]);
+    const [deal, setDeal] = useState(null);
+    const [leads, setLeads] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (!dealId) {
+            setLoading(false);
+            return;
+        }
+
+        const fetchData = async () => {
+            setLoading(true);
+            try {
+                // Fetch specific deal
+                const dealRes = await api.get(`deals/${dealId}`);
+                if (dealRes.data && dealRes.data.success) {
+                    setDeal(dealRes.data.deal);
+                } else {
+                    console.error("Deal fetch unsuccessful:", dealRes.data);
+                }
+
+                // Fetch leads for matching
+                const leadsRes = await api.get('leads', { params: { limit: 1000 } });
+                if (leadsRes.data && leadsRes.data.success) {
+                    setLeads(leadsRes.data.records || []);
+                }
+            } catch (error) {
+                console.error("Error fetching match data:", error);
+                toast.error("Failed to load match data");
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchData();
+    }, [dealId]);
 
     // State for Bulk Selection
     const [selectedLeads, setSelectedLeads] = useState([]);
@@ -27,13 +62,15 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     const [sizeFlexibility, setSizeFlexibility] = useState(10); // % flexibility
 
     const parsePrice = (priceStr) => {
-        if (!priceStr) return 0;
-        return parseFloat(priceStr.replace(/,/g, '').replace(/[^\d.]/g, ''));
+        if (!priceStr && priceStr !== 0) return 0;
+        if (typeof priceStr === 'number') return priceStr;
+        return parseFloat(String(priceStr).replace(/,/g, '').replace(/[^\d.]/g, '')) || 0;
     };
 
     const parseBudget = (budgetStr) => {
-        if (!budgetStr) return { min: 0, max: 0 };
-        const numbers = budgetStr.replace(/[^\d-]/g, '').split('-').map(n => parseFloat(n) || 0);
+        if (!budgetStr && budgetStr !== 0) return { min: 0, max: 0 };
+        if (typeof budgetStr === 'number') return { min: budgetStr, max: budgetStr };
+        const numbers = String(budgetStr).replace(/[^\d-]/g, '').split('-').map(n => parseFloat(n) || 0);
         if (numbers.length === 1) return { min: numbers[0], max: numbers[0] };
         return { min: numbers[0], max: numbers[1] };
     };
@@ -48,12 +85,12 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     };
 
     const matchedLeads = useMemo(() => {
-        if (!deal) return [];
+        if (!deal || leads.length === 0) return [];
 
         const dealPrice = parsePrice(deal.price);
         const dealSize = parseSizeSqYard(deal.size);
 
-        return leadData.map((lead, index) => {
+        return leads.map((lead, index) => {
             let score = 0;
             const details = {
                 project: 'mismatch',
@@ -77,8 +114,8 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             }
 
             // Type Match (20 points)
-            const dealType = deal.propertyType ? deal.propertyType.toLowerCase() : '';
-            const leadType = lead.req?.type ? lead.req.type.toLowerCase() : '';
+            const dealType = (deal.propertyType?.lookup_value || deal.propertyType || '').toLowerCase();
+            const leadType = (lead.req?.type?.lookup_value || lead.req?.type || '').toLowerCase();
             if (dealType && leadType && (dealType.includes(leadType) || leadType.includes(dealType))) {
                 score += 20;
                 details.type = 'match';
@@ -87,7 +124,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             }
 
             // Budget Match (25 points)
-            const budget = parseBudget(lead.budget);
+            const budget = parseBudget(lead.budget?.lookup_value || lead.budget);
             const budgetTolerance = (budget.max - budget.min || budget.max) * (budgetFlexibility / 100);
 
             if (dealPrice >= (budget.min - budgetTolerance) && dealPrice <= (budget.max + budgetTolerance)) {
@@ -132,7 +169,36 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
         })
             .filter(l => l.matchPercentage > 10)
             .sort((a, b) => b.matchPercentage - a.matchPercentage);
-    }, [deal, budgetFlexibility, sizeFlexibility]);
+    }, [deal, budgetFlexibility, sizeFlexibility, leads]);
+
+    if (loading) {
+        return (
+            <div style={{ padding: '40px', textAlign: 'center' }}>
+                <div className="loading-spinner"></div>
+                <p>Loading matching leads...</p>
+            </div>
+        );
+    }
+
+    if (!deal) {
+        return (
+            <div style={{ padding: '80px 40px', textAlign: 'center', background: '#f8fafc', minHeight: '100vh' }}>
+                <div style={{ maxWidth: '400px', margin: '0 auto', background: '#fff', padding: '40px', borderRadius: '16px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
+                    <div style={{ width: '64px', height: '64px', background: '#fee2e2', color: '#ef4444', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: '1.5rem' }}>
+                        <i className="fas fa-exclamation-triangle"></i>
+                    </div>
+                    <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b', marginBottom: '8px' }}>Deal Not Found</h2>
+                    <p style={{ color: '#64748b', marginBottom: '24px' }}>The deal you're looking for might have been deleted or moved.</p>
+                    <button
+                        onClick={() => onNavigate('deals')}
+                        style={{ background: '#3b82f6', color: '#fff', border: 'none', padding: '12px 24px', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                    >
+                        <i className="fas fa-arrow-left"></i> Go back to Deals
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     const handleSelectAll = (e) => {
         if (e.target.checked) {
@@ -210,15 +276,6 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
         window.open(`https://wa.me/91${mobile}?text=${encodeURIComponent(message)}`, '_blank');
     };
 
-    if (!deal) {
-        return (
-            <div style={{ padding: '40px', textAlign: 'center' }}>
-                <h2>Deal not found</h2>
-                <button onClick={() => onNavigate('deals')} className="btn-primary">Go back to Deals</button>
-            </div>
-        );
-    }
-
     const getStageColor = (stage) => {
         switch (stage.toLowerCase()) {
             case 'site visit': return { bg: '#eff6ff', color: '#2563eb' };
@@ -257,10 +314,26 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                     </div>
                 </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
-                    <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff' }}>
+                    <button
+                        className="btn-outline"
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff' }}
+                        onClick={() => {
+                            const panel = document.getElementById('refine-matches-panel');
+                            if (panel) panel.scrollIntoView({ behavior: 'smooth' });
+                            else toast('Please use the Refine Matches panel below');
+                        }}
+                    >
                         <i className="fas fa-filter"></i> Filters
                     </button>
-                    <button className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                        className="btn-primary"
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                        onClick={() => {
+                            const text = `*New Deal Alert!* 🏠\n\n*${deal.propertyType}* in *${deal.location}*\nSize: ${deal.size}\nPrice: ₹${deal.price}\n\nContact: ${deal.assigned || 'Bharat Properties'}`;
+                            navigator.clipboard.writeText(text);
+                            toast.success("Deal details copied to clipboard!");
+                        }}
+                    >
                         <i className="fas fa-share-alt"></i> Share Deal
                     </button>
                 </div>
@@ -308,7 +381,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                     </div>
 
                     {/* Interactive Refinement */}
-                    <div style={{ background: '#fff', borderRadius: '20px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', position: 'sticky', top: '24px' }}>
+                    <div id="refine-matches-panel" style={{ background: '#fff', borderRadius: '20px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', position: 'sticky', top: '24px' }}>
                         <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#64748b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                             <i className="fas fa-filter" style={{ color: '#f59e0b' }}></i> Refine Matches
                         </h3>
@@ -515,7 +588,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                 </div>
                                 <button
                                     className="btn-primary"
-                                    style={{ width: '100%', padding: '12px', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 800 }}
+                                    style={{ width: '100%', padding: '8px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 700, display: 'flex', justifyContent: 'center', alignItems: 'center' }}
                                     onClick={() => {
                                         setActivityInitialData({
                                             activityType: 'Site Visit',

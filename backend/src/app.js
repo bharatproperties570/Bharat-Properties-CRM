@@ -13,6 +13,8 @@ import activityRoutes from "../routes/activity.routes.js";
 // New settings module routes
 import myFieldRuleRoutes from "../routes/fieldRule.routes.js"; // My implementation
 import myDistributionRuleRoutes from "../routes/distributionRule.routes.js"; // My implementation
+import companyRoutes from "../routes/company.routes.js";
+import dealRoutes from "../routes/deal.routes.js";
 
 // Existing structure (kept for safety)
 // import userRoutes from "./modules/users/user.routes.js"; (Not touching imports unless needed)
@@ -50,16 +52,18 @@ app.use("/lookups", lookupRoutes); // Alias for RESTful style
 app.use("/activities", activityRoutes);
 app.use("/field-rules", myFieldRuleRoutes);
 app.use("/distribution-rules", myDistributionRuleRoutes);
+app.use("/companies", companyRoutes);
+app.use("/deals", dealRoutes);
 
 // New settings API routes
-app.use("/api/users", userRoutes);
-app.use("/api/roles", roleRoutes);
-app.use("/api/config/lookups", configLookupRoutes);
-app.use("/api/config/fields", customFieldRoutes);
-app.use("/api/rules/field", fieldRuleRoutes);
-app.use("/api/rules/distribution", distributionRoutes);
-app.use("/api/rules/scoring", scoringRoutes);
-app.use("/api/system", systemRoutes);
+app.use("/users", userRoutes);
+app.use("/roles", roleRoutes);
+app.use("/config/lookups", configLookupRoutes);
+app.use("/config/fields", customFieldRoutes);
+app.use("/rules/field", fieldRuleRoutes);
+app.use("/rules/distribution", distributionRoutes);
+app.use("/scoring-rules", scoringRoutes);
+app.use("/system-settings", systemRoutes);
 
 // Error Handling Middleware (must be last)
 app.use(errorHandler);

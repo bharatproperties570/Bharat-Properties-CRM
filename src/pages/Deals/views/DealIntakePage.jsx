@@ -460,7 +460,7 @@ const DealIntakePage = () => {
             location: parsedData.location,
             budget: parsedData.specs.price,
             size: parsedData.specs.size,
-            unit: parsedData.address.unitNumber,
+            unitNo: parsedData.address.unitNo || parsedData.address.unitNumber,
             category: parsedData.category,
             remarks: parsedData.remarks, // New Field
             rawParsed: parsedData
@@ -878,12 +878,12 @@ const DealIntakePage = () => {
                 city: extractedReq.rawParsed.address.city || '',
                 projectName: extractedReq.rawParsed.address.sector || '',
                 block: '', // Parser might need update to catch block explicitly
-                unitNo: extractedReq.rawParsed.address.unitNumber || '',
+                unitNo: extractedReq.rawParsed.address.unitNo || extractedReq.rawParsed.address.unitNumber || '',
                 type: extractedReq.rawParsed.type || 'Residential',
                 size: extractedReq.rawParsed.specs.size || ''
             });
         }
-    }, [isManualLinkOpen]);
+    }, [isManualLinkOpen, extractedReq.rawParsed]);
 
 
     // ... (Inside the render)
@@ -1385,10 +1385,26 @@ const DealIntakePage = () => {
                                 >
                                     <i className="fab fa-whatsapp"></i> Reply on WA
                                 </button>
-                                <button style={{ padding: '6px 12px', background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <button
+                                    onClick={() => {
+                                        if (currentItem?.content) {
+                                            navigator.clipboard.writeText(currentItem.content);
+                                            toast.success("Text Copied!");
+                                        }
+                                    }}
+                                    style={{ padding: '6px 12px', background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     <i className="far fa-copy"></i> Copy Text
                                 </button>
-                                <button style={{ padding: '6px 12px', background: '#fff', color: '#ef4444', border: '1px solid #fee2e2', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', marginLeft: 'auto' }}>
+                                <button
+                                    onClick={() => {
+                                        if (window.confirm("Mark as Spam and Remove?")) {
+                                            setIntakeItems(prev => prev.filter(i => i.id !== currentItem.id));
+                                            setCurrentItem(null);
+                                            setStage(0);
+                                            toast.success("Marked as Spam");
+                                        }
+                                    }}
+                                    style={{ padding: '6px 12px', background: '#fff', color: '#ef4444', border: '1px solid #fee2e2', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', marginLeft: 'auto' }}>
                                     <i className="far fa-trash-alt"></i> Spam
                                 </button>
                             </div>
@@ -1407,6 +1423,7 @@ const DealIntakePage = () => {
                                             detectedContacts={detectedContacts}
                                             matchedInventory={matchedInventory}
                                             intakeType={intakeType}
+                                            extractedReq={extractedReq}
                                             onCreateDeal={handleQuickDealCreate}
                                             onSkip={handleQuickDealSkip}
                                             onBack={handleQuickDealBack}

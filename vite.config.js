@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import react from '@vitejs/plugin-react-swc'
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -7,6 +7,16 @@ export default defineConfig({
     server: {
         port: 3000,
         strictPort: true,
+        warmup: {
+            clientFiles: ['./src/main.jsx', './src/App.jsx'],
+        },
+        proxy: {
+            '/api': {
+                target: 'http://localhost:5002',
+                changeOrigin: true,
+                rewrite: (path) => path.replace(/^\/api/, '')
+            }
+        },
         hmr: {
             port: 3000
         }

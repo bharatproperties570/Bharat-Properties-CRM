@@ -285,7 +285,7 @@ const ParsingRulesPage = ({ isEmbedded = false }) => {
                                             </div>
                                             <div style={{ padding: '8px', background: '#fff', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
                                                 <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Unit</div>
-                                                <div style={{ fontWeight: 600, color: '#0f172a' }}>{testResult.address.unitNumber || '-'}</div>
+                                                <div style={{ fontWeight: 600, color: '#0f172a' }}>{testResult.address.unitNo || testResult.address.unitNumber || '-'}</div>
                                             </div>
                                             <div style={{ padding: '8px', background: '#fff', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
                                                 <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Type</div>

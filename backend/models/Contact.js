@@ -1,11 +1,11 @@
 import mongoose from "mongoose";
 
 const ContactSchema = new mongoose.Schema({
-    title: { type: String, default: "" },
-    name: { type: String, required: true },  // Changed from firstName
-    surname: { type: String },  // Changed from lastName
+    title: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+    name: { type: String, required: true },
+    surname: { type: String },
     fatherName: { type: String },
-    countryCode: { type: String, default: "+91" },
+    countryCode: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
     phones: [{
         number: String,
         type: { type: String, default: "Personal" }
@@ -14,33 +14,37 @@ const ContactSchema = new mongoose.Schema({
         address: String,
         type: { type: String, default: "Personal" }
     }],
+
     tags: [String],
     description: { type: String },
 
     // Professional Details
-    professionCategory: { type: String },
-    professionSubCategory: { type: String },
-    designation: { type: String },
+    professionCategory: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+    professionSubCategory: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+    designation: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
     company: { type: String },
     workOffice: { type: String },
 
     // System Details
-    source: { type: String },
+    source: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+    subSource: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+    campaign: { type: String },
     team: { type: String },
-    owner: { type: String },
+    owner: { type: mongoose.Schema.Types.Mixed, ref: 'User' },
     visibleTo: { type: String },
+
 
     // Personal Address
     personalAddress: {
         hNo: String,
         street: String,
-        country: String,
-        state: String,
-        city: String,
-        tehsil: String,
-        postOffice: String,
+        country: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        state: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        city: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        tehsil: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        postOffice: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         pinCode: String,
-        location: String,
+        location: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         area: String
     },
 
@@ -48,13 +52,13 @@ const ContactSchema = new mongoose.Schema({
     correspondenceAddress: {
         hNo: String,
         street: String,
-        country: String,
-        state: String,
-        city: String,
-        tehsil: String,
-        postOffice: String,
+        country: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        state: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        city: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        tehsil: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        postOffice: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         pinCode: String,
-        location: String,
+        location: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         area: String
     },
 
@@ -66,34 +70,38 @@ const ContactSchema = new mongoose.Schema({
 
     // Education - Array
     educations: [{
-        education: String,
-        degree: String,
+        education: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        degree: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         school: String
     }],
 
+
     // Loan - Array
     loans: [{
-        loanType: String,
-        bank: String,
+        loanType: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        bank: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         loanAmount: String
     }],
 
+
     // Social Media - Array
     socialMedia: [{
-        platform: String,
+        platform: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         url: String
     }],
 
+
     // Income - Array
     incomes: [{
-        incomeType: String,
+        incomeType: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         amount: String
     }],
 
+
     // Documents - Array
     documents: [{
-        documentName: String,
-        documentType: String,
+        documentName: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        documentType: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         documentNo: String,
         projectName: String,
         block: String,

@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { useTriggers } from '../../context/TriggersContext';
 import { useCall } from '../../context/CallContext';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
-import { inventoryData } from '../../data/mockData';
 import { PROJECTS_LIST } from '../../data/projectData';
 import { dealIntakeData } from '../../data/dealIntakeData';
+import { api } from "../../utils/api";
 
 import UploadModal from '../../components/UploadModal';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
@@ -17,10 +17,12 @@ import ManageTagsModal from '../../components/ManageTagsModal';
 import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
 import InventoryFilterPanel from './components/InventoryFilterPanel';
 import { applyInventoryFilters } from '../../utils/inventoryFilterLogic';
+import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
 
-function InventoryPage({ onNavigate }) {
+export default function InventoryPage({ onNavigate }) {
     const { fireEvent } = useTriggers();
     const { startCall } = useCall();
+    const { masterFields } = usePropertyConfig();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
@@ -28,24 +30,71 @@ function InventoryPage({ onNavigate }) {
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
     const [isEditInventoryModalOpen, setIsEditInventoryModalOpen] = useState(false);
     const [selectedProperty, setSelectedProperty] = useState(null);
-    const [inventoryItems, setInventoryItems] = useState(inventoryData); // Assuming inventoryData is the initial state
-
-    // Contextual Action States
-    const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false);
-    const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
-    const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
-    const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
-    const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
-
-    // Data placeholders for modals
-    const [modalData, setModalData] = useState([]);
-    const [currentOwners, setCurrentOwners] = useState([]);
-    const { propertyConfig } = usePropertyConfig(); // Use context if needed or just rely on manual parsing
-    const { masterFields } = usePropertyConfig();
+    const [inventoryItems, setInventoryItems] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [totalRecords, setTotalRecords] = useState(0);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [recordsPerPage, setRecordsPerPage] = useState(25);
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
 
     // Advanced Filtering State
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
+
+    // Missing State Definitions
+    const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false);
+    const [currentOwners, setCurrentOwners] = useState([]);
+    const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+    const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
+    const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
+    const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+    const [modalData, setModalData] = useState([]);
+
+    const fetchInventory = useCallback(async () => {
+        setLoading(true);
+        try {
+            const queryParams = new URLSearchParams({
+                page: currentPage,
+                limit: recordsPerPage,
+                search: searchTerm,
+            });
+
+            const response = await api.get(`inventory?${queryParams.toString()}`);
+
+            if (response.data && response.data.success) {
+                // Backend returns 'records' not 'data' for paginated results
+                setInventoryItems(response.data.records || []);
+                setTotalRecords(response.data.totalCount || 0);
+            } else {
+                toast.error("Failed to fetch inventory");
+                setInventoryItems([]);
+                setTotalRecords(0);
+            }
+        } catch (error) {
+            console.error("Error fetching inventory:", error);
+            toast.error("Error loading inventory");
+            setInventoryItems([]);
+            setTotalRecords(0);
+        } finally {
+            setLoading(false);
+        }
+    }, [currentPage, recordsPerPage, searchTerm, refreshTrigger]);
+
+    useEffect(() => {
+        fetchInventory();
+
+        // Listen for global inventory updates (e.g., from MainLayout modal)
+        const handleInventoryUpdate = () => {
+            console.log("Global inventory update triggered");
+            fetchInventory();
+        };
+
+        window.addEventListener('inventory-updated', handleInventoryUpdate);
+
+        return () => {
+            window.removeEventListener('inventory-updated', handleInventoryUpdate);
+        };
+    }, [currentPage, filters, viewMode, fetchInventory]);
 
     // Helper: Parse Price (e.g. "1.25 Cr" -> 12500000)
     const parsePrice = (priceStr) => {
@@ -71,7 +120,7 @@ function InventoryPage({ onNavigate }) {
     const filteredInventory = applyInventoryFilters(inventoryItems, filters, PROJECTS_LIST);
 
 
-    const getSelectedProperty = () => inventoryItems.find(p => p.id === selectedIds[0]);
+    const getSelectedProperty = () => inventoryItems.find(p => p._id === selectedIds[0]);
 
     const handleUploadClick = () => {
         const property = getSelectedProperty();
@@ -117,7 +166,7 @@ function InventoryPage({ onNavigate }) {
         if (!selectedProperty) return;
 
         const updatedItems = inventoryItems.map(item => {
-            if (item.id === selectedProperty.id) {
+            if (item._id === selectedProperty._id) {
                 const updates = {
                     ownerName: '', ownerPhone: '',
                     associatedContact: '', associatedPhone: ''
@@ -145,7 +194,7 @@ function InventoryPage({ onNavigate }) {
         });
 
         setInventoryItems(updatedItems);
-        const newSelected = updatedItems.find(i => i.id === selectedProperty.id);
+        const newSelected = updatedItems.find(i => i._id === selectedProperty._id);
         setSelectedProperty(newSelected);
         toast.success('Owner details updated successfully');
     };
@@ -154,7 +203,7 @@ function InventoryPage({ onNavigate }) {
         // Collect owners/associates from selected properties
         const targets = [];
         selectedIds.forEach(id => {
-            const prop = inventoryItems.find(p => p.id === id);
+            const prop = inventoryItems.find(p => p._id === id);
             if (prop) {
                 if (prop.ownerName) targets.push({ name: prop.ownerName, mobile: prop.ownerPhone, email: prop.ownerEmail || 'owner@example.com' });
                 if (prop.associatedContact) targets.push({ name: prop.associatedContact, mobile: prop.associatedPhone, email: prop.associatedEmail || 'associate@example.com' });
@@ -195,71 +244,95 @@ function InventoryPage({ onNavigate }) {
         }
     };
 
-    const handleSaveFeedback = (data) => {
+    const handleSaveFeedback = async (data) => {
         if (!selectedProperty) return;
 
-        const updatedItems = inventoryItems.map(item => {
-            if (item.id === selectedProperty.id) {
-                const now = new Date();
-                const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-                const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        try {
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+            const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 
-                // Construct useful remark string
-                let newRemark = `${data.result}`;
-                if (data.reason) newRemark += ` (${data.reason})`; // Add sub-reason
-                if (data.feedback) newRemark += `: ${data.feedback}`;
-                if (data.nextActionDate) {
-                    newRemark += ` | Next: ${data.nextActionType} on ${data.nextActionDate} @ ${data.nextActionTime}`;
-                }
-
-                // Automation: Mark as Sold/Rented/Inactive
-                let newStatus = item.status;
-                if (data.markAsSold && data.reason) {
-                    if (String(data.reason).includes('Sold Out')) {
-                        newStatus = 'Sold Out';
-                    } else if (String(data.reason).includes('Rented Out')) {
-                        newStatus = 'Rented Out';
-                    } else {
-                        newStatus = 'Inactive';
-                    }
-                }
-
-                // Create History Entry
-                const newInteraction = {
-                    id: Date.now(),
-                    date: dateStr,
-                    time: timeStr,
-                    user: 'You',
-                    action: data.nextActionType || 'Call',
-                    result: data.result,
-                    reason: data.reason, // Store specific reason for filtering
-                    note: newRemark
-                };
-
-                const currentHistory = item.history || [];
-                // If no history exists but we have old data, maybe we should preserve it? 
-                // For now, we just start appending new history.
-
-                return {
-                    ...item,
-                    lastContactDate: dateStr,
-                    lastContactTime: timeStr,
-                    lastContactUser: 'You',
-                    remarks: newRemark, // Keep showing latest remark in main view
-                    status: newStatus,
-                    history: [newInteraction, ...currentHistory] // Add new at top
-                };
+            // Construct useful remark string
+            let newRemark = `${data.result}`;
+            if (data.reason) newRemark += ` (${data.reason})`; // Add sub-reason
+            if (data.feedback) newRemark += `: ${data.feedback}`;
+            if (data.nextActionDate) {
+                newRemark += ` | Next: ${data.nextActionType} on ${data.nextActionDate} @ ${data.nextActionTime}`;
             }
 
-            return item;
-        });
+            // Automation: Mark as Sold/Rented/Inactive
+            let newStatus = selectedProperty.status;
+            if (data.markAsSold && data.reason) {
+                if (String(data.reason).includes('Sold Out')) {
+                    newStatus = 'Sold Out';
+                } else if (String(data.reason).includes('Rented Out')) {
+                    newStatus = 'Rented Out';
+                } else {
+                    newStatus = 'Inactive';
+                }
+            }
 
-        setInventoryItems(updatedItems);
-        // Update selected property to reflect changes immediately
-        const newSelected = updatedItems.find(i => i.id === selectedProperty.id);
-        setSelectedProperty(newSelected);
+            // Create History Entry
+            const newInteraction = {
+                id: Date.now(),
+                date: dateStr,
+                time: timeStr,
+                user: 'You',
+                action: data.nextActionType || 'Call',
+                result: data.result,
+                reason: data.reason, // Store specific reason for filtering
+                note: newRemark
+            };
 
-        toast.success("Feedback recorded successfully");
+            const currentHistory = selectedProperty.history || [];
+
+            const updates = {
+                lastContactDate: dateStr,
+                lastContactTime: timeStr,
+                lastContactUser: 'You',
+                remarks: newRemark, // Keep showing latest remark in main view
+                status: newStatus,
+                history: [newInteraction, ...currentHistory] // Add new at top
+            };
+
+            // Persist to Backend
+            const response = await api.put(`inventory/${selectedProperty._id}`, updates);
+
+            if (response.data && response.data.success) {
+                toast.success("Feedback recorded successfully");
+                fetchInventory(); // Refresh list to show updated data
+            } else {
+                toast.error("Failed to save feedback");
+            }
+        } catch (error) {
+            console.error("Error saving feedback:", error);
+            toast.error("Error saving feedback");
+        }
+    };
+
+    const handleDelete = async () => {
+        if (selectedIds.length === 0) return;
+
+        const confirmMsg = selectedIds.length === 1
+            ? "Are you sure you want to delete this property?"
+            : `Are you sure you want to delete ${selectedIds.length} selected properties?`;
+
+        if (!window.confirm(confirmMsg)) return;
+
+        try {
+            if (selectedIds.length === 1) {
+                await api.delete(`inventory/${selectedIds[0]}`);
+            } else {
+                await api.post(`inventory/bulk-delete`, { ids: selectedIds });
+            }
+
+            toast.success(`${selectedIds.length} property(s) deleted successfully`);
+            setSelectedIds([]);
+            fetchInventory();
+        } catch (error) {
+            console.error("Error deleting inventory:", error);
+            toast.error("Failed to delete inventory");
+        }
     };
 
     const toggleSelect = (id) => {
@@ -272,10 +345,35 @@ function InventoryPage({ onNavigate }) {
 
     const handleSelectAll = (e) => {
         if (e.target.checked) {
-            setSelectedIds(inventoryItems.map(item => item.id));
+            setSelectedIds(filteredInventory.map(item => item._id));
         } else {
             setSelectedIds([]);
         }
+    };
+
+    // Pagination Handlers
+    const totalPages = Math.ceil(totalRecords / recordsPerPage);
+
+    const goToNextPage = () => {
+        if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+    };
+
+    const goToPreviousPage = () => {
+        if (currentPage > 1) setCurrentPage(currentPage - 1);
+    };
+
+    const handleRecordsPerPageChange = (e) => {
+        setRecordsPerPage(Number(e.target.value));
+        setCurrentPage(1);
+    };
+
+    // Helper to safely render lookup values or strings
+    const renderValue = (val) => {
+        if (val === null || val === undefined) return null;
+        if (typeof val === 'object') {
+            return val.lookup_value || val.name || val.label || val.value || '';
+        }
+        return val;
     };
 
     return (
@@ -432,7 +530,7 @@ function InventoryPage({ onNavigate }) {
                                     )}
 
                                     <div style={{ marginLeft: 'auto' }}>
-                                        <button className="action-btn danger" title="Delete"><i className="fas fa-trash-alt"></i></button>
+                                        <button className="action-btn danger" title="Delete" onClick={handleDelete}><i className="fas fa-trash-alt"></i></button>
                                     </div>
                                 </div>
                             ) : (
@@ -449,12 +547,96 @@ function InventoryPage({ onNavigate }) {
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                         <div style={{ fontSize: '0.85rem', color: '#68737d', fontWeight: 500 }}>
-                                            Total: <strong>{filteredInventory.length}</strong> Properties
+                                            Total: <strong>{totalRecords}</strong> Properties
                                         </div>
-                                        <div className="pagination-nums" style={{ display: 'flex', gap: '4px' }}>
-                                            <span className="page-num active">1</span>
-                                            <span className="page-num">2</span>
-                                            <span className="page-num"><i className="fas fa-chevron-right" style={{ fontSize: '0.6rem' }}></i></span>
+
+                                        {/* Records Per Page */}
+                                        <div
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "8px",
+                                                fontSize: "0.8rem",
+                                                color: "#64748b",
+                                            }}
+                                        >
+                                            <span>Show:</span>
+                                            <select
+                                                value={recordsPerPage}
+                                                onChange={handleRecordsPerPageChange}
+                                                style={{
+                                                    padding: "4px 8px",
+                                                    border: "1px solid #e2e8f0",
+                                                    borderRadius: "6px",
+                                                    fontSize: "0.8rem",
+                                                    fontWeight: 600,
+                                                    color: "#0f172a",
+                                                    outline: "none",
+                                                    cursor: "pointer",
+                                                }}
+                                            >
+                                                <option value={10}>10</option>
+                                                <option value={25}>25</option>
+                                                <option value={50}>50</option>
+                                                <option value={100}>100</option>
+                                                <option value={300}>300</option>
+                                            </select>
+                                        </div>
+
+                                        {/* Pagination Controls */}
+                                        <div
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "8px",
+                                            }}
+                                        >
+                                            <button
+                                                onClick={goToPreviousPage}
+                                                disabled={currentPage === 1 || loading}
+                                                style={{
+                                                    padding: "6px 12px",
+                                                    border: "1px solid #e2e8f0",
+                                                    borderRadius: "6px",
+                                                    background: currentPage === 1 ? "#f8fafc" : "#fff",
+                                                    color: currentPage === 1 ? "#cbd5e1" : "#0f172a",
+                                                    cursor: currentPage === 1 ? "not-allowed" : "pointer",
+                                                    fontSize: "0.75rem",
+                                                    fontWeight: 600,
+                                                }}
+                                            >
+                                                <i className="fas fa-chevron-left"></i> Prev
+                                            </button>
+                                            <span
+                                                style={{
+                                                    fontSize: "0.8rem",
+                                                    fontWeight: 600,
+                                                    color: "#0f172a",
+                                                    minWidth: "80px",
+                                                    textAlign: "center",
+                                                }}
+                                            >
+                                                {currentPage} / {totalPages || 1}
+                                            </span>
+                                            <button
+                                                onClick={goToNextPage}
+                                                disabled={currentPage >= totalPages || loading}
+                                                style={{
+                                                    padding: "6px 12px",
+                                                    border: "1px solid #e2e8f0",
+                                                    borderRadius: "6px",
+                                                    background:
+                                                        currentPage >= totalPages ? "#f8fafc" : "#fff",
+                                                    color:
+                                                        currentPage >= totalPages ? "#cbd5e1" : "#0f172a",
+                                                    cursor:
+                                                        currentPage >= totalPages ? "not-allowed" : "pointer",
+                                                    fontSize: "0.75rem",
+                                                    fontWeight: 600,
+                                                }}
+                                            >
+                                                Next <i className="fas fa-chevron-right"></i>
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
@@ -462,7 +644,7 @@ function InventoryPage({ onNavigate }) {
                         </div>
 
                         <div className="list-header inventory-list-grid" style={{ position: 'sticky', top: '45px', zIndex: 99, padding: '12px 1.5rem', background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                            <div><input type="checkbox" onChange={handleSelectAll} checked={selectedIds.length === inventoryItems.length && inventoryItems.length > 0} /></div>
+                            <div><input type="checkbox" onChange={handleSelectAll} checked={selectedIds.length === filteredInventory.length && filteredInventory.length > 0} /></div>
                             <div>Property Details</div>
                             <div>Project & Location</div>
                             <div>Orientation</div>
@@ -481,12 +663,12 @@ function InventoryPage({ onNavigate }) {
                                 </div>
                             ) : (
                                 filteredInventory.map((item) => (
-                                    <div key={item.id} className="list-item inventory-list-grid" style={{ padding: '10px 1.5rem', alignItems: 'flex-start' }}>
+                                    <div key={item._id} className="list-item inventory-list-grid" style={{ padding: '10px 1.5rem', alignItems: 'flex-start' }}>
                                         <input
                                             type="checkbox"
                                             className="item-check"
-                                            checked={selectedIds.includes(item.id)}
-                                            onChange={() => toggleSelect(item.id)}
+                                            checked={selectedIds.includes(item._id)}
+                                            onChange={() => toggleSelect(item._id)}
                                             style={{ marginTop: '8px' }}
                                         />
 
@@ -503,93 +685,168 @@ function InventoryPage({ onNavigate }) {
                                                         aspectRatio: 'auto'
                                                     }}
                                                 >
-                                                    {item.unitNo}
+                                                    {renderValue(item.unitNo) || renderValue(item.unitNumber) || 'N/A'}
                                                 </div>
-                                                <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{item.corner}</div>
+                                                <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                                    {renderValue(item.unitType) || renderValue(item.corner) || ''}
+                                                </div>
                                             </div>
                                             <div style={{ paddingLeft: '2px' }}>
-                                                <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>{item.type}</div>
-                                                <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>{item.size}</div>
+                                                <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>
+                                                    {renderValue(item.category) || renderValue(item.type) || 'N/A'} - {renderValue(item.subCategory) || ''}
+                                                </div>
+                                                <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>
+                                                    {renderValue(item.size) || renderValue(item.plotArea) || 'N/A'}
+                                                </div>
                                             </div>
                                         </div>
 
                                         <div className="super-cell">
-                                            <div className="cell-value-main text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, lineHeight: 1.2, color: '#0f172a' }}>{item.area}</div>
-                                            <div className="cell-value-sub text-ellipsis" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>{item.location}</div>
+                                            <div className="cell-value-main text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, lineHeight: 1.2, color: '#0f172a' }}>
+                                                {renderValue(item.projectName) || renderValue(item.area) || 'Unknown Project'}
+                                            </div>
+                                            <div className="cell-value-sub text-ellipsis" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>
+                                                {renderValue(item.locationSearch) || renderValue(item.location) || 'No Location'}
+                                            </div>
                                             <div style={{ marginTop: '6px' }}>
-                                                <span className="verified-badge text-ellipsis" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800, display: 'inline-block', maxWidth: '100%' }}>BLOCK: {String(item.location || '').split(' ')[0] || 'N/A'}</span>
+                                                <span className="verified-badge text-ellipsis" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800, display: 'inline-block', maxWidth: '100%' }}>
+                                                    BLOCK: {renderValue(item.block) || (String(item.location || '').split(' ')[0]) || 'N/A'}
+                                                </span>
                                             </div>
                                         </div>
 
                                         <div className="super-cell">
                                             <div className="cell-label" style={{ marginTop: 0, color: '#94a3b8' }}>Facing & Directions</div>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                                {item.direction !== '-' && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-compass" style={{ color: '#3b82f6', width: '14px' }}></i> {item.direction}</div>}
-                                                {item.facing !== '-' && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-map-signs" style={{ color: '#f59e0b', width: '14px' }}></i> {item.facing}</div>}
-                                                {item.road !== '-' && <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}><i className="fas fa-road" style={{ width: '14px' }}></i> {item.road}</div>}
+                                                {(renderValue(item.direction) && renderValue(item.direction) !== '-') && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-compass" style={{ color: '#3b82f6', width: '14px' }}></i> {renderValue(item.direction)}</div>}
+                                                {(renderValue(item.facing) && renderValue(item.facing) !== '-') && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-map-signs" style={{ color: '#f59e0b', width: '14px' }}></i> {renderValue(item.facing)}</div>}
+                                                {(renderValue(item.roadWidth) || renderValue(item.road)) && <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}><i className="fas fa-road" style={{ width: '14px' }}></i> {renderValue(item.roadWidth) || renderValue(item.road)}</div>}
                                             </div>
                                         </div>
 
                                         <div className="super-cell">
-                                            {item.ownerName ? (
+                                            {/* Handle legacy owner fields AND new owners array */}
+                                            {((item.owners && item.owners.length > 0) || item.ownerName) ? (
                                                 <>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
                                                         <div className="text-ellipsis" style={{
                                                             fontWeight: 800,
-                                                            color: item.status === 'Sold Out' ? '#94a3b8' : 'var(--primary-color)',
+                                                            color: (renderValue(item.status) === 'Sold Out') ? '#94a3b8' : 'var(--primary-color)',
                                                             fontSize: '0.85rem'
-                                                        }}>{item.ownerName}</div>
+                                                        }}>
+                                                            {item.owners && item.owners.length > 0 ? renderValue(item.owners[0]?.name) : renderValue(item.ownerName)}
+                                                        </div>
                                                     </div>
-                                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px' }}>{item.ownerPhone}</div>
-                                                    <div className="address-clamp" style={{ fontSize: '0.68rem', lineHeight: '1.2' }} title={item.ownerAddress}>
-                                                        {item.ownerAddress}
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px' }}>
+                                                        {item.owners && item.owners.length > 0 ? renderValue(item.owners[0]?.mobile || 'No Phone') : renderValue(item.ownerPhone)}
+                                                    </div>
+                                                    <div className="address-clamp" style={{ fontSize: '0.68rem', lineHeight: '1.2' }} title={renderValue(item.ownerAddress)}>
+                                                        {item.address ? `${renderValue(item.address.location || '')} ${renderValue(item.address.city || '')}` : renderValue(item.ownerAddress)}
                                                     </div>
                                                 </>
                                             ) : <div style={{ color: '#cbd5e1', fontStyle: 'italic', fontSize: '0.75rem' }}>No owner data</div>}
                                         </div>
 
                                         <div className="super-cell">
-                                            {item.associatedContact ? (
-                                                <>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-                                                        <div style={{ fontWeight: 800, color: '#6366f1', fontSize: '0.85rem' }}>{item.associatedContact}</div>
-                                                    </div>
-                                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px' }}>{item.associatedPhone}</div>
-                                                    <div className="address-clamp" style={{ fontSize: '0.68rem', lineHeight: '1.2', color: '#94a3b8' }}>
-                                                        Verified Associate Representative for Project {item.area}
-                                                    </div>
-                                                </>
-                                            ) : <div style={{ color: '#cbd5e1', fontStyle: 'italic', fontSize: '0.75rem' }}>No associate</div>}
+                                            {(() => {
+                                                const associate = item.owners?.find(o => o.role === 'Associate' || o.link_role === 'Associate');
+                                                if (associate) {
+                                                    return (
+                                                        <>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                                                                <div style={{ fontWeight: 800, color: '#6366f1', fontSize: '0.85rem' }}>{renderValue(associate.name)}</div>
+                                                            </div>
+                                                            <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px' }}>{renderValue(associate.mobile)}</div>
+                                                            <div className="address-clamp" style={{ fontSize: '0.68rem', lineHeight: '1.2', color: '#94a3b8' }}>
+                                                                {renderValue(associate.relationship) ? `Associate (${renderValue(associate.relationship)})` : 'Verified Associate'}
+                                                            </div>
+                                                        </>
+                                                    );
+                                                } else if (item.associatedContact) {
+                                                    // Fallback for legacy data
+                                                    return (
+                                                        <>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                                                                <div style={{ fontWeight: 800, color: '#6366f1', fontSize: '0.85rem' }}>{renderValue(item.associatedContact)}</div>
+                                                            </div>
+                                                            <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px' }}>{renderValue(item.associatedPhone)}</div>
+                                                            <div className="address-clamp" style={{ fontSize: '0.68rem', lineHeight: '1.2', color: '#94a3b8' }}>
+                                                                Verified Associate Representative
+                                                            </div>
+                                                        </>
+                                                    );
+                                                } else {
+                                                    return <div style={{ color: '#cbd5e1', fontStyle: 'italic', fontSize: '0.75rem' }}>No associate</div>;
+                                                }
+                                            })()}
                                         </div>
 
                                         <div className="super-cell">
-                                            <div style={{ marginBottom: '6px' }}>
-                                                <span style={{ fontSize: '0.65rem', background: ((item.status?.label || item.status) === 'Active' ? 'rgba(56, 142, 60, 0.1)' : 'rgba(211, 47, 47, 0.1)'), color: ((item.status?.label || item.status) === 'Active' ? '#388E3C' : '#D32F2F'), padding: '2px 8px', borderRadius: '4px', fontWeight: 800 }}>
-                                                    {String(item.status?.label || item.status || 'Unknown').toUpperCase()}
-                                                </span>
+                                            <div style={{
+                                                fontSize: '0.75rem',
+                                                fontWeight: 700,
+                                                color: renderValue(item.status) === 'Active' ? '#10b981' : (renderValue(item.status) === 'Sold Out' || renderValue(item.status) === 'Rented Out') ? '#f59e0b' : '#64748b',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '4px',
+                                                marginBottom: '4px'
+                                            }}>
+                                                <div style={{
+                                                    width: '8px',
+                                                    height: '8px',
+                                                    borderRadius: '50%',
+                                                    background: renderValue(item.status) === 'Active' ? '#10b981' : (renderValue(item.status) === 'Sold Out' || renderValue(item.status) === 'Rented Out') ? '#f59e0b' : '#64748b'
+                                                }}></div>
+                                                {renderValue(item.status) || 'Active'}
                                             </div>
-                                            {item.remarks && (
-                                                <div style={{ background: '#fffbeb', padding: '4px 8px', borderRadius: '6px', border: '1px solid #fde68a', maxWidth: '100px' }}>
-                                                    <div style={{ fontSize: '0.65rem', color: '#92400e', lineHeight: '1.2' }}>{item.remarks}</div>
+                                            {(item.remarks || (item.history && item.history.length > 0)) && (
+                                                <div style={{
+                                                    fontSize: '0.7rem',
+                                                    color: '#475569',
+                                                    lineHeight: '1.2',
+                                                    background: '#f8fafc',
+                                                    padding: '4px 8px',
+                                                    borderRadius: '4px',
+                                                    border: '1px solid #e2e8f0',
+                                                    maxWidth: '200px'
+                                                }} className="text-ellipsis" title={renderValue(item.remarks) || (item.history && item.history[0]?.note) || (item.history && item.history[0]?.result)}>
+                                                    {renderValue(item.remarks) || (item.history && item.history[0]?.note) || (item.history && item.history[0]?.result) || ''}
                                                 </div>
                                             )}
                                         </div>
 
                                         <div className="super-cell" style={{ alignItems: 'flex-end', textAlign: 'right' }}>
-                                            {item.lastContactDate !== '-' ? (
+                                            {renderValue(item.lastContactDate) !== '-' ? (
                                                 <>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', justifyContent: 'flex-end' }}>
-                                                        <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#334155' }}>{item.lastContactUser || 'System'}</div>
+                                                        <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#334155' }}>
+                                                            {renderValue(item.lastContactUser) || renderValue(item.createdBy) || 'System'}
+                                                        </div>
                                                         <div className="avatar-circle" style={{ width: '24px', height: '24px', fontSize: '0.65rem', background: '#f1f5f9', color: '#64748b' }}>
-                                                            {String(item.lastContactUser || 'S').charAt(0)}
+                                                            {String(renderValue(item.lastContactUser) || renderValue(item.createdBy) || 'S').charAt(0).toUpperCase()}
                                                         </div>
                                                     </div>
                                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                                                         <div style={{ fontSize: '0.7rem', color: 'var(--primary-color)', fontWeight: 800 }}>
-                                                            {item.lastContactDate} <i className="fas fa-calendar-alt" style={{ marginLeft: '6px' }}></i>
+                                                            {/* Format createdAt date if available, or lastContactDate */}
+                                                            {(() => {
+                                                                try {
+                                                                    if (item.createdAt) return new Date(renderValue(item.createdAt)).toLocaleDateString();
+                                                                    return renderValue(item.lastContactDate) || '-';
+                                                                } catch (e) {
+                                                                    return renderValue(item.lastContactDate) || '-';
+                                                                }
+                                                            })()} <i className="fas fa-calendar-alt" style={{ marginLeft: '6px' }}></i>
                                                         </div>
                                                         <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, marginLeft: '2px' }}>
-                                                            {item.lastContactTime} <i className="fas fa-clock" style={{ marginLeft: '6px', fontSize: '0.6rem' }}></i>
+                                                            {(() => {
+                                                                try {
+                                                                    if (item.createdAt) return new Date(renderValue(item.createdAt)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                                                    return renderValue(item.lastContactTime) || '';
+                                                                } catch (e) {
+                                                                    return renderValue(item.lastContactTime) || '';
+                                                                }
+                                                            })()} <i className="fas fa-clock" style={{ marginLeft: '6px', fontSize: '0.6rem' }}></i>
                                                         </div>
                                                     </div>
                                                 </>
@@ -674,7 +931,7 @@ function InventoryPage({ onNavigate }) {
                                                     <div style={{
                                                         width: '24px',
                                                         height: '24px',
-                                                        background: item.status === 'Active' ? '#10b981' : '#ef4444',
+                                                        background: renderValue(item.status) === 'Active' ? '#10b981' : '#ef4444',
                                                         borderRadius: '50%',
                                                         display: 'flex',
                                                         alignItems: 'center',
@@ -685,17 +942,17 @@ function InventoryPage({ onNavigate }) {
                                                     }}>
                                                         {idx + 1}
                                                     </div>
-                                                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-color)' }}>Unit #{item.unitNo}</div>
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-color)' }}>Unit #{renderValue(item.unitNo)}</div>
                                                 </div>
                                                 <div style={{ fontSize: '0.75rem', color: '#0f172a', fontWeight: 600, marginBottom: '4px' }}>
-                                                    {item.area}
+                                                    {renderValue(item.area)}
                                                 </div>
                                                 <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>
-                                                    {item.type} - {item.size}
+                                                    {renderValue(item.type)} - {renderValue(item.size)}
                                                 </div>
                                                 <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
                                                     <i className="fas fa-user" style={{ marginRight: '4px' }}></i>
-                                                    {item.ownerName}
+                                                    {renderValue(item.ownerName)}
                                                 </div>
                                             </div>
                                         );
@@ -717,25 +974,25 @@ function InventoryPage({ onNavigate }) {
                                 {/* Property Pin Markers Overlay */}
                                 {(inventoryItems || []).map((item, idx) => {
                                     if (!item) return null;
-                                    // Convert lat/lng to approximate pixel position
-                                    const centerLat = 30.6985;
-                                    const centerLng = 76.7112;
-                                    const latDiff = (item.lat - centerLat) * 5000;
-                                    const lngDiff = (item.lng - centerLng) * 5000;
+
+                                    const coords = getCoordinates(item);
+                                    if (!coords) return null;
+
+                                    const position = getPinPosition(coords.lat, coords.lng);
 
                                     return (
                                         <div
                                             key={idx}
                                             style={{
                                                 position: 'absolute',
-                                                left: `calc(50% + ${lngDiff}px)`,
-                                                top: `calc(50% - ${latDiff}px)`,
+                                                left: position.left,
+                                                top: position.top,
                                                 transform: 'translate(-50%, -100%)',
                                                 cursor: 'pointer',
                                                 zIndex: 10,
                                                 transition: 'all 0.2s'
                                             }}
-                                            title={`Unit ${item.unitNo} - ${item.area}`}
+                                            title={`Unit ${renderValue(item.unitNo) || renderValue(item.unitNumber)} - ${renderValue(item.projectName)}`}
                                         >
                                             {/* Pin Marker */}
                                             <div style={{
@@ -748,7 +1005,7 @@ function InventoryPage({ onNavigate }) {
                                                 <svg width="32" height="40" viewBox="0 0 32 40" style={{ position: 'absolute', top: 0, left: 0 }}>
                                                     <path
                                                         d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z"
-                                                        fill={item.status === 'Active' ? '#10b981' : '#ef4444'}
+                                                        fill={renderValue(item.status) === 'Active' ? '#10b981' : '#ef4444'}
                                                         stroke="#fff"
                                                         strokeWidth="2"
                                                     />
@@ -771,42 +1028,12 @@ function InventoryPage({ onNavigate }) {
                                         </div>
                                     );
                                 })}
-
-                                {/* Map Controls Overlay */}
-                                <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                    <button style={{
-                                        background: '#fff',
-                                        border: '1px solid #e2e8f0',
-                                        borderRadius: '6px',
-                                        padding: '8px 12px',
-                                        fontSize: '0.75rem',
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                                    }}>
-                                        <i className="fas fa-expand-arrows-alt" style={{ marginRight: '6px' }}></i>
-                                        Fullscreen
-                                    </button>
-                                    <button style={{
-                                        background: '#fff',
-                                        border: '1px solid #e2e8f0',
-                                        borderRadius: '6px',
-                                        padding: '8px 12px',
-                                        fontSize: '0.75rem',
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                                    }}>
-                                        <i className="fas fa-layer-group" style={{ marginRight: '6px' }}></i>
-                                        Layers
-                                    </button>
-                                </div>
                             </div>
                         </div>
                     </div>
+
                 </>
-            )
-            }
+            )}
 
             <footer className="summary-footer" style={{ height: '55px', background: '#f8fafc' }}>
                 <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
@@ -820,7 +1047,10 @@ function InventoryPage({ onNavigate }) {
             <AddInventoryModal
                 isOpen={isEditInventoryModalOpen}
                 onClose={() => setIsEditInventoryModalOpen(false)}
-                onSave={(data) => console.log("Updated Inventory:", data)}
+                onSave={(data) => {
+                    console.log("Updated Inventory:", data);
+                    fetchInventory();
+                }}
                 property={selectedProperty}
             />
 
@@ -881,5 +1111,3 @@ function InventoryPage({ onNavigate }) {
         </section >
     );
 }
-
-export default InventoryPage;

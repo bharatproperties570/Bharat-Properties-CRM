@@ -65,7 +65,7 @@ const ProjectSchema = new mongoose.Schema({
     }],
     projectVideos: [{
         title: String,
-        type: String,
+        type: { type: String },
         url: String
     }],
 
@@ -113,7 +113,7 @@ const ProjectSchema = new mongoose.Schema({
         }],
         paymentPlans: [{
             name: String,
-            type: String,
+            type: { type: String },
             milestones: [{
                 name: String,
                 percentage: String,

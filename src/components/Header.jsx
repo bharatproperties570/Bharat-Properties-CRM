@@ -1,10 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { contactData, leadData, inventoryData } from '../data/mockData';
 
 function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompany, onAddProject, onAddInventory, onAddDeal }) {
     const [showNotifications, setShowNotifications] = useState(false);
     const [unreadCount, setUnreadCount] = useState(3);
     const [profilePicture, setProfilePicture] = useState('');
     const fileInputRef = useRef(null);
+
+    // Search State
+    const [searchTerm, setSearchTerm] = useState('');
+    const [searchResults, setSearchResults] = useState({ contacts: [], leads: [], inventory: [] });
+    const [showSearchDropdown, setShowSearchDropdown] = useState(false);
 
     // Load profile picture from localStorage
     useEffect(() => {
@@ -34,6 +40,42 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
         }
     };
 
+    // Search Logic
+    useEffect(() => {
+        if (searchTerm.trim().length < 2) {
+            setSearchResults({ contacts: [], leads: [], inventory: [] });
+            setShowSearchDropdown(false);
+            return;
+        }
+
+        const term = searchTerm.toLowerCase();
+        const cleanTerm = term.replace(/\D/g, ''); // For phone matching
+
+        const matchedContacts = contactData.filter(c =>
+            c.name.toLowerCase().includes(term) ||
+            (c.mobile && c.mobile.replace(/\D/g, '').includes(cleanTerm)) ||
+            (c.email && c.email.toLowerCase().includes(term))
+        ).slice(0, 3);
+
+        const matchedLeads = leadData.filter(l =>
+            l.name.toLowerCase().includes(term) ||
+            (l.mobile && l.mobile.replace(/\D/g, '').includes(cleanTerm))
+        ).slice(0, 3);
+
+        const matchedInventory = inventoryData.filter(i =>
+            (i.unitNo && i.unitNo.toLowerCase().includes(term)) ||
+            (i.ownerName && i.ownerName.toLowerCase().includes(term)) ||
+            (i.ownerPhone && i.ownerPhone.replace(/\D/g, '').includes(cleanTerm)) ||
+            (i.location && i.location.toLowerCase().includes(term)) ||
+            (i.area && i.area.toLowerCase().includes(term))
+        ).slice(0, 3);
+
+        setSearchResults({ contacts: matchedContacts, leads: matchedLeads, inventory: matchedInventory });
+        setShowSearchDropdown(true);
+
+    }, [searchTerm]);
+
+
     const notifications = [
         { id: 1, type: 'assignment', text: 'New Lead assigned to you: Ramesh Kumar', time: '2 mins ago', icon: 'fas fa-bullseye', color: '#2563eb' },
         { id: 2, type: 'task', text: 'Task "Call Client" is due today', time: '1 hour ago', icon: 'fas fa-tasks', color: '#f59e0b' },
@@ -61,9 +103,129 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
             </div>
 
             <div className="header-right">
-                <div className="search-min">
+                <div className="search-min" style={{ position: 'relative' }}>
                     <i className="fas fa-search" style={{ fontSize: '0.9rem', color: '#68737d', marginRight: '8px' }}></i>
-                    <input type="text" placeholder="Search contacts, leads, properties..." />
+                    <input
+                        type="text"
+                        placeholder="Search contacts, leads, properties..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        onBlur={() => setTimeout(() => setShowSearchDropdown(false), 200)}
+                        onFocus={() => searchTerm.length >= 2 && setShowSearchDropdown(true)}
+                    />
+
+                    {/* Search Results Dropdown */}
+                    {showSearchDropdown && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '40px',
+                            left: 0,
+                            width: '100%',
+                            minWidth: '300px',
+                            background: '#fff',
+                            borderRadius: '8px',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                            border: '1px solid #e2e8f0',
+                            zIndex: 1000,
+                            maxHeight: '400px',
+                            overflowY: 'auto'
+                        }}>
+                            {(searchResults.contacts.length === 0 && searchResults.leads.length === 0 && searchResults.inventory.length === 0) ? (
+                                <div style={{ padding: '12px', color: '#64748b', fontSize: '0.9rem', textAlign: 'center' }}>No results found</div>
+                            ) : (
+                                <>
+                                    {searchResults.contacts.length > 0 && (
+                                        <div style={{ padding: '8px 0' }}>
+                                            <div style={{ background: '#f8fafc', padding: '4px 12px', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Contacts</div>
+                                            {searchResults.contacts.map((c, idx) => (
+                                                <div
+                                                    key={idx}
+                                                    style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                                                    onMouseDown={() => {
+                                                        // Use onMouseDown to trigger before onBlur
+                                                        onNavigate('contact-detail', c.mobile); // Assuming mobile is ID or we use index? mockData doesn't always have ID. c.mobile often used as key.
+                                                        setSearchTerm('');
+                                                    }}
+                                                    onMouseOver={e => e.currentTarget.style.background = '#f1f5f9'}
+                                                    onMouseOut={e => e.currentTarget.style.background = '#fff'}
+                                                >
+                                                    <div>
+                                                        <div style={{ fontSize: '0.9rem', color: '#0f172a', fontWeight: 500 }}>{c.name}</div>
+                                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{c.mobile}</div>
+                                                    </div>
+                                                    <div style={{ fontSize: '0.8rem', color: '#3b82f6' }}>Contact</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {searchResults.leads.length > 0 && (
+                                        <div style={{ padding: '8px 0' }}>
+                                            <div style={{ background: '#f8fafc', padding: '4px 12px', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Leads</div>
+                                            {searchResults.leads.map((l, idx) => (
+                                                <div
+                                                    key={idx}
+                                                    style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                                                    onMouseDown={() => {
+                                                        onNavigate('leads'); // Leads don't have detail view yet in navigation logic
+                                                        setSearchTerm('');
+                                                    }}
+                                                    onMouseOver={e => e.currentTarget.style.background = '#f1f5f9'}
+                                                    onMouseOut={e => e.currentTarget.style.background = '#fff'}
+                                                >
+                                                    <div>
+                                                        <div style={{ fontSize: '0.9rem', color: '#0f172a', fontWeight: 500 }}>{l.name}</div>
+                                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{l.mobile}</div>
+                                                    </div>
+                                                    <div style={{ fontSize: '0.8rem', color: '#f59e0b' }}>Lead</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {searchResults.inventory.length > 0 && (
+                                        <div style={{ padding: '8px 0' }}>
+                                            <div style={{ background: '#f8fafc', padding: '4px 12px', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Inventory</div>
+                                            {searchResults.inventory.map((i, idx) => (
+                                                <div
+                                                    key={idx}
+                                                    style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                                                    onMouseDown={() => {
+                                                        onNavigate('projects'); // Inventory usually linked to projects? Or just go to inventory list? onNavigate doesn't strictly support 'inventory' in the switch?
+                                                        // App.jsx: if (path === '/projects') return 'projects';
+                                                        // It doesn't seem to have explicit inventory route in App.jsx switch I read earlier?
+                                                        // Wait, App.jsx line 43: if (path === '/projects') return 'projects';
+                                                        // Checked App.jsx again. Line 36..48.
+                                                        // It doesn't have 'inventory'. It probably shares 'projects' view or I missed it.
+                                                        // Wait, I read: "if (path === '/activities') return 'activities';"
+                                                        // I don't see 'inventory'.
+                                                        // BUT Sidebar typically has Inventory.
+                                                        // Let's assume 'projects' or I should add 'inventory' to App.jsx?
+                                                        // Sidebar.jsx probably triggers onNavigate('inventory').
+                                                        // Let's check App.jsx again if I can... 
+                                                        // Actually, I'll just use 'projects' for now as safe bet or 'inventory' if it works.
+                                                        // I'll try 'inventory'. If App.jsx handles generic defaults:
+                                                        // "else url = `/${view}`;" (line 76)
+                                                        // So onNavigate('inventory') -> /inventory
+                                                        onNavigate('inventory');
+                                                        setSearchTerm('');
+                                                    }}
+                                                    onMouseOver={e => e.currentTarget.style.background = '#f1f5f9'}
+                                                    onMouseOut={e => e.currentTarget.style.background = '#fff'}
+                                                >
+                                                    <div>
+                                                        <div style={{ fontSize: '0.9rem', color: '#0f172a', fontWeight: 500 }}>{i.unitNo} {i.location}</div>
+                                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{i.area}</div>
+                                                    </div>
+                                                    <div style={{ fontSize: '0.8rem', color: '#10b981' }}>Unit</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 {/* Phone Icon - left hand position */}

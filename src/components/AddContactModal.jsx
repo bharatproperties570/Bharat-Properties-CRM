@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import toast from "react-hot-toast";
-import axios from 'axios';
 
 import { api } from "../utils/api";
+
 
 import { usePropertyConfig } from "../context/PropertyConfigContext";
 import { useContactConfig } from "../context/ContactConfigContext";
@@ -11,6 +11,7 @@ import AddressDetailsForm from "./common/AddressDetailsForm";
 import { PROJECTS_LIST, PROJECT_DATA, CITIES } from "../data/projectData";
 import { companyData } from "../data/companyData";
 import { fetchLookup } from "../utils/fetchLookup";
+import { useUserContext } from '../context/UserContext';
 
 // Simple Custom Multi-Select Component
 const CustomMultiSelect = ({
@@ -221,23 +222,11 @@ const FALLBACK_RELATIONSHIPS = [
   "Other",
 ];
 
+
 // Note: Sources and campaigns are now fetched from Context
 const SOURCES = [];
 const CAMPAIGN_OPTIONS = [];
 const SUB_SOURCE_OPTIONS = [];
-
-// Mock Contacts for Duplicate Check
-const MOCK_CONTACTS = [
-  {
-    title: "Mr.",
-    name: "Amit Kumar",
-    surname: "Sharma",
-    company: "Bharat Properties",
-    phones: [{ phoneCode: "+91", phoneNumber: "9876543210" }],
-    emails: ["amit.k@example.com"],
-    personalAddress: { city: "New Delhi", state: "Delhi" },
-  },
-];
 
 const companyList = [
   "Bharat Properties",
@@ -343,7 +332,7 @@ const DuplicateResults = ({ contacts, onUpdate }) => {
               marginBottom: "4px",
             }}
           >
-            {contact.title} {contact.name} {contact.surname}
+            {contact.title?.lookup_value || contact.title} {contact.name} {contact.surname}
           </div>
           {contact.company && (
             <div
@@ -379,7 +368,7 @@ const DuplicateResults = ({ contacts, onUpdate }) => {
                   className="fas fa-phone"
                   style={{ fontSize: "0.7rem", color: "#94a3b8" }}
                 ></i>
-                {contact.phones[0].phoneNumber}
+                {contact.phones[0].number}
               </div>
             )}
             {contact.emails?.[0] && (
@@ -396,7 +385,7 @@ const DuplicateResults = ({ contacts, onUpdate }) => {
                   className="fas fa-envelope"
                   style={{ fontSize: "0.7rem", color: "#94a3b8" }}
                 ></i>
-                {contact.emails[0]}
+                {contact.emails[0].address}
               </div>
             )}
           </div>
@@ -570,6 +559,8 @@ const AddContactModal = ({
     profileConfig = {},
   } = useContactConfig();
 
+  const { users } = useUserContext();
+
   // --- Profile Config Helpers ---
   const getProfileDetails = (section, category) => {
     const types = profileConfig?.[section]?.subCategories?.find(
@@ -711,7 +702,7 @@ const AddContactModal = ({
     name: "",
     surname: "",
     fatherName: "",
-    countryCode: "+91",
+    countryCode: "",
     phones: [{ number: "", type: "Personal" }],
     emails: [{ address: "", type: "Personal" }],
     tags: [],
@@ -725,9 +716,9 @@ const AddContactModal = ({
     workOffice: "",
 
     // System Details
-    // campaign: '',
-    source: "",
-    // subSource: '',
+    campaign: '', // NEW: Campaign Hierarchy Level 1
+    source: "",   // NEW: Campaign Hierarchy Level 2
+    subSource: '', // NEW: Campaign Hierarchy Level 3 (Medium)
     team: "",
     owner: "",
     visibleTo: "",
@@ -786,7 +777,7 @@ const AddContactModal = ({
         documentNo: "",
         projectName: "",
         block: "",
-        unitNumber: "",
+        unitNo: "",
         documentPicture: null,
       },
     ],
@@ -795,7 +786,9 @@ const AddContactModal = ({
 
   const [title, setTitle] = useState([]);
   const [countrycode, setCountrycode] = useState([]);
+  const [campaigns, setcampaigns] = useState([]);
   const [source, setsource] = useState([]);
+  const [subSource, setSubSource] = useState([]);
   const [team, setteam] = useState([]);
   const [visible, setvisible] = useState([]);
   const [doc_category, setdoc_category] = useState([]);
@@ -825,6 +818,32 @@ const AddContactModal = ({
       }));
     }
   }, [initialData, isOpen]);
+
+  // Fetch Default Country Code
+  useEffect(() => {
+    const fetchDefaultCountryCode = async () => {
+      try {
+        const data = await fetchLookup("Country-Code");
+        setCountrycode(data);
+
+        // Find default (India or +91)
+        if (!initialData) {
+          const defaultCode = data.find(c => c.lookup_value === "India" || c.lookup_value === "+91" || c.lookup_value.includes("India"));
+          if (defaultCode) {
+            setFormData(prev => ({ ...prev, countryCode: defaultCode._id }));
+          } else if (data.length > 0) {
+            setFormData(prev => ({ ...prev, countryCode: data[0]._id }));
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching country codes:", error);
+      }
+    };
+
+    if (isOpen) {
+      fetchDefaultCountryCode();
+    }
+  }, [isOpen, initialData]);
 
   const handleInputChange = (field, value) => {
     setFormData((prev) => ({
@@ -864,6 +883,14 @@ const AddContactModal = ({
   const handleSave = async () => {
     setIsSaving(true);
     const toastId = toast.loading("Adding contact...");
+
+    // Validation: Mandatory Mobile Number
+    if (!formData.phones || formData.phones.length === 0 || !formData.phones[0].number) {
+      toast.error("Mobile number is required", { id: toastId });
+      setIsSaving(false);
+      return;
+    }
+
     try {
       // --- FIELD RULES ENGINE VALIDATION (ASYNC) ---
       if (validateAsync) {
@@ -1021,35 +1048,49 @@ const AddContactModal = ({
 
   // Duplication Check Effect
   useEffect(() => {
-    if (
-      !formData.name &&
-      formData.phones[0].number === "" &&
-      formData.emails[0].address === ""
-    ) {
-      setSimilarContacts([]);
-      return;
-    }
+    const searchDuplicates = async () => {
+      if (
+        !formData.name &&
+        formData.phones[0].number === "" &&
+        formData.emails[0].address === ""
+      ) {
+        setSimilarContacts([]);
+        return;
+      }
 
-    const matches = MOCK_CONTACTS.filter((contact) => {
-      const nameMatch =
-        formData.name &&
-        contact.name.toLowerCase().includes(formData.name.toLowerCase());
+      try {
+        const queryParams = new URLSearchParams();
+        if (formData.name && formData.name.length > 2) {
+          queryParams.append("name", formData.name);
+        }
+        if (formData.phones[0].number && formData.phones[0].number.length > 3) {
+          queryParams.append("phone", formData.phones[0].number);
+        }
+        if (formData.emails[0].address && formData.emails[0].address.length > 3) {
+          queryParams.append("email", formData.emails[0].address);
+        }
 
-      // Mobile Match (Check if any entered phone matches any existing phone)
-      const phoneMatch = formData.phones.some(
-        (p) =>
-          p.number &&
-          contact.phones.some((cp) => cp.phoneNumber.includes(p.number)),
-      );
+        if (queryParams.toString() === "") {
+          setSimilarContacts([]);
+          return;
+        }
 
-      // Email Match
-      const emailMatch = formData.emails.some(
-        (e) => e.address && contact.emails.some((ce) => ce.includes(e.address)),
-      );
+        const response = await api.get(
+          `contacts/search/duplicates?${queryParams.toString()}`,
+        );
+        if (response.data && response.data.success) {
+          setSimilarContacts(response.data.data);
+        }
+      } catch (error) {
+        console.error("Error searching duplicates:", error);
+      }
+    };
 
-      return nameMatch || phoneMatch || emailMatch;
-    });
-    setSimilarContacts(matches);
+    const timer = setTimeout(() => {
+      searchDuplicates();
+    }, 500);
+
+    return () => clearTimeout(timer);
   }, [formData.name, formData.phones, formData.emails]);
 
   if (!isOpen) return null;
@@ -1429,7 +1470,9 @@ const AddContactModal = ({
                           value={phone.number}
                           onChange={(e) => {
                             const newPhones = [...formData.phones];
-                            newPhones[index].number = e.target.value;
+                            // Enforce numeric only
+                            const numericValue = e.target.value.replace(/\D/g, '');
+                            newPhones[index].number = numericValue;
                             handleInputChange("phones", newPhones);
                           }}
                           placeholder="Enter mobile number"
@@ -1634,6 +1677,49 @@ const AddContactModal = ({
                           marginBottom: "20px",
                         }}
                       >
+                        {/* Campaign */}
+                        {!hiddenFields.includes("campaign") && (
+                          <div>
+                            <label
+                              style={{
+                                display: "block",
+                                fontSize: "0.85rem",
+                                fontWeight: 500,
+                                color: "#64748b",
+                                marginBottom: "8px",
+                              }}
+                            >
+                              Campaign
+                            </label>
+                            <select
+                              value={formData.campaign}
+                              onFocus={async () => {
+                                if (campaigns.length === 0) {
+                                  setLoading("campaign");
+                                  const data = await fetchLookup("Campaign");
+                                  setcampaigns(data);
+                                  setLoading("");
+                                }
+                              }}
+                              onChange={(e) => {
+                                handleInputChange("campaign", e.target.value);
+                                handleInputChange("source", ""); // Reset source
+                                handleInputChange("subSource", ""); // Reset subSource
+                                setsource([]); // Clear child options
+                                setSubSource([]); // Clear grandchild options
+                              }}
+                              style={customSelectStyle}
+                            >
+                              <option value="">Select Campaign</option>
+                              {campaigns.map((opt) => (
+                                <option key={opt._id} value={opt._id}>
+                                  {opt.lookup_value}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
                         {/* Source */}
                         {!hiddenFields.includes("source") && (
                           <div>
@@ -1651,24 +1737,73 @@ const AddContactModal = ({
                             <select
                               value={formData.source}
                               onFocus={async () => {
-                                if (source.length === 0) {
+                                if (formData.campaign) {
                                   setLoading("source");
-
-                                  const data = await fetchLookup("Source");
-
+                                  const data = await fetchLookup("Source", formData.campaign);
                                   setsource(data);
                                   setLoading("");
                                 }
                               }}
-                              onChange={(e) =>
-                                handleInputChange("source", e.target.value)
+                              onChange={(e) => {
+                                handleInputChange("source", e.target.value);
+                                handleInputChange("subSource", ""); // Reset subSource
+                                setSubSource([]); // Clear child options
+                              }}
+                              style={
+                                !formData.campaign
+                                  ? customSelectStyleDisabled
+                                  : customSelectStyle
                               }
-                              style={customSelectStyle}
+                              disabled={!formData.campaign}
                             >
                               <option value="">Select Source</option>
-                              {source.map((c) => (
-                                <option key={c._id} value={c._id}>
-                                  {c.lookup_value}
+                              {source.map((opt) => (
+                                <option key={opt._id} value={opt._id}>
+                                  {opt.lookup_value}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
+                        {/* Sub-Source */}
+                        {!hiddenFields.includes("subSource") && (
+                          <div>
+                            <label
+                              style={{
+                                display: "block",
+                                fontSize: "0.85rem",
+                                fontWeight: 500,
+                                color: "#64748b",
+                                marginBottom: "8px",
+                              }}
+                            >
+                              Sub-Source
+                            </label>
+                            <select
+                              value={formData.subSource}
+                              onFocus={async () => {
+                                if (formData.source) {
+                                  setLoading("subSource");
+                                  const data = await fetchLookup("Sub-Source", formData.source);
+                                  setSubSource(data);
+                                  setLoading("");
+                                }
+                              }}
+                              onChange={(e) =>
+                                handleInputChange("subSource", e.target.value)
+                              }
+                              style={
+                                !formData.source
+                                  ? customSelectStyleDisabled
+                                  : customSelectStyle
+                              }
+                              disabled={!formData.source}
+                            >
+                              <option value="">Select Sub-Source</option>
+                              {subSource.map((opt) => (
+                                <option key={opt._id} value={opt._id}>
+                                  {opt.lookup_value}
                                 </option>
                               ))}
                             </select>
@@ -2269,6 +2404,7 @@ const AddContactModal = ({
                       gap: "20px",
                     }}
                   >
+
                     <div>
                       <label
                         style={{
@@ -2329,8 +2465,9 @@ const AddContactModal = ({
                         style={customSelectStyle}
                       >
                         <option value="">Select Owner</option>
-                        <option value="Self">Self</option>
-                        {/* Add more owners here or map from props */}
+                        {users.map(user => (
+                          <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
+                        ))}
                       </select>
                     </div>
                     <div>
@@ -2375,6 +2512,58 @@ const AddContactModal = ({
                     </div>
                   </div>
                 </div>
+
+                {/* Description Card */}
+                {!showOnlyRequired && (
+                  <div
+                    style={{
+                      background: "#fff",
+                      padding: "24px",
+                      borderRadius: "12px",
+                      border: "1px solid #e2e8f0",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                    }}
+                  >
+                    <h3
+                      style={{
+                        margin: "0 0 20px 0",
+                        fontSize: "1rem",
+                        fontWeight: 600,
+                        color: "#0f172a",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        paddingBottom: "12px",
+                        borderBottom: "1px solid #f1f5f9",
+                      }}
+                    >
+                      <i
+                        className="fas fa-sticky-note"
+                        style={{ color: "#8b5cf6" }}
+                      ></i>{" "}
+                      Notes & Description
+                    </h3>
+                    <textarea
+                      value={formData.description}
+                      onChange={(e) =>
+                        handleInputChange("description", e.target.value)
+                      }
+                      placeholder="Enter any additional notes or comments about this contact..."
+                      style={{
+                        width: "100%",
+                        minHeight: "100px",
+                        padding: "12px",
+                        borderRadius: "8px",
+                        border: "1px solid #cbd5e1",
+                        fontSize: "0.9rem",
+                        outline: "none",
+                        color: "#1e293b",
+                        resize: "vertical",
+                        fontFamily: "inherit",
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             ) : currentTab === "personal" ? (
               <div
@@ -2819,7 +3008,7 @@ const AddContactModal = ({
                                       documentNo: "",
                                       projectName: "",
                                       block: "",
-                                      unitNumber: "",
+                                      unitNo: "",
                                       documentPicture: null,
                                     },
                                   ]);
@@ -2885,7 +3074,7 @@ const AddContactModal = ({
                                 const newDocs = [...formData.documents];
                                 newDocs[index].projectName = e.target.value;
                                 newDocs[index].block = "";
-                                newDocs[index].unitNumber = "";
+                                newDocs[index].unitNo = "";
                                 handleInputChange("documents", newDocs);
                               }}
                               style={{
@@ -2936,11 +3125,11 @@ const AddContactModal = ({
                               })()}
                             </select>
                             <select
-                              value={doc.unitNumber}
+                              value={doc.unitNo}
                               disabled={!doc.projectName}
                               onChange={(e) => {
                                 const newDocs = [...formData.documents];
-                                newDocs[index].unitNumber = e.target.value;
+                                newDocs[index].unitNo = e.target.value;
                                 handleInputChange("documents", newDocs);
                               }}
                               style={{
@@ -3173,11 +3362,11 @@ const AddContactModal = ({
                           <select
                             value={edu.degree}
                             onFocus={async () => {
-                              if (degree.length === 0) {
+                              // Always fetch if education level is selected to ensure we get children
+                              if (edu.education) {
                                 setLoading("degree");
-
-                                const data = await fetchLookup("Degree");
-
+                                // Fetch Degrees that are children of the selected Education Level
+                                const data = await fetchLookup("Degree", edu.education);
                                 setdegree(data);
                                 setLoading("");
                               }
@@ -3672,7 +3861,7 @@ const AddContactModal = ({
           </div>
         )}
       </div>
-    </div>
+    </div >
   );
 };
 

@@ -27,3 +27,23 @@ export const numberToIndianWords = (num) => {
         return '';
     }
 };
+
+export const formatIndianCurrency = (num) => {
+    if (num === undefined || num === null || num === '') return '₹0';
+    try {
+        const n = Number(num);
+        if (isNaN(n)) return '₹0';
+
+        if (n >= 10000000) {
+            return `₹${(n / 10000000).toFixed(2)} Cr`;
+        } else if (n >= 100000) {
+            return `₹${(n / 100000).toFixed(2)} Lac`;
+        } else if (n >= 1000) {
+            return `₹${(n / 1000).toFixed(2)} K`;
+        } else {
+            return `₹${n}`;
+        }
+    } catch (e) {
+        return `₹${num}`;
+    }
+};

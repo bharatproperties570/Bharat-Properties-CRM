@@ -18,6 +18,10 @@ function ActivitiesPage() {
     // Selection State
     const [selectedIds, setSelectedIds] = useState([]);
 
+    // Pagination State
+    const [currentPage, setCurrentPage] = useState(1);
+    const [recordsPerPage, setRecordsPerPage] = useState(25);
+
     // Filter State
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
@@ -116,6 +120,27 @@ function ActivitiesPage() {
         }
 
         setFilters(newFilters);
+    };
+
+    // Pagination Helpers
+    const totalRecords = filteredActivities.length;
+    const totalPages = Math.ceil(totalRecords / recordsPerPage);
+    const paginatedActivities = filteredActivities.slice(
+        (currentPage - 1) * recordsPerPage,
+        currentPage * recordsPerPage
+    );
+
+    const goToNextPage = () => {
+        if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+    };
+
+    const goToPreviousPage = () => {
+        if (currentPage > 1) setCurrentPage(currentPage - 1);
+    };
+
+    const handleRecordsPerPageChange = (e) => {
+        setRecordsPerPage(Number(e.target.value));
+        setCurrentPage(1);
     };
 
     // Helper to determine active tab based on filters
@@ -646,11 +671,99 @@ function ActivitiesPage() {
                                             />
                                         </div>
                                         <div style={{ flex: 1 }}></div>
-                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Items: {filteredActivities.length}</span>
-                                            <button style={{ padding: '4px 12px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', cursor: 'pointer', fontSize: '0.8rem' }}>1</button>
-                                            <button style={{ padding: '4px 12px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', cursor: 'pointer', fontSize: '0.8rem' }}>2</button>
-                                            <button style={{ padding: '4px 12px', border: '1px solid #e2e8f0', borderRadius: '4px', background: '#fff', cursor: 'pointer', fontSize: '0.8rem' }}>Next</button>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                            <div style={{ fontSize: '0.85rem', color: '#68737d', fontWeight: 500 }}>
+                                                Total: <strong>{totalRecords}</strong> Activities
+                                            </div>
+
+                                            {/* Records Per Page */}
+                                            <div
+                                                style={{
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    gap: "8px",
+                                                    fontSize: "0.8rem",
+                                                    color: "#64748b",
+                                                }}
+                                            >
+                                                <span>Show:</span>
+                                                <select
+                                                    value={recordsPerPage}
+                                                    onChange={handleRecordsPerPageChange}
+                                                    style={{
+                                                        padding: "4px 8px",
+                                                        border: "1px solid #e2e8f0",
+                                                        borderRadius: "6px",
+                                                        fontSize: "0.8rem",
+                                                        fontWeight: 600,
+                                                        color: "#0f172a",
+                                                        outline: "none",
+                                                        cursor: "pointer",
+                                                    }}
+                                                >
+                                                    <option value={10}>10</option>
+                                                    <option value={25}>25</option>
+                                                    <option value={50}>50</option>
+                                                    <option value={100}>100</option>
+                                                    <option value={300}>300</option>
+                                                </select>
+                                            </div>
+
+                                            {/* Pagination Controls */}
+                                            <div
+                                                style={{
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    gap: "8px",
+                                                }}
+                                            >
+                                                <button
+                                                    onClick={goToPreviousPage}
+                                                    disabled={currentPage === 1}
+                                                    style={{
+                                                        padding: "6px 12px",
+                                                        border: "1px solid #e2e8f0",
+                                                        borderRadius: "6px",
+                                                        background: currentPage === 1 ? "#f8fafc" : "#fff",
+                                                        color: currentPage === 1 ? "#cbd5e1" : "#0f172a",
+                                                        cursor: currentPage === 1 ? "not-allowed" : "pointer",
+                                                        fontSize: "0.75rem",
+                                                        fontWeight: 600,
+                                                    }}
+                                                >
+                                                    <i className="fas fa-chevron-left"></i> Prev
+                                                </button>
+                                                <span
+                                                    style={{
+                                                        fontSize: "0.8rem",
+                                                        fontWeight: 600,
+                                                        color: "#0f172a",
+                                                        minWidth: "80px",
+                                                        textAlign: "center",
+                                                    }}
+                                                >
+                                                    {currentPage} / {totalPages || 1}
+                                                </span>
+                                                <button
+                                                    onClick={goToNextPage}
+                                                    disabled={currentPage >= totalPages}
+                                                    style={{
+                                                        padding: "6px 12px",
+                                                        border: "1px solid #e2e8f0",
+                                                        borderRadius: "6px",
+                                                        background:
+                                                            currentPage >= totalPages ? "#f8fafc" : "#fff",
+                                                        color:
+                                                            currentPage >= totalPages ? "#cbd5e1" : "#0f172a",
+                                                        cursor:
+                                                            currentPage >= totalPages ? "not-allowed" : "pointer",
+                                                        fontSize: "0.75rem",
+                                                        fontWeight: 600,
+                                                    }}
+                                                >
+                                                    Next <i className="fas fa-chevron-right"></i>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 )}
@@ -679,7 +792,7 @@ function ActivitiesPage() {
 
                                 {/* Activities List - Unified Layout */}
                                 <div className="list-content" style={{ background: '#fafbfc', padding: '1rem 2rem' }}>
-                                    {filteredActivities.map((activity, index) => (
+                                    {paginatedActivities.map((activity, index) => (
                                         <div
                                             key={activity.id}
                                             onClick={() => setSelectedActivity(activity)}
@@ -824,42 +937,38 @@ function ActivitiesPage() {
                         minHeight: '55px'
                     }}>
                         {!selectedActivity ? (
-                            <>
-                                <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-                                    <div style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 600 }}>Summary</div>
-                                    <div style={{ fontSize: '0.85rem', color: '#334155', fontWeight: 700 }}>
-                                        Total Activities <span style={{ color: '#10b981', marginLeft: '5px' }}>{filteredActivities.length}</span>
-                                    </div>
+                            <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+                                <div style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 600 }}>Summary</div>
+                                <div style={{ fontSize: '0.85rem', color: '#334155', fontWeight: 700 }}>
+                                    Total Activities <span style={{ color: '#10b981', marginLeft: '5px' }}>{totalRecords}</span>
                                 </div>
-                            </>
+                            </div>
                         ) : (
-                            <>
-                                <div style={{ display: 'flex', gap: '30px', alignItems: 'center', flex: 1 }}>
-                                    <div style={{ background: '#334155', color: '#fff', borderRadius: '6px', fontSize: '0.7rem', padding: '4px 12px', fontWeight: 800 }}>ACTIVITY SUMMARY</div>
-                                    <div style={{ display: 'flex', gap: '20px' }}>
-                                        <div style={{ fontSize: '0.8rem' }}><span style={{ color: '#94a3b8' }}>CONTACT:</span> <span style={{ fontWeight: 800 }}>{selectedActivity.contactName}</span></div>
-                                        <div style={{ fontSize: '0.8rem' }}><span style={{ color: '#94a3b8' }}>TYPE:</span> <span style={{ fontWeight: 800, color: '#10b981' }}>{selectedActivity.type}</span></div>
-                                        <div style={{ fontSize: '0.8rem', maxWidth: '400px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                            <span style={{ color: '#94a3b8' }}>AGENDA:</span> <span style={{ fontWeight: 600 }}>{selectedActivity.agenda}</span>
-                                        </div>
-                                        {selectedActivity.feedback && (
-                                            <div style={{ fontSize: '0.8rem', maxWidth: '300px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                <span style={{ color: '#94a3b8' }}>FEEDBACK:</span> <span style={{ fontWeight: 600, color: '#fbbf24' }}>{selectedActivity.feedback}</span>
-                                            </div>
-                                        )}
+                            <div style={{ display: 'flex', gap: '30px', alignItems: 'center', flex: 1 }}>
+                                <div style={{ background: '#334155', color: '#fff', borderRadius: '6px', fontSize: '0.7rem', padding: '4px 12px', fontWeight: 800 }}>ACTIVITY SUMMARY</div>
+                                <div style={{ display: 'flex', gap: '20px' }}>
+                                    <div style={{ fontSize: '0.8rem' }}><span style={{ color: '#94a3b8' }}>CONTACT:</span> <span style={{ fontWeight: 800 }}>{selectedActivity.contactName}</span></div>
+                                    <div style={{ fontSize: '0.8rem' }}><span style={{ color: '#94a3b8' }}>TYPE:</span> <span style={{ fontWeight: 800, color: '#10b981' }}>{selectedActivity.type}</span></div>
+                                    <div style={{ fontSize: '0.8rem', maxWidth: '400px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        <span style={{ color: '#94a3b8' }}>AGENDA:</span> <span style={{ fontWeight: 600 }}>{selectedActivity.agenda}</span>
                                     </div>
+                                    {selectedActivity.feedback && (
+                                        <div style={{ fontSize: '0.8rem', maxWidth: '300px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            <span style={{ color: '#94a3b8' }}>FEEDBACK:</span> <span style={{ fontWeight: 600, color: '#fbbf24' }}>{selectedActivity.feedback}</span>
+                                        </div>
+                                    )}
                                 </div>
                                 <button
                                     onClick={() => setSelectedActivity(null)}
-                                    style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}
+                                    style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', marginLeft: 'auto' }}
                                 >
                                     <i className="fas fa-times"></i>
                                 </button>
-                            </>
+                            </div>
                         )}
                     </div>
                 </div>
-            </div>
+            </div >
             <CreateActivityModal
                 isOpen={isCreateModalOpen}
                 onClose={() => setIsCreateModalOpen(false)}

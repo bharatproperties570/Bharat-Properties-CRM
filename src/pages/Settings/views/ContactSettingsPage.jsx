@@ -6,8 +6,10 @@ import Swal from "sweetalert2";
 // ---------------- CONFIGURATION ----------------
 const TABS = [
   { id: "Professional", label: "Professional", type: "hierarchy" },
+  { id: "Campaign", label: "Campaign & Source", type: "hierarchy" }, // NEW: Campaign Hierarchy
   { id: "Document", label: "Document", type: "hierarchy" },
   { id: "Address", label: "Address", type: "hierarchy" },
+  { id: "Education", label: "Education", type: "hierarchy" }, // NEW: Education Hierarchy
   { id: "Other", label: "Other", type: "flat" },
 ];
 
@@ -16,6 +18,11 @@ const HIERARCHY_CONFIG = {
     { title: "Category", lookup_type: "ProfessionalCategory" },
     { title: "Sub Category", lookup_type: "ProfessionalSubCategory" },
     { title: "Designation", lookup_type: "ProfessionalDesignation" },
+  ],
+  Campaign: [ // Campaign -> Source -> Sub-Source
+    { title: "Campaign", lookup_type: "Campaign" },
+    { title: "Source", lookup_type: "Source" },
+    { title: "Sub-Source", lookup_type: "Sub-Source" },
   ],
   Document: [ // Document Category -> Document Type
     { title: "Document Category", lookup_type: "Document-Category" },
@@ -32,18 +39,21 @@ const HIERARCHY_CONFIG = {
     },
     { title: "Post Office", lookup_type: "PostOffice" },
     { title: "Pin Code", lookup_type: "Pincode" },
-  ]
+  ],
+  Education: [ // Education Level -> Degree
+    { title: "Education Level", lookup_type: "Education-Level" },
+    { title: "Degree", lookup_type: "Degree" },
+  ],
 };
 
 const FLAT_CONFIG = {
   Other: [ // Grouping all other tabs here as requested or implied by "Other"
     { title: "Title", lookup_type: "Title" },
     { title: "Country Code", lookup_type: "Country-Code" },
-    { title: "Source", lookup_type: "Source" },
+    // { title: "Source", lookup_type: "Source" }, // REMOVED: Now part of Campaign Hierarchy
     { title: "Team", lookup_type: "Team" },
     { title: "Visible To", lookup_type: "Visibility" },
-    { title: "Education Level", lookup_type: "Education-Level" },
-    { title: "Degree", lookup_type: "Degree" },
+    // Education Level & Degree moved to Hierarchy
     { title: "Income Source", lookup_type: "Income-Source" },
     { title: "Loan Type", lookup_type: "Loan Type" },
     { title: "Bank", lookup_type: "Bank" },

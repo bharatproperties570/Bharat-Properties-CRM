@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { api } from '../../utils/api';
 import { contactData, leadData, inventoryData } from '../../data/mockData';
 import { getInitials } from '../../utils/helpers';
 import LeadConversionService from '../../services/LeadConversionService';
@@ -33,6 +34,13 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
     const handleAutoSave = (field, value) => {
         showNotification(`${field} auto-saved!`);
         // In real app: save to backend
+    };
+
+    const renderLookup = (field, fallback = '-') => {
+        if (!field) return fallback;
+        if (typeof field === 'object' && field.lookup_value) return field.lookup_value;
+        if (typeof field === 'object') return fallback;
+        return field || fallback;
     };
 
     const addTask = () => {
@@ -463,9 +471,9 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                 </div>
                             </div>
                             <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-user-tie" style={{ fontSize: '0.7rem' }}></i> {contact.owner || contact.ownership}</span>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-user-tie" style={{ fontSize: '0.7rem' }}></i> {contact.owner?.name || contact.owner || contact.ownership || '-'}</span>
                                 <span style={{ color: '#cbd5e1' }}>|</span>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-bullhorn" style={{ fontSize: '0.7rem', color: '#f59e0b' }}></i> {contact.source || 'Direct'}</span>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-bullhorn" style={{ fontSize: '0.7rem', color: '#f59e0b' }}></i> {renderLookup(contact.source, 'Direct')}</span>
                                 <span style={{ color: '#cbd5e1' }}>|</span>
                                 <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-history" style={{ fontSize: '0.7rem' }}></i> {contact.activity || '12 Activities'}</span>
                                 <span style={{ color: '#cbd5e1' }}>|</span>
@@ -565,7 +573,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{ color: '#94a3b8' }}>Source:</span>
-                    <span style={{ fontWeight: 700 }}>{contact.conversionMeta?.source || contact.source || 'Direct'}</span>
+                    <span style={{ fontWeight: 700 }}>{contact.conversionMeta?.source || renderLookup(contact.source, 'Direct')}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{ color: '#94a3b8' }}>Converted on:</span>
@@ -630,8 +638,8 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                     {contact.socialMedia.map((soc, i) => (
                                                         <a key={i} href={soc.url.startsWith('http') ? soc.url : `https://${soc.url}`} target="_blank" rel="noopener noreferrer" style={{
                                                             width: '28px', height: '28px', borderRadius: '6px', background: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', transition: 'all 0.2s'
-                                                        }} title={soc.platform}>
-                                                            <i className={`fab fa-${soc.platform.toLowerCase()}`} style={{ fontSize: '0.9rem' }}></i>
+                                                        }} title={renderLookup(soc.platform)}>
+                                                            <i className={`fab fa-${(renderLookup(soc.platform, '')).toLowerCase()}`} style={{ fontSize: '0.9rem' }}></i>
                                                         </a>
                                                     ))}
                                                 </div>
@@ -736,9 +744,9 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                 contact.personalAddress?.hNo,
                                                 contact.personalAddress?.street,
                                                 contact.personalAddress?.area,
-                                                contact.personalAddress?.location,
-                                                contact.personalAddress?.city,
-                                                contact.personalAddress?.state,
+                                                renderLookup(contact.personalAddress?.location, ''),
+                                                renderLookup(contact.personalAddress?.city, ''),
+                                                renderLookup(contact.personalAddress?.state, ''),
                                                 contact.personalAddress?.pinCode
                                             ].filter(Boolean).join(', ') || 'No Permanent Address Provided'}
                                         </div>
@@ -750,9 +758,9 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                 contact.correspondenceAddress?.hNo,
                                                 contact.correspondenceAddress?.street,
                                                 contact.correspondenceAddress?.area,
-                                                contact.correspondenceAddress?.location,
-                                                contact.correspondenceAddress?.city,
-                                                contact.correspondenceAddress?.state,
+                                                renderLookup(contact.correspondenceAddress?.location, ''),
+                                                renderLookup(contact.correspondenceAddress?.city, ''),
+                                                renderLookup(contact.correspondenceAddress?.state, ''),
                                                 contact.correspondenceAddress?.pinCode
                                             ].filter(Boolean).join(', ') || 'No Correspondence Address Provided'}
                                         </div>
@@ -785,15 +793,15 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                         </div>
                                         <div>
                                             <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Designation</label>
-                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Designation', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{contact.designation || '-'}</div>
+                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Designation', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{renderLookup(contact.designation)}</div>
                                         </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Category</label>
-                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Category', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{contact.professionCategory || '-'}</div>
+                                        <div style={{ flex: 1, padding: '16px', background: 'rgba(79, 70, 229, 0.02)', borderRadius: '12px', border: '1px solid #eef2f6' }}>
+                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Category</div>
+                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Category', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{renderLookup(contact.professionCategory)}</div>
                                         </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Sub-Category</label>
-                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Sub-Category', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{contact.professionSubCategory || '-'}</div>
+                                        <div style={{ flex: 1, padding: '16px', background: 'rgba(79, 70, 229, 0.02)', borderRadius: '12px', border: '1px solid #eef2f6' }}>
+                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Sub-Category</div>
+                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Sub-Category', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{renderLookup(contact.professionSubCategory)}</div>
                                         </div>
                                     </div>
                                 </div>
@@ -807,9 +815,9 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '24px' }}>
                                         {contact.educations?.map((edu, i) => (
                                             <div key={i} style={{ position: 'relative', paddingLeft: '16px', borderLeft: '2px solid #e2e8f0' }}>
-                                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Degree', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>{edu.degree}</div>
-                                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('School', e.target.innerText)} style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>{edu.school}</div>
-                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '2px' }}>{edu.education}</div>
+                                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Degree', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>{renderLookup(edu.degree)}</div>
+                                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('School', e.target.innerText)} style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>{edu.school || '-'}</div>
+                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '2px' }}>{renderLookup(edu.education)}</div>
                                             </div>
                                         )) || <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>No education details provided</div>}
                                     </div>
@@ -834,8 +842,8 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                         {contact.incomes?.map((inc, i) => (
                                             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #dcfce7' }}>
-                                                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#166534' }}>{inc.incomeType}</span>
-                                                <span style={{ fontSize: '0.85rem', fontWeight: 900, color: '#059669' }}>₹{Number(inc.amount).toLocaleString()}</span>
+                                                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#166534' }}>{renderLookup(inc.incomeType)}</span>
+                                                <span style={{ fontSize: '0.85rem', fontWeight: 900, color: '#059669' }}>₹{Number(inc.amount || 0).toLocaleString()}</span>
                                             </div>
                                         )) || <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>No income details provided</div>}
                                     </div>
@@ -848,10 +856,10 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                         {contact.loans?.map((loan, i) => (
                                             <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '10px', background: '#fef2f2', borderRadius: '8px', border: '1px solid #fee2e2' }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#991b1b' }}>{loan.loanType}</span>
-                                                    <span style={{ fontSize: '0.85rem', fontWeight: 900, color: '#ef4444' }}>₹{Number(loan.loanAmount).toLocaleString()}</span>
+                                                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#991b1b' }}>{renderLookup(loan.loanType)}</span>
+                                                    <span style={{ fontSize: '0.85rem', fontWeight: 900, color: '#ef4444' }}>₹{Number(loan.loanAmount || 0).toLocaleString()}</span>
                                                 </div>
-                                                <div style={{ fontSize: '0.65rem', color: '#b91c1c', fontWeight: 600 }}>{loan.bank}</div>
+                                                <div style={{ fontSize: '0.65rem', color: '#b91c1c', fontWeight: 600 }}>{renderLookup(loan.bank)}</div>
                                             </div>
                                         )) || <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>No loan details provided</div>}
                                     </div>
@@ -1468,7 +1476,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                         </ul>
                                         <div style={{ marginTop: '12px', fontSize: '0.7rem', color: '#64748b', fontStyle: 'italic', borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: '10px', lineHeight: '1.4' }}>
                                             <i className="fas fa-exclamation-triangle" style={{ marginRight: '6px', color: '#f59e0b' }}></i>
-                                            AI Learning: Deals from <span style={{ fontWeight: 800 }}>{contact.source}</span> leads with score <span style={{ color: '#ef4444' }}>&lt;{aiStats.leadScore.total < 60 ? aiStats.leadScore.total : 60}</span> have <span style={{ color: '#ef4444', fontWeight: 800 }}>28% higher</span> loss risk.
+                                            AI Learning: Deals from <span style={{ fontWeight: 800 }}>{renderLookup(contact.source)}</span> leads with score <span style={{ color: '#ef4444' }}>&lt;{aiStats.leadScore.total < 60 ? aiStats.leadScore.total : 60}</span> have <span style={{ color: '#ef4444', fontWeight: 800 }}>28% higher</span> loss risk.
                                         </div>
                                     </div>
                                 </div>
@@ -1663,7 +1671,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                 <i className={`fas ${doc.documentPicture?.name?.endsWith('.pdf') ? 'fa-file-pdf' : 'fa-file-image'}`} style={{ color: '#7c3aed', fontSize: '1.1rem' }}></i>
                                             </div>
                                             <div style={{ flex: 1, minWidth: 0 }}>
-                                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', marginBottom: '2px' }}>{doc.documentName}</div>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', marginBottom: '2px' }}>{renderLookup(doc.documentName)}</div>
                                                 <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>ID: {doc.documentNo}</div>
                                             </div>
                                             <button className="btn-outline" style={{ padding: '6px 12px', fontSize: '0.65rem', borderRadius: '8px', background: '#fff' }}>

@@ -1,7 +1,7 @@
 // API Configuration
 import axios from 'axios';
 
-export const API_BASE_URL = 'http://localhost:5002';
+export const API_BASE_URL = '/api';
 
 // Create and export axios instance
 export const api = axios.create({
@@ -22,12 +22,26 @@ const apiRequest = async (endpoint, options = {}) => {
             ...options,
         });
 
+        // Get content type
+        const contentType = response.headers.get("content-type");
+        const isJson = contentType && contentType.includes("application/json");
+
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.message || 'API request failed');
+            let errorMessage = 'API request failed';
+            if (isJson) {
+                const errorData = await response.json();
+                errorMessage = errorData.message || errorMessage;
+            } else {
+                errorMessage = `Error ${response.status}: ${response.statusText}`;
+            }
+            throw new Error(errorMessage);
         }
 
-        return await response.json();
+        if (isJson) {
+            return await response.json();
+        }
+
+        return await response.text();
     } catch (error) {
         console.error(`API Error [${endpoint}]:`, error);
         throw error;
@@ -95,7 +109,7 @@ export const scoringRulesAPI = {
 export const systemSettingsAPI = {
     getAll: () => apiRequest('/system-settings'),
     getByKey: (key) => apiRequest(`/system-settings/${key}`),
-    upsert: (key, data) => apiRequest('/system-settings', {
+    upsert: (key, data) => apiRequest('/system-settings/upsert', {
         method: 'POST',
         body: JSON.stringify({ key, ...data })
     }),
@@ -120,6 +134,15 @@ export const rolesAPI = {
     delete: (id) => apiRequest(`/roles/${id}`, { method: 'DELETE' }),
 };
 
+// Projects API
+export const projectsAPI = {
+    getAll: () => apiRequest('/projects'),
+    getById: (id) => apiRequest(`/projects/${id}`),
+    create: (data) => apiRequest('/projects', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id, data) => apiRequest(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id) => apiRequest(`/projects/${id}`, { method: 'DELETE' }),
+};
+
 export default {
     lookups: lookupsAPI,
     customFields: customFieldsAPI,
@@ -129,4 +152,5 @@ export default {
     systemSettings: systemSettingsAPI,
     users: usersAPI,
     roles: rolesAPI,
+    projects: projectsAPI,
 };

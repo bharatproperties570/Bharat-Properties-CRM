@@ -185,7 +185,11 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                 <AddInventoryModal
                     isOpen={showAddInventoryModal}
                     onClose={() => setShowAddInventoryModal(false)}
-                    onSave={() => setShowAddInventoryModal(false)}
+                    onSave={() => {
+                        setShowAddInventoryModal(false);
+                        // Trigger global refresh for inventory list
+                        window.dispatchEvent(new Event('inventory-updated'));
+                    }}
                 />
 
                 <AddDealModal

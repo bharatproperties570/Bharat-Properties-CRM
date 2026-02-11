@@ -26,7 +26,7 @@ const getDisabledStyle = () => ({
   color: "#94a3b8",
 });
 
-const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) => {
+const AddressDetailsForm = ({ address, onChange, title = "Personal Address", disabledFields = [] }) => {
   const [countries, setCountries] = useState([]);
   const [states, setStates] = useState([]);
   const [cities, setCities] = useState([]);
@@ -186,7 +186,8 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
                   pinCode: "",
                 })
               }
-              style={getDropdownStyle(false)}
+              style={getDropdownStyle(disabledFields.includes('country'))}
+              disabled={disabledFields.includes('country')}
             >
               <option value="">Select Country</option>
               {countries.map((c) => (
@@ -212,8 +213,8 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
                   pinCode: "",
                 })
               }
-              disabled={!address.country}
-              style={!address.country ? getDisabledStyle() : getDropdownStyle(false)}
+              disabled={!address.country || disabledFields.includes('state')}
+              style={(!address.country || disabledFields.includes('state')) ? getDisabledStyle() : getDropdownStyle(false)}
             >
               <option value="">Select State</option>
               {states.map((s) => (
@@ -238,8 +239,8 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
                   pinCode: "",
                 })
               }
-              disabled={!address.state}
-              style={!address.state ? getDisabledStyle() : getDropdownStyle(false)}
+              disabled={!address.state || disabledFields.includes('city')}
+              style={(!address.state || disabledFields.includes('city')) ? getDisabledStyle() : getDropdownStyle(false)}
             >
               <option value="">Select City</option>
               {cities.map((c) => (
@@ -266,8 +267,8 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address" }) =
                   pinCode: "",
                 })
               }
-              disabled={!address.city}
-              style={!address.city ? getDisabledStyle() : getDropdownStyle(false)}
+              disabled={!address.city || disabledFields.includes('location')}
+              style={(!address.city || disabledFields.includes('location')) ? getDisabledStyle() : getDropdownStyle(false)}
             >
               <option value="">Select Location</option>
               {locations.map((loc) => (

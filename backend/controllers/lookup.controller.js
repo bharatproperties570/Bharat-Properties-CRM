@@ -3,16 +3,21 @@ import Lookup from "../models/Lookup.js";
 export const getLookups = async (req, res) => {
     try {
         const { lookup_type, parent_lookup_id, parent_lookup_value } = req.query;
-        const query = {};
-        if (lookup_type) query.lookup_type = lookup_type;
+
+        // Return empty array if no type provided to prevent mixed data
+        if (!lookup_type) {
+            return res.json({ status: "success", data: [] });
+        }
+
+        const query = { lookup_type };
         if (parent_lookup_id) query.parent_lookup_id = parent_lookup_id;
         if (parent_lookup_value) query.parent_lookup_value = parent_lookup_value;
 
         const lookups = await Lookup.find(query).sort({ order: 1, lookup_value: 1 }).lean();
 
-        // Return format matching frontend expectation
         res.json({ status: "success", data: lookups });
     } catch (error) {
+        console.error("Lookup Error:", error);
         res.status(500).json({ status: "error", message: error.message });
     }
 };

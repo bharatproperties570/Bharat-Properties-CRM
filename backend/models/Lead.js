@@ -9,11 +9,14 @@ const LeadSchema = new mongoose.Schema({
     requirement: { type: String },
     subRequirement: { type: String },
     project: { type: String },
-    budget: { type: String, index: true },
-    location: { type: String, index: true },
+    budget: { type: String },
+    location: { type: String },
     sector: { type: String },
     source: { type: String },
-    status: { type: String, default: "fresh", index: true },
+    tags: [String],
+    description: String,
+    status: { type: String, index: true },
+
     notes: { type: String },
     isContacted: { type: Boolean, default: false },
     assignment: {

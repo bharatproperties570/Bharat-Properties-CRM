@@ -1,22 +1,27 @@
 import { useState, useEffect } from 'react';
 import { useFieldRules } from '../context/FieldRulesContext';
 import { useTriggers } from '../context/TriggersContext';
+import { useUserContext } from '../context/UserContext';
 import { useDistribution } from '../context/DistributionContext';
 import { useSequences } from '../context/SequenceContext';
-import { PROJECTS_LIST } from '../data/projectData';
-import { inventoryData } from '../data/mockData';
 import { numberToIndianWords } from '../utils/numberToWords';
+import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 
 const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
     const { validateAsync } = useFieldRules();
     const { fireEvent } = useTriggers();
     const { executeDistribution } = useDistribution();
+    const { users } = useUserContext();
     const evaluateAndEnroll = useSequences()?.evaluateAndEnroll || (() => { });
 
 
     const [isSaving, setIsSaving] = useState(false);
     const [currentTime, setCurrentTime] = useState(new Date());
+    const [projects, setProjects] = useState([]);
+    const [units, setUnits] = useState([]);
+    const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+    const [isLoadingUnits, setIsLoadingUnits] = useState(false);
 
     const [formData, setFormData] = useState({
         projectName: '',
@@ -24,6 +29,8 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
         unitNo: '',
         unitType: 'Ordinary',
         propertyType: 'Plot(Residential)',
+        category: '',
+        subCategory: '',
         size: '',
         location: '',
         intent: 'Sell', // Sell, Rent, Lease
@@ -108,6 +115,52 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
         return () => clearInterval(timer);
     }, []);
 
+    // Fetch Projects on Mount
+    useEffect(() => {
+        const fetchProjects = async () => {
+            setIsLoadingProjects(true);
+            try {
+                const response = await api.get('/projects');
+                if (response.data && response.data.success) {
+                    setProjects(response.data.data);
+                }
+            } catch (error) {
+                console.error("Error fetching projects:", error);
+                toast.error("Failed to load projects");
+            } finally {
+                setIsLoadingProjects(false);
+            }
+        };
+        if (isOpen) fetchProjects();
+    }, [isOpen]);
+
+    // Fetch Units when Project or Block changes
+    useEffect(() => {
+        const fetchUnits = async () => {
+            if (!formData.projectName) {
+                setUnits([]);
+                return;
+            }
+            setIsLoadingUnits(true);
+            try {
+                const params = new URLSearchParams();
+                params.append('area', formData.projectName);
+                if (formData.block) {
+                    params.append('location', formData.block);
+                }
+                const response = await api.get(`/inventory?${params.toString()}`);
+                if (response.data && response.data.success) {
+                    setUnits(response.data.records || response.data.data || []);
+                }
+            } catch (error) {
+                console.error("Error fetching units:", error);
+            } finally {
+                setIsLoadingUnits(false);
+            }
+        };
+        if (isOpen) fetchUnits();
+    }, [formData.projectName, formData.block, isOpen]);
+
     const handleInputChange = (field, value) => {
         setFormData(prev => ({ ...prev, [field]: value }));
     };
@@ -120,8 +173,8 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
     };
 
     const handleProjectChange = (projectName) => {
-        const project = PROJECTS_LIST.find(p => p.name === projectName);
-        const availableBlocks = project ? project.blocks || [] : [];
+        const project = projects.find(p => p.name === projectName);
+        const availableBlocks = project ? (project.blocks || []).map(b => typeof b === 'string' ? b : b.name) : [];
         const defaultBlock = availableBlocks.length === 1 ? availableBlocks[0] : '';
 
         let assignedTo = formData.assignedTo;
@@ -139,16 +192,18 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
             projectName,
             block: defaultBlock,
             unitNo: '', // Reset unit when project changes
+            propertyType: '', // Reset unit-dependent fields
+            size: '',
+            owner: { name: '', phone: '', email: '' },
+            associatedContact: { name: '', phone: '', email: '' },
             assignedTo,
             team
         }));
     };
 
     const handleUnitChange = (unitNo) => {
-        const unit = inventoryData.find(i =>
-            i.unitNo === unitNo &&
-            (i.area === formData.projectName || i.area?.includes(formData.projectName)) &&
-            i.location === formData.block
+        const unit = units.find(i =>
+            (i.unitNo === unitNo || i.unitNumber === unitNo)
         );
 
         if (unit) {
@@ -158,17 +213,21 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
                 // Recalculate prices if size changes and we have rates/totals
                 let updates = {
                     unitNo,
-                    propertyType: unit.type || prev.propertyType,
+                    propertyType: unit.type || unit.category || prev.propertyType,
+                    category: unit.category || '',
+                    subCategory: unit.subCategory || '',
                     size: newSize,
                     owner: {
-                        name: unit.ownerName || '',
-                        phone: unit.ownerPhone || '',
-                        email: unit.ownerEmail || ''
+                        _id: unit.owners?.[0]?._id || null,
+                        name: unit.owners?.[0]?.name || unit.ownerName || '',
+                        phone: unit.owners?.[0]?.phone || unit.ownerPhone || '',
+                        email: unit.owners?.[0]?.email || unit.ownerEmail || ''
                     },
                     associatedContact: {
-                        name: unit.associatedContact || '',
-                        phone: unit.associatedPhone || '',
-                        email: unit.associatedEmail || ''
+                        _id: unit.associates?.[0]?._id || null,
+                        name: unit.associates?.[0]?.name || unit.associatedContact || '',
+                        phone: unit.associates?.[0]?.phone || unit.associatedPhone || '',
+                        email: unit.associates?.[0]?.email || unit.associatedEmail || ''
                     },
                     isOwnerSelected: false,
                     isAssociateSelected: false
@@ -300,18 +359,39 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
                 }
             }
 
-            // Simulate API call
-            await new Promise(resolve => setTimeout(resolve, 800));
+            // Prepare payload
+            const payload = { ...formData };
+            if (formData.isOwnerSelected && formData.owner?._id) {
+                payload.owner = formData.owner._id;
+            } else if (!formData.isOwnerSelected) {
+                payload.owner = null;
+            }
+            if (formData.isAssociateSelected && formData.associatedContact?._id) {
+                payload.associatedContact = formData.associatedContact._id;
+            } else if (!formData.isAssociateSelected) {
+                payload.associatedContact = null;
+            }
 
-            // Calculate Score Class based on some logic if not set manually (Mock logic)
-            // User mentioned Deal Type is decided by score. For now we save what is selected or default.
+            // Real API call
+            let response;
+            if (deal && deal._id) {
+                response = await api.put(`/deals/${deal._id}`, payload);
+            } else {
+                response = await api.post('/deals', payload);
+            }
+
+            if (!response.data || !response.data.success) {
+                throw new Error(response.data?.error || 'Failed to save deal');
+            }
+
+            const savedData = response.data.data;
 
             toast.success('Deal Saved!', { id: toastId });
 
             if (deal) {
-                fireEvent('deal_updated', formData, { entityType: 'deals', previousEntity: deal });
+                fireEvent('deal_updated', savedData, { entityType: 'deals', previousEntity: deal });
             } else {
-                fireEvent('deal_created', formData, { entityType: 'deals' });
+                fireEvent('deal_created', savedData, { entityType: 'deals' });
 
                 // Enroll linked contacts into sequences
                 if (formData.owner.phone) {
@@ -322,7 +402,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
                 }
             }
 
-            onSave && onSave(formData);
+            onSave && onSave(savedData);
             onClose();
         } catch (error) {
             console.error("Save Error:", error);
@@ -446,9 +526,10 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
                                     style={selectStyle}
                                     value={formData.projectName}
                                     onChange={e => handleProjectChange(e.target.value)}
+                                    disabled={isLoadingProjects}
                                 >
-                                    <option value="">Select Project</option>
-                                    {PROJECTS_LIST.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                                    <option value="">{isLoadingProjects ? 'Loading...' : 'Select Project'}</option>
+                                    {projects.map(p => <option key={p._id || p.id} value={p.name}>{p.name}</option>)}
                                 </select>
                             </div>
                             <div>
@@ -456,12 +537,25 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
                                 <select
                                     style={selectStyle}
                                     value={formData.block}
-                                    onChange={e => handleInputChange('block', e.target.value)}
+                                    onChange={e => {
+                                        const block = e.target.value;
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            block,
+                                            unitNo: '',
+                                            propertyType: '',
+                                            size: '',
+                                            owner: { name: '', phone: '', email: '' },
+                                            associatedContact: { name: '', phone: '', email: '' }
+                                        }));
+                                    }}
                                     disabled={!formData.projectName}
                                 >
                                     <option value="">Select Block</option>
-                                    {PROJECTS_LIST.find(p => p.name === formData.projectName)?.blocks?.map(block => (
-                                        <option key={block} value={block}>{block}</option>
+                                    {projects.find(p => p.name === formData.projectName)?.blocks?.map(block => (
+                                        <option key={typeof block === 'string' ? block : block.name} value={typeof block === 'string' ? block : block.name}>
+                                            {typeof block === 'string' ? block : block.name}
+                                        </option>
                                     ))}
                                 </select>
                             </div>
@@ -470,19 +564,13 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
                                 <select
                                     style={!formData.block ? customSelectStyleDisabled : selectStyle}
                                     value={formData.unitNo}
-                                    disabled={!formData.block}
+                                    disabled={!formData.block || isLoadingUnits}
                                     onChange={e => handleUnitChange(e.target.value)}
                                 >
-                                    <option value="">Select Unit</option>
-                                    {inventoryData
-                                        .filter(i =>
-                                            i.status === 'Active' &&
-                                            (i.area === formData.projectName || i.area?.includes(formData.projectName)) &&
-                                            (!formData.block || i.location === formData.block)
-                                        )
-                                        .map(unit => (
-                                            <option key={unit.unitNo} value={unit.unitNo}>{unit.unitNo}</option>
-                                        ))
+                                    <option value="">{isLoadingUnits ? 'Loading units...' : 'Select Unit'}</option>
+                                    {units.map(unit => (
+                                        <option key={unit._id} value={unit.unitNo || unit.unitNumber}>{unit.unitNo || unit.unitNumber}</option>
+                                    ))
                                     }
                                 </select>
                             </div>
@@ -804,9 +892,17 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
                             <div>
                                 <label style={labelStyle}>Assigned Agent (Auto)</label>
-                                <div style={{ ...inputStyle, background: '#f8fafc', fontWeight: 600, color: formData.assignedTo ? '#0f172a' : '#94a3b8' }}>
-                                    {formData.assignedTo || 'Select Project to Assign'}
-                                </div>
+                                <label style={labelStyle}>Assigned Agent</label>
+                                <select
+                                    style={selectStyle}
+                                    value={formData.assignedTo}
+                                    onChange={e => handleInputChange('assignedTo', e.target.value)}
+                                >
+                                    <option value="">Select Agent</option>
+                                    {users.map(user => (
+                                        <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
+                                    ))}
+                                </select>
                             </div>
                             <div>
                                 <label style={labelStyle}>Team (Auto)</label>

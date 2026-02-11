@@ -170,7 +170,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
 };
 
 const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
-    const { masterFields } = usePropertyConfig();
+    const { masterFields = {} } = usePropertyConfig();
     const [isVisible, setIsVisible] = useState(false);
     const [sizeMode, setSizeMode] = useState('type'); // 'type' | 'range'
 

@@ -1,0 +1,1311 @@
+[
+  {
+    "_id": "6979bf760ffc48141ef8e4c5",
+    "title": null,
+    "name": "Digvijay",
+    "surname": "kumar",
+    "fatherName": "Jaideo Singh",
+    "countryCode": null,
+    "phones": [
+      {
+        "number": "7047752734",
+        "type": "Personal",
+        "_id": "6989ceecf45f0ce527fbd464"
+      }
+    ],
+    "emails": [
+      {
+        "address": "digvijaykumar.315@gmail.com",
+        "type": "Personal",
+        "_id": "6989ceecf45f0ce527fbd465"
+      }
+    ],
+    "tags": [
+      "Mern"
+    ],
+    "description": "",
+    "professionCategory": null,
+    "professionSubCategory": null,
+    "designation": null,
+    "company": "Bharat Properties Private Limited",
+    "workOffice": "Main Hub",
+    "source": null,
+    "team": "Sales",
+    "owner": null,
+    "visibleTo": "Public",
+    "personalAddress": {
+      "hNo": "58",
+      "street": "mandir",
+      "country": null,
+      "state": "Punjab",
+      "city": "Mohali",
+      "tehsil": "Mohali Tehsil",
+      "postOffice": "Sector 66 PO",
+      "pinCode": "160062",
+      "location": "Sector 66",
+      "area": "noida"
+    },
+    "correspondenceAddress": {
+      "hNo": "",
+      "street": "",
+      "country": null,
+      "state": "",
+      "city": "",
+      "tehsil": "",
+      "postOffice": "",
+      "pinCode": "",
+      "location": "",
+      "area": ""
+    },
+    "gender": "",
+    "maritalStatus": "",
+    "birthDate": null,
+    "anniversaryDate": null,
+    "educations": [
+      {
+        "education": null,
+        "degree": null,
+        "school": "delhi",
+        "_id": "6989ceecf45f0ce527fbd466"
+      }
+    ],
+    "loans": [
+      {
+        "loanType": null,
+        "bank": null,
+        "loanAmount": "",
+        "_id": "6989ceecf45f0ce527fbd467"
+      }
+    ],
+    "socialMedia": [
+      {
+        "platform": null,
+        "url": "",
+        "_id": "6989ceecf45f0ce527fbd468"
+      }
+    ],
+    "incomes": [
+      {
+        "incomeType": null,
+        "amount": "50000",
+        "_id": "6989ceecf45f0ce527fbd469"
+      }
+    ],
+    "documents": [
+      {
+        "documentName": null,
+        "documentType": null,
+        "documentNo": "",
+        "projectName": "",
+        "block": "",
+        "unitNumber": "",
+        "documentPicture": null,
+        "_id": "6989ceecf45f0ce527fbd46a"
+      }
+    ],
+    "createdAt": "2026-01-28T07:49:10.080Z",
+    "updatedAt": "2026-02-09T12:12:47.935Z",
+    "__v": 0,
+    "addOn": [],
+    "groups": [],
+    "isActionable": false,
+    "stage": "New",
+    "status": "Active"
+  },
+  {
+    "_id": "697c8b0774c56b80c7b0d1e8",
+    "title": null,
+    "name": "Jeet",
+    "surname": "Singh",
+    "fatherName": "",
+    "countryCode": null,
+    "phones": [
+      {
+        "number": "7024448644",
+        "type": "Personal",
+        "_id": "6989ceecf45f0ce527fbd46b"
+      }
+    ],
+    "emails": [
+      {
+        "address": "jeet@gmail.com",
+        "type": "Personal",
+        "_id": "6989ceecf45f0ce527fbd46c"
+      }
+    ],
+    "tags": [],
+    "description": "",
+    "professionCategory": null,
+    "professionSubCategory": null,
+    "designation": null,
+    "company": "Haryana Housing Board",
+    "workOffice": "",
+    "source": null,
+    "team": "Sales",
+    "owner": null,
+    "visibleTo": "Private",
+    "personalAddress": {
+      "hNo": "133",
+      "street": "",
+      "country": null,
+      "state": "Punjab",
+      "city": "Mohali",
+      "tehsil": "Mohali Tehsil",
+      "postOffice": "Manakpur Kallar PO",
+      "pinCode": "140306",
+      "location": "Sector 82",
+      "area": ""
+    },
+    "correspondenceAddress": {
+      "hNo": "",
+      "street": "",
+      "country": null,
+      "state": "",
+      "city": "",
+      "tehsil": "",
+      "postOffice": "",
+      "pinCode": "",
+      "location": "",
+      "area": ""
+    },
+    "gender": "Male",
+    "maritalStatus": "Single",
+    "birthDate": null,
+    "anniversaryDate": null,
+    "educations": [
+      {
+        "education": null,
+        "degree": null,
+        "school": "",
+        "_id": "6989ceecf45f0ce527fbd46d"
+      }
+    ],
+    "loans": [
+      {
+        "loanType": null,
+        "bank": null,
+        "loanAmount": "",
+        "_id": "6989ceecf45f0ce527fbd46e"
+      }
+    ],
+    "socialMedia": [
+      {
+        "platform": null,
+        "url": "",
+        "_id": "6989ceecf45f0ce527fbd46f"
+      }
+    ],
+    "incomes": [
+      {
+        "incomeType": null,
+        "amount": "",
+        "_id": "6989ceecf45f0ce527fbd470"
+      }
+    ],
+    "documents": [
+      {
+        "documentName": null,
+        "documentType": null,
+        "documentNo": "",
+        "projectName": "",
+        "block": "",
+        "unitNumber": "",
+        "documentPicture": null,
+        "_id": "6989ceecf45f0ce527fbd471"
+      }
+    ],
+    "createdAt": "2026-01-30T10:42:15.521Z",
+    "updatedAt": "2026-02-09T12:12:47.986Z",
+    "__v": 0,
+    "addOn": [],
+    "groups": [],
+    "isActionable": false,
+    "stage": "New",
+    "status": "Active"
+  },
+  {
+    "_id": "697c8c9774c56b80c7b0d1ec",
+    "title": null,
+    "name": "Sajan",
+    "surname": "Kumar",
+    "countryCode": null,
+    "phones": [
+      {
+        "number": "9812345678",
+        "type": "Personal",
+        "_id": "6989cf3f493777527069502e"
+      }
+    ],
+    "emails": [
+      {
+        "address": "sajan@gmai.com",
+        "type": "Personal",
+        "_id": "6989cf3f493777527069502f"
+      }
+    ],
+    "tags": [],
+    "source": null,
+    "team": "Sales",
+    "owner": null,
+    "visibleTo": "Public",
+    "educations": [],
+    "loans": [],
+    "socialMedia": [],
+    "incomes": [],
+    "documents": [],
+    "createdAt": "2026-01-30T10:48:55.105Z",
+    "updatedAt": "2026-02-09T12:12:48.029Z",
+    "__v": 0,
+    "addOn": [],
+    "groups": [],
+    "isActionable": false,
+    "stage": "New",
+    "status": "Active"
+  },
+  {
+    "_id": "697cae7d74c56b80c7b0d215",
+    "title": null,
+    "name": "Rajbir",
+    "surname": "Singh",
+    "fatherName": "Mohan Lal",
+    "countryCode": null,
+    "phones": [
+      {
+        "number": "9872906058",
+        "type": "Personal",
+        "_id": "6989ceecf45f0ce527fbd474"
+      }
+    ],
+    "emails": [
+      {
+        "address": "rajveer@gmail.com",
+        "type": "Personal",
+        "_id": "6989ceecf45f0ce527fbd475"
+      }
+    ],
+    "tags": [
+      "c"
+    ],
+    "description": "",
+    "professionCategory": null,
+    "professionSubCategory": null,
+    "designation": null,
+    "company": "Municipal Corporation of Kurukshetra",
+    "workOffice": "",
+    "source": null,
+    "team": "Sales",
+    "owner": null,
+    "visibleTo": "Public",
+    "personalAddress": {
+      "hNo": "123",
+      "street": "",
+      "country": null,
+      "state": "Chandigarh",
+      "city": "Chandigarh",
+      "tehsil": "Chandigarh",
+      "postOffice": "Sector 18 PO",
+      "pinCode": "160018",
+      "location": "Sector 18",
+      "area": "B Block"
+    },
+    "correspondenceAddress": {
+      "hNo": "",
+      "street": "",
+      "country": null,
+      "state": "",
+      "city": "",
+      "tehsil": "",
+      "postOffice": "",
+      "pinCode": "",
+      "location": "",
+      "area": ""
+    },
+    "gender": "Male",
+    "maritalStatus": "Single",
+    "birthDate": null,
+    "anniversaryDate": null,
+    "educations": [
+      {
+        "education": null,
+        "degree": null,
+        "school": "",
+        "_id": "6989ceecf45f0ce527fbd476"
+      }
+    ],
+    "loans": [
+      {
+        "loanType": null,
+        "bank": null,
+        "loanAmount": "",
+        "_id": "6989ceecf45f0ce527fbd477"
+      }
+    ],
+    "socialMedia": [
+      {
+        "platform": null,
+        "url": "",
+        "_id": "6989ceecf45f0ce527fbd478"
+      }
+    ],
+    "incomes": [
+      {
+        "incomeType": null,
+        "amount": "",
+        "_id": "6989ceecf45f0ce527fbd479"
+      }
+    ],
+    "documents": [
+      {
+        "documentName": null,
+        "documentType": null,
+        "documentNo": "",
+        "projectName": "",
+        "block": "",
+        "unitNumber": "",
+        "documentPicture": null,
+        "_id": "6989ceecf45f0ce527fbd47a"
+      }
+    ],
+    "createdAt": "2026-01-30T13:13:33.518Z",
+    "updatedAt": "2026-02-09T12:12:48.072Z",
+    "__v": 0,
+    "addOn": [],
+    "groups": [],
+    "isActionable": false,
+    "stage": "New",
+    "status": "Active"
+  },
+  {
+    "_id": "697cce1174c56b80c7b0d24b",
+    "title": null,
+    "name": "Sajan",
+    "surname": "Kumar",
+    "countryCode": null,
+    "phones": [
+      {
+        "number": "9812345678",
+        "type": "Personal",
+        "_id": "6989cf3f4937775270695037"
+      }
+    ],
+    "emails": [
+      {
+        "address": "sajan@gmai.com",
+        "type": "Personal",
+        "_id": "6989cf3f4937775270695038"
+      }
+    ],
+    "tags": [],
+    "source": null,
+    "team": "Sales",
+    "owner": null,
+    "visibleTo": "Public",
+    "educations": [],
+    "loans": [],
+    "socialMedia": [],
+    "incomes": [],
+    "documents": [],
+    "createdAt": "2026-01-30T15:28:17.009Z",
+    "updatedAt": "2026-02-09T12:12:48.112Z",
+    "__v": 0,
+    "addOn": [],
+    "groups": [],
+    "isActionable": false,
+    "stage": "New",
+    "status": "Active"
+  },
+  {
+    "_id": "6986dbc7d6fbc1cdec3314aa",
+    "title": null,
+    "name": "Test Contact",
+    "surname": "User",
+    "countryCode": null,
+    "phones": [
+      {
+        "number": "9999999999",
+        "type": "Personal",
+        "_id": "6986dbc8d6fbc1cdec3314ab"
+      }
+    ],
+    "emails": [
+      {
+        "address": "test@example.com",
+        "type": "Personal",
+        "_id": "6986dbc8d6fbc1cdec3314ac"
+      }
+    ],
+    "tags": [],
+    "stage": "New",
+    "status": "Active",
+    "addOn": [],
+    "groups": [],
+    "isActionable": false,
+    "educations": [],
+    "loans": [],
+    "socialMedia": [],
+    "incomes": [],
+    "documents": [],
+    "createdAt": "2026-02-07T06:29:28.016Z",
+    "updatedAt": "2026-02-09T12:12:48.152Z",
+    "__v": 0
+  },
+  {
+    "_id": "6986dc00d6fbc1cdec3314ae",
+    "title": null,
+    "name": "ram",
+    "surname": "singah",
+    "fatherName": "",
+    "countryCode": null,
+    "phones": [
+      {
+        "number": "9812344567",
+        "type": "Personal",
+        "_id": "6986dc00d6fbc1cdec3314af"
+      }
+    ],
+    "emails": [
+      {
+        "address": "",
+        "type": "Personal",
+        "_id": "6986dc00d6fbc1cdec3314b0"
+      }
+    ],
+    "tags": [],
+    "description": "",
+    "professionCategory": null,
+    "professionSubCategory": null,
+    "designation": null,
+    "company": "Bharat Properties Private Limited",
+    "workOffice": "",
+    "source": null,
+    "team": "Sales",
+    "owner": null,
+    "visibleTo": "Public",
+    "personalAddress": {
+      "hNo": "",
+      "street": "",
+      "country": null,
+      "state": "",
+      "city": "",
+      "tehsil": "",
+      "postOffice": "",
+      "pinCode": "",
+      "location": "",
+      "area": ""
+    },
+    "correspondenceAddress": {
+      "hNo": "",
+      "street": "",
+      "country": null,
+      "state": "",
+      "city": "",
+      "tehsil": "",
+      "postOffice": "",
+      "pinCode": "",
+      "location": "",
+      "area": ""
+    },
+    "gender": "",
+    "maritalStatus": "",
+    "birthDate": null,
+    "anniversaryDate": null,
+    "educations": [
+      {
+        "education": null,
+        "degree": null,
+        "school": "",
+        "_id": "6986dc00d6fbc1cdec3314b1"
+      }
+    ],
+    "loans": [
+      {
+        "loanType": null,
+        "bank": null,
+        "loanAmount": "",
+        "_id": "6986dc00d6fbc1cdec3314b2"
+      }
+    ],
+    "socialMedia": [
+      {
+        "platform": null,
+        "url": "",
+        "_id": "6986dc00d6fbc1cdec3314b3"
+      }
+    ],
+    "incomes": [
+      {
+        "incomeType": null,
+        "amount": "",
+        "_id": "6986dc00d6fbc1cdec3314b4"
+      }
+    ],
+    "documents": [
+      {
+        "documentName": null,
+        "documentType": null,
+        "documentNo": "",
+        "projectName": "",
+        "block": "",
+        "unitNumber": "",
+        "documentPicture": null,
+        "_id": "6986dc00d6fbc1cdec3314b5"
+      }
+    ],
+    "stage": "New",
+    "status": "Active",
+    "addOn": [],
+    "groups": [],
+    "isActionable": false,
+    "createdAt": "2026-02-07T06:30:24.755Z",
+    "updatedAt": "2026-02-09T12:12:48.273Z",
+    "__v": 0
+  },
+  {
+    "_id": "6986dc74d6fbc1cdec3314bd",
+    "title": null,
+    "name": "shayam",
+    "surname": "singha",
+    "countryCode": null,
+    "phones": [
+      {
+        "number": "9834567785",
+        "type": "Personal",
+        "_id": "6986dc74d6fbc1cdec3314be"
+      }
+    ],
+    "emails": [
+      {
+        "address": "",
+        "type": "Personal",
+        "_id": "6986dc74d6fbc1cdec3314bf"
+      }
+    ],
+    "tags": [],
+    "source": null,
+    "team": "Sales",
+    "owner": null,
+    "visibleTo": "Private",
+    "stage": "New",
+    "status": "Active",
+    "addOn": [],
+    "groups": [],
+    "isActionable": false,
+    "educations": [],
+    "loans": [],
+    "socialMedia": [],
+    "incomes": [],
+    "documents": [],
+    "createdAt": "2026-02-07T06:32:20.497Z",
+    "updatedAt": "2026-02-09T12:12:48.315Z",
+    "__v": 0
+  },
+  {
+    "_id": "6986ddcad6fbc1cdec3314f1",
+    "title": null,
+    "name": "laxman",
+    "surname": "singh",
+    "countryCode": null,
+    "phones": [
+      {
+        "number": "8965584838",
+        "type": "Personal",
+        "_id": "6986ddcad6fbc1cdec3314f2"
+      }
+    ],
+    "emails": [
+      {
+        "address": "",
+        "type": "Personal",
+        "_id": "6986ddcad6fbc1cdec3314f3"
+      }
+    ],
+    "tags": [],
+    "source": null,
+    "team": "Marketing",
+    "owner": null,
+    "visibleTo": "Public",
+    "stage": "New",
+    "status": "Active",
+    "addOn": [],
+    "groups": [],
+    "isActionable": false,
+    "educations": [],
+    "loans": [],
+    "socialMedia": [],
+    "incomes": [],
+    "documents": [],
+    "createdAt": "2026-02-07T06:38:02.809Z",
+    "updatedAt": "2026-02-09T12:12:48.358Z",
+    "__v": 0
+  },
+  {
+    "_id": "6986ea3374c56b80c7b0d52b",
+    "title": null,
+    "name": "Suraj",
+    "surname": "Keshwar",
+    "fatherName": "",
+    "countryCode": null,
+    "phones": [
+      {
+        "number": "09991000570",
+        "type": "Personal",
+        "_id": "6989ceecf45f0ce527fbd48a"
+      }
+    ],
+    "emails": [
+      {
+        "address": "realdealproperties.in@gmail.com",
+        "type": "Personal",
+        "_id": "6989ceecf45f0ce527fbd48b"
+      }
+    ],
+    "tags": [],
+    "description": "",
+    "professionCategory": null,
+    "professionSubCategory": null,
+    "designation": null,
+    "company": "",
+    "workOffice": "",
+    "source": null,
+    "team": "",
+    "owner": null,
+    "visibleTo": "",
+    "personalAddress": {
+      "hNo": "",
+      "street": "",
+      "country": null,
+      "state": "",
+      "city": "",
+      "tehsil": "",
+      "postOffice": "",
+      "pinCode": "",
+      "location": "",
+      "area": ""
+    },
+    "correspondenceAddress": {
+      "hNo": "",
+      "street": "",
+      "country": null,
+      "state": "",
+      "city": "",
+      "tehsil": "",
+      "postOffice": "",
+      "pinCode": "",
+      "location": "",
+      "area": ""
+    },
+    "gender": "Male",
+    "maritalStatus": "Married",
+    "birthDate": null,
+    "anniversaryDate": null,
+    "educations": [
+      {
+        "education": null,
+        "degree": null,
+        "school": "",
+        "_id": "6989ceecf45f0ce527fbd48c"
+      }
+    ],
+    "loans": [
+      {
+        "loanType": null,
+        "bank": null,
+        "loanAmount": "",
+        "_id": "6989ceecf45f0ce527fbd48d"
+      }
+    ],
+    "socialMedia": [
+      {
+        "platform": null,
+        "url": "",
+        "_id": "6989ceecf45f0ce527fbd48e"
+      }
+    ],
+    "incomes": [
+      {
+        "incomeType": null,
+        "amount": "",
+        "_id": "6989ceecf45f0ce527fbd48f"
+      }
+    ],
+    "documents": [
+      {
+        "documentName": null,
+        "documentType": null,
+        "documentNo": "",
+        "projectName": "",
+        "block": "",
+        "unitNumber": "",
+        "documentPicture": null,
+        "_id": "6989ceecf45f0ce527fbd490"
+      }
+    ],
+    "createdAt": "2026-02-07T07:30:59.402Z",
+    "updatedAt": "2026-02-09T12:12:48.396Z",
+    "__v": 0,
+    "addOn": [],
+    "groups": [],
+    "isActionable": false,
+    "stage": "New",
+    "status": "Active"
+  },
+  {
+    "_id": "6986eb9374c56b80c7b0d597",
+    "title": null,
+    "name": "Gautam",
+    "surname": "Sharma",
+    "fatherName": "",
+    "countryCode": null,
+    "phones": [
+      {
+        "number": "09034416304",
+        "type": "Personal",
+        "_id": "6989ceecf45f0ce527fbd491"
+      }
+    ],
+    "emails": [
+      {
+        "address": "",
+        "type": "Personal",
+        "_id": "6989ceecf45f0ce527fbd492"
+      }
+    ],
+    "tags": [],
+    "description": "",
+    "professionCategory": null,
+    "professionSubCategory": null,
+    "designation": null,
+    "company": "Bharat Properties Private Limited",
+    "workOffice": "",
+    "source": null,
+    "team": "",
+    "owner": null,
+    "visibleTo": "",
+    "personalAddress": {
+      "hNo": "",
+      "street": "",
+      "country": null,
+      "state": "",
+      "city": "",
+      "tehsil": "",
+      "postOffice": "",
+      "pinCode": "",
+      "location": "",
+      "area": ""
+    },
+    "correspondenceAddress": {
+      "hNo": "",
+      "street": "",
+      "country": null,
+      "state": "",
+      "city": "",
+      "tehsil": "",
+      "postOffice": "",
+      "pinCode": "",
+      "location": "",
+      "area": ""
+    },
+    "gender": "Male",
+    "maritalStatus": "",
+    "birthDate": null,
+    "anniversaryDate": null,
+    "educations": [
+      {
+        "education": null,
+        "degree": null,
+        "school": "",
+        "_id": "6989ceecf45f0ce527fbd493"
+      }
+    ],
+    "loans": [
+      {
+        "loanType": null,
+        "bank": null,
+        "loanAmount": "",
+        "_id": "6989ceecf45f0ce527fbd494"
+      }
+    ],
+    "socialMedia": [
+      {
+        "platform": null,
+        "url": "",
+        "_id": "6989ceecf45f0ce527fbd495"
+      }
+    ],
+    "incomes": [
+      {
+        "incomeType": null,
+        "amount": "",
+        "_id": "6989ceecf45f0ce527fbd496"
+      }
+    ],
+    "documents": [
+      {
+        "documentName": null,
+        "documentType": null,
+        "documentNo": "",
+        "projectName": "",
+        "block": "",
+        "unitNumber": "",
+        "documentPicture": null,
+        "_id": "6989ceecf45f0ce527fbd497"
+      }
+    ],
+    "createdAt": "2026-02-07T07:36:51.371Z",
+    "updatedAt": "2026-02-09T12:12:48.437Z",
+    "__v": 0,
+    "addOn": [],
+    "groups": [],
+    "isActionable": false,
+    "stage": "New",
+    "status": "Active"
+  },
+  {
+    "_id": "69873ccf65dd92ab60a452e7",
+    "title": null,
+    "name": "raja ram mohan",
+    "surname": "",
+    "fatherName": "",
+    "countryCode": null,
+    "phones": [
+      {
+        "number": "9812344493",
+        "type": "Personal",
+        "_id": "69873ccf65dd92ab60a452e8"
+      }
+    ],
+    "emails": [
+      {
+        "address": "",
+        "type": "Personal",
+        "_id": "69873ccf65dd92ab60a452e9"
+      }
+    ],
+    "tags": [],
+    "description": "",
+    "professionCategory": "6986f7708633dff4f7ef4ad7",
+    "professionSubCategory": null,
+    "designation": null,
+    "company": "Bharat Properties Private Limited",
+    "workOffice": "",
+    "source": null,
+    "team": "",
+    "owner": null,
+    "visibleTo": "",
+    "personalAddress": {
+      "hNo": "",
+      "street": "",
+      "country": null,
+      "state": "",
+      "city": "",
+      "tehsil": "",
+      "postOffice": "",
+      "pinCode": "",
+      "location": "",
+      "area": ""
+    },
+    "correspondenceAddress": {
+      "hNo": "",
+      "street": "",
+      "country": null,
+      "state": "",
+      "city": "",
+      "tehsil": "",
+      "postOffice": "",
+      "pinCode": "",
+      "location": "",
+      "area": ""
+    },
+    "gender": "",
+    "maritalStatus": "",
+    "birthDate": null,
+    "anniversaryDate": null,
+    "educations": [
+      {
+        "education": null,
+        "degree": null,
+        "school": "",
+        "_id": "69873ccf65dd92ab60a452ea"
+      }
+    ],
+    "loans": [
+      {
+        "loanType": null,
+        "bank": null,
+        "loanAmount": "",
+        "_id": "69873ccf65dd92ab60a452eb"
+      }
+    ],
+    "socialMedia": [
+      {
+        "platform": null,
+        "url": "",
+        "_id": "69873ccf65dd92ab60a452ec"
+      }
+    ],
+    "incomes": [
+      {
+        "incomeType": null,
+        "amount": "",
+        "_id": "69873ccf65dd92ab60a452ed"
+      }
+    ],
+    "documents": [
+      {
+        "documentName": null,
+        "documentType": null,
+        "documentNo": "",
+        "projectName": "",
+        "block": "",
+        "unitNumber": "",
+        "documentPicture": null,
+        "_id": "69873ccf65dd92ab60a452ee"
+      }
+    ],
+    "stage": "New",
+    "status": "Active",
+    "addOn": [],
+    "groups": [],
+    "isActionable": false,
+    "createdAt": "2026-02-07T13:23:27.660Z",
+    "updatedAt": "2026-02-09T12:12:48.478Z",
+    "__v": 0
+  },
+  {
+    "_id": "6987872697c2e0696f0100b8",
+    "title": null,
+    "name": "Verification",
+    "surname": "",
+    "fatherName": "",
+    "countryCode": null,
+    "phones": [
+      {
+        "number": "98765000019876543210",
+        "type": "Personal",
+        "_id": "6987872697c2e0696f0100b9"
+      }
+    ],
+    "emails": [
+      {
+        "address": "",
+        "type": "Personal",
+        "_id": "6987872697c2e0696f0100ba"
+      }
+    ],
+    "tags": [],
+    "description": "",
+    "professionCategory": null,
+    "professionSubCategory": null,
+    "designation": null,
+    "company": "",
+    "workOffice": "",
+    "source": null,
+    "subSource": null,
+    "campaign": null,
+    "owner": null,
+    "visibleTo": "",
+    "personalAddress": {
+      "hNo": "",
+      "street": "",
+      "country": null,
+      "state": "",
+      "city": "",
+      "tehsil": "",
+      "postOffice": "",
+      "pinCode": "",
+      "location": "",
+      "area": ""
+    },
+    "correspondenceAddress": {
+      "hNo": "",
+      "street": "",
+      "country": null,
+      "state": "",
+      "city": "",
+      "tehsil": "",
+      "postOffice": "",
+      "pinCode": "",
+      "location": "",
+      "area": ""
+    },
+    "gender": "",
+    "maritalStatus": "",
+    "birthDate": null,
+    "anniversaryDate": null,
+    "educations": [
+      {
+        "education": null,
+        "degree": null,
+        "school": "",
+        "_id": "6987872697c2e0696f0100bb"
+      }
+    ],
+    "loans": [
+      {
+        "loanType": null,
+        "bank": null,
+        "loanAmount": "",
+        "_id": "6987872697c2e0696f0100bc"
+      }
+    ],
+    "socialMedia": [
+      {
+        "platform": null,
+        "url": "",
+        "_id": "6987872697c2e0696f0100bd"
+      }
+    ],
+    "incomes": [
+      {
+        "incomeType": null,
+        "amount": "",
+        "_id": "6987872697c2e0696f0100be"
+      }
+    ],
+    "documents": [
+      {
+        "documentName": null,
+        "documentType": null,
+        "documentNo": "",
+        "projectName": "",
+        "block": "",
+        "unitNumber": "",
+        "documentPicture": null,
+        "_id": "6987872697c2e0696f0100bf"
+      }
+    ],
+    "stage": "New",
+    "status": "Active",
+    "addOn": [],
+    "groups": [],
+    "isActionable": false,
+    "createdAt": "2026-02-07T18:40:38.748Z",
+    "updatedAt": "2026-02-09T12:11:24.568Z",
+    "__v": 0
+  },
+  {
+    "_id": "69880b2d7a082db5cea04a75",
+    "title": null,
+    "name": "Shiv",
+    "surname": "Ram",
+    "fatherName": "",
+    "countryCode": null,
+    "phones": [
+      {
+        "number": "9998777711",
+        "type": "Personal",
+        "_id": "69880b2d7a082db5cea04a76"
+      }
+    ],
+    "emails": [
+      {
+        "address": "shivram@gmail.com",
+        "type": "Personal",
+        "_id": "69880b2d7a082db5cea04a77"
+      }
+    ],
+    "tags": [],
+    "description": "",
+    "professionCategory": null,
+    "professionSubCategory": null,
+    "designation": null,
+    "company": "",
+    "workOffice": "",
+    "source": null,
+    "subSource": null,
+    "campaign": null,
+    "owner": null,
+    "visibleTo": "",
+    "personalAddress": {
+      "hNo": "1234",
+      "street": "Main Road",
+      "country": "6987463d65182095c854bdd9",
+      "state": "69877a05e933d7d456c6d1ef",
+      "city": "69877f3fe933d7d456c6d2cc",
+      "tehsil": "698780c9e933d7d456c6d316",
+      "postOffice": "698780f5e933d7d456c6d31b",
+      "pinCode": "133001",
+      "location": "698780b9e933d7d456c6d313",
+      "area": "Urban Estate"
+    },
+    "correspondenceAddress": {
+      "hNo": "",
+      "street": "",
+      "country": null,
+      "state": "",
+      "city": "",
+      "tehsil": "",
+      "postOffice": "",
+      "pinCode": "",
+      "location": "",
+      "area": ""
+    },
+    "gender": "Male",
+    "maritalStatus": "Single",
+    "birthDate": null,
+    "anniversaryDate": null,
+    "educations": [
+      {
+        "education": "698783aae933d7d456c6d3b0",
+        "degree": "6987f09f97c2e0696f010177",
+        "school": "",
+        "_id": "69880b2d7a082db5cea04a78"
+      }
+    ],
+    "loans": [
+      {
+        "loanType": null,
+        "bank": null,
+        "loanAmount": "",
+        "_id": "69880b2d7a082db5cea04a79"
+      }
+    ],
+    "socialMedia": [
+      {
+        "platform": null,
+        "url": "",
+        "_id": "69880b2d7a082db5cea04a7a"
+      }
+    ],
+    "incomes": [
+      {
+        "incomeType": null,
+        "amount": "",
+        "_id": "69880b2d7a082db5cea04a7b"
+      }
+    ],
+    "documents": [
+      {
+        "documentName": null,
+        "documentType": null,
+        "documentNo": "",
+        "projectName": "",
+        "block": "",
+        "unitNumber": "",
+        "documentPicture": null,
+        "_id": "69880b2d7a082db5cea04a7c"
+      }
+    ],
+    "stage": "New",
+    "status": "Active",
+    "addOn": [],
+    "groups": [],
+    "isActionable": false,
+    "createdAt": "2026-02-08T04:03:57.509Z",
+    "updatedAt": "2026-02-09T12:12:48.516Z",
+    "__v": 0
+  },
+  {
+    "_id": "6989e467751b31bfa5a31515",
+    "title": "",
+    "name": "Jagan",
+    "surname": "Nath",
+    "fatherName": "",
+    "countryCode": "6987500e7775ee7709c181b2",
+    "phones": [
+      {
+        "number": "8973377227",
+        "type": "Personal",
+        "_id": "6989e467751b31bfa5a31516"
+      }
+    ],
+    "emails": [
+      {
+        "address": "",
+        "type": "Personal",
+        "_id": "6989e467751b31bfa5a31517"
+      }
+    ],
+    "tags": [],
+    "description": "",
+    "professionCategory": "69877145e933d7d456c6d153",
+    "professionSubCategory": "698773b9e933d7d456c6d18b",
+    "designation": "698773cae933d7d456c6d18f",
+    "company": "",
+    "workOffice": "",
+    "source": "6987493e65182095c854be0b",
+    "subSource": "",
+    "campaign": "",
+    "team": "",
+    "owner": "",
+    "visibleTo": "",
+    "personalAddress": {
+      "hNo": "",
+      "street": "",
+      "country": "6987463d65182095c854bdd9",
+      "state": "6987852097c2e0696f01005c",
+      "city": "6987852b97c2e0696f010060",
+      "tehsil": "",
+      "postOffice": "",
+      "pinCode": "",
+      "location": "6987854997c2e0696f010069",
+      "area": ""
+    },
+    "correspondenceAddress": {
+      "hNo": "",
+      "street": "",
+      "country": "",
+      "state": "",
+      "city": "",
+      "tehsil": "",
+      "postOffice": "",
+      "pinCode": "",
+      "location": "",
+      "area": ""
+    },
+    "gender": "",
+    "maritalStatus": "",
+    "birthDate": null,
+    "anniversaryDate": null,
+    "educations": [
+      {
+        "education": "",
+        "degree": "",
+        "school": "",
+        "_id": "6989e467751b31bfa5a31518"
+      }
+    ],
+    "loans": [
+      {
+        "loanType": "",
+        "bank": "",
+        "loanAmount": "",
+        "_id": "6989e467751b31bfa5a31519"
+      }
+    ],
+    "socialMedia": [
+      {
+        "platform": "",
+        "url": "",
+        "_id": "6989e467751b31bfa5a3151a"
+      }
+    ],
+    "incomes": [
+      {
+        "incomeType": "",
+        "amount": "",
+        "_id": "6989e467751b31bfa5a3151b"
+      }
+    ],
+    "documents": [
+      {
+        "documentName": "",
+        "documentType": "",
+        "documentNo": "",
+        "projectName": "",
+        "block": "",
+        "unitNumber": "",
+        "documentPicture": null,
+        "_id": "6989e467751b31bfa5a3151c"
+      }
+    ],
+    "stage": "New",
+    "status": "Active",
+    "addOn": [],
+    "groups": [],
+    "isActionable": false,
+    "createdAt": "2026-02-09T13:43:03.294Z",
+    "updatedAt": "2026-02-09T13:43:03.294Z",
+    "__v": 0
+  }
+]
