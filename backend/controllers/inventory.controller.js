@@ -119,37 +119,63 @@ export const importInventory = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid data provided" });
         }
 
-        const results = {
-            successCount: 0,
-            errorCount: 0,
-            errors: []
-        };
+        const restructuredData = data.map(item => {
+            return {
+                projectName: item.projectName,
+                projectId: item.projectId,
+                unitNo: item.unitNo,
+                unitType: item.unitType,
+                category: item.category || item.type,
+                subCategory: item.subCategory,
+                builtUpType: item.builtupType,
+                block: item.block,
+                size: item.size,
+                direction: item.direction,
+                facing: item.facing,
+                roadWidth: item.roadWidth,
+                ownership: item.ownership,
 
-        const inventoryToCreate = [];
+                // Construction Details
+                occupationDate: item.occupationDate,
+                possessionStatus: item.possessionStatus,
+                furnishType: item.furnishType,
+                furnishedItems: item.furnishedItems,
 
-        for (const item of data) {
-            try {
-                // Map frontend 'type' to backend 'category' if needed
-                if (item.type && !item.category) {
-                    item.category = item.type;
-                }
+                // Location Details (Nested address object)
+                address: {
+                    hNo: item.hNo,
+                    street: item.street,
+                    locality: item.locality,
+                    area: item.area,
+                    city: item.city,
+                    tehsil: item.tehsil,
+                    postOffice: item.postOffice,
+                    pinCode: item.pinCode,
+                    state: item.state,
+                    country: item.country || 'India',
+                    lat: item.lat,
+                    lng: item.lng
+                },
 
-                inventoryToCreate.push(item);
-                results.successCount++;
-            } catch (err) {
-                results.errorCount++;
-                results.errors.push({ item: item.unitNo || item.unitNumber || 'Unknown', error: err.message });
-            }
-        }
+                // Owner Details (Mapped for backward compatibility or strict:false fields)
+                ownerName: item.ownerName,
+                ownerPhone: item.ownerPhone,
+                ownerEmail: item.ownerEmail,
+                ownerAddress: item.ownerAddress,
 
-        if (inventoryToCreate.length > 0) {
-            await Inventory.insertMany(inventoryToCreate, { ordered: false });
-        }
+                // System Details
+                assignedTo: item.assignedTo,
+                team: item.team,
+                status: item.status || 'Available',
+                visibleTo: item.visibleTo || 'Everyone'
+            };
+        });
+
+        await Inventory.insertMany(restructuredData, { ordered: false });
 
         res.status(200).json({
             success: true,
-            message: `Imported ${results.successCount} inventory items with ${results.errorCount} errors.`,
-            ...results
+            message: `Successfully imported ${restructuredData.length} inventory items.`
         });
     } catch (error) {
         if (error.writeErrors) {

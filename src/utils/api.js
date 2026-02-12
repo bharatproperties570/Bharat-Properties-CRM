@@ -131,7 +131,7 @@ export const rolesAPI = {
     getById: (id) => apiRequest(`/roles/${id}`),
     create: (data) => apiRequest('/roles', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => apiRequest(`/roles/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    delete: (id) => apiRequest(`/roles/${id}`, { method: 'DELETE' }),
+    delete: (id, force = false) => apiRequest(`/roles/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' }),
 };
 
 // Projects API

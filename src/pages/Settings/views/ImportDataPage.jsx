@@ -15,6 +15,33 @@ const ImportDataPage = () => {
     const fileInputRef = useRef(null);
     const [isDragging, setIsDragging] = useState(false);
 
+    // Size-specific context
+    const [projects, setProjects] = useState([]);
+    const [selectedProject, setSelectedProject] = useState('');
+    const [selectedBlock, setSelectedBlock] = useState('');
+    const [blocks, setBlocks] = useState([]);
+
+    React.useEffect(() => {
+        const fetchProjects = async () => {
+            try {
+                const res = await api.get('/projects');
+                if (res.data.success) {
+                    setProjects(res.data.data || []);
+                }
+            } catch (err) {
+                console.error('Failed to fetch projects for import:', err);
+            }
+        };
+        fetchProjects();
+    }, []);
+
+    const handleProjectChange = (projectId) => {
+        setSelectedProject(projectId);
+        setSelectedBlock('');
+        const project = projects.find(p => p._id === projectId);
+        setBlocks(project?.blocks || []);
+    };
+
     // --- Handlers ---
 
     const handleFileDrop = async (e) => {
@@ -145,6 +172,13 @@ const ImportDataPage = () => {
                 Object.entries(mapping).forEach(([systemKey, fileHeader]) => {
                     item[systemKey] = row[fileHeader];
                 });
+
+                // Inject size metadata
+                if (module === 'sizes') {
+                    item.projectId = selectedProject;
+                    item.block = selectedBlock;
+                }
+
                 return item;
             });
 
@@ -268,6 +302,34 @@ const ImportDataPage = () => {
                 {step === 2 && (
                     <div style={{ maxWidth: '600px', margin: '0 auto' }}>
                         <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Upload File for {MODULE_CONFIG[module].label}</h3>
+
+                        {module === 'sizes' && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>Select Project</label>
+                                    <select
+                                        value={selectedProject}
+                                        onChange={(e) => handleProjectChange(e.target.value)}
+                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
+                                    >
+                                        <option value="">-- Choose Project --</option>
+                                        {projects.map(p => <option key={p._id} value={p._id}>{p.name}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>Select Block</label>
+                                    <select
+                                        value={selectedBlock}
+                                        onChange={(e) => setSelectedBlock(e.target.value)}
+                                        disabled={!selectedProject}
+                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
+                                    >
+                                        <option value="">-- Choose Block --</option>
+                                        {blocks.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                        )}
                         <div
                             onDrop={handleFileDrop}
                             onDragEnter={(e) => { e.preventDefault(); setIsDragging(true); }}
@@ -467,7 +529,12 @@ const ImportDataPage = () => {
                     )}
                     <button
                         onClick={() => {
-                            if (step === 2 && !file) return toast.error('Please upload a file');
+                            if (step === 2) {
+                                if (module === 'sizes' && (!selectedProject || !selectedBlock)) {
+                                    return toast.error('Please select both Project and Block');
+                                }
+                                if (!file) return toast.error('Please upload a file');
+                            }
                             if (step === 4) handleImport();
                             else setStep(step + 1);
                         }}

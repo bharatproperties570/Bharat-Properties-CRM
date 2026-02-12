@@ -103,15 +103,15 @@ export const UserProvider = ({ children }) => {
         }
     };
 
-    const deleteRole = async (id) => {
+    const deleteRole = async (id, force = false) => {
         try {
-            const response = await rolesAPI.delete(id);
+            const response = await rolesAPI.delete(id, force);
             if (response.success) {
                 setRoles(prev => prev.filter(r => r._id !== id));
                 return { success: true };
             }
         } catch (err) {
-            return { success: false, error: err.response?.data?.message || err.message };
+            return { success: false, error: err.message };
         }
     };
 

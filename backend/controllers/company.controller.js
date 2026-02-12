@@ -150,38 +150,43 @@ export const importCompanies = async (req, res, next) => {
             return res.status(400).json({ success: false, message: "Invalid data provided" });
         }
 
-        const results = {
-            successCount: 0,
-            errorCount: 0,
-            errors: []
-        };
-
-        const companiesToCreate = [];
-
-        for (const item of data) {
-            try {
-                // Ensure name exists
-                if (!item.name) {
-                    throw new Error("Company Name is required");
-                }
-
-                const sanitized = sanitizeData(item);
-                companiesToCreate.push(sanitized);
-                results.successCount++;
-            } catch (err) {
-                results.errorCount++;
-                results.errors.push({ item: item.name || 'Unknown', error: err.message });
+        const restructuredData = data.map(item => {
+            if (!item.name) {
+                throw new Error("Company Name is required");
             }
-        }
 
-        if (companiesToCreate.length > 0) {
-            await Company.insertMany(companiesToCreate, { ordered: false });
-        }
+            return {
+                name: item.name,
+                phones: item.phone ? [{ phoneNumber: item.phone, type: 'Work' }] : [],
+                emails: item.email ? [{ address: item.email, type: 'Work' }] : [],
+                companyType: item.type,
+                industry: item.industry,
+                description: item.description,
+                gstNumber: item.gstNumber,
+                campaign: item.campaign,
+                source: item.source,
+                subSource: item.subSource,
+                team: item.team || 'Sales',
+                owner: item.owner,
+                visibleTo: item.visibleTo || 'Everyone',
+                addresses: {
+                    registeredOffice: {
+                        hNo: item.reg_hNo,
+                        street: item.reg_street,
+                        city: item.reg_city,
+                        state: item.reg_state,
+                        country: item.reg_country,
+                        pinCode: item.reg_pinCode
+                    }
+                }
+            };
+        });
+
+        await Company.insertMany(restructuredData, { ordered: false });
 
         res.status(200).json({
             success: true,
-            message: `Imported ${results.successCount} companies with ${results.errorCount} errors.`,
-            ...results
+            message: `Successfully imported ${restructuredData.length} companies.`
         });
     } catch (error) {
         if (error.writeErrors) {

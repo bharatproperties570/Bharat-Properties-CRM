@@ -315,6 +315,14 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
 
 const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, onEditUser, onResetPassword }) => {
     const [openActionId, setOpenActionId] = useState(null);
+    const [filterStatus, setFilterStatus] = useState('Active');
+
+    const filteredUsers = users.filter(u => {
+        const matchesSearch = (u.fullName || u.name || '').toLowerCase().includes(searchTerm.toLowerCase());
+        const userStatus = (u.status || (u.isActive ? 'Active' : 'Inactive')).toLowerCase();
+        const matchesStatus = userStatus === filterStatus.toLowerCase();
+        return matchesSearch && matchesStatus;
+    });
 
     return (
         <div style={{ flex: 1, background: '#fff', padding: '32px 40px', overflowY: 'auto' }}>
@@ -324,10 +332,24 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                         <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '0.8rem' }}></i>
                         <input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ width: '240px', padding: '8px 12px 8px 32px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '0.8rem' }} />
                     </div>
-                    {/* Status filters can be reactive later */}
                     <div style={{ display: 'flex', border: '1px solid var(--primary-color)', borderRadius: '4px', overflow: 'hidden' }}>
                         {['Active', 'Inactive'].map((label, i) => (
-                            <div key={i} style={{ padding: '8px 16px', fontSize: '0.75rem', fontWeight: 600, background: i === 0 ? '#e0f2fe' : '#fff', color: 'var(--primary-color)', cursor: 'pointer', borderRight: i < 1 ? '1px solid var(--primary-color)' : 'none' }}>{label}</div>
+                            <div
+                                key={i}
+                                onClick={() => setFilterStatus(label)}
+                                style={{
+                                    padding: '8px 16px',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 600,
+                                    background: filterStatus === label ? '#e0f2fe' : '#fff',
+                                    color: 'var(--primary-color)',
+                                    cursor: 'pointer',
+                                    borderRight: i < 1 ? '1px solid var(--primary-color)' : 'none',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                {label}
+                            </div>
                         ))}
                     </div>
                 </div>
@@ -349,7 +371,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                         </tr>
                     </thead>
                     <tbody>
-                        {users.filter(u => (u.fullName || u.name || '').toLowerCase().includes(searchTerm.toLowerCase())).map(user => (
+                        {filteredUsers.map(user => (
                             <tr key={user._id || user.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                 <td style={{ padding: '16px', fontWeight: 700 }}>{user.fullName || user.name}</td>
                                 <td style={{ padding: '16px' }}>{user.email}<br />{user.mobile || user.phone}</td>
@@ -357,7 +379,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                                 <td style={{ padding: '16px', fontWeight: 700 }}>{user.designation || user.role?.name || '-'}</td>
                                 <td style={{ padding: '16px', color: 'var(--primary-color)', fontWeight: 600 }}>{user.username}</td>
                                 {/* <td style={{ padding: '16px' }}>{user.callSync} ({user.lastSync})</td> */}
-                                <td style={{ padding: '16px' }}>{user.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : 'Never'}</td>
+                                <td style={{ padding: '16px' }}>{user.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Never'}</td>
                                 <td style={{ padding: '16px' }}>
                                     <span style={{
                                         background: user.status === 'Active' || user.isActive ? '#22c55e' : '#ef4444',
@@ -529,13 +551,28 @@ const SettingsHubPage = () => {
     };
 
     const handleDeleteRole = async (id) => {
-        if (window.confirm('Are you sure you want to delete this role?')) {
-            const result = await deleteRole(id);
-            if (result.success) {
-                showToast('Role deleted successfully');
-            } else {
-                // Show specific backend error message
-                showToast(result.error || 'Failed to delete role', 'error');
+        const usersWithRole = users.filter(u => (u.role?._id || u.role) === id);
+        const role = roles.find(r => (r._id || r.id) === id);
+        const roleName = role?.name || 'this role';
+
+        if (usersWithRole.length > 0) {
+            const confirmMessage = `Warning: ${usersWithRole.length} user(s) are currently assigned to the "${roleName}" role. Deleting this role will remove their access permissions. Are you sure you want to proceed?`;
+            if (window.confirm(confirmMessage)) {
+                const result = await deleteRole(id, true); // true for force deletion
+                if (result.success) {
+                    showToast('Role deleted successfully');
+                } else {
+                    showToast(result.error || 'Failed to delete role', 'error');
+                }
+            }
+        } else {
+            if (window.confirm(`Are you sure you want to delete the role "${roleName}"?`)) {
+                const result = await deleteRole(id);
+                if (result.success) {
+                    showToast('Role deleted successfully');
+                } else {
+                    showToast(result.error || 'Failed to delete role', 'error');
+                }
             }
         }
     };

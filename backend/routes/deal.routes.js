@@ -1,8 +1,9 @@
 import express from "express";
 const router = express.Router();
-import { getDeals, getDealById, addDeal, updateDeal, deleteDeal, bulkDeleteDeals } from "../controllers/deal.controller.js";
+import { getDeals, getDealById, addDeal, updateDeal, deleteDeal, bulkDeleteDeals, importDeals } from "../controllers/deal.controller.js";
 
 router.get("/", getDeals);
+router.post("/import", importDeals);
 router.get("/:id", getDealById);
 router.post("/", addDeal);
 router.post("/bulk-delete", bulkDeleteDeals);

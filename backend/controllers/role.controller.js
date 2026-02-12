@@ -289,11 +289,14 @@ export const deleteRole = async (req, res) => {
 
         // Check if any users have this role
         const userCount = await User.countDocuments({ role: id });
-        if (userCount > 0) {
+        const { force } = req.query;
+
+        if (userCount > 0 && force !== 'true') {
             await session.abortTransaction();
             return res.status(400).json({
                 success: false,
                 message: `Cannot delete role. ${userCount} user(s) are assigned to this role.`,
+                isWarning: true,
                 data: { userCount }
             });
         }

@@ -57,35 +57,54 @@ export const importProjects = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid data provided" });
         }
 
-        const results = {
-            successCount: 0,
-            errorCount: 0,
-            errors: []
-        };
-
-        const projectsToCreate = [];
-
-        for (const item of data) {
-            try {
-                if (!item.name) {
-                    throw new Error("Project Name is required");
-                }
-                projectsToCreate.push(item);
-                results.successCount++;
-            } catch (err) {
-                results.errorCount++;
-                results.errors.push({ item: item.name || 'Unknown', error: err.message });
+        const restructuredData = data.map(item => {
+            if (!item.name) {
+                throw new Error("Project Name is required");
             }
-        }
 
-        if (projectsToCreate.length > 0) {
-            await Project.insertMany(projectsToCreate, { ordered: false });
-        }
+            return {
+                name: item.name,
+                developerName: item.developerName,
+                reraNumber: item.reraNumber,
+                description: item.description,
+                category: item.category ? item.category.split(',').map(c => c.trim()) : [],
+                subCategory: item.subCategory ? item.subCategory.split(',').map(c => c.trim()) : [],
+                landArea: item.landArea,
+                landAreaUnit: item.landAreaUnit,
+                totalBlocks: item.totalBlocks,
+                totalFloors: item.totalFloors,
+                totalUnits: item.totalUnits,
+                status: item.status || 'Upcoming',
+
+                // Dates
+                launchDate: item.launchDate ? new Date(item.launchDate) : undefined,
+                possessionDate: item.possessionDate ? new Date(item.possessionDate) : undefined,
+
+                // Location (Nested address object)
+                address: {
+                    hNo: item.hNo,
+                    street: item.street,
+                    locality: item.locality,
+                    area: item.area,
+                    city: item.city,
+                    state: item.state,
+                    pincode: item.pinCode,
+                    country: 'India',
+                    latitude: item.lat,
+                    longitude: item.lng
+                },
+
+                // System Details
+                team: item.team ? item.team.split(',').map(t => t.trim()) : [],
+                visibleTo: item.visibleTo || 'Everyone'
+            };
+        });
+
+        await Project.insertMany(restructuredData, { ordered: false });
 
         res.status(200).json({
             success: true,
-            message: `Imported ${results.successCount} projects with ${results.errorCount} errors.`,
-            ...results
+            message: `Successfully imported ${restructuredData.length} projects.`
         });
     } catch (error) {
         if (error.writeErrors) {

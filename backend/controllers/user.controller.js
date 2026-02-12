@@ -669,38 +669,48 @@ export const importUsers = async (req, res) => {
             return res.status(400).json({ success: false, error: 'Invalid data provided' });
         }
 
-        const results = {
-            successCount: 0,
-            errorCount: 0,
-            errors: []
-        };
-
-        const usersToCreate = [];
-
-        for (const item of data) {
-            try {
-                if (!item.email || !item.fullName) {
-                    throw new Error('Email and Full Name are required');
-                }
-                // Set default password for imported users
-                if (!item.password) item.password = 'Welcome@123';
-
-                usersToCreate.push(item);
-                results.successCount++;
-            } catch (err) {
-                results.errorCount++;
-                results.errors.push({ item: item.fullName || 'Unknown', error: err.message });
+        const restructuredData = await Promise.all(data.map(async (item) => {
+            if (!item.email || !item.name) {
+                throw new Error('Email and Full Name are required');
             }
-        }
 
-        if (usersToCreate.length > 0) {
-            await User.insertMany(usersToCreate, { ordered: false });
-        }
+            // Set default password or use provided one
+            const password = item.password || 'Welcome@123';
+            const hashedPassword = await bcrypt.hash(password, 10);
+
+            return {
+                fullName: item.name,
+                email: item.email,
+                mobile: item.mobile,
+                username: item.username || item.email.split('@')[0],
+                password: hashedPassword,
+                department: (item.department || 'sales').toLowerCase(),
+                role: item.role,
+                reportingTo: item.reportingTo || null,
+                dataScope: (item.dataScope || 'assigned').toLowerCase(),
+
+                // Financial Permissions (Nested object)
+                financialPermissions: {
+                    canViewMargin: item.canViewMargin === 'Yes' || item.canViewMargin === true,
+                    canEditCommission: item.canEditCommission === 'Yes' || item.canEditCommission === true,
+                    canOverrideCommission: item.canOverrideCommission === 'Yes' || item.canOverrideCommission === true,
+                    canApproveDeal: item.canApproveDeal === 'Yes' || item.canApproveDeal === true,
+                    canApprovePayment: item.canApprovePayment === 'Yes' || item.canApprovePayment === true,
+                    canApprovePayout: item.canApprovePayout === 'Yes' || item.canApprovePayout === true
+                },
+
+                isActive: true,
+                status: 'active',
+                passwordExpiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days
+                passwordHistory: [{ hash: hashedPassword, changedAt: new Date() }]
+            };
+        }));
+
+        await User.insertMany(restructuredData, { ordered: false });
 
         res.status(200).json({
             success: true,
-            message: `Imported ${results.successCount} users with ${results.errorCount} errors.`,
-            ...results
+            message: `Successfully imported ${restructuredData.length} users.`
         });
     } catch (error) {
         if (error.writeErrors) {

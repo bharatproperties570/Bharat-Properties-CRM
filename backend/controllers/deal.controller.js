@@ -143,3 +143,56 @@ export const bulkDeleteDeals = async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+
+export const importDeals = async (req, res) => {
+    try {
+        const { data } = req.body;
+        if (!data || !Array.isArray(data)) {
+            return res.status(400).json({ success: false, error: "Invalid data format" });
+        }
+
+        const restructuredData = data.map(item => {
+            return {
+                projectName: item.projectName,
+                block: item.block,
+                unitNo: item.unitNo,
+                unitType: item.unitType,
+                propertyType: item.propertyType,
+                category: item.category,
+                subCategory: item.subCategory,
+                size: item.size,
+                location: item.location,
+                intent: item.intent,
+                price: parseFloat(item.price) || 0,
+                quotePrice: parseFloat(item.quotePrice) || 0,
+                pricingMode: item.pricingMode || 'Total',
+                ratePrice: parseFloat(item.ratePrice) || 0,
+                quoteRatePrice: parseFloat(item.quoteRatePrice) || 0,
+                pricingNature: {
+                    negotiable: item.negotiable === 'Yes' || item.negotiable === true,
+                    fixed: item.fixed === 'Yes' || item.fixed === true
+                },
+                status: item.status || 'Open',
+                dealType: item.dealType || 'Warm',
+                transactionType: item.transactionType || 'Full White',
+                flexiblePercentage: parseFloat(item.flexiblePercentage) || 50,
+                ownerName: item.ownerName, // Using strict: false or customFields if needed, but schema has owner ref
+                ownerPhone: item.ownerPhone,
+                ownerEmail: item.ownerEmail,
+                associatedContactName: item.associatedContactName,
+                associatedContactPhone: item.associatedContactPhone,
+                associatedContactEmail: item.associatedContactEmail,
+                team: item.team,
+                assignedTo: item.assignedTo,
+                visibleTo: item.visibleTo || 'Public',
+                remarks: item.remarks,
+                date: item.date ? new Date(item.date) : new Date()
+            };
+        });
+
+        await Deal.insertMany(restructuredData, { ordered: false });
+        res.status(200).json({ success: true, message: `Successfully imported ${restructuredData.length} deals.` });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};

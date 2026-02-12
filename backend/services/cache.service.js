@@ -92,11 +92,16 @@ export const getCachedUserPermissions = async (userId, roleId) => {
  * Invalidate user permission cache
  */
 export const invalidateUserPermissionCache = async (userId) => {
-    const pattern = getCacheKey('permissions', userId, '*');
-    const keys = await redis.keys(pattern);
+    if (!redisAvailable || !redis) return;
+    try {
+        const pattern = getCacheKey('permissions', userId, '*');
+        const keys = await redis.keys(pattern);
 
-    if (keys.length > 0) {
-        await redis.del(...keys);
+        if (keys.length > 0) {
+            await redis.del(...keys);
+        }
+    } catch (error) {
+        // Silently fail
     }
 };
 
@@ -126,8 +131,13 @@ export const getCachedTeamMembers = async (managerId) => {
  * Invalidate team cache
  */
 export const invalidateTeamCache = async (managerId) => {
-    const key = getCacheKey('team', managerId);
-    await redis.del(key);
+    if (!redisAvailable || !redis) return;
+    try {
+        const key = getCacheKey('team', managerId);
+        await redis.del(key);
+    } catch (error) {
+        // Silently fail
+    }
 };
 
 /**
@@ -156,8 +166,13 @@ export const getCachedDepartmentUsers = async (department) => {
  * Invalidate department cache
  */
 export const invalidateDepartmentCache = async (department) => {
-    const key = getCacheKey('department', department);
-    await redis.del(key);
+    if (!redisAvailable || !redis) return;
+    try {
+        const key = getCacheKey('department', department);
+        await redis.del(key);
+    } catch (error) {
+        // Silently fail
+    }
 };
 
 /**
@@ -186,8 +201,13 @@ export const getCachedRoleData = async (roleId) => {
  * Invalidate role cache
  */
 export const invalidateRoleCache = async (roleId) => {
-    const key = getCacheKey('role', roleId);
-    await redis.del(key);
+    if (!redisAvailable || !redis) return;
+    try {
+        const key = getCacheKey('role', roleId);
+        await redis.del(key);
+    } catch (error) {
+        // Silently fail
+    }
 };
 
 /**

@@ -92,8 +92,54 @@ export const bulkDeleteLeads = async (req, res, next) => {
 
 export const importLeads = async (req, res, next) => {
     try {
-        await Lead.insertMany(req.body.data, { ordered: false });
-        res.status(200).json({ success: true });
+        const { data } = req.body;
+        if (!data || !Array.isArray(data)) {
+            return res.status(400).json({ success: false, message: "Invalid data format" });
+        }
+
+        const restructuredData = data.map(item => {
+            const firstName = item.name || item.firstName || '';
+            const lastName = item.surname || item.lastName || '';
+
+            return {
+                salutation: item.title || 'Mr.',
+                firstName: firstName,
+                lastName: lastName,
+                mobile: item.mobile,
+                email: item.email,
+                description: item.description,
+                campaign: item.campaign,
+                source: item.source,
+                subSource: item.subSource,
+                team: item.team ? item.team.split(',').map(t => t.trim()) : [],
+                owner: item.owner,
+                visibleTo: item.visibleTo || 'Everyone',
+                requirement: item.requirement,
+                propertyType: item.propertyType ? item.propertyType.split(',').map(t => t.trim()) : [],
+                customFields: {
+                    purpose: item.purpose,
+                    nri: item.nri === 'Yes' || item.nri === true,
+                    subType: item.subType ? item.subType.split(',').map(t => t.trim()) : [],
+                    unitType: item.unitType ? item.unitType.split(',').map(t => t.trim()) : [],
+                    budgetMin: item.budgetMin,
+                    budgetMax: item.budgetMax,
+                    areaMin: item.areaMin,
+                    areaMax: item.areaMax,
+                    areaMetric: item.areaMetric,
+                    facing: item.facing ? item.facing.split(',').map(t => t.trim()) : [],
+                    roadWidth: item.roadWidth ? item.roadWidth.split(',').map(t => t.trim()) : [],
+                    direction: item.direction ? item.direction.split(',').map(t => t.trim()) : [],
+                    funding: item.funding,
+                    timeline: item.timeline,
+                    furnishing: item.furnishing,
+                    transactionType: item.transactionType,
+                    transactionFlexiblePercentage: item.transactionFlexiblePercentage
+                }
+            };
+        });
+
+        await Lead.insertMany(restructuredData, { ordered: false });
+        res.status(200).json({ success: true, message: `Successfully imported ${restructuredData.length} leads.` });
     } catch (error) {
         next(error);
     }

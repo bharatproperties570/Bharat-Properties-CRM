@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const AddUserModal = ({ isOpen, onClose, onAdd, isEdit, userData }) => {
+const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) => {
+    const isEdit = isEditProp !== undefined ? isEditProp : !!userData;
     const [formData, setFormData] = useState({
         fullName: '',
         email: '',
@@ -11,7 +12,15 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit, userData }) => {
         department: 'sales',
         role: '',
         reportingTo: '',
-        dataScope: 'assigned'
+        dataScope: 'assigned',
+        financialPermissions: {
+            canViewMargin: false,
+            canEditCommission: false,
+            canOverrideCommission: false,
+            canApproveDeal: false,
+            canApprovePayment: false,
+            canApprovePayout: false
+        }
     });
 
     useEffect(() => {
@@ -25,7 +34,15 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit, userData }) => {
                 department: userData.department || 'sales',
                 role: userData.role?._id || userData.role || '',
                 reportingTo: userData.reportingTo?._id || userData.reportingTo || '',
-                dataScope: userData.dataScope || 'assigned'
+                dataScope: userData.dataScope || 'assigned',
+                financialPermissions: userData.financialPermissions || {
+                    canViewMargin: false,
+                    canEditCommission: false,
+                    canOverrideCommission: false,
+                    canApproveDeal: false,
+                    canApprovePayment: false,
+                    canApprovePayout: false
+                }
             });
         } else if (!isEdit) {
             setFormData({
@@ -37,7 +54,15 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit, userData }) => {
                 department: 'sales',
                 role: '',
                 reportingTo: '',
-                dataScope: 'assigned'
+                dataScope: 'assigned',
+                financialPermissions: {
+                    canViewMargin: false,
+                    canEditCommission: false,
+                    canOverrideCommission: false,
+                    canApproveDeal: false,
+                    canApprovePayment: false,
+                    canApprovePayout: false
+                }
             });
         }
     }, [isEdit, userData, isOpen]);
@@ -158,14 +183,22 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit, userData }) => {
 
         try {
             let response;
+            const payload = { ...formData };
+
+            // Sanitize Payload
+            payload.department = payload.department.toLowerCase();
+            if (payload.reportingTo === '') payload.reportingTo = null;
+            if (payload.role === '') payload.role = null;
+            if (payload.username === '') payload.username = null;
+            if (payload.mobile === '') payload.mobile = null;
+
             if (isEdit && userData?._id) {
-                const payload = { ...formData };
                 if (payload.password === '●●●●●●●●') {
                     delete payload.password;
                 }
                 response = await axios.put(`/api/users/${userData._id}`, payload);
             } else {
-                response = await axios.post('/api/users', formData);
+                response = await axios.post('/api/users', payload);
             }
 
             if (response.data.success) {
@@ -184,14 +217,22 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit, userData }) => {
                     department: 'sales',
                     role: '',
                     reportingTo: '',
-                    dataScope: 'assigned'
+                    dataScope: 'assigned',
+                    financialPermissions: {
+                        canViewMargin: false,
+                        canEditCommission: false,
+                        canOverrideCommission: false,
+                        canApproveDeal: false,
+                        canApprovePayment: false,
+                        canApprovePayout: false
+                    }
                 });
 
                 onClose();
             }
         } catch (error) {
-            console.error('Failed to create user:', error);
-            setError(error.response?.data?.message || 'Failed to create user. Please try again.');
+            console.error(`Failed to ${isEdit ? 'update' : 'create'} user:`, error);
+            setError(error.response?.data?.message || `Failed to ${isEdit ? 'update' : 'create'} user. Please try again.`);
         } finally {
             setLoading(false);
         }
@@ -270,7 +311,7 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit, userData }) => {
                         <input
                             type="text"
                             style={inputStyle}
-                            autoComplete="off"
+                            autoComplete="new-password"
                             placeholder="Enter full name"
                             value={formData.fullName}
                             onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
@@ -284,6 +325,7 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit, userData }) => {
                             <input
                                 type="email"
                                 style={inputStyle}
+                                autoComplete="new-password"
                                 placeholder="user@example.com"
                                 value={formData.email}
                                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
@@ -296,6 +338,7 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit, userData }) => {
                             <input
                                 type="text"
                                 style={inputStyle}
+                                autoComplete="new-password"
                                 placeholder="+91 00000 00000"
                                 value={formData.mobile}
                                 onChange={(e) => setFormData({ ...formData, mobile: e.target.value })}
@@ -310,6 +353,7 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit, userData }) => {
                             <input
                                 type="text"
                                 style={inputStyle}
+                                autoComplete="new-password"
                                 placeholder="username"
                                 value={formData.username}
                                 onChange={(e) => setFormData({ ...formData, username: e.target.value })}
@@ -438,6 +482,53 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit, userData }) => {
                                 </div>
                             ))}
                         </div>
+
+                        {/* Financial Permissions */}
+                        <div style={sectionStyle}>
+                            <label style={labelStyle}>Financial & Approval Rights</label>
+                            <div style={{
+                                marginTop: '12px',
+                                display: 'grid',
+                                gridTemplateColumns: '1fr 1fr',
+                                gap: '12px',
+                                padding: '16px',
+                                background: '#f8fafc',
+                                borderRadius: '8px',
+                                border: '1px solid #e2e8f0'
+                            }}>
+                                {Object.entries({
+                                    canViewMargin: 'View Profit Margins',
+                                    canEditCommission: 'Edit Commissions',
+                                    canOverrideCommission: 'Override Commissions',
+                                    canApproveDeal: 'Approve Deals',
+                                    canApprovePayment: 'Approve Payments',
+                                    canApprovePayout: 'Approve Payouts'
+                                }).map(([key, label]) => (
+                                    <label key={key} style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.85rem',
+                                        color: '#475569'
+                                    }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={formData.financialPermissions[key]}
+                                            onChange={(e) => setFormData({
+                                                ...formData,
+                                                financialPermissions: {
+                                                    ...formData.financialPermissions,
+                                                    [key]: e.target.checked
+                                                }
+                                            })}
+                                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                        />
+                                        {label}
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -457,7 +548,7 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit, userData }) => {
                         disabled={loading}
                         style={{ padding: '8px 24px', borderRadius: '6px', fontWeight: 700, opacity: loading ? 0.6 : 1 }}
                     >
-                        {loading ? 'Creating...' : 'Add User'}
+                        {loading ? (isEdit ? 'Updating...' : 'Creating...') : (isEdit ? 'Update User' : 'Add User')}
                     </button>
                 </div>
             </div>

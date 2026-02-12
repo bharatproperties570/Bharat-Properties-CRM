@@ -130,9 +130,44 @@ export const importContacts = async (req, res, next) => {
     try {
         const { data } = req.body;
         if (!data || !Array.isArray(data)) return res.status(400).json({ success: false, message: "Invalid data provided" });
-        await Contact.insertMany(data, { ordered: false });
+
+        const processedData = data.map(item => {
+            const newItem = { ...item };
+
+            // Restructure phones
+            if (item.mobile) {
+                newItem.phones = [{ number: item.mobile, type: 'Personal' }];
+                delete newItem.mobile;
+            }
+
+            // Restructure emails
+            if (item.email) {
+                newItem.emails = [{ address: item.email, type: 'Personal' }];
+                delete newItem.email;
+            }
+
+            // Restructure Personal Address
+            const addressFields = ['hNo', 'street', 'area', 'city', 'tehsil', 'postOffice', 'state', 'country', 'pinCode'];
+            newItem.personalAddress = {};
+            addressFields.forEach(field => {
+                if (item[field]) {
+                    newItem.personalAddress[field] = item[field];
+                    delete newItem[field];
+                }
+            });
+
+            // Clean up empty address object
+            if (Object.keys(newItem.personalAddress).length === 0) {
+                delete newItem.personalAddress;
+            }
+
+            return newItem;
+        });
+
+        await Contact.insertMany(processedData, { ordered: false });
         res.status(200).json({ success: true, message: `Imported ${data.length} contacts.` });
     } catch (error) {
+        console.error("Import error:", error);
         next(error);
     }
 };
