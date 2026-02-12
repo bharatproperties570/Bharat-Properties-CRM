@@ -17,51 +17,66 @@ export const FieldRulesProvider = ({ children }) => {
         const loadRules = async () => {
             try {
                 const data = await fieldRulesAPI.getAll();
-                setRules(data || []);
+                // Ensure data is always an array
+                if (Array.isArray(data)) {
+                    setRules(data);
+                } else if (data && Array.isArray(data.rules)) {
+                    // Handle case where API returns {rules: [...]}
+                    setRules(data.rules);
+                } else {
+                    console.warn('Field rules API returned non-array data:', data);
+                    setRules([]);
+                }
             } catch (error) {
                 console.error('Failed to load field rules from backend:', error);
                 // Fall back to localStorage
-                const saved = localStorage.getItem('fieldRules');
-                if (saved) {
-                    setRules(JSON.parse(saved));
-                } else {
-                    // Use default seed rules
-                    setRules([
-                        {
-                            id: 'lr-1',
-                            module: 'lead',
-                            ruleName: 'Requirement is Mandatory',
-                            field: 'requirement',
-                            ruleType: 'MANDATORY',
-                            isActive: true,
-                            conditions: [],
-                            message: 'Requirement type (Buy/Rent) is required.'
-                        },
-                        {
-                            id: 'lr-2',
-                            module: 'lead',
-                            ruleName: 'Budget Mandatory for Prospects',
-                            field: 'budgetMin',
-                            ruleType: 'MANDATORY',
-                            isActive: true,
-                            matchType: 'AND',
-                            conditions: [
-                                { field: 'stage', operator: 'not_equals', value: 'New' },
-                                { field: 'stage', operator: 'not_equals', value: 'Contacted' }
-                            ],
-                            message: 'Budget is required for leads in Prospect stage or higher.'
-                        },
-                        {
-                            id: 'dr-1',
-                            module: 'deal',
-                            ruleName: 'Expected Price Mandatory',
-                            field: 'expectedPrice',
-                            ruleType: 'MANDATORY',
-                            isActive: true,
-                            conditions: [],
-                            message: 'Expected Price is critical for deal tracking.'
-                        }
-                    ]);
+                try {
+                    const saved = localStorage.getItem('fieldRules');
+                    if (saved) {
+                        const parsed = JSON.parse(saved);
+                        setRules(Array.isArray(parsed) ? parsed : []);
+                    } else {
+                        // Use default seed rules
+                        setRules([
+                            {
+                                id: 'lr-1',
+                                module: 'lead',
+                                ruleName: 'Requirement is Mandatory',
+                                field: 'requirement',
+                                ruleType: 'MANDATORY',
+                                isActive: true,
+                                conditions: [],
+                                message: 'Requirement type (Buy/Rent) is required.'
+                            },
+                            {
+                                id: 'lr-2',
+                                module: 'lead',
+                                ruleName: 'Budget Mandatory for Prospects',
+                                field: 'budgetMin',
+                                ruleType: 'MANDATORY',
+                                isActive: true,
+                                matchType: 'AND',
+                                conditions: [
+                                    { field: 'stage', operator: 'not_equals', value: 'New' },
+                                    { field: 'stage', operator: 'not_equals', value: 'Contacted' }
+                                ],
+                                message: 'Budget is required for leads in Prospect stage or higher.'
+                            },
+                            {
+                                id: 'dr-1',
+                                module: 'deal',
+                                ruleName: 'Expected Price Mandatory',
+                                field: 'expectedPrice',
+                                ruleType: 'MANDATORY',
+                                isActive: true,
+                                conditions: [],
+                                message: 'Expected Price is critical for deal tracking.'
+                            }
+                        ]);
+                    }
+                } catch (parseError) {
+                    console.error('Failed to parse localStorage rules:', parseError);
+                    setRules([]);
                 }
             } finally {
                 setIsLoading(false);
@@ -112,6 +127,10 @@ export const FieldRulesProvider = ({ children }) => {
     };
 
     const toggleRuleStatus = async (id) => {
+        if (!Array.isArray(rules)) {
+            console.error('Rules is not an array:', rules);
+            return;
+        }
         const rule = rules.find(r => r.id === id);
         if (rule) {
             const updated = { ...rule, isActive: !rule.isActive };
@@ -156,12 +175,12 @@ export const FieldRulesProvider = ({ children }) => {
         if (!syncResult.isValid) return syncResult;
 
         // 2. Identify Unique Rules needed
-        const uniqueRules = rules.filter(r =>
+        const uniqueRules = Array.isArray(rules) ? rules.filter(r =>
             r.module === module &&
             r.isActive &&
             r.ruleType === 'UNIQUE' &&
             data[r.field] // Only check if value exists
-        );
+        ) : [];
 
         if (uniqueRules.length === 0) return syncResult;
 

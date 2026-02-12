@@ -27,21 +27,21 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use("/auth", authRoutes);
-app.use("/users", userRoutes);
-app.use("/roles", roleRoutes);
-app.use("/leads", leadRoutes);
-app.use("/contacts", contactRoutes);
-app.use("/inventory", inventoryRoutes);
-app.use("/projects", projectRoutes);
-app.use("/deals", dealRoutes);
-app.use("/lookup", lookupRoutes); // This now supports legacy query params
-app.use("/lookups", lookupRoutes); // Alias for RESTful style
-app.use("/activities", activityRoutes);
-app.use("/field-rules", fieldRuleRoutes);
-app.use("/distribution-rules", distributionRuleRoutes);
-app.use("/system-settings", systemSettingRoutes);
-app.use("/companies", companyRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/roles", roleRoutes);
+app.use("/api/leads", leadRoutes);
+app.use("/api/contacts", contactRoutes);
+app.use("/api/inventory", inventoryRoutes);
+app.use("/api/projects", projectRoutes);
+app.use("/api/deals", dealRoutes);
+app.use("/api/lookup", lookupRoutes); // This now supports legacy query params
+app.use("/api/lookups", lookupRoutes); // Alias for RESTful style
+app.use("/api/activities", activityRoutes);
+app.use("/api/field-rules", fieldRuleRoutes);
+app.use("/api/distribution-rules", distributionRuleRoutes);
+app.use("/api/system-settings", systemSettingRoutes);
+app.use("/api/companies", companyRoutes);
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {

@@ -718,7 +718,7 @@ body {
 .list-item,
 .list-header {
     display: grid;
-    grid-template-columns: 40px 250px 200px 180px 100px 100px 180px 100px 120px 100px;
+    grid-template-columns: 40px 250px 200px 180px 100px 100px 180px 100px 120px;
     align-items: center;
     gap: 20px;
 }
@@ -1383,11 +1383,11 @@ body {
     /* Ensure it fills available space but allows compression */
 
     /* Explicitly sizing columns for platform consistency - 1st col 48px fixed */
-    grid-template-columns: 48px 250px 280px 170px 140px 170px 180px 160px 100px;
+    grid-template-columns: 48px 250px 280px 170px 140px 170px 180px 160px;
     gap: 16px;
     align-items: center;
     padding: 12px var(--row-padding);
-    min-width: 1520px;
+    min-width: 1420px;
     transition: background 0.2s ease;
 }
 

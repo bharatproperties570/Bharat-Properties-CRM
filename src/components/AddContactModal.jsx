@@ -698,42 +698,42 @@ const AddContactModal = ({
 
   const [formData, setFormData] = useState({
     // Basic Details
-    title: "",
+    title: null,
     name: "",
     surname: "",
     fatherName: "",
-    countryCode: "",
+    countryCode: null,
     phones: [{ number: "", type: "Personal" }],
     emails: [{ address: "", type: "Personal" }],
     tags: [],
     description: "",
 
     // Professional Details
-    professionCategory: "",
-    professionSubCategory: "",
-    designation: "",
+    professionCategory: null,
+    professionSubCategory: null,
+    designation: null,
     company: "",
     workOffice: "",
 
     // System Details
-    campaign: '', // NEW: Campaign Hierarchy Level 1
-    source: "",   // NEW: Campaign Hierarchy Level 2
-    subSource: '', // NEW: Campaign Hierarchy Level 3 (Medium)
+    campaign: null,
+    source: null,
+    subSource: null,
     team: "",
-    owner: "",
+    owner: null,
     visibleTo: "",
 
     // Personal Address
     personalAddress: {
       hNo: "",
       street: "",
-      country: "",
-      state: "",
-      city: "",
-      tehsil: "",
-      postOffice: "",
+      country: null,
+      state: null,
+      city: null,
+      tehsil: null,
+      postOffice: null,
       pinCode: "",
-      location: "",
+      location: null,
       area: "",
     },
 
@@ -741,13 +741,13 @@ const AddContactModal = ({
     correspondenceAddress: {
       hNo: "",
       street: "",
-      country: "",
-      state: "",
-      city: "",
-      tehsil: "",
-      postOffice: "",
+      country: null,
+      state: null,
+      city: null,
+      tehsil: null,
+      postOffice: null,
       pinCode: "",
-      location: "",
+      location: null,
       area: "",
     },
 
@@ -758,26 +758,26 @@ const AddContactModal = ({
     anniversaryDate: "",
 
     // Education - Array
-    educations: [{ education: "", degree: "", school: "" }],
+    educations: [{ education: null, degree: null, school: "" }],
 
     // Loan - Array
-    loans: [{ loanType: "", bank: "", loanAmount: "" }],
+    loans: [{ loanType: null, bank: null, loanAmount: "" }],
 
     // Social Media - Array
-    socialMedia: [{ platform: "", url: "" }],
+    socialMedia: [{ platform: null, url: "" }],
 
     // Income - Array
-    incomes: [{ incomeType: "", amount: "" }],
+    incomes: [{ incomeType: null, amount: "" }],
 
     // Documents - Array
     documents: [
       {
-        documentName: "",
-        documentType: "",
+        documentName: null,
+        documentType: null,
         documentNo: "",
         projectName: "",
         block: "",
-        unitNo: "",
+        unitNumber: "",
         documentPicture: null,
       },
     ],
@@ -807,50 +807,141 @@ const AddContactModal = ({
   const [loading, setLoading] = useState("");
 
 
+  // Helper for ID extraction from populated lookup objects
+  const getId = (val) => (val && typeof val === "object" ? val._id || val.id : val);
+
   // Populate Initial Data if provided
   useEffect(() => {
-    if (initialData) {
-      setFormData((prev) => ({
-        ...prev,
-        ...initialData,
-        // Ensure arrays are merged or overwritten correctly if needed
-        phones: initialData.phones || prev.phones,
-      }));
+    if (initialData && isOpen) {
+      setFormData((prev) => {
+        // Map backend data to frontend form structure
+        // Ensure nested objects are merged correctly and lookups are mapped to IDs
+        const mappedData = {
+          ...prev,
+          ...initialData,
+          title: getId(initialData.title),
+          countryCode: getId(initialData.countryCode),
+          campaign: getId(initialData.campaign),
+          source: getId(initialData.source),
+          subSource: getId(initialData.subSource),
+          professionCategory: getId(initialData.professionCategory),
+          professionSubCategory: getId(initialData.professionSubCategory),
+          designation: getId(initialData.designation),
+          visibleTo: getId(initialData.visibleTo),
+          team: getId(initialData.team),
+          owner: getId(initialData.owner),
+          personalAddress: {
+            ...prev.personalAddress,
+            ...(initialData.personalAddress || {}),
+            country: getId(initialData.personalAddress?.country),
+            state: getId(initialData.personalAddress?.state),
+            city: getId(initialData.personalAddress?.city),
+            location: getId(initialData.personalAddress?.location),
+            tehsil: getId(initialData.personalAddress?.tehsil),
+            postOffice: getId(initialData.personalAddress?.postOffice),
+          },
+          correspondenceAddress: {
+            ...prev.correspondenceAddress,
+            ...(initialData.correspondenceAddress || {}),
+            country: getId(initialData.correspondenceAddress?.country),
+            state: getId(initialData.correspondenceAddress?.state),
+            city: getId(initialData.correspondenceAddress?.city),
+            location: getId(initialData.correspondenceAddress?.location),
+            tehsil: getId(initialData.correspondenceAddress?.tehsil),
+            postOffice: getId(initialData.correspondenceAddress?.postOffice),
+          },
+          // Ensure array fields exist
+          phones: initialData.phones?.length ? initialData.phones : prev.phones,
+          emails: initialData.emails?.length ? initialData.emails : prev.emails,
+          educations: initialData.educations?.length ? initialData.educations.map(e => ({
+            ...e,
+            degree: getId(e.degree)
+          })) : prev.educations,
+          loans: initialData.loans?.length ? initialData.loans.map(l => ({
+            ...l,
+            loanType: getId(l.loanType),
+            bank: getId(l.bank)
+          })) : prev.loans,
+          socialMedia: initialData.socialMedia?.length ? initialData.socialMedia.map(s => ({
+            ...s,
+            platform: getId(s.platform)
+          })) : prev.socialMedia,
+          incomes: initialData.incomes?.length ? initialData.incomes.map(i => ({
+            ...i,
+            incomeType: getId(i.incomeType)
+          })) : prev.incomes,
+          documents: initialData.documents?.length ? initialData.documents.map(doc => ({
+            ...doc,
+            documentName: getId(doc.documentName),
+            documentType: getId(doc.documentType),
+            unitNumber: doc.unitNumber || doc.unitNo || ""
+          })) : prev.documents,
+        };
+        return mappedData;
+      });
     }
   }, [initialData, isOpen]);
 
   // Fetch Default Country Code
-  useEffect(() => {
-    const fetchDefaultCountryCode = async () => {
-      try {
-        const data = await fetchLookup("Country-Code");
-        setCountrycode(data);
-
-        // Find default (India or +91)
-        if (!initialData) {
-          const defaultCode = data.find(c => c.lookup_value === "India" || c.lookup_value === "+91" || c.lookup_value.includes("India"));
-          if (defaultCode) {
-            setFormData(prev => ({ ...prev, countryCode: defaultCode._id }));
-          } else if (data.length > 0) {
-            setFormData(prev => ({ ...prev, countryCode: data[0]._id }));
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching country codes:", error);
-      }
-    };
-
-    if (isOpen) {
-      fetchDefaultCountryCode();
-    }
-  }, [isOpen, initialData]);
-
   const handleInputChange = (field, value) => {
     setFormData((prev) => ({
       ...prev,
       [field]: value,
     }));
   };
+
+  // --- Lookup Pre-fetching ---
+  useEffect(() => {
+    const fetchAllLookups = async () => {
+      if (!isOpen) return;
+
+      try {
+        // Fetch all primary lookups in parallel
+        const [
+          titleData,
+          countryCodeData,
+          campaignData,
+          categoryData,
+          sourceData,
+          subSourceData,
+          profSubCategoryData,
+          designationData
+        ] = await Promise.all([
+          fetchLookup("Title"),
+          fetchLookup("Country-Code"),
+          fetchLookup("Campaign"),
+          fetchLookup("ProfessionalCategory"),
+          initialData?.campaign ? fetchLookup("Source", getId(initialData.campaign)) : Promise.resolve([]),
+          initialData?.source ? fetchLookup("Sub-Source", getId(initialData.source)) : Promise.resolve([]),
+          initialData?.professionCategory ? fetchLookup("ProfessionalSubCategory", getId(initialData.professionCategory)) : Promise.resolve([]),
+          initialData?.professionSubCategory ? fetchLookup("ProfessionalDesignation", getId(initialData.professionSubCategory)) : Promise.resolve([])
+        ]);
+
+        setTitle(titleData);
+        setCountrycode(countryCodeData);
+        setcampaigns(campaignData);
+        setProfessionCategories(categoryData);
+        setsource(sourceData);
+        setSubSource(subSourceData);
+        setProfessionSubCategories(profSubCategoryData);
+        setDesignation(designationData);
+
+        // Set default country code for new contacts
+        if (!initialData && countryCodeData.length > 0) {
+          const defaultCode = countryCodeData.find(c =>
+            c.lookup_value === "India" || c.lookup_value === "+91"
+          );
+          if (defaultCode) {
+            setFormData(prev => ({ ...prev, countryCode: defaultCode._id }));
+          }
+        }
+      } catch (error) {
+        console.error("Error pre-fetching lookups:", error);
+      }
+    };
+
+    fetchAllLookups();
+  }, [isOpen, initialData?._id]);
 
   // Derived Data for Professional Details
   const selectedCompanyData = companyData.find(
@@ -882,7 +973,7 @@ const AddContactModal = ({
 
   const handleSave = async () => {
     setIsSaving(true);
-    const toastId = toast.loading("Adding contact...");
+    const toastId = toast.loading(mode === "edit" ? "Updating contact..." : "Adding contact...");
 
     // Validation: Mandatory Mobile Number
     if (!formData.phones || formData.phones.length === 0 || !formData.phones[0].number) {
@@ -3003,12 +3094,12 @@ const AddContactModal = ({
                                   handleInputChange("documents", [
                                     ...formData.documents,
                                     {
-                                      documentName: "",
-                                      documentType: "",
+                                      documentName: null,
+                                      documentType: null,
                                       documentNo: "",
                                       projectName: "",
                                       block: "",
-                                      unitNo: "",
+                                      unitNumber: "",
                                       documentPicture: null,
                                     },
                                   ]);
@@ -3074,7 +3165,7 @@ const AddContactModal = ({
                                 const newDocs = [...formData.documents];
                                 newDocs[index].projectName = e.target.value;
                                 newDocs[index].block = "";
-                                newDocs[index].unitNo = "";
+                                newDocs[index].unitNumber = "";
                                 handleInputChange("documents", newDocs);
                               }}
                               style={{
@@ -3125,11 +3216,11 @@ const AddContactModal = ({
                               })()}
                             </select>
                             <select
-                              value={doc.unitNo}
+                              value={doc.unitNumber}
                               disabled={!doc.projectName}
                               onChange={(e) => {
                                 const newDocs = [...formData.documents];
-                                newDocs[index].unitNo = e.target.value;
+                                newDocs[index].unitNumber = e.target.value;
                                 handleInputChange("documents", newDocs);
                               }}
                               style={{
@@ -3426,7 +3517,7 @@ const AddContactModal = ({
                             if (index === 0)
                               handleInputChange("educations", [
                                 ...formData.educations,
-                                { education: "", degree: "", school: "" },
+                                { education: null, degree: null, school: "" },
                               ]);
                             else {
                               const newEdu = formData.educations.filter(
@@ -3550,7 +3641,7 @@ const AddContactModal = ({
                           if (index === 0)
                             handleInputChange("incomes", [
                               ...formData.incomes,
-                              { incomeType: "", amount: "" },
+                              { incomeType: null, amount: "" },
                             ]);
                           else {
                             const newInc = formData.incomes.filter(
@@ -3670,7 +3761,7 @@ const AddContactModal = ({
                           if (index === 0)
                             handleInputChange("loans", [
                               ...formData.loans,
-                              { loanType: "", bank: "", loanAmount: "" },
+                              { loanType: null, bank: null, loanAmount: "" },
                             ]);
                           else {
                             const newLoans = formData.loans.filter(
@@ -3782,7 +3873,7 @@ const AddContactModal = ({
                           if (index === 0)
                             handleInputChange("socialMedia", [
                               ...formData.socialMedia,
-                              { platform: "", url: "" },
+                              { platform: null, url: "" },
                             ]);
                           else {
                             const newSocial = formData.socialMedia.filter(

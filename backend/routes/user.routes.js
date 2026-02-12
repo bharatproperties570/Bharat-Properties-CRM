@@ -1,21 +1,46 @@
-import express from "express";
+import express from 'express';
 import {
-    getAllUsers,
+    getUsers,
     getUserById,
     createUser,
     updateUser,
-    deleteUser
-} from "../controllers/user.controller.js";
+    deleteUser,
+    deactivateUser,
+    forceLogoutUser,
+    getUserHierarchy,
+    getTeamMembers,
+    getUserSessions,
+    getUserAuditTrail,
+    importUsers,
+    checkDuplicatesImport
+} from '../controllers/user.controller.js';
 
 const router = express.Router();
 
-router.route("/")
-    .get(getAllUsers)
-    .post(createUser);
+// List and create users
+router.get('/', getUsers);
+router.post('/', createUser);
 
-router.route("/:id")
+// Bulk operations
+router.post('/import', importUsers);
+router.post('/check-duplicates', checkDuplicatesImport);
+
+// Hierarchy and team
+router.get('/hierarchy', getUserHierarchy);
+
+// Single user operations
+router.route('/:id')
     .get(getUserById)
     .put(updateUser)
     .delete(deleteUser);
+
+// User actions
+router.post('/:id/deactivate', deactivateUser);
+router.post('/:id/force-logout', forceLogoutUser);
+
+// User relationships
+router.get('/:id/team', getTeamMembers);
+router.get('/:id/sessions', getUserSessions);
+router.get('/:id/audit-trail', getUserAuditTrail);
 
 export default router;

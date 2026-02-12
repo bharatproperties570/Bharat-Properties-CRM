@@ -1,9 +1,11 @@
 import express from "express";
-import { getLookups, addLookup, updateLookup, deleteLookup } from "../controllers/lookup.controller.js";
+import { getLookups, addLookup, updateLookup, deleteLookup, importLookups, checkDuplicatesImport } from "../controllers/lookup.controller.js";
 
 const router = express.Router();
 // Handle generic lookups
 router.get("/", getLookups);
+router.post("/import", importLookups);
+router.post("/check-duplicates", checkDuplicatesImport);
 router.post("/", addLookup);
 router.put("/:id", updateLookup);
 router.delete("/:id", deleteLookup);

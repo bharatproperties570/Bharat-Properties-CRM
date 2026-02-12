@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import Toast from '../../components/Toast';
 import AddUserModal from '../../components/AddUserModal';
 import CreateRoleModal from '../../components/CreateRoleModal';
+import AssignReportingModal from '../../components/AssignReportingModal';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { useUserContext } from '../../context/UserContext';
+import { getInitials } from '../../utils/helpers';
 import SalesGoalsSettingsPage from './views/SalesGoalsSettingsPage';
 import NotificationSettingsPage from './views/NotificationSettingsPage';
 import EmailSettingsPage from './views/EmailSettingsPage';
@@ -109,11 +111,104 @@ const UserCard = ({ name, team, initials, isAdmin, count, hasAddIcon, isHighligh
     </div>
 );
 
-const UserHierarchy = ({ showPermissions, setShowPermissions, onAddUser }) => {
+const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, users }) => {
     const [permissionModule, setPermissionModule] = useState('leads');
     const [showModuleDropdown, setShowModuleDropdown] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [expandedUsers, setExpandedUsers] = useState(new Set());
 
     const modules = ['leads', 'contacts', 'prospects and customers', 'deals'];
+
+    // Build hierarchy tree from users
+    const buildHierarchy = () => {
+        if (!users || users.length === 0) return [];
+
+        // Find root users (those without reportingTo or whose reportingTo is not in the list)
+        const userMap = new Map(users.map(u => [u._id, u]));
+        const roots = users.filter(u => !u.reportingTo || !userMap.has(u.reportingTo._id || u.reportingTo));
+
+        // Build children map
+        const childrenMap = new Map();
+        users.forEach(user => {
+            const managerId = user.reportingTo?._id || user.reportingTo;
+            if (managerId && userMap.has(managerId)) {
+                if (!childrenMap.has(managerId)) {
+                    childrenMap.set(managerId, []);
+                }
+                childrenMap.get(managerId).push(user);
+            }
+        });
+
+        return { roots, childrenMap };
+    };
+
+    const { roots, childrenMap } = buildHierarchy();
+
+    // Filter users by search term
+    const filteredRoots = searchTerm
+        ? roots.filter(u => (u.fullName || u.name || '').toLowerCase().includes(searchTerm.toLowerCase()))
+        : roots;
+
+    // Recursive component to render user node and its children
+    const UserNode = ({ user, level = 0 }) => {
+        const children = childrenMap.get(user._id) || [];
+        const hasChildren = children.length > 0;
+        const isExpanded = expandedUsers.has(user._id);
+
+        const toggleExpand = () => {
+            const newExpanded = new Set(expandedUsers);
+            if (isExpanded) {
+                newExpanded.delete(user._id);
+            } else {
+                newExpanded.add(user._id);
+            }
+            setExpandedUsers(newExpanded);
+        };
+
+        return (
+            <div style={{ marginLeft: level > 0 ? '40px' : '0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: hasChildren && isExpanded ? '20px' : '0' }}>
+                    {hasChildren && (
+                        <div
+                            onClick={toggleExpand}
+                            style={{
+                                cursor: 'pointer',
+                                color: '#64748b',
+                                width: '20px',
+                                textAlign: 'center'
+                            }}
+                        >
+                            <i className={`fas fa-chevron-${isExpanded ? 'down' : 'right'}`} style={{ fontSize: '0.7rem' }}></i>
+                        </div>
+                    )}
+                    {!hasChildren && <div style={{ width: '20px' }}></div>}
+                    <UserCard
+                        initials={getInitials(user.fullName || user.name || 'U')}
+                        name={user.fullName || user.name}
+                        team={`${user.department || 'N/A'} - ${user.role?.name || 'No Role'}`}
+                        count={children.length}
+                        isHighlighted={showPermissions}
+                    />
+                    <div
+                        style={{ color: '#cbd5e1', cursor: 'pointer' }}
+                        onClick={() => onAssignUser({ manager: user.fullName || user.name, managerId: user._id })}
+                        title="Assign team member"
+                    >
+                        <i className="fas fa-plus-circle"></i>
+                    </div>
+                </div>
+                {hasChildren && isExpanded && (
+                    <div style={{ marginTop: '20px', marginLeft: '20px', borderLeft: '2px solid #e2e8f0', paddingLeft: '20px' }}>
+                        {children.map(child => (
+                            <div key={child._id} style={{ marginBottom: '20px' }}>
+                                <UserNode user={child} level={level + 1} />
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    };
 
     return (
         <div style={{ flex: 1, padding: '32px 40px', background: '#f8fafc', overflow: 'auto', position: 'relative' }}>
@@ -121,7 +216,13 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAddUser }) => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                     <div style={{ position: 'relative' }}>
                         <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '0.8rem' }}></i>
-                        <input type="text" placeholder="Search..." style={{ width: '200px', padding: '8px 12px 8px 32px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '0.8rem' }} />
+                        <input
+                            type="text"
+                            placeholder="Search users..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            style={{ width: '200px', padding: '8px 12px 8px 32px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '0.8rem' }}
+                        />
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <div
@@ -173,35 +274,46 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAddUser }) => {
                         )}
                     </div>
                 </div>
-                <button className="btn-outline" style={{ background: '#fff', padding: '8px 16px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid #e2e8f0' }}>Center Hierarchy</button>
+                <button
+                    className="btn-outline"
+                    onClick={() => setExpandedUsers(new Set(users.map(u => u._id)))}
+                    style={{ background: '#fff', padding: '8px 16px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid #e2e8f0' }}
+                >
+                    Expand All
+                </button>
             </div>
-            {/* Tree visualization matching uploaded_image_2 */}
-            <div style={{ display: 'flex', alignItems: 'center', minHeight: '500px', position: 'relative', paddingLeft: '40px' }}>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ color: '#cbd5e1', cursor: 'pointer' }} onClick={() => onAddUser()}><i className="fas fa-user-plus"></i></div>
-                        <UserCard initials="RD" name="Real Deal" team="Real Deal's team, Sales" count={2} />
+
+            {/* Dynamic Tree visualization */}
+            <div style={{ minHeight: '500px', position: 'relative' }}>
+                {filteredRoots.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+                        <i className="fas fa-users" style={{ fontSize: '3rem', marginBottom: '16px', opacity: 0.3 }}></i>
+                        <p style={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                            {searchTerm ? 'No users found matching your search' : 'No users in the system'}
+                        </p>
+                        {!searchTerm && (
+                            <button
+                                className="btn-primary"
+                                onClick={() => onAddUser()}
+                                style={{ marginTop: '16px', padding: '8px 20px', borderRadius: '6px', fontSize: '0.85rem' }}
+                            >
+                                + Add First User
+                            </button>
+                        )}
                     </div>
-                    <div style={{ width: '60px', height: '1px', background: '#e2e8f0', position: 'relative' }}>
-                        <div style={{ position: 'absolute', right: '-8px', top: '-6px', color: '#cbd5e1' }}><i className="fas fa-caret-right"></i></div>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
+                        {filteredRoots.map(root => (
+                            <UserNode key={root._id} user={root} level={0} />
+                        ))}
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '60px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <UserCard initials="Ra" name="Ramesh" team="Sale Team Chandigrah" isHighlighted={showPermissions} />
-                            <div style={{ color: '#cbd5e1', cursor: 'pointer' }} onClick={() => onAddUser({ manager: 'Ramesh' })}><i className="fas fa-user-plus"></i></div>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <UserCard initials="Su" name="Suraj" team="Inventory Management" isHighlighted={showPermissions} />
-                            <div style={{ color: '#cbd5e1', cursor: 'pointer' }} onClick={() => onAddUser({ manager: 'Suraj' })}><i className="fas fa-user-plus"></i></div>
-                        </div>
-                    </div>
-                </div>
+                )}
             </div>
         </div>
     );
 };
 
-const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser }) => {
+const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, onEditUser, onResetPassword }) => {
     const [openActionId, setOpenActionId] = useState(null);
 
     return (
@@ -237,23 +349,23 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser })
                         </tr>
                     </thead>
                     <tbody>
-                        {users.filter(u => u.name.toLowerCase().includes(searchTerm.toLowerCase())).map(user => (
+                        {users.filter(u => (u.fullName || u.name || '').toLowerCase().includes(searchTerm.toLowerCase())).map(user => (
                             <tr key={user._id || user.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td style={{ padding: '16px', fontWeight: 700 }}>{user.name}</td>
-                                <td style={{ padding: '16px' }}>{user.email}<br />{user.phone}</td>
+                                <td style={{ padding: '16px', fontWeight: 700 }}>{user.fullName || user.name}</td>
+                                <td style={{ padding: '16px' }}>{user.email}<br />{user.mobile || user.phone}</td>
                                 <td style={{ padding: '16px', fontWeight: 700 }}>{user.department}</td>
-                                <td style={{ padding: '16px', fontWeight: 700 }}>{user.designation}</td>
+                                <td style={{ padding: '16px', fontWeight: 700 }}>{user.designation || user.role?.name || '-'}</td>
                                 <td style={{ padding: '16px', color: 'var(--primary-color)', fontWeight: 600 }}>{user.username}</td>
                                 {/* <td style={{ padding: '16px' }}>{user.callSync} ({user.lastSync})</td> */}
                                 <td style={{ padding: '16px' }}>{user.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : 'Never'}</td>
                                 <td style={{ padding: '16px' }}>
                                     <span style={{
-                                        background: user.status === 'Active' ? '#22c55e' : '#ef4444',
+                                        background: user.status === 'Active' || user.isActive ? '#22c55e' : '#ef4444',
                                         color: '#fff',
                                         padding: '2px 8px',
                                         borderRadius: '4px',
                                         fontSize: '0.65rem'
-                                    }}>{user.status}</span>
+                                    }}>{user.status || (user.isActive ? 'Active' : 'Inactive')}</span>
                                 </td>
                                 <td style={{ padding: '16px', position: 'relative' }}>
                                     <button
@@ -264,8 +376,22 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser })
                                     </button>
                                     {openActionId === (user._id || user.id) && (
                                         <div style={{ position: 'absolute', top: '100%', right: 0, width: '160px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', zIndex: 100 }}>
-                                            <div style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }} onMouseOver={e => e.target.style.background = '#f8fafc'} onMouseOut={e => e.target.style.background = 'transparent'}>Edit User</div>
-                                            <div style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }} onMouseOver={e => e.target.style.background = '#f8fafc'} onMouseOut={e => e.target.style.background = 'transparent'}>Reset Password</div>
+                                            <div
+                                                style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                                                onMouseOver={e => e.target.style.background = '#f8fafc'}
+                                                onMouseOut={e => e.target.style.background = 'transparent'}
+                                                onClick={() => { onEditUser(user); setOpenActionId(null); }}
+                                            >
+                                                Edit User
+                                            </div>
+                                            <div
+                                                style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                                                onMouseOver={e => e.target.style.background = '#f8fafc'}
+                                                onMouseOut={e => e.target.style.background = 'transparent'}
+                                                onClick={() => { onResetPassword(user); setOpenActionId(null); }}
+                                            >
+                                                Reset Password
+                                            </div>
                                             <div
                                                 style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#ef4444' }}
                                                 onMouseOver={e => e.target.style.background = '#fef2f2'}
@@ -311,9 +437,28 @@ const RolesList = ({ onNewRole, roles, onDeleteRole }) => {
                                 <td style={{ padding: '16px', fontWeight: 700, color: '#1e293b' }}>{role.name}</td>
                                 <td style={{ padding: '16px', color: '#64748b' }}>{role.description}</td>
                                 <td style={{ padding: '16px', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>
-                                    {!role.isSystem && (
-                                        <button onClick={() => onDeleteRole(role._id || role.id)} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer' }}>
-                                            <i className="fas fa-trash"></i>
+                                    {!role.isSystemRole && (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                onDeleteRole(role._id || role.id);
+                                            }}
+                                            style={{
+                                                border: 'none',
+                                                background: 'transparent',
+                                                color: '#ef4444',
+                                                cursor: 'pointer',
+                                                padding: '8px',
+                                                borderRadius: '4px',
+                                                transition: 'background 0.2s'
+                                            }}
+                                            onMouseOver={e => e.currentTarget.style.background = '#fef2f2'}
+                                            onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                                            title="Delete Role"
+                                        >
+                                            <i className="fas fa-trash" style={{ pointerEvents: 'none' }}></i>
                                         </button>
                                     )}
                                 </td>
@@ -346,8 +491,10 @@ const SettingsHubPage = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [showPermissions, setShowPermissions] = useState(false);
     const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
+    const [isAssignReportingModalOpen, setIsAssignReportingModalOpen] = useState(false);
     const [isCreateRoleModalOpen, setIsCreateRoleModalOpen] = useState(false);
-    const [prefilledManager, setPrefilledManager] = useState('');
+    const [managerContext, setManagerContext] = useState({ name: '', id: '' });
+    const [editingUser, setEditingUser] = useState(null);
     const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
     const [isSyncing, setIsSyncing] = useState(false);
 
@@ -357,13 +504,10 @@ const SettingsHubPage = () => {
     };
 
     const handleAddUser = async (userData) => {
-        const result = await addUser(userData);
-        if (result.success) {
-            showToast('User created successfully');
-            setIsAddUserModalOpen(false);
-        } else {
-            showToast('Failed to create user: ' + result.error, 'error');
-        }
+        // The modal now handles the API call, so we just refresh
+        refreshData();
+        showToast(editingUser ? 'User updated successfully' : 'User created successfully');
+        setIsAddUserModalOpen(false);
     };
 
     const handleDeleteUser = async (id) => {
@@ -378,13 +522,10 @@ const SettingsHubPage = () => {
     };
 
     const handleSaveRole = async (roleData) => {
-        const result = await addRole(roleData);
-        if (result.success) {
-            showToast('Role created successfully');
-            setIsCreateRoleModalOpen(false);
-        } else {
-            showToast('Failed to create role: ' + result.error, 'error');
-        }
+        // Modal already handles API call
+        refreshData();
+        showToast('Role saved successfully');
+        setIsCreateRoleModalOpen(false);
     };
 
     const handleDeleteRole = async (id) => {
@@ -393,8 +534,25 @@ const SettingsHubPage = () => {
             if (result.success) {
                 showToast('Role deleted successfully');
             } else {
-                showToast('Failed to delete role: ' + result.error, 'error');
+                // Show specific backend error message
+                showToast(result.error || 'Failed to delete role', 'error');
             }
+        }
+    };
+
+    const handleAssignMember = (ctx) => {
+        setManagerContext({ name: ctx.manager, id: ctx.managerId });
+        setIsAssignReportingModalOpen(true);
+    };
+
+    const handleEditUser = (user) => {
+        setEditingUser(user);
+        setIsAddUserModalOpen(true);
+    };
+
+    const handleResetPassword = (user) => {
+        if (window.confirm(`Are you sure you want to reset password for ${user.fullName}?`)) {
+            showToast(`Password reset link sent to ${user.email}`);
         }
     };
 
@@ -495,8 +653,21 @@ const SettingsHubPage = () => {
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                     {activeTab === 'users' ? (
                         <>
-                            {subTab === 'user-list' && <UserList searchTerm={searchTerm} setSearchTerm={setSearchTerm} users={users} onDeleteUser={handleDeleteUser} onNewUser={() => { setPrefilledManager(''); setIsAddUserModalOpen(true); }} />}
-                            {subTab === 'user-hierarchy' && <UserHierarchy showPermissions={showPermissions} setShowPermissions={setShowPermissions} onAddUser={(ctx) => { setPrefilledManager(ctx?.manager || ''); setIsAddUserModalOpen(true); }} />}
+                            {subTab === 'user-list' && <UserList
+                                searchTerm={searchTerm}
+                                setSearchTerm={setSearchTerm}
+                                users={users}
+                                onDeleteUser={handleDeleteUser}
+                                onEditUser={handleEditUser}
+                                onResetPassword={handleResetPassword}
+                                onNewUser={() => { setEditingUser(null); setIsAddUserModalOpen(true); }}
+                            />}
+                            {subTab === 'user-hierarchy' && <UserHierarchy
+                                showPermissions={showPermissions}
+                                setShowPermissions={setShowPermissions}
+                                users={users}
+                                onAssignUser={handleAssignMember}
+                            />}
                             {subTab === 'roles' && <RolesList onNewRole={() => setIsCreateRoleModalOpen(true)} roles={roles} onDeleteRole={handleDeleteRole} />}
                         </>
                     ) : activeTab === 'sales-goals' ? (
@@ -567,10 +738,23 @@ const SettingsHubPage = () => {
             {/* Modals */}
             <AddUserModal
                 isOpen={isAddUserModalOpen}
-                onClose={() => setIsAddUserModalOpen(false)}
+                onClose={() => { setIsAddUserModalOpen(false); setEditingUser(null); }}
                 onAdd={handleAddUser}
-                prefilledManager={prefilledManager}
+                isEdit={!!editingUser}
+                userData={editingUser}
             />
+
+            <AssignReportingModal
+                isOpen={isAssignReportingModalOpen}
+                onClose={() => setIsAssignReportingModalOpen(false)}
+                managerName={managerContext.name}
+                managerId={managerContext.id}
+                onAssign={() => {
+                    showToast('Team member assigned successfully');
+                    refreshData();
+                }}
+            />
+
             <CreateRoleModal
                 isOpen={isCreateRoleModalOpen}
                 onClose={() => setIsCreateRoleModalOpen(false)}

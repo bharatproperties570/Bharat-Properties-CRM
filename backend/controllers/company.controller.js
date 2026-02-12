@@ -137,3 +137,93 @@ export const deleteCompany = async (req, res, next) => {
         next(error);
     }
 };
+
+/**
+ * @desc    Bulk import companies
+ * @route   POST /companies/import
+ * @access  Private
+ */
+export const importCompanies = async (req, res, next) => {
+    try {
+        const { data } = req.body;
+        if (!data || !Array.isArray(data)) {
+            return res.status(400).json({ success: false, message: "Invalid data provided" });
+        }
+
+        const results = {
+            successCount: 0,
+            errorCount: 0,
+            errors: []
+        };
+
+        const companiesToCreate = [];
+
+        for (const item of data) {
+            try {
+                // Ensure name exists
+                if (!item.name) {
+                    throw new Error("Company Name is required");
+                }
+
+                const sanitized = sanitizeData(item);
+                companiesToCreate.push(sanitized);
+                results.successCount++;
+            } catch (err) {
+                results.errorCount++;
+                results.errors.push({ item: item.name || 'Unknown', error: err.message });
+            }
+        }
+
+        if (companiesToCreate.length > 0) {
+            await Company.insertMany(companiesToCreate, { ordered: false });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `Imported ${results.successCount} companies with ${results.errorCount} errors.`,
+            ...results
+        });
+    } catch (error) {
+        if (error.writeErrors) {
+            const realSuccessCount = req.body.data.length - error.writeErrors.length;
+            return res.status(200).json({
+                success: true,
+                message: `Imported ${realSuccessCount} companies. ${error.writeErrors.length} failed.`,
+                successCount: realSuccessCount,
+                errorCount: error.writeErrors.length,
+                errors: error.writeErrors.map(e => ({ item: e.errmsg, error: "Duplicate or Validation Error" }))
+            });
+        }
+        next(error);
+    }
+};
+
+/**
+ * @desc    Check for duplicate companies by name
+ * @route   POST /companies/check-duplicates
+ * @access  Private
+ */
+export const checkDuplicatesImport = async (req, res, next) => {
+    try {
+        const { names } = req.body;
+        if (!names || !Array.isArray(names)) {
+            return res.status(400).json({ success: false, message: "Invalid company names provided" });
+        }
+
+        const duplicates = await Company.find({ name: { $in: names } }, 'name').lean();
+        const existingNames = duplicates.map(d => d.name);
+        const matchedNames = names.filter(n => existingNames.includes(n));
+        const uniqueMatched = [...new Set(matchedNames)];
+
+        res.status(200).json({
+            success: true,
+            duplicates: uniqueMatched,
+            details: duplicates.map(d => ({
+                id: d._id,
+                name: d.name
+            }))
+        });
+    } catch (error) {
+        next(error);
+    }
+};

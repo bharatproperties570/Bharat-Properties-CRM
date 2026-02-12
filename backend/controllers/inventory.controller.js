@@ -1,95 +1,84 @@
 import Inventory from "../models/Inventory.js";
-import mockStore from "../utils/mockStore.js";
 import { paginate } from "../utils/pagination.js";
 
-/**
- * @desc    Get all inventory
- * @route   GET /inventory
- * @access  Private
- */
 export const getInventory = async (req, res) => {
     try {
-        if (process.env.MOCK_MODE === 'true') {
-            return res.json({ success: true, data: mockStore.inventory });
-        }
+        const { page = 1, limit = 10, search = "", category, subCategory, unitType, status, project } = req.query;
 
-        const { page = 1, limit = 25, search = "", projectId, block, projectName } = req.query;
         let query = {};
 
-        if (projectId) query.projectId = projectId;
-        if (block) query.block = block;
-        if (projectName) query.projectName = projectName;
-
-        if (req.query.area) query.projectName = req.query.area; // Alias support
-        if (req.query.location) query.block = req.query.location; // Alias support
-
+        // Search in unitNo, unitNumber, ownerName, ownerPhone
         if (search) {
-            query = {
-                ...query,
-                $or: [
-                    { unitNo: { $regex: search, $options: "i" } },
-                    { unitNumber: { $regex: search, $options: "i" } }, // Add unitNumber support
-                    { ownerName: { $regex: search, $options: "i" } },
-                    { city: { $regex: search, $options: "i" } },
-                    { locArea: { $regex: search, $options: "i" } }
-                ]
-            };
+            query.$or = [
+                { unitNo: { $regex: search, $options: "i" } },
+                { unitNumber: { $regex: search, $options: "i" } },
+                { ownerName: { $regex: search, $options: "i" } },
+                { ownerPhone: { $regex: search, $options: "i" } },
+                { description: { $regex: search, $options: "i" } },
+                { projectName: { $regex: search, $options: "i" } }
+            ];
         }
 
-        const populateFields = "owners associates";
-        // Sort by _id desc to ensure newest items come first (more reliable than createdAt for mixed legacy data)
-        const results = await paginate(Inventory, query, Number(page), Number(limit), { _id: -1 }, populateFields);
+        // Apply filters
+        if (category) query.category = category;
+        if (subCategory) query.subCategory = subCategory;
+        if (unitType) query.unitType = unitType;
+        if (status) query.status = status;
+        if (project) query.projectId = project;
 
-        res.json({
+        // Only populate fields that are reliably ObjectIds (Contact references)
+        // category, status, etc. in Inventory seem to be stored as objects or strings already
+        const populateFields = [
+            { path: "owners", select: "name phones" },
+            { path: "associates", select: "name phones" }
+        ];
+
+        const results = await paginate(Inventory, query, Number(page), Number(limit), { createdAt: -1 }, populateFields);
+
+        res.status(200).json({
             success: true,
             ...results
         });
     } catch (error) {
-        console.error("GET /inventory error:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 };
 
-
-/**
- * @desc    Add new inventory
- * @route   POST /inventory
- * @access  Private
- */
 export const addInventory = async (req, res) => {
     try {
         const inventory = await Inventory.create(req.body);
         res.status(201).json({ success: true, data: inventory });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        res.status(400).json({ success: false, error: error.message });
     }
 };
 
-/**
- * @desc    Update inventory
- * @route   PUT /inventory/:id
- * @access  Private
- */
 export const updateInventory = async (req, res) => {
     try {
-        const inventory = await Inventory.findByIdAndUpdate(req.params.id, req.body, { new: true });
-        if (!inventory) return res.status(404).json({ success: false, error: "Inventory not found" });
-        res.json({ success: true, data: inventory });
+        const inventory = await Inventory.findByIdAndUpdate(req.params.id, req.body, {
+            new: true,
+            runValidators: true,
+        });
+
+        if (!inventory) {
+            return res.status(404).json({ success: false, error: "Inventory item not found" });
+        }
+
+        res.status(200).json({ success: true, data: inventory });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        res.status(400).json({ success: false, error: error.message });
     }
 };
 
-/**
- * @desc    Delete inventory
- * @route   DELETE /inventory/:id
- * @access  Private
- */
 export const deleteInventory = async (req, res) => {
     try {
         const inventory = await Inventory.findByIdAndDelete(req.params.id);
-        if (!inventory) return res.status(404).json({ success: false, error: "Inventory not found" });
-        res.json({ success: true, message: "Inventory deleted successfully" });
+
+        if (!inventory) {
+            return res.status(404).json({ success: false, error: "Inventory item not found" });
+        }
+
+        res.status(200).json({ success: true, data: {} });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -102,38 +91,116 @@ export const bulkDeleteInventory = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid IDs provided" });
         }
         await Inventory.deleteMany({ _id: { $in: ids } });
-        res.json({ success: true, message: `${ids.length} inventory items deleted successfully` });
+        res.status(200).json({ success: true, message: `${ids.length} items deleted successfully` });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const matchInventory = async (req, res) => {
+    try {
+        const { leadId } = req.query;
+        // Logic for matching inventory with lead requirements would go here
+        res.status(200).json({ success: true, data: [] });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
 
 /**
- * @desc    Match inventory based on criteria
- * @route   GET /inventory/match
+ * @desc    Bulk import inventory
+ * @route   POST /inventory/import
  * @access  Private
  */
-export const matchInventory = async (req, res) => {
+export const importInventory = async (req, res) => {
     try {
-        if (process.env.MOCK_MODE === 'true') {
-            return res.json({ success: true, data: mockStore.inventory });
+        const { data } = req.body;
+        if (!data || !Array.isArray(data)) {
+            return res.status(400).json({ success: false, error: "Invalid data provided" });
         }
 
-        const { budgetMin, budgetMax, city, propertyType, category, subCategory } = req.query;
-
-        const query = {
-            price: { $gte: Number(budgetMin) || 0, $lte: Number(budgetMax) || Infinity },
-            status: "Available"
+        const results = {
+            successCount: 0,
+            errorCount: 0,
+            errors: []
         };
 
-        if (city) query.city = city;
-        if (propertyType) query.category = propertyType; // Support legacy matching
-        if (category) query.category = category;
-        if (subCategory) query.subCategory = subCategory;
+        const inventoryToCreate = [];
 
-        const results = await Inventory.find(query).limit(50).lean();
+        for (const item of data) {
+            try {
+                // Map frontend 'type' to backend 'category' if needed
+                if (item.type && !item.category) {
+                    item.category = item.type;
+                }
 
-        res.json({ success: true, data: results });
+                inventoryToCreate.push(item);
+                results.successCount++;
+            } catch (err) {
+                results.errorCount++;
+                results.errors.push({ item: item.unitNo || item.unitNumber || 'Unknown', error: err.message });
+            }
+        }
+
+        if (inventoryToCreate.length > 0) {
+            await Inventory.insertMany(inventoryToCreate, { ordered: false });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `Imported ${results.successCount} inventory items with ${results.errorCount} errors.`,
+            ...results
+        });
+    } catch (error) {
+        if (error.writeErrors) {
+            const realSuccessCount = (req.body.data?.length || 0) - error.writeErrors.length;
+            return res.status(200).json({
+                success: true,
+                message: `Imported ${realSuccessCount} inventory items. ${error.writeErrors.length} failed.`,
+                successCount: realSuccessCount,
+                errorCount: error.writeErrors.length,
+                errors: error.writeErrors.map(e => ({ item: e.errmsg, error: "Duplicate or Validation Error" }))
+            });
+        }
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * @desc    Check for duplicate inventory by unitNo and project
+ * @route   POST /inventory/check-duplicates
+ * @access  Private
+ */
+export const checkDuplicatesImport = async (req, res) => {
+    try {
+        const { items } = req.body; // Array of { unitNo, projectId }
+        if (!items || !Array.isArray(items)) {
+            return res.status(400).json({ success: false, error: "Invalid items provided" });
+        }
+
+        const query = {
+            $or: items.map(item => ({
+                $or: [
+                    { unitNo: item.unitNo, projectId: item.projectId },
+                    { unitNumber: item.unitNo, projectId: item.projectId }
+                ]
+            }))
+        };
+
+        const duplicates = await Inventory.find(query, 'unitNo unitNumber projectId').lean();
+
+        res.status(200).json({
+            success: true,
+            duplicates: duplicates.map(d => ({
+                unitNo: d.unitNo || d.unitNumber,
+                projectId: d.projectId
+            })),
+            details: duplicates.map(d => ({
+                id: d._id,
+                unitNo: d.unitNo || d.unitNumber,
+                projectId: d.projectId
+            }))
+        });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

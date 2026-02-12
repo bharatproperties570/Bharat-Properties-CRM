@@ -1,85 +1,189 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 
 const CreateRoleModal = ({ isOpen, onClose, onSave }) => {
-    const [activeModule, setActiveModule] = useState('leads'); // leads | contacts | properties | task | booking | report
-    const [roleData, setRoleData] = useState({
-        name: 'Manager (Sales)',
-        description: 'Authorize work for sales',
-        sidebarPermissions: {
-            profile: false, user: true, notification: true, salesGoal: true,
-            import: false, export: false, bulkUpdate: false, duplicateMgt: false,
-            prospecting: false, leadCapture: false,
-            email: true, calls: false, messaging: false,
-            lead: true, contact: true, task: true, properties: true,
-            notes: false, templates: false, layout: false, postSales: false,
-            integrations: false, api: false,
-            fieldRules: false, distributions: false, sequences: false,
-            automatedActions: false, triggers: false, scoring: false
+    const [formData, setFormData] = useState({
+        name: '',
+        description: '',
+        department: 'sales',
+        moduleAccess: {},
+        defaultDataScope: 'assigned',
+        financialPermissions: {
+            viewMargin: false,
+            editCommission: false,
+            overrideCommission: false,
+            approvePayment: false,
+            approvePayout: false
         },
-        modulePermissions: {
-            leads: { view: 'subordinates', add: true, update: 'all', reassign: 'subordinates', delete: 'subordinates' },
-            contacts: { view: 'subordinates', add: true, update: 'all', reassign: 'subordinates', delete: 'subordinates' },
-            properties: { view: 'subordinates', add: true, update: 'all', reassign: 'subordinates', delete: 'subordinates' },
-            task: { view: 'subordinates', add: true, update: 'all', reassign: 'subordinates', delete: 'subordinates' },
-            booking: { view: 'subordinates', add: true, update: 'all', reassign: 'subordinates', delete: 'subordinates' },
-            report: { view: 'subordinates', add: true, update: 'all', reassign: 'subordinates', delete: 'subordinates' }
+        approvalRights: {
+            approveDeal: false,
+            approveDiscount: false,
+            approveStageChange: false,
+            approveListingPublish: false
         }
     });
 
-    if (!isOpen) return null;
+    const [roleTemplates, setRoleTemplates] = useState([]);
+    const [selectedTemplate, setSelectedTemplate] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [activeTab, setActiveTab] = useState('basic');
 
-    const modules = [
-        { id: 'leads', label: 'Leads' },
-        { id: 'contacts', label: 'Contacts' },
-        { id: 'properties', label: 'Properties' },
-        { id: 'task', label: 'Task' },
-        { id: 'booking', label: 'Booking' },
-        { id: 'report', label: 'Report' }
+    // Departments
+    const departments = [
+        { id: 'sales', name: 'Sales', icon: '💼', color: '#3b82f6' },
+        { id: 'marketing', name: 'Marketing', icon: '📢', color: '#8b5cf6' },
+        { id: 'inventory', name: 'Inventory', icon: '🏢', color: '#10b981' },
+        { id: 'accounts', name: 'Accounts', icon: '💰', color: '#f59e0b' }
     ];
 
-    const settingSections = [
-        { label: 'Manage', items: [{ id: 'profile', label: 'Profile' }, { id: 'user', label: 'User' }, { id: 'notification', label: 'Notification' }, { id: 'salesGoal', label: 'Sales Goal' }] },
-        { label: 'Data', items: [{ id: 'import', label: 'Import' }, { id: 'export', label: 'Export' }, { id: 'bulkUpdate', label: 'Bulk Update' }, { id: 'duplicateMgt', label: 'Duplicate Management' }, { id: 'prospecting', label: 'Prospecting & Enrich' }, { id: 'leadCapture', label: 'Lead Capture' }] },
-        { label: 'Communication Channels', items: [{ id: 'email', label: 'Email' }, { id: 'calls', label: 'Calls' }, { id: 'messaging', label: 'Messaging' }] },
-        { label: 'Customize', items: [{ id: 'lead', label: 'Lead' }, { id: 'contact', label: 'Contact' }, { id: 'task', label: 'Task' }, { id: 'properties', label: 'Properties' }, { id: 'notes', label: 'Notes' }, { id: 'templates', label: 'Templates' }, { id: 'layout', label: 'Layout' }, { id: 'postSales', label: 'Post Sales' }] },
-        { label: 'Intergration', items: [{ id: 'integrations', label: 'Integrations' }, { id: 'api', label: 'API' }] },
-        { label: 'Business Rule', items: [{ id: 'fieldRules', label: 'Field Rules' }, { id: 'distributions', label: 'Distributions' }, { id: 'sequences', label: 'Sequences' }, { id: 'automatedActions', label: 'Automated Actions' }, { id: 'triggers', label: 'Triggers' }, { id: 'scoring', label: 'Scoring' }] }
-    ];
+    // Modules based on department
+    const getModulesForDepartment = (dept) => {
+        const commonModules = ['contacts', 'companies', 'activities', 'reports'];
 
-    const toggleSidebarPermission = (id) => {
-        setRoleData(prev => ({
+        const departmentModules = {
+            sales: ['leads', 'deals', ...commonModules, 'commission', 'matching'],
+            marketing: ['campaigns', 'leads', ...commonModules, 'matching'],
+            inventory: ['inventory', 'projects', 'sizes', ...commonModules, 'matching'],
+            accounts: ['deals', 'payments', 'commission', ...commonModules]
+        };
+
+        return departmentModules[dept] || commonModules;
+    };
+
+    // Initialize module access when department changes
+    useEffect(() => {
+        if (isOpen) {
+            const modules = getModulesForDepartment(formData.department);
+            const moduleAccess = {};
+
+            modules.forEach(module => {
+                if (!formData.moduleAccess[module]) {
+                    moduleAccess[module] = { view: false, create: false, edit: false, delete: false };
+                } else {
+                    moduleAccess[module] = formData.moduleAccess[module];
+                }
+            });
+
+            setFormData(prev => ({ ...prev, moduleAccess }));
+        }
+    }, [formData.department, isOpen]);
+
+    // Fetch role templates
+    useEffect(() => {
+        if (isOpen) {
+            fetchRoleTemplates();
+        }
+    }, [isOpen, formData.department]);
+
+    const fetchRoleTemplates = async () => {
+        try {
+            const response = await axios.get(`/api/roles/templates?department=${formData.department}`);
+            setRoleTemplates(response.data.data || []);
+        } catch (error) {
+            console.error('Failed to fetch role templates:', error);
+        }
+    };
+
+    const applyTemplate = (templateId) => {
+        const template = roleTemplates.find(t => t._id === templateId);
+        if (template) {
+            setFormData({
+                ...formData,
+                name: template.name,
+                description: template.description,
+                moduleAccess: template.moduleAccess || {},
+                defaultDataScope: template.defaultDataScope || 'assigned',
+                financialPermissions: template.financialPermissions || formData.financialPermissions,
+                approvalRights: template.approvalRights || formData.approvalRights
+            });
+            setSelectedTemplate(templateId);
+        }
+    };
+
+    const toggleModulePermission = (module, permission) => {
+        setFormData(prev => ({
             ...prev,
-            sidebarPermissions: {
-                ...prev.sidebarPermissions,
-                [id]: !prev.sidebarPermissions[id]
+            moduleAccess: {
+                ...prev.moduleAccess,
+                [module]: {
+                    ...prev.moduleAccess[module],
+                    [permission]: !prev.moduleAccess[module]?.[permission]
+                }
             }
         }));
     };
 
-    const PermissionGroup = ({ label, type, options, currentValue, onChange }) => (
-        <div style={{ marginBottom: '24px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                <input type="checkbox" checked={currentValue !== false} onChange={(e) => onChange(e.target.checked ? options[0].id : false)} style={{ width: '16px', height: '16px' }} />
-                <label style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>{label}</label>
-            </div>
-            {currentValue !== false && (
-                <div style={{ paddingLeft: '24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {options.map(opt => (
-                        <div key={opt.id} onClick={() => onChange(opt.id)} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-                            <div style={{
-                                width: '18px',
-                                height: '18px',
-                                borderRadius: '50%',
-                                border: currentValue === opt.id ? '5px solid var(--primary-color)' : '1px solid #cbd5e1',
-                                background: '#fff'
-                            }}></div>
-                            <span style={{ fontSize: '0.85rem', color: '#475569' }}>{opt.label}</span>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
+    const setAllModulePermissions = (module, enabled) => {
+        setFormData(prev => ({
+            ...prev,
+            moduleAccess: {
+                ...prev.moduleAccess,
+                [module]: {
+                    view: enabled,
+                    create: enabled,
+                    edit: enabled,
+                    delete: enabled
+                }
+            }
+        }));
+    };
+
+    const handleSubmit = async () => {
+        setError('');
+
+        // Validation
+        if (!formData.name || !formData.department) {
+            setError('Please fill in role name and select a department');
+            return;
+        }
+
+        setLoading(true);
+
+        try {
+            const response = await axios.post('/api/roles', formData);
+
+            if (response.data.success) {
+                if (onSave) {
+                    onSave(response.data.data);
+                }
+
+                // Reset form
+                setFormData({
+                    name: '',
+                    description: '',
+                    department: 'sales',
+                    moduleAccess: {},
+                    defaultDataScope: 'assigned',
+                    financialPermissions: {
+                        viewMargin: false,
+                        editCommission: false,
+                        overrideCommission: false,
+                        approvePayment: false,
+                        approvePayout: false
+                    },
+                    approvalRights: {
+                        approveDeal: false,
+                        approveDiscount: false,
+                        approveStageChange: false,
+                        approveListingPublish: false
+                    }
+                });
+                setSelectedTemplate('');
+
+                onClose();
+            }
+        } catch (error) {
+            console.error('Failed to create role:', error);
+            setError(error.response?.data?.message || 'Failed to create role. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (!isOpen) return null;
+
+    const modules = getModulesForDepartment(formData.department);
 
     return (
         <div style={{
@@ -96,172 +200,352 @@ const CreateRoleModal = ({ isOpen, onClose, onSave }) => {
         }}>
             <div style={{
                 background: '#fff',
-                width: '1000px',
-                height: '92vh',
+                width: '900px',
+                maxHeight: '90vh',
                 borderRadius: '12px',
                 display: 'flex',
                 flexDirection: 'column',
                 overflow: 'hidden',
-                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'
+                boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)'
             }}>
                 {/* Header */}
-                <div style={{ padding: '16px 24px', borderBottom: '1px solid #f1f5f9' }}>
-                    <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#0f172a' }}>Create a new role</h2>
+                <div style={{ padding: '20px 24px', borderBottom: '1px solid #f1f5f9' }}>
+                    <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>Create New Role</h2>
+                    <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Define a custom role with specific permissions for your team</p>
                 </div>
 
-                <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-                    {/* Left Sidebar (Meta & Settings) */}
-                    <div style={{ width: '380px', borderRight: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', overflowY: 'auto', padding: '24px' }}>
-                        <div style={{ marginBottom: '24px' }}>
-                            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Role name <span style={{ color: '#ef4444' }}>*</span></label>
-                            <input
-                                type="text"
-                                style={{ width: '100%', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.9rem', marginTop: '6px' }}
-                                value={roleData.name}
-                                onChange={(e) => setRoleData({ ...roleData, name: e.target.value })}
-                            />
+                {/* Tabs */}
+                <div style={{ display: 'flex', gap: '24px', padding: '0 24px', borderBottom: '1px solid #f1f5f9' }}>
+                    {[
+                        { id: 'basic', label: 'Basic Info' },
+                        { id: 'permissions', label: 'Module Permissions' },
+                        { id: 'advanced', label: 'Advanced' }
+                    ].map(tab => (
+                        <div
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            style={{
+                                padding: '12px 0',
+                                fontSize: '0.9rem',
+                                fontWeight: 600,
+                                color: activeTab === tab.id ? 'var(--primary-color)' : '#94a3b8',
+                                borderBottom: activeTab === tab.id ? '2px solid var(--primary-color)' : '2px solid transparent',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            {tab.label}
                         </div>
+                    ))}
+                </div>
 
-                        <div style={{ marginBottom: '32px' }}>
-                            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Description</label>
-                            <textarea
-                                style={{ width: '100%', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.9rem', marginTop: '6px', minHeight: '80px', resize: 'none' }}
-                                placeholder="Let people know how this role should be used"
-                                value={roleData.description}
-                                onChange={(e) => setRoleData({ ...roleData, description: e.target.value })}
-                            />
+                {/* Body */}
+                <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+                    {/* Error Message */}
+                    {error && (
+                        <div style={{
+                            padding: '12px',
+                            background: '#fef2f2',
+                            border: '1px solid #fecaca',
+                            borderRadius: '6px',
+                            marginBottom: '20px',
+                            color: '#dc2626',
+                            fontSize: '0.85rem'
+                        }}>
+                            {error}
                         </div>
+                    )}
 
+                    {/* Basic Info Tab */}
+                    {activeTab === 'basic' && (
                         <div>
-                            <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#1e293b', marginBottom: '20px' }}>Configure Settings Permissions</h3>
-                            {settingSections.map((section, idx) => (
-                                <div key={idx} style={{ marginBottom: '24px' }}>
-                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', marginBottom: '12px' }}>{section.label}</div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
-                                        {section.items.map(item => (
-                                            <div
-                                                key={item.id}
-                                                style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
-                                                onClick={() => toggleSidebarPermission(item.id)}
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    checked={roleData.sidebarPermissions[item.id]}
-                                                    onChange={() => { }} // Handled by div click
-                                                    style={{ width: '15px', height: '15px', cursor: 'pointer' }}
-                                                />
-                                                <span style={{ fontSize: '0.85rem', color: '#475569' }}>{item.label}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Right Content (Module Permissions) */}
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                        {/* Tabs */}
-                        <div style={{ display: 'flex', gap: '20px', padding: '0 32px', borderBottom: '1px solid #f1f5f9' }}>
-                            {modules.map(module => (
-                                <div
-                                    key={module.id}
-                                    onClick={() => setActiveModule(module.id)}
+                            {/* Role Name */}
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>
+                                    Role Name <span style={{ color: '#ef4444' }}>*</span>
+                                </label>
+                                <input
+                                    type="text"
                                     style={{
-                                        padding: '16px 0',
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '1px solid #e2e8f0',
+                                        borderRadius: '6px',
                                         fontSize: '0.9rem',
-                                        fontWeight: 700,
-                                        color: activeModule === module.id ? 'var(--primary-color)' : '#94a3b8',
-                                        borderBottom: activeModule === module.id ? '2px solid var(--primary-color)' : '2px solid transparent',
-                                        cursor: 'pointer'
+                                        marginTop: '6px'
                                     }}
-                                >
-                                    {module.label}
-                                </div>
-                            ))}
-                        </div>
-
-                        {/* Permission Editor */}
-                        <div style={{ flex: 1, overflowY: 'auto', padding: '32px' }}>
-                            <PermissionGroup
-                                label={`Can view ${activeModule}`}
-                                options={[
-                                    { id: 'subordinates', label: `Their and subordinates' ${activeModule}` },
-                                    { id: 'peers', label: `Their, subordinates', and peers' ${activeModule}` },
-                                    { id: 'manager', label: `Their, subordinates', peers', and manager's ${activeModule}` },
-                                    { id: 'all', label: `Same ${activeModule} as their manager` }
-                                ]}
-                                currentValue={roleData.modulePermissions[activeModule].view}
-                                onChange={(val) => {
-                                    const newPerms = { ...roleData.modulePermissions };
-                                    newPerms[activeModule].view = val;
-                                    setRoleData({ ...roleData, modulePermissions: newPerms });
-                                }}
-                            />
-
-                            <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <input type="checkbox" checked={true} readOnly style={{ width: '16px', height: '16px' }} />
-                                <label style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>Can add {activeModule}</label>
-                            </div>
-
-                            <PermissionGroup
-                                label={`Can update ${activeModule}`}
-                                options={[
-                                    { id: 'subordinates', label: `Only their and subordinates' ${activeModule}` },
-                                    { id: 'all', label: `All ${activeModule} they can view` }
-                                ]}
-                                currentValue={roleData.modulePermissions[activeModule].update}
-                                onChange={(val) => {
-                                    const newPerms = { ...roleData.modulePermissions };
-                                    newPerms[activeModule].update = val;
-                                    setRoleData({ ...roleData, modulePermissions: newPerms });
-                                }}
-                            />
-
-                            <PermissionGroup
-                                label={`Can reassign ownership of ${activeModule}`}
-                                options={[
-                                    { id: 'subordinates', label: `Only their and subordinates' ${activeModule}` },
-                                    { id: 'all', label: `All ${activeModule} they can view` }
-                                ]}
-                                currentValue={roleData.modulePermissions[activeModule].reassign}
-                                onChange={(val) => {
-                                    const newPerms = { ...roleData.modulePermissions };
-                                    newPerms[activeModule].reassign = val;
-                                    setRoleData({ ...roleData, modulePermissions: newPerms });
-                                }}
-                            />
-
-                            <PermissionGroup
-                                label={`Can delete ${activeModule}`}
-                                options={[
-                                    { id: 'subordinates', label: `Only their and subordinates' ${activeModule}` },
-                                    { id: 'all', label: `All ${activeModule} they can view` }
-                                ]}
-                                currentValue={roleData.modulePermissions[activeModule].delete}
-                                onChange={(val) => {
-                                    const newPerms = { ...roleData.modulePermissions };
-                                    newPerms[activeModule].delete = val;
-                                    setRoleData({ ...roleData, modulePermissions: newPerms });
-                                }}
-                            />
-
-                            {/* View Properties Owner Level (Matching Image 3 bottom) */}
-                            <div style={{ marginTop: '40px', borderTop: '1px solid #f1f5f9', paddingTop: '32px' }}>
-                                <PermissionGroup
-                                    label={`Can view ${activeModule === 'properties' ? 'Properties' : activeModule} Owner`}
-                                    options={[
-                                        { id: 'subordinates', label: `Their and subordinates' deals` },
-                                        { id: 'peers', label: `Their, subordinates', and peers' deals` },
-                                        { id: 'manager', label: `Their, subordinates', peers', and manager's deals` },
-                                        { id: 'all', label: `Same deals as their manager` }
-                                    ]}
-                                    currentValue={'subordinates'}
-                                    onChange={() => { }}
+                                    placeholder="e.g., Senior Sales Executive"
+                                    value={formData.name}
+                                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                 />
                             </div>
+
+                            {/* Description */}
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>Description</label>
+                                <textarea
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: '1px solid #e2e8f0',
+                                        borderRadius: '6px',
+                                        fontSize: '0.9rem',
+                                        marginTop: '6px',
+                                        minHeight: '80px',
+                                        resize: 'vertical'
+                                    }}
+                                    placeholder="Describe the role and its responsibilities"
+                                    value={formData.description}
+                                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                                />
+                            </div>
+
+                            {/* Department Selection */}
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', marginBottom: '8px', display: 'block' }}>
+                                    Department <span style={{ color: '#ef4444' }}>*</span>
+                                </label>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                                    {departments.map(dept => (
+                                        <div
+                                            key={dept.id}
+                                            onClick={() => setFormData({ ...formData, department: dept.id })}
+                                            style={{
+                                                padding: '16px 12px',
+                                                borderRadius: '8px',
+                                                border: formData.department === dept.id ? `2px solid ${dept.color}` : '1px solid #e2e8f0',
+                                                background: formData.department === dept.id ? `${dept.color}10` : '#fff',
+                                                cursor: 'pointer',
+                                                textAlign: 'center',
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            <div style={{ fontSize: '1.8rem', marginBottom: '6px' }}>{dept.icon}</div>
+                                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>{dept.name}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Role Templates */}
+                            {roleTemplates.length > 0 && (
+                                <div style={{ marginBottom: '20px' }}>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', marginBottom: '8px', display: 'block' }}>
+                                        Start from Template (Optional)
+                                    </label>
+                                    <select
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px 12px',
+                                            border: '1px solid #e2e8f0',
+                                            borderRadius: '6px',
+                                            fontSize: '0.9rem'
+                                        }}
+                                        value={selectedTemplate}
+                                        onChange={(e) => applyTemplate(e.target.value)}
+                                    >
+                                        <option value="">Create from scratch</option>
+                                        {roleTemplates.map(template => (
+                                            <option key={template._id} value={template._id}>
+                                                {template.name} - {template.description}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
+                            {/* Default Data Scope */}
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', marginBottom: '8px', display: 'block' }}>
+                                    Default Data Access Scope
+                                </label>
+                                <div style={{ display: 'grid', gap: '8px' }}>
+                                    {[
+                                        { value: 'assigned', label: 'Assigned Only', desc: 'Can only see their own data' },
+                                        { value: 'team', label: 'Team', desc: 'Can see own + team members data' },
+                                        { value: 'department', label: 'Department', desc: 'Can see all department data' },
+                                        { value: 'all', label: 'All Data', desc: 'Can see all data across departments' }
+                                    ].map(option => (
+                                        <div
+                                            key={option.value}
+                                            onClick={() => setFormData({ ...formData, defaultDataScope: option.value })}
+                                            style={{
+                                                display: 'flex',
+                                                gap: '12px',
+                                                padding: '12px',
+                                                borderRadius: '8px',
+                                                border: formData.defaultDataScope === option.value ? '1px solid var(--primary-color)' : '1px solid #e2e8f0',
+                                                background: formData.defaultDataScope === option.value ? '#f0f7ff' : '#fff',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            <div style={{
+                                                width: '18px',
+                                                height: '18px',
+                                                borderRadius: '50%',
+                                                border: formData.defaultDataScope === option.value ? '6px solid var(--primary-color)' : '2px solid #cbd5e1',
+                                                background: '#fff',
+                                                flexShrink: 0,
+                                                marginTop: '2px'
+                                            }}></div>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1e293b' }}>{option.label}</div>
+                                                <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>{option.desc}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
-                    </div>
+                    )}
+
+                    {/* Module Permissions Tab */}
+                    {activeTab === 'permissions' && (
+                        <div>
+                            <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '16px' }}>
+                                Configure what modules this role can access and what actions they can perform
+                            </p>
+
+                            <div style={{ overflowX: 'auto' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                    <thead>
+                                        <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                                            <th style={{ padding: '12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: '0.85rem' }}>Module</th>
+                                            <th style={{ padding: '12px', textAlign: 'center', fontWeight: 700, color: '#475569', fontSize: '0.85rem' }}>View</th>
+                                            <th style={{ padding: '12px', textAlign: 'center', fontWeight: 700, color: '#475569', fontSize: '0.85rem' }}>Create</th>
+                                            <th style={{ padding: '12px', textAlign: 'center', fontWeight: 700, color: '#475569', fontSize: '0.85rem' }}>Edit</th>
+                                            <th style={{ padding: '12px', textAlign: 'center', fontWeight: 700, color: '#475569', fontSize: '0.85rem' }}>Delete</th>
+                                            <th style={{ padding: '12px', textAlign: 'center', fontWeight: 700, color: '#475569', fontSize: '0.85rem' }}>All</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {modules.map(module => (
+                                            <tr key={module} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                <td style={{ padding: '12px', fontWeight: 600, color: '#1e293b', fontSize: '0.9rem', textTransform: 'capitalize' }}>
+                                                    {module}
+                                                </td>
+                                                {['view', 'create', 'edit', 'delete'].map(permission => (
+                                                    <td key={permission} style={{ padding: '12px', textAlign: 'center' }}>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={formData.moduleAccess[module]?.[permission] || false}
+                                                            onChange={() => toggleModulePermission(module, permission)}
+                                                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                                        />
+                                                    </td>
+                                                ))}
+                                                <td style={{ padding: '12px', textAlign: 'center' }}>
+                                                    <button
+                                                        onClick={() => {
+                                                            const allEnabled = formData.moduleAccess[module]?.view &&
+                                                                formData.moduleAccess[module]?.create &&
+                                                                formData.moduleAccess[module]?.edit &&
+                                                                formData.moduleAccess[module]?.delete;
+                                                            setAllModulePermissions(module, !allEnabled);
+                                                        }}
+                                                        style={{
+                                                            padding: '4px 12px',
+                                                            fontSize: '0.75rem',
+                                                            border: '1px solid #e2e8f0',
+                                                            borderRadius: '4px',
+                                                            background: '#fff',
+                                                            cursor: 'pointer',
+                                                            fontWeight: 600,
+                                                            color: '#64748b'
+                                                        }}
+                                                    >
+                                                        Toggle
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Advanced Tab */}
+                    {activeTab === 'advanced' && (
+                        <div>
+                            {/* Financial Permissions */}
+                            <div style={{ marginBottom: '24px' }}>
+                                <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '12px' }}>Financial Permissions</h3>
+                                <div style={{ display: 'grid', gap: '10px' }}>
+                                    {Object.keys(formData.financialPermissions).map(key => (
+                                        <div
+                                            key={key}
+                                            onClick={() => setFormData({
+                                                ...formData,
+                                                financialPermissions: {
+                                                    ...formData.financialPermissions,
+                                                    [key]: !formData.financialPermissions[key]
+                                                }
+                                            })}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '10px',
+                                                padding: '10px',
+                                                borderRadius: '6px',
+                                                border: '1px solid #e2e8f0',
+                                                cursor: 'pointer',
+                                                background: formData.financialPermissions[key] ? '#f0f7ff' : '#fff'
+                                            }}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={formData.financialPermissions[key]}
+                                                onChange={() => { }}
+                                                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                            />
+                                            <span style={{ fontSize: '0.9rem', color: '#1e293b', textTransform: 'capitalize' }}>
+                                                {key.replace(/([A-Z])/g, ' $1').trim()}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Approval Rights */}
+                            <div>
+                                <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '12px' }}>Approval Rights</h3>
+                                <div style={{ display: 'grid', gap: '10px' }}>
+                                    {Object.keys(formData.approvalRights).map(key => (
+                                        <div
+                                            key={key}
+                                            onClick={() => setFormData({
+                                                ...formData,
+                                                approvalRights: {
+                                                    ...formData.approvalRights,
+                                                    [key]: !formData.approvalRights[key]
+                                                }
+                                            })}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '10px',
+                                                padding: '10px',
+                                                borderRadius: '6px',
+                                                border: '1px solid #e2e8f0',
+                                                cursor: 'pointer',
+                                                background: formData.approvalRights[key] ? '#f0f7ff' : '#fff'
+                                            }}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={formData.approvalRights[key]}
+                                                onChange={() => { }}
+                                                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                            />
+                                            <span style={{ fontSize: '0.9rem', color: '#1e293b', textTransform: 'capitalize' }}>
+                                                {key.replace(/([A-Z])/g, ' $1').trim()}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Footer */}
@@ -269,16 +553,18 @@ const CreateRoleModal = ({ isOpen, onClose, onSave }) => {
                     <button
                         className="btn-outline"
                         onClick={onClose}
+                        disabled={loading}
                         style={{ padding: '8px 24px', borderRadius: '6px', background: '#fff', border: '1px solid #e2e8f0', fontWeight: 600 }}
                     >
                         Cancel
                     </button>
                     <button
                         className="btn-primary"
-                        onClick={() => onSave(roleData)}
-                        style={{ padding: '8px 24px', borderRadius: '6px', fontWeight: 700 }}
+                        onClick={handleSubmit}
+                        disabled={loading}
+                        style={{ padding: '8px 24px', borderRadius: '6px', fontWeight: 700, opacity: loading ? 0.6 : 1 }}
                     >
-                        Save
+                        {loading ? 'Creating...' : 'Create Role'}
                     </button>
                 </div>
             </div>

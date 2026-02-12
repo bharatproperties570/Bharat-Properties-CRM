@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { MODULE_CONFIG, parseCSV } from '../../../utils/dataManagementUtils';
 import toast from 'react-hot-toast';
+import { api } from '../../../utils/api';
 
 const ImportDataPage = () => {
     const [step, setStep] = useState(1);
@@ -32,6 +33,7 @@ const ImportDataPage = () => {
     const processFile = async (selectedFile) => {
         if (selectedFile && (selectedFile.name.endsWith('.csv'))) {
             setFile(selectedFile);
+            setDuplicates([]);
             try {
                 const parsed = await parseCSV(selectedFile);
                 setFileData(parsed);
@@ -75,19 +77,108 @@ const ImportDataPage = () => {
         document.body.removeChild(link);
     };
 
-    const handleSimulation = () => {
-        setImporting(true);
-        let currentProgress = 0;
-        const interval = setInterval(() => {
-            currentProgress += 10;
-            setProgress(currentProgress);
-            if (currentProgress >= 100) {
-                clearInterval(interval);
-                setImporting(false);
-                setStep(5);
-                toast.success('Import simulated successfully!');
+    const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+    const [duplicates, setDuplicates] = useState([]);
+
+    const checkDuplicates = async () => {
+        if (!fileData.data.length || Object.keys(mapping).length === 0) return;
+
+        setCheckingDuplicates(true);
+        try {
+            const transformedData = fileData.data.map(row => {
+                const item = {};
+                Object.entries(mapping).forEach(([systemKey, fileHeader]) => {
+                    item[systemKey] = row[fileHeader];
+                });
+                return item;
+            });
+
+            let endpoint = `/${module}/check-duplicates`;
+            let payload = {};
+
+            if (module === 'contacts' || module === 'leads') {
+                payload.mobiles = transformedData.map(d => d.mobile).filter(Boolean);
+            } else if (module === 'users') {
+                payload.emails = transformedData.map(d => d.email).filter(Boolean);
+            } else if (module === 'companies') {
+                payload.names = transformedData.map(d => d.name).filter(Boolean);
+            } else if (module === 'projects') {
+                payload.names = transformedData.map(d => d.name).filter(Boolean);
+            } else if (module === 'sizes') {
+                payload.values = transformedData.map(d => d.label || d.value || d.lookup_value).filter(Boolean);
+                payload.lookup_type = 'size';
+            } else if (module === 'inventory') {
+                payload.items = transformedData.map(d => ({ unitNo: d.unitNo, projectId: d.projectId }));
+            } else {
+                return toast.error('Duplicate check not supported for this module');
             }
-        }, 200);
+
+            const res = await api.post(endpoint, payload);
+            if (res.data.success) {
+                setDuplicates(res.data.duplicates || []);
+                if (res.data.duplicates?.length > 0) {
+                    toast.error(`${res.data.duplicates.length} duplicate records found!`);
+                } else {
+                    toast.success('No duplicates found in the backend.');
+                }
+            }
+        } catch (err) {
+            console.error('Check Duplicate Error:', err);
+            toast.error('Failed to check for duplicates');
+        } finally {
+            setCheckingDuplicates(false);
+        }
+    };
+
+    const handleImport = async (skipDuplicates = false) => {
+        if (!fileData.data.length || Object.keys(mapping).length === 0) {
+            return toast.error('No data or mapping provided');
+        }
+
+        setImporting(true);
+        setProgress(0);
+
+        try {
+            // Transform data based on mapping
+            const transformedData = fileData.data.map(row => {
+                const item = {};
+                Object.entries(mapping).forEach(([systemKey, fileHeader]) => {
+                    item[systemKey] = row[fileHeader];
+                });
+                return item;
+            });
+
+            // Determine endpoint
+            let endpoint = `/${module}/import`;
+            let payload = { data: transformedData };
+
+            // Special case for sizes
+            if (module === 'sizes') {
+                endpoint = '/lookups/import';
+                payload.lookup_type = 'size';
+            }
+
+            // Artificial delay for better UX (so progress is seen)
+            setProgress(20);
+            await new Promise(r => setTimeout(r, 500));
+            setProgress(50);
+
+            const response = await api.post(endpoint, payload);
+
+            if (response.data.success) {
+                const { successCount, errorCount } = response.data;
+                toast.success(`Import completed: ${successCount} success, ${errorCount} failed`);
+                setProgress(100);
+                setStep(5);
+            } else {
+                toast.error(response.data.message || 'Import failed');
+            }
+        } catch (err) {
+            console.error('Import Error:', err);
+            toast.error(err.response?.data?.message || err.message || 'Import failed');
+        } finally {
+            setImporting(false);
+        }
     };
 
     const mapColumn = (systemField, fileHeader) => {
@@ -278,10 +369,55 @@ const ImportDataPage = () => {
                         ) : (
                             <div>
                                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Ready to Import</h3>
-                                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '24px', marginBottom: '32px' }}>
-                                    <div style={{ fontSize: '2rem', fontWeight: 700, color: '#16a34a', marginBottom: '4px' }}>{fileData.data.length}</div>
-                                    <div style={{ color: '#15803d', fontWeight: 600 }}>Records ready to be created</div>
-                                </div>
+
+                                {duplicates.length > 0 ? (
+                                    <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '8px', padding: '24px', marginBottom: '32px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', color: '#ea580c' }}>
+                                            <i className="fas fa-exclamation-triangle" style={{ fontSize: '1.5rem' }}></i>
+                                            <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>Duplicates Detected</div>
+                                        </div>
+                                        <p style={{ color: '#9a3412', fontSize: '0.95rem', marginBottom: '16px', textAlign: 'left' }}>
+                                            We found <strong>{duplicates.length}</strong> records that already exist in the database.
+                                            If you proceed, these duplicates might be skipped or cause errors depending on the module.
+                                        </p>
+                                        <div style={{ display: 'flex', justifyContent: 'center', gap: '12px' }}>
+                                            <button
+                                                onClick={() => setStep(3)}
+                                                className="btn-outline"
+                                                style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+                                            >
+                                                Fix Mapping
+                                            </button>
+                                            <button
+                                                onClick={() => { setFile(null); setStep(2); }}
+                                                className="btn-outline"
+                                                style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+                                            >
+                                                Upload New File
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '24px', marginBottom: '32px' }}>
+                                        <div style={{ fontSize: '2rem', fontWeight: 700, color: '#16a34a', marginBottom: '4px' }}>{fileData.data.length}</div>
+                                        <div style={{ color: '#15803d', fontWeight: 600 }}>Records ready to be created</div>
+
+                                        {!checkingDuplicates && duplicates.length === 0 && (
+                                            <button
+                                                onClick={checkDuplicates}
+                                                style={{ marginTop: '16px', background: '#fff', border: '1px solid #bbf7d0', color: '#16a34a', padding: '6px 12px', borderRadius: '4px', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600 }}
+                                            >
+                                                <i className="fas fa-search" style={{ marginRight: '6px' }}></i> Check for Duplicates
+                                            </button>
+                                        )}
+                                        {checkingDuplicates && (
+                                            <div style={{ marginTop: '16px', color: '#16a34a', fontSize: '0.85rem' }}>
+                                                <i className="fas fa-spinner fa-spin" style={{ marginRight: '6px' }}></i> Checking backend...
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
                                 <div style={{ textAlign: 'left', background: '#f8fafc', padding: '20px', borderRadius: '8px', fontSize: '0.9rem', color: '#64748b', marginBottom: '24px' }}>
                                     <div style={{ marginBottom: '8px' }}>• Module: <strong>{MODULE_CONFIG[module].label}</strong></div>
                                     <div style={{ marginBottom: '8px' }}>• File: <strong>{file?.name}</strong></div>
@@ -301,7 +437,13 @@ const ImportDataPage = () => {
                         <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b', marginBottom: '12px' }}>Import Successful!</h2>
                         <p style={{ color: '#64748b', marginBottom: '32px' }}>{fileData.data.length} records have been successfully imported into the {MODULE_CONFIG[module].label} module.</p>
                         <button
-                            onClick={() => { setStep(1); setFile(null); setFileData({ headers: [], data: [] }); setMapping({}); }}
+                            onClick={() => {
+                                setStep(1);
+                                setFile(null);
+                                setFileData({ headers: [], data: [] });
+                                setMapping({});
+                                setDuplicates([]);
+                            }}
                             className="btn-outline"
                             style={{ padding: '12px 32px', borderRadius: '6px', fontWeight: 600 }}
                         >
@@ -326,7 +468,7 @@ const ImportDataPage = () => {
                     <button
                         onClick={() => {
                             if (step === 2 && !file) return toast.error('Please upload a file');
-                            if (step === 4) handleSimulation();
+                            if (step === 4) handleImport();
                             else setStep(step + 1);
                         }}
                         className="btn-primary"

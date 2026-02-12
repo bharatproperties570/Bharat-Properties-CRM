@@ -760,7 +760,6 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                 <div>CRM Linkage</div>
                 <div>Last Interaction</div>
                 <div style={{ paddingLeft: "10px" }}>Assign</div>
-                <div style={{ textAlign: "center" }}>Action</div>
               </div>
 
               <div id="contactListContent">
@@ -818,7 +817,11 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 fontSize: "0.85rem",
                               }}
                             >
-                              {getInitials(item?.name || "Unknown")}
+                              {getInitials(
+                                (item.firstName && item.surname) ? `${item.firstName} ${item.surname}` :
+                                  (item.name && item.surname) ? `${item.name} ${item.surname}` :
+                                    (item.name || item.firstName || "Unknown")
+                              )}
                             </div>
                             <div>
                               <div
@@ -832,7 +835,14 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                   onNavigate("contact-detail", item._id)
                                 }
                               >
-                                {item.name || (item.firstName ? `${item.firstName} ${item.surname || ""}` : "Unknown Name")}
+                                {item.title?.lookup_value || item.title || ""} {
+                                  // Priority 1: firstName + surname
+                                  (item.firstName && item.surname) ? `${item.firstName} ${item.surname}` :
+                                    // Priority 2: name + surname (when firstName is null but surname exists)
+                                    (item.name && item.surname) ? `${item.name} ${item.surname}` :
+                                      // Priority 3: just name or firstName
+                                      (item.name || item.firstName || "Unknown Name")
+                                }
                               </div>
                               <div
                                 style={{
@@ -987,7 +997,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                   fontSize: "0.6rem",
                                 }}
                               ></i>
-                              {item?.source?.lookup_value || item?.source || "N/A"}
+                              {item?.campaign?.lookup_value || item?.campaign ? `${item.campaign?.lookup_value || item.campaign} • ` : ""}{item?.source?.lookup_value || item?.source || "N/A"}
                             </span>
                             {item?.tags && item?.tags?.length > 0 && (
                               <div
@@ -1072,7 +1082,6 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             </div>
                           )}
                         </div>
-
                         <div className="col-interaction">
                           <div style={{ lineHeight: "1.4" }}>
                             <div
@@ -1130,7 +1139,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 color: "#64748b",
                               }}
                             >
-                              {(item?.owner?.firstName ? item.owner.firstName.charAt(0) : (item?.ownership || "Admin").charAt(0))}
+                              {getInitials(item?.owner?.name || item?.ownership || "Admin")}
                             </div>
                             <div>
                               <div
@@ -1140,43 +1149,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                   color: "#0f172a",
                                 }}
                               >
-                                {item?.owner ? `${item.owner.firstName} ${item.owner.lastName || ''}` : (item?.ownership || "Admin")}
-                              </div>
-                              <div
-                                style={{
-                                  fontSize: "0.65rem",
-                                  color: "#94a3b8",
-                                  fontWeight: 700,
-                                }}
-                              >
-                                Added{" "}
-                                {item?.createdAt
-                                  ? new Date(
-                                    item.createdAt,
-                                  ).toLocaleDateString()
-                                  : "-"}
+                                {item?.owner?.name || item?.ownership || "Admin"}
                               </div>
                             </div>
                           </div>
-                        </div>
-                        <div style={{ textAlign: "center" }}>
-                          <button
-                            onClick={(e) => handleSingleDelete(e, item._id)}
-                            style={{
-                              background: "transparent",
-                              border: "none",
-                              color: "#ef4444",
-                              cursor: "pointer",
-                              padding: "8px",
-                              borderRadius: "6px",
-                              transition: "all 0.2s"
-                            }}
-                            title="Delete Contact"
-                            onMouseOver={(e) => e.currentTarget.style.background = "#fee2e2"}
-                            onMouseOut={(e) => e.currentTarget.style.background = "transparent"}
-                          >
-                            <i className="fas fa-trash-alt"></i>
-                          </button>
                         </div>
                       </div>
                     ))}
@@ -1777,9 +1753,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                 ))}
               </div>
             </div>
-          )}
-        </div>
-      </div>
+          )
+          }
+        </div >
+      </div >
       <footer
         className="summary-footer"
         style={{ height: "60px", padding: "0 var(--row-padding)" }}
@@ -1961,7 +1938,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
           // Optimally we would reset page to 1 and refetch with filters here if API supported it
         }}
       />
-    </section>
+    </section >
   );
 }
 

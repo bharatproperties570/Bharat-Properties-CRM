@@ -165,9 +165,12 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         email: lead.email || contact.emails?.[0]?.address || "",
 
                         // ===== REQUIREMENT =====
-                        reqDisplay: lead.req || {
-                            type: `${lead.requirement?.lookup_value || lead.requirement || ""} ${Array.isArray(lead.subRequirement) ? (lead.subRequirement[0]?.lookup_value || lead.subRequirement[0] || "") : (lead.subRequirement?.lookup_value || lead.subRequirement || "")}`.trim(),
-                            size: `${lead.areaMin || ""}-${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
+                        reqDisplay: {
+                            type: (lead.requirement?.lookup_value || lead.requirement || "").toString(),
+                            subType: Array.isArray(lead.subRequirement)
+                                ? lead.subRequirement.map(s => s.lookup_value || s).join(", ")
+                                : (lead.subRequirement?.lookup_value || lead.subRequirement || ""),
+                            size: `${lead.areaMin || ""}${lead.areaMin && lead.areaMax ? "-" : ""}${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
                         },
 
                         // ===== BUDGET =====
@@ -734,9 +737,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             loading ? <div style={{ padding: '20px', textAlign: 'center' }}>Loading...</div> : leads.map((c, idx) => {
                                 if (!c) return null;
                                 // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
-                                const typeStr = c.req?.type || 'Requirement Missing';
-                                const intent = typeStr.split(/[\s,]+/)[0];
-                                const propertyType = typeStr.replace(intent, '').replace(/^[\s,]+/, '');
+                                const intent = c.reqDisplay?.type || 'Any';
+                                const propertyType = c.reqDisplay?.subType || '';
 
                                 return (
                                     <div

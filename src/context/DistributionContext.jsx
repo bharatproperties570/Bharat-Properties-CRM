@@ -36,17 +36,27 @@ export const DistributionProvider = ({ children }) => {
         const loadRules = async () => {
             try {
                 const data = await distributionRulesAPI.getAll();
-                setDistributionRules(data || []);
+                // Ensure data is always an array
+                if (Array.isArray(data)) {
+                    setDistributionRules(data);
+                } else if (data && Array.isArray(data.rules)) {
+                    setDistributionRules(data.rules);
+                } else {
+                    console.warn('Distribution rules API returned non-array data:', data);
+                    setDistributionRules([]);
+                }
             } catch (error) {
                 console.error('Failed to load distribution rules from backend:', error);
                 // Fall back to localStorage
                 try {
                     const saved = localStorage.getItem('distributionRules');
                     if (saved) {
-                        setDistributionRules(JSON.parse(saved));
+                        const parsed = JSON.parse(saved);
+                        setDistributionRules(Array.isArray(parsed) ? parsed : []);
                     }
                 } catch (e) {
                     console.error('Error parsing distributionRules from localStorage', e);
+                    setDistributionRules([]);
                 }
             } finally {
                 setIsLoading(false);
@@ -58,10 +68,12 @@ export const DistributionProvider = ({ children }) => {
         try {
             const saved = localStorage.getItem('distributionLog');
             if (saved) {
-                setDistributionLog(JSON.parse(saved));
+                const parsed = JSON.parse(saved);
+                setDistributionLog(Array.isArray(parsed) ? parsed : []);
             }
         } catch (e) {
             console.error('Error parsing distributionLog', e);
+            setDistributionLog([]);
         }
     }, []);
 
@@ -144,10 +156,12 @@ export const DistributionProvider = ({ children }) => {
         const { users = [], teams = [], leads = [], activities = [], deals = [], inventory = [] } = context;
 
         // Find applicable rules
-        const applicableRules = distributionRules
-            .filter(rule => rule.enabled && rule.module === entityType)
-            .filter(rule => evaluateConditions(rule.conditions, entityData))
-            .sort((a, b) => (b.priority || 0) - (a.priority || 0));
+        const applicableRules = Array.isArray(distributionRules)
+            ? distributionRules
+                .filter(rule => rule.enabled && rule.module === entityType)
+                .filter(rule => evaluateConditions(rule.conditions, entityData))
+                .sort((a, b) => (b.priority || 0) - (a.priority || 0))
+            : [];
 
         if (applicableRules.length === 0) {
             return { success: false, reason: 'No applicable distribution rules found' };

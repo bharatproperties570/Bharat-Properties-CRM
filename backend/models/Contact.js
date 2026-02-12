@@ -28,7 +28,7 @@ const ContactSchema = new mongoose.Schema({
     // System Details
     source: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
     subSource: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-    campaign: { type: String },
+    campaign: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
     team: { type: String },
     owner: { type: mongoose.Schema.Types.Mixed, ref: 'User' },
     visibleTo: { type: String },
@@ -62,43 +62,40 @@ const ContactSchema = new mongoose.Schema({
         area: String
     },
 
+    // Standard CRM fields
+    requirement: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+    budget: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+    location: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+
     // Other Details
     gender: { type: String },
     maritalStatus: { type: String },
     birthDate: { type: Date },
     anniversaryDate: { type: Date },
 
-    // Education - Array
+    // Array fields
     educations: [{
         education: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         degree: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         school: String
     }],
 
-
-    // Loan - Array
     loans: [{
         loanType: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         bank: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         loanAmount: String
     }],
 
-
-    // Social Media - Array
     socialMedia: [{
         platform: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         url: String
     }],
 
-
-    // Income - Array
     incomes: [{
         incomeType: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         amount: String
     }],
 
-
-    // Documents - Array
     documents: [{
         documentName: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         documentType: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
@@ -117,9 +114,42 @@ const ContactSchema = new mongoose.Schema({
     isActionable: { type: Boolean, default: false }
 }, { timestamps: true });
 
+// Middleware to recursively convert empty strings to null
+const sanitizeData = (obj) => {
+    if (!obj || typeof obj !== "object") return;
+
+    for (const key in obj) {
+        // Skip internal mongoose properties and methods
+        if (key.startsWith('$') || key.startsWith('_')) continue;
+
+        if (obj[key] === "") {
+            obj[key] = null;
+        } else if (obj[key] && typeof obj[key] === "object") {
+            // Avoid circular references and deep recursion by limiting to own properties
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                sanitizeData(obj[key]);
+            }
+        }
+    }
+};
+
+ContactSchema.pre("save", function (next) {
+    sanitizeData(this);
+    next();
+});
+
+ContactSchema.pre("findOneAndUpdate", function (next) {
+    const update = this.getUpdate();
+    if (update) {
+        sanitizeData(update);
+    }
+    next();
+});
+
 // Virtual for full name
 ContactSchema.virtual("fullName").get(function () {
-    return `${this.title} ${this.name} ${this.surname}`.trim();
+    const titleVal = (this.title && typeof this.title === 'object') ? this.title.lookup_value : (this.title || "");
+    return `${titleVal} ${this.name} ${this.surname || ""}`.trim();
 });
 
 export default mongoose.model("Contact", ContactSchema);

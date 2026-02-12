@@ -111,7 +111,7 @@ export const UserProvider = ({ children }) => {
                 return { success: true };
             }
         } catch (err) {
-            return { success: false, error: err.message };
+            return { success: false, error: err.response?.data?.message || err.message };
         }
     };
 

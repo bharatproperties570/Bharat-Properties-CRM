@@ -326,7 +326,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
         };
 
         const propertyContext = {
-            unitNo: 'Unit #1',
+            unitNumber: 'Unit #1',
             block: 'A Block',
             corner: 'Corner',
             facing: 'Park Facing',
@@ -1596,7 +1596,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
                                                         <div>
                                                             <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>
-                                                                {prop.unitNo && `Unit #${prop.unitNo} • `}{prop.type}
+                                                                {(prop.unitNumber || prop.unitNo) && `Unit #${prop.unitNumber || prop.unitNo} • `}{prop.type}
                                                             </div>
                                                             <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>{prop.location || prop.area}</div>
                                                         </div>
@@ -1942,7 +1942,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
                                     <span style={{ color: '#64748b', fontWeight: 600 }}>Unit # / Block</span>
-                                    <span style={{ color: '#0f172a', fontWeight: 800 }}>{aiStats.propertyContext.unitNo} • {aiStats.propertyContext.block}</span>
+                                    <span style={{ color: '#0f172a', fontWeight: 800 }}>{aiStats.propertyContext.unitNumber} • {aiStats.propertyContext.block}</span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
                                     <span style={{ color: '#64748b', fontWeight: 600 }}>Corner Status</span>
