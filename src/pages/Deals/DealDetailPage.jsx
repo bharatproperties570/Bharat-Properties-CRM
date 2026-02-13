@@ -130,39 +130,36 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     };
 
     return (
-        <div className="deal-detail-page" style={{ background: '#f8fafc', minHeight: '100vh', paddingBottom: '60px' }}>
-            {/* 3️⃣ STICKY REVENUE HEADER */}
+        <div className="deal-detail-page" style={{ background: '#f8fafc', minHeight: '100vh', paddingBottom: '60px', fontFamily: '"Inter", sans-serif' }}>
+            {/* 🛡️ PROFESSIONAL TRANSACTION HEADER */}
             <header style={{
                 position: 'sticky', top: 0, zIndex: 1000,
-                background: '#fff', borderBottom: '1px solid #e2e8f0',
-                padding: '12px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                boxShadow: '0 4px 6px -1px rgba(0,0,0,0.03)', backdropFilter: 'blur(8px)'
+                background: 'rgba(255, 255, 255, 0.9)', borderBottom: '1px solid #e2e8f0',
+                padding: '16px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.05)', backdropFilter: 'blur(12px)'
             }}>
-                {/* Left side summary */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                {/* ID & Status Cluster */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
                     <button onClick={onBack} style={{
-                        background: 'transparent', border: '1px solid #e2e8f0',
-                        borderRadius: '10px', width: '40px', height: '40px',
-                        cursor: 'pointer', color: '#64748b', transition: 'all 0.2s'
-                    }} className="hover:bg-slate-50">
-                        <i className="fas fa-arrow-left"></i>
+                        background: '#fff', border: '1px solid #e2e8f0',
+                        borderRadius: '12px', width: '40px', height: '40px',
+                        cursor: 'pointer', color: '#64748b', transition: 'all 0.2s',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }} className="hover:border-blue-400 hover:text-blue-500">
+                        <i className="fas fa-chevron-left"></i>
                     </button>
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
-                            <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0f172a', margin: 0, letterSpacing: '-0.03em' }}>
+                            <span style={{ fontSize: '0.65rem', fontWeight: 900, color: '#3b82f6', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px', letterSpacing: '0.05em' }}>
+                                {deal.dealType?.toUpperCase() || 'WARM'} DEAL
+                            </span>
+                            <h1 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>
                                 {deal.dealId || `DEAL-${deal._id.substring(deal._id.length - 6).toUpperCase()}`}
                             </h1>
-                            <span style={{
-                                backgroundColor: '#f1f5f9', color: '#475569',
-                                padding: '4px 12px', borderRadius: '20px',
-                                fontSize: '0.7rem', fontWeight: 800,
-                                textTransform: 'uppercase', letterSpacing: '0.05em', border: '1px solid #e2e8f0'
-                            }}>
-                                {deal.intent?.lookup_value || deal.intent || 'SELL'}
-                            </span>
+                            <div style={{ width: '1px', height: '16px', background: '#e2e8f0' }}></div>
                             <span style={{
                                 backgroundColor: stageStyle.bg, color: stageStyle.text,
-                                padding: '4px 12px', borderRadius: '20px',
+                                padding: '4px 12px', borderRadius: '6px',
                                 fontSize: '0.7rem', fontWeight: 800,
                                 display: 'flex', alignItems: 'center', gap: '6px',
                                 textTransform: 'uppercase', letterSpacing: '0.05em', border: `1px solid ${stageStyle.dot}33`
@@ -170,73 +167,66 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: stageStyle.dot }}></span>
                                 {currentStage}
                             </span>
-                            {/* Phase 5: Lead Source Highlight */}
-                            <span style={{
-                                backgroundColor: '#fdf2f8', color: '#be185d',
-                                padding: '4px 12px', borderRadius: '20px',
-                                fontSize: '0.65rem', fontWeight: 800,
-                                textTransform: 'uppercase', letterSpacing: '0.05em', border: '1px solid #fbcfe8'
-                            }}>
-                                SOURCE: {deal.source || 'WALK-IN'}
-                            </span>
                         </div>
-                    </div>
-                </div>
-
-                {/* Center highlights */}
-                <div style={{ display: 'flex', gap: '40px', borderLeft: '1px solid #e2e8f0', borderRight: '1px solid #e2e8f0', padding: '0 40px' }}>
-                    <div style={{ textAlign: 'center' }}>
-                        <p style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', marginBottom: '2px' }}>Deal Value</p>
-                        <p style={{ fontSize: '1.2rem', fontWeight: 900, color: '#10b981', margin: 0 }}>{formatIndianCurrency(deal.price)}</p>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                        <p style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', marginBottom: '2px' }}>Probability</p>
-                        <p style={{ fontSize: '1.2rem', fontWeight: 900, color: '#3b82f6', margin: 0 }}>{deal.dealProbability || 0}%</p>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                        <p style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', marginBottom: '2px' }}>Comm. Est.</p>
-                        <p style={{ fontSize: '1.2rem', fontWeight: 900, color: '#6366f1', margin: 0 }}>
-                            {formatIndianCurrency(deal.commission?.expectedAmount || (deal.price * 0.02))}
+                        <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, margin: 0 }}>
+                            <i className="fas fa-calendar-alt mr-1 opacity-50"></i> Created on {new Date(deal.createdAt || deal.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            <span className="mx-2 opacity-30">|</span>
+                            <i className="fas fa-bullseye mr-1 opacity-50"></i> Source: <span style={{ color: '#1e293b', fontWeight: 700 }}>{deal.source || 'Walk-in'}</span>
                         </p>
                     </div>
                 </div>
 
-                {/* Right side buttons */}
-                <div style={{ display: 'flex', gap: '10px' }}>
-                    <button style={{
-                        background: '#fff', color: '#475569', border: '1px solid #e2e8f0',
-                        padding: '10px 18px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 700,
-                        display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer'
-                    }} className="hover:bg-slate-50 transition-all">
-                        <i className="fas fa-edit"></i> Edit
+                {/* Critical Performance Metrics */}
+                <div style={{ display: 'flex', gap: '48px', alignItems: 'center' }}>
+                    <div style={{ textAlign: 'right' }}>
+                        <p style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', marginBottom: '2px' }}>Net Realization</p>
+                        <p style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>{formatIndianCurrency(deal.price)}</p>
+                    </div>
+                    <div style={{ width: '1px', height: '32px', background: '#f1f5f9' }}></div>
+                    <div style={{ textAlign: 'right' }}>
+                        <p style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', marginBottom: '2px' }}>Probability</p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end' }}>
+                            <div style={{ width: '60px', height: '6px', background: '#f1f5f9', borderRadius: '10px', overflow: 'hidden' }}>
+                                <div style={{ width: `${deal.dealProbability || 50}%`, height: '100%', background: (deal.dealProbability || 50) > 70 ? '#10b981' : (deal.dealProbability || 50) > 30 ? '#3b82f6' : '#ef4444' }}></div>
+                            </div>
+                            <p style={{ fontSize: '1rem', fontWeight: 900, color: '#1e293b', margin: 0 }}>{deal.dealProbability || 50}%</p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Primary Action Suite */}
+                <div style={{ display: 'flex', gap: '12px' }}>
+                    <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '12px' }}>
+                        <button style={{
+                            background: 'transparent', border: 'none', padding: '8px 14px', borderRadius: '8px',
+                            fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer'
+                        }} className="hover:bg-white hover:text-blue-600 transition-all">
+                            <i className="fas fa-share-alt mr-2"></i>Share
+                        </button>
+                        <button style={{
+                            background: 'transparent', border: 'none', padding: '8px 14px', borderRadius: '8px',
+                            fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer'
+                        }} className="hover:bg-white hover:text-blue-600 transition-all">
+                            <i className="fas fa-file-invoice-dollar mr-2"></i>Invoice
+                        </button>
+                    </div>
+                    <button
+                        onClick={() => onAddActivity([{ type: 'Deal', id: deal._id, name: deal.dealId || 'Deal', model: 'Deal' }])}
+                        style={{
+                            background: '#2563eb', color: '#fff', border: 'none',
+                            padding: '10px 20px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 800,
+                            cursor: 'pointer', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)',
+                            display: 'flex', alignItems: 'center', gap: '10px'
+                        }} className="hover:bg-blue-700 transition-all"
+                    >
+                        <i className="fas fa-plus"></i> NEW ACTIVITY
                     </button>
                     <button style={{
-                        background: '#fff', color: '#475569', border: '1px solid #e2e8f0',
-                        padding: '10px 18px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 700,
-                        display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer'
-                    }} className="hover:bg-slate-50 transition-all">
-                        <i className="fas fa-plus"></i> Offer
-                    </button>
-                    <button style={{
-                        background: '#fff', color: '#475569', border: '1px solid #e2e8f0',
-                        padding: '10px 18px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 700,
-                        display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer'
-                    }} className="hover:bg-slate-50 transition-all">
-                        <i className="fas fa-file-pdf"></i> Quote
-                    </button>
-                    <button onClick={() => onAddActivity([{ type: 'Deal', id: deal._id, name: deal.dealId || 'Deal', model: 'Deal' }])} style={{
-                        background: '#fff', color: '#475569', border: '1px solid #e2e8f0',
-                        padding: '10px 18px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 700,
-                        display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer'
-                    }} className="hover:bg-slate-50 transition-all">
-                        <i className="fas fa-tasks"></i> Activity
-                    </button>
-                    <button style={{
-                        background: '#10b981', color: '#fff', border: 'none',
-                        padding: '10px 18px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 800,
-                        cursor: 'pointer', boxShadow: '0 4px 10px rgba(16, 185, 129, 0.2)'
-                    }} className="hover:bg-emerald-600 transition-all">
-                        Mark Closed
+                        background: '#fff', color: '#1e293b', border: '1px solid #e2e8f0',
+                        width: '44px', height: '44px', borderRadius: '12px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer'
+                    }} className="hover:bg-slate-50">
+                        <i className="fas fa-ellipsis-v"></i>
                     </button>
                 </div>
             </header>
@@ -247,132 +237,197 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 {/* 70% LEFT MAIN TRANSACTION SECTION */}
                 <div style={{ flex: '0 0 70%', display: 'flex', flexDirection: 'column' }}>
 
-                    {/* 5️⃣ Property Snapshot Card */}
+                    {/* 🏠 PROPERTY SNAPSHOT - CLEAN DASHBOARD STYLE */}
                     <div style={cardStyle}>
                         <div style={sectionHeaderStyle}>
-                            <h3 style={sectionTitleStyle}><i className="fas fa-home text-blue-500"></i> Property Snapshot</h3>
+                            <h3 style={sectionTitleStyle}>
+                                <div style={{ width: '32px', height: '32px', background: '#f0f9ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
+                                    <i className="fas fa-home text-blue-500" style={{ fontSize: '0.9rem' }}></i>
+                                </div>
+                                Property Snapshot
+                            </h3>
                             <button
                                 onClick={() => onNavigate('inventory-detail', deal.inventoryId?._id)}
                                 style={{
-                                    background: '#eff6ff', color: '#2563eb', border: 'none',
-                                    padding: '6px 12px', borderRadius: '8px', fontSize: '0.75rem',
-                                    fontWeight: 700, cursor: 'pointer'
-                                }}
+                                    background: '#fff', color: '#2563eb', border: '1px solid #e2e8f0',
+                                    padding: '8px 16px', borderRadius: '10px', fontSize: '0.75rem',
+                                    fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px'
+                                }} className="hover:bg-blue-50 hover:border-blue-200 transition-all"
                             >
-                                View Inventory <i className="fas fa-external-link-alt ml-1"></i>
+                                <i className="fas fa-external-link-alt"></i> VIEW UNIT
                             </button>
                         </div>
-                        <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                <DetailItem label="Project" value={deal.projectName} />
-                                <DetailItem label="Block" value={deal.block} />
-                                <DetailItem label="Unit" value={deal.unitNo} boldValue color="#2563eb" />
-                                <DetailItem label="Category" value={deal.propertyType?.lookup_value || deal.propertyType} />
-                                <DetailItem label="Size" value={deal.size} />
+                        <div style={{ padding: '24px', display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '40px' }}>
+                            {/* Main Details */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                                <DetailItem label="Project" value={deal.projectName} boldValue />
+                                <DetailItem label="Block/Sector" value={deal.block} />
+                                <DetailItem label="Unit Number" value={deal.unitNo} boldValue color="#2563eb" />
+                                <DetailItem label="Layout Type" value={deal.unitType || 'Premium'} />
+                                <DetailItem label="Asset Class" value={deal.propertyType?.lookup_value || deal.propertyType} />
+                                <DetailItem label="Dimensions" value={deal.size} boldValue />
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                <DetailItem label="Facing" value={deal.facing || 'East Facing'} />
-                                <DetailItem label="Location" value={deal.location?.lookup_value || deal.location} />
-                                <DetailItem label="Inventory Status" value={renderValue(deal.inventoryId?.status) || 'Available'} />
-                                <DetailItem label="Unit Type" value={deal.unitType || 'Premium Corner'} />
-                                <DetailItem label="Road Width" value={deal.roadWidth || '45 Ft.'} />
+                            {/* Secondary Specs */}
+                            <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', border: '1px solid #f1f5f9' }}>
+                                <DetailItem label="Orientation" value={deal.facing || 'East Facing'} />
+                                <DetailItem label="Locality" value={deal.location?.lookup_value || deal.location} />
+                                <DetailItem label="Infrastructure" value={deal.roadWidth || '45 Ft. Road'} />
+                                <DetailItem label="Posession" value="Immediate" />
+                                <div style={{ gridColumn: 'span 2' }}>
+                                    <DetailItem label="Inventory Status" value={renderValue(deal.inventoryId?.status) || 'Available'} color="#10b981" boldValue />
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    {/* 6️⃣ Pricing & Negotiation Card */}
+                    {/* 💰 PRICING & FINANCIAL INTELLIGENCE */}
                     <div style={cardStyle}>
                         <div style={sectionHeaderStyle}>
-                            <h3 style={sectionTitleStyle}><i className="fas fa-hand-holding-usd text-emerald-500"></i> Pricing & Negotiation</h3>
+                            <h3 style={sectionTitleStyle}>
+                                <div style={{ width: '32px', height: '32px', background: '#ecfdf5', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
+                                    <i className="fas fa-hand-holding-usd text-emerald-500" style={{ fontSize: '0.9rem' }}></i>
+                                </div>
+                                Pricing & Negotiation
+                            </h3>
+                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', background: '#f1f5f9', padding: '4px 10px', borderRadius: '6px' }}>
+                                    MODE: {deal.pricingMode?.toUpperCase() || 'TOTAL'}
+                                </span>
+                            </div>
                         </div>
-                        <div style={{ padding: '20px' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '8px' }}>
-                                <PriceCard label="Expected Price" value={deal.price} subValue={numberToIndianWords(deal.price)} theme="gray" />
+                        <div style={{ padding: '24px' }}>
+                            {/* High Level Price Matrix */}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
+                                <PriceCard label="Target Price" value={deal.price} subValue={numberToIndianWords(deal.price)} theme="gray" />
                                 <PriceCard label="Current Quote" value={deal.quotePrice || 0} subValue={numberToIndianWords(deal.quotePrice || 0)} theme="blue" />
                                 <PriceCard
-                                    label="Difference"
+                                    label="Spread"
                                     value={(deal.quotePrice || 0) - deal.price}
                                     theme={(deal.quotePrice || 0) >= deal.price ? 'green' : 'red'}
                                     isDiff
                                 />
-                                <PriceCard label="Negotiable" value={deal.pricingNature?.negotiable ? 'YES' : 'NO'} theme="orange" isStatus />
+                                <PriceCard label="Negotiability" value={deal.pricingNature?.negotiable ? 'FLEXIBLE' : 'FIXED'} theme="orange" isStatus />
                             </div>
 
-                            {/* Phase 4: Financial Precision Row */}
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginTop: '16px', paddingTop: '16px', borderTop: '1px dashed #e2e8f0' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 12px' }}>
-                                    <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 700 }}>GST (18%)</span>
-                                    <span style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: 800 }}>{formatIndianCurrency(deal.price * 0.18)}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 12px', borderLeft: '1px solid #f1f5f9', borderRight: '1px solid #f1f5f9' }}>
-                                    <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 700 }}>TDS (1%)</span>
-                                    <span style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: 800 }}>-{formatIndianCurrency(deal.price * 0.01)}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 12px' }}>
-                                    <span style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 800 }}>NET FULFILLMENT</span>
-                                    <span style={{ fontSize: '1rem', color: '#10b981', fontWeight: 900 }}>{formatIndianCurrency(deal.price * 1.17)}</span>
+                            {/* Professional Financial Insights */}
+                            <div style={{ background: '#f8fafc', borderRadius: '20px', padding: '24px', border: '1px solid #f1f5f9' }}>
+                                <h4 style={{ fontSize: '0.65rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <i className="fas fa-calculator text-blue-400"></i> Closing Estimates & Compliance
+                                </h4>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '32px' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>GST Liability (18%)</span>
+                                            <span style={{ fontSize: '0.85rem', color: '#1e293b', fontWeight: 800 }}>{formatIndianCurrency(deal.price * 0.18)}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>TDS Deduction (1%)</span>
+                                            <span style={{ fontSize: '0.85rem', color: '#ef4444', fontWeight: 800 }}>-{formatIndianCurrency(deal.price * 0.01)}</span>
+                                        </div>
+                                    </div>
+                                    <div style={{ width: '1px', background: '#e2e8f0' }}></div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                                        <p style={{ fontSize: '0.6rem', color: '#10b981', fontWeight: 800, textTransform: 'uppercase', marginBottom: '4px' }}>Net Fulfillment Value</p>
+                                        <p style={{ fontSize: '1.5rem', fontWeight: 900, color: '#10b981', margin: 0 }}>{formatIndianCurrency(deal.price * 1.17)}</p>
+                                        <p style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600, marginTop: '4px' }}>Includes GST - TDS</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    {/* Phase 4: Trust & Compliance Card */}
-                    <div style={cardStyle}>
-                        <div style={sectionHeaderStyle}>
-                            <h3 style={sectionTitleStyle}><i className="fas fa-shield-alt text-emerald-500"></i> Trust & Compliance Checklist</h3>
-                            <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#10b981', background: '#ecfdf5', padding: '4px 10px', borderRadius: '6px' }}>
-                                75% COMPLETE
-                            </span>
+                    {/* 🛡️ TRANSACTION INTELLIGENCE & COMPLIANCE */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '24px' }}>
+                        {/* Status & Strategy */}
+                        <div style={cardStyle}>
+                            <div style={sectionHeaderStyle}>
+                                <h3 style={sectionTitleStyle}>
+                                    <div style={{ width: '32px', height: '32px', background: '#fef2f2', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
+                                        <i className="fas fa-chess-knight text-red-500" style={{ fontSize: '0.9rem' }}></i>
+                                    </div>
+                                    Deal Strategy
+                                </h3>
+                            </div>
+                            <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                <DetailItem label="Transaction Type" value={deal.transactionType || 'Full White'} boldValue />
+                                <DetailItem label="Lead Quality" value={deal.dealType || 'Warm'} color="#f59e0b" boldValue />
+                                <DetailItem label="Source" value={deal.source || 'Walk-in'} />
+                                <DetailItem label="Visibility" value={deal.visibleTo || 'Public'} />
+                            </div>
                         </div>
-                        <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-                            <ComplianceItem label="KYC (Owner)" status="done" />
-                            <ComplianceItem label="KYC (Buyer)" status="pending" />
-                            <ComplianceItem label="Title Search" status="done" />
-                            <ComplianceItem label="NOC Status" status="done" />
+
+                        {/* Compliance Card */}
+                        <div style={cardStyle}>
+                            <div style={sectionHeaderStyle}>
+                                <h3 style={sectionTitleStyle}>
+                                    <div style={{ width: '32px', height: '32px', background: '#fff7ed', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
+                                        <i className="fas fa-shield-check text-orange-500" style={{ fontSize: '0.9rem' }}></i>
+                                    </div>
+                                    Compliance Check
+                                </h3>
+                                <span style={{ fontSize: '0.6rem', fontWeight: 900, color: '#10b981', background: '#ecfdf5', padding: '2px 8px', borderRadius: '4px' }}>
+                                    75% VERIFIED
+                                </span>
+                            </div>
+                            <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                <ComplianceItem label="KYC (Owner)" status="done" />
+                                <ComplianceItem label="KYC (Buyer)" status="pending" />
+                                <ComplianceItem label="Title Search" status="done" />
+                                <ComplianceItem label="NOC Status" status="done" />
+                            </div>
                         </div>
                     </div>
 
-                    {/* 7️⃣ Offer History Card */}
+                    {/* 📊 OFFER JOURNEY & NEGOTIATION */}
                     <div style={cardStyle}>
                         <div style={sectionHeaderStyle}>
-                            <h3 style={sectionTitleStyle}><i className="fas fa-history text-slate-500"></i> Offer History</h3>
+                            <h3 style={sectionTitleStyle}>
+                                <div style={{ width: '32px', height: '32px', background: '#f8fafc', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
+                                    <i className="fas fa-layer-group text-slate-500" style={{ fontSize: '0.9rem' }}></i>
+                                </div>
+                                Active Offers & History
+                            </h3>
                             <button style={{
-                                background: '#6366f1', color: '#fff', border: 'none',
-                                padding: '6px 14px', borderRadius: '8px', fontSize: '0.75rem',
-                                fontWeight: 800, cursor: 'pointer'
-                            }}>
-                                + Add Offer
+                                background: '#2563eb', color: '#fff', border: 'none',
+                                padding: '8px 16px', borderRadius: '10px', fontSize: '0.75rem',
+                                fontWeight: 800, cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.1)'
+                            }} className="hover:bg-blue-700 transition-all">
+                                <i className="fas fa-plus mr-2"></i> RECORD OFFER
                             </button>
                         </div>
-                        <div style={{ padding: '0px' }}>
+                        <div style={{ padding: '0px', overflow: 'hidden' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                                 <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                                     <tr>
-                                        <th style={thStyle}>Date</th>
-                                        <th style={thStyle}>Offer By</th>
-                                        <th style={thStyle}>Amount</th>
-                                        <th style={thStyle}>Counter</th>
-                                        <th style={thStyle}>Status</th>
+                                        <th style={{ ...thStyle, padding: '16px 24px' }}>Date</th>
+                                        <th style={thStyle}>Counterparty</th>
+                                        <th style={thStyle}>Offer Value</th>
+                                        <th style={thStyle}>Counter Offer</th>
+                                        <th style={{ ...thStyle, textAlign: 'right', paddingRight: '24px' }}>Status</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {(deal.offerHistory || []).length > 0 ? deal.offerHistory.map((offer, idx) => (
-                                        <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                            <td style={tdStyle}>{new Date(offer.date).toLocaleDateString()}</td>
-                                            <td style={{ ...tdStyle, fontWeight: 700 }}>{offer.offerBy}</td>
+                                        <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }} className="hover:bg-slate-50 transition-all">
+                                            <td style={{ ...tdStyle, padding: '16px 24px' }}>{new Date(offer.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</td>
+                                            <td style={{ ...tdStyle, fontWeight: 700, color: '#1e293b' }}>{offer.offerBy}</td>
                                             <td style={{ ...tdStyle, color: '#10b981', fontWeight: 900 }}>{formatIndianCurrency(offer.amount)}</td>
                                             <td style={{ ...tdStyle, color: '#ef4444', fontWeight: 900 }}>{formatIndianCurrency(offer.counterAmount || 0)}</td>
-                                            <td style={tdStyle}>
+                                            <td style={{ ...tdStyle, textAlign: 'right', paddingRight: '24px' }}>
                                                 <span style={{
-                                                    background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px',
-                                                    fontSize: '0.65rem', fontWeight: 800, color: '#475569'
+                                                    background: offer.status === 'ACCEPTED' ? '#ecfdf4' : '#f1f5f9',
+                                                    padding: '4px 10px', borderRadius: '6px',
+                                                    fontSize: '0.65rem', fontWeight: 800,
+                                                    color: offer.status === 'ACCEPTED' ? '#059669' : '#64748b',
+                                                    border: `1px solid ${offer.status === 'ACCEPTED' ? '#bbf7d0' : '#e2e8f0'}`
                                                 }}>{offer.status || 'ACTIVE'}</span>
                                             </td>
                                         </tr>
                                     )) : (
                                         <tr>
-                                            <td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.85rem' }}>
-                                                No offers recorded for this deal yet.
+                                            <td colSpan="5" style={{ padding: '48px', textAlign: 'center', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.85rem' }}>
+                                                <i className="fas fa-receipt mb-3" style={{ fontSize: '2rem', display: 'block', opacity: 0.2 }}></i>
+                                                No formal offers recorded yet. Use the button to capture interest.
                                             </td>
                                         </tr>
                                     )}
@@ -381,12 +436,17 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                         </div>
                     </div>
 
-                    {/* 8️⃣ Client & Party Structure Card */}
+                    {/* 👥 STAKEHOLDER ARCHITECTURE */}
                     <div style={cardStyle}>
                         <div style={sectionHeaderStyle}>
-                            <h3 style={sectionTitleStyle}><i className="fas fa-users text-indigo-500"></i> Client & Party Structure</h3>
+                            <h3 style={sectionTitleStyle}>
+                                <div style={{ width: '32px', height: '32px', background: '#eef2ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
+                                    <i className="fas fa-users text-indigo-500" style={{ fontSize: '0.9rem' }}></i>
+                                </div>
+                                Participant Network
+                            </h3>
                         </div>
-                        <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+                        <div style={{ padding: '24px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
                             <PartyBlock role="OWNER" name={deal.partyStructure?.owner?.name || deal.owner?.name} phone={deal.partyStructure?.owner?.phone || deal.owner?.phone} color="amber" />
                             <PartyBlock role="BUYER" name={deal.partyStructure?.buyer?.name || deal.associatedContact?.name} phone={deal.partyStructure?.buyer?.phone || deal.associatedContact?.phone} color="blue" />
                             <PartyBlock role="CHANNEL PARTNER" name={deal.partyStructure?.channelPartner?.name} phone={deal.partyStructure?.channelPartner?.phone} color="rose" />
@@ -414,40 +474,50 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
 
                 </div>
 
-                {/* 9️⃣ RIGHT SIDEBAR (30%) */}
-                <div style={{ flex: '0 0 300px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                {/* 🛡️ MISSION CONTROL SIDEBAR (30%) */}
+                <div style={{ flex: '0 0 320px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
-                    {/* Card 1: Pipeline Progress */}
+                    {/* Transaction Lifecycle */}
                     <div style={cardStyle}>
-                        <div style={{ ...sectionHeaderStyle, background: '#f8fafc' }}>
-                            <h3 style={sectionTitleStyle}>Pipeline Progress</h3>
+                        <div style={{ ...sectionHeaderStyle, background: '#f8fafc', padding: '16px 20px' }}>
+                            <h3 style={sectionTitleStyle}>
+                                <i className="fas fa-route text-blue-500 mr-2"></i> Pipeline Status
+                            </h3>
                         </div>
-                        <div style={{ padding: '24px 12px' }}>
+                        <div style={{ padding: '24px 16px' }}>
                             <HorizontalStepper currentStage={deal.stage} />
                         </div>
                     </div>
 
-                    {/* Card 2: Commission Summary */}
-                    <div style={{ ...cardStyle, background: '#1e293b', border: 'none' }}>
-                        <div style={{ padding: '20px', color: '#fff' }}>
-                            <h3 style={{ ...sectionTitleStyle, color: '#94a3b8', marginBottom: '20px' }}>Revenue Estimate</h3>
+                    {/* Revenue Command Card */}
+                    <div style={{ ...cardStyle, background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', border: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+                        <div style={{ padding: '24px', color: '#fff' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+                                <h3 style={{ ...sectionTitleStyle, color: '#94a3b8', margin: 0 }}>Revenue Engine</h3>
+                                <i className="fas fa-chart-line text-emerald-400"></i>
+                            </div>
                             <div style={{ marginBottom: '24px' }}>
-                                <p style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', marginBottom: '4px' }}>Expected Brokerage</p>
-                                <p style={{ fontSize: '1.8rem', fontWeight: 900, color: '#10b981', margin: 0 }}>
+                                <p style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.05em' }}>Estimated Brokerage</p>
+                                <p style={{ fontSize: '2rem', fontWeight: 900, color: '#10b981', margin: 0, letterSpacing: '-0.02em' }}>
                                     {formatIndianCurrency(deal.commission?.expectedAmount || (deal.price * 0.02))}
                                 </p>
-                                <p style={{ fontSize: '0.65rem', color: '#475569', fontWeight: 700 }}>Based on {deal.commission?.brokeragePercent || 2}% rate</p>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>
+                                    <span style={{ fontSize: '0.65rem', color: '#1e293b', background: '#34d399', padding: '2px 6px', borderRadius: '4px', fontWeight: 900 }}>
+                                        {deal.commission?.brokeragePercent || 2}%
+                                    </span>
+                                    <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700 }}>Service Fee Rate</span>
+                                </div>
                             </div>
-                            <div style={{ display: 'grid', gap: '16px', borderTop: '1px solid #334155', paddingTop: '20px' }}>
+                            <div style={{ display: 'grid', gap: '12px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '20px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>Company Share</span>
-                                    <span style={{ fontSize: '0.75rem', color: '#fff', fontWeight: 800 }}>
+                                    <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>Entity Share</span>
+                                    <span style={{ fontSize: '0.7rem', color: '#fff', fontWeight: 800 }}>
                                         {formatIndianCurrency(deal.commission?.internalSplit?.company || (deal.price * 0.02 * 0.7))}
                                     </span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>Associate Split</span>
-                                    <span style={{ fontSize: '0.75rem', color: '#fff', fontWeight: 800 }}>
+                                    <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>Agent Incentive</span>
+                                    <span style={{ fontSize: '0.7rem', color: '#fff', fontWeight: 800 }}>
                                         {formatIndianCurrency(deal.commission?.internalSplit?.closingRM || (deal.price * 0.02 * 0.15))}
                                     </span>
                                 </div>
@@ -455,72 +525,66 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                         </div>
                     </div>
 
-                    {/* Card 3: Site Visit & Health */}
+                    {/* Operational Health */}
                     <div style={cardStyle}>
                         <div style={{ ...sectionHeaderStyle, background: '#f8fafc' }}>
                             <h3 style={sectionTitleStyle}>Engagement & Health</h3>
                         </div>
                         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
-                            {/* Phase 4: Site Visit Tracker */}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '16px', borderBottom: '1px solid #f1f5f9' }}>
-                                <div>
-                                    <p style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', marginBottom: '2px' }}>Site Visits</p>
-                                    <div style={{ display: 'flex', gap: '4px' }}>
-                                        <i className="fas fa-eye text-indigo-500"></i>
-                                        <i className="fas fa-eye text-indigo-500"></i>
-                                        <i className="fas fa-eye text-slate-200"></i>
-                                        <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#1e293b', marginLeft: '4px' }}>2 Total</span>
-                                    </div>
+                            {/* Mood tracker */}
+                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                    <span style={{ fontSize: '0.65rem', fontWeight: 900, color: '#64748b' }}>TRANSACTION MOOD</span>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#10b981', background: '#ecfdf5', padding: '2px 8px', borderRadius: '4px' }}>8.5/10</span>
                                 </div>
-                                <div style={{ textAlign: 'right' }}>
-                                    <p style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', marginBottom: '2px' }}>Mood Score</p>
-                                    <span style={{ fontSize: '0.85rem', fontWeight: 900, color: '#10b981' }}>8.5/10</span>
+                                <div style={{ display: 'flex', gap: '4px' }}>
+                                    {[1, 2, 3, 4, 5].map(i => (
+                                        <div key={i} style={{ flex: 1, height: '6px', background: i <= 4 ? '#10b981' : '#e2e8f0', borderRadius: '10px' }}></div>
+                                    ))}
                                 </div>
                             </div>
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                <HealthRow label="Days in Stage" value={`${Math.floor((new Date() - new Date(deal.updatedAt)) / (1000 * 60 * 60 * 24))} Days`} />
-                                <HealthRow label="Idle Time" value={Math.floor((new Date() - new Date(deal.updatedAt)) / (1000 * 60 * 60 * 24)) > 15 ? <span style={{ color: '#ef4444' }}>ICE COLD ❄️</span> : 'Active'} />
-                                <HealthRow label="Total Interactions" value={deal.totalActivities || 8} />
+                                <HealthRow label="Stage Velocity" value={`${Math.floor((new Date() - new Date(deal.updatedAt)) / (1000 * 60 * 60 * 24))} Days`} />
+                                <HealthRow label="Engagement Level" value={Math.floor((new Date() - new Date(deal.updatedAt)) / (1000 * 60 * 60 * 24)) > 15 ? <span style={{ color: '#ef4444' }}>STAGNANT</span> : 'ACTIVE'} />
+                                <HealthRow label="Touchpoints" value={deal.totalActivities || 8} />
                             </div>
 
-                            {/* Phase 4 & 5: Next Action Prompt with Validation */}
-                            <div style={{ padding: '12px', background: (deal.stage === 'Negotiation' && !deal.quotePrice) ? '#fff1f2' : '#ebf5ff', borderRadius: '12px', border: (deal.stage === 'Negotiation' && !deal.quotePrice) ? '1px solid #fecaca' : '1px solid #bfdbfe' }}>
-                                <p style={{ fontSize: '0.7rem', color: (deal.stage === 'Negotiation' && !deal.quotePrice) ? '#e11d48' : '#1d4ed8', fontWeight: 800, textTransform: 'uppercase', marginBottom: '4px' }}>
-                                    {(deal.stage === 'Negotiation' && !deal.quotePrice) ? '⚠️ Validation Required' : '🔥 Next Action Prompt'}
+                            {/* Professional Prompt */}
+                            <div style={{ padding: '16px', background: (deal.stage === 'Negotiation' && !deal.quotePrice) ? '#fef2f2' : '#eff6ff', borderRadius: '16px', border: (deal.stage === 'Negotiation' && !deal.quotePrice) ? '1px solid #fee2e2' : '1px solid #dbeafe' }}>
+                                <p style={{ fontSize: '0.6rem', color: (deal.stage === 'Negotiation' && !deal.quotePrice) ? '#dc2626' : '#2563eb', fontWeight: 900, textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.05em' }}>
+                                    {(deal.stage === 'Negotiation' && !deal.quotePrice) ? 'Action Required' : 'Strategic Next Step'}
                                 </p>
-                                <p style={{ fontSize: '0.85rem', color: (deal.stage === 'Negotiation' && !deal.quotePrice) ? '#9f1239' : '#1e40af', fontWeight: 700, margin: 0, lineHeight: 1.4 }}>
-                                    {(deal.stage === 'Negotiation' && !deal.quotePrice) ? 'A Current Quote price is required before proceeding with round 2 negotiation.' :
-                                        deal.stage === 'Negotiation' ? 'Initiate Round 2 negotiation after checking with Owner about 2% flexibility.' :
-                                            deal.stage === 'Open' ? 'Schedule first site visit with the Buyer.' :
-                                                'Collect Token Receipt and KYC to finalize booking.'}
+                                <p style={{ fontSize: '0.8rem', color: (deal.stage === 'Negotiation' && !deal.quotePrice) ? '#991b1b' : '#1e40af', fontWeight: 700, margin: 0, lineHeight: 1.5 }}>
+                                    {(deal.stage === 'Negotiation' && !deal.quotePrice) ? 'Update Quote Price to proceed with Round 2 analytics.' :
+                                        deal.stage === 'Negotiation' ? 'Evaluate round 1 feedback and initiate Owner counter-proposal.' :
+                                            'Finalize documentation and KYC for the next milestone.'}
                                 </p>
                             </div>
                         </div>
                     </div>
 
-                    {/* Phase 5: Backup Buyers Card */}
+                    {/* Secondary Market Matches */}
                     <div style={cardStyle}>
-                        <div style={{ ...sectionHeaderStyle, background: '#f0fdf9' }}>
-                            <h3 style={sectionTitleStyle}><i className="fas fa-users-cog text-emerald-600"></i> Backup Buyers</h3>
+                        <div style={{ ...sectionHeaderStyle, background: '#f0fdf4' }}>
+                            <h3 style={sectionTitleStyle}>
+                                <i className="fas fa-users-viewfinder text-emerald-600 mr-2"></i> Alternative Buyers
+                            </h3>
                         </div>
                         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                             {matchingLeads.length > 0 ? matchingLeads.slice(0, 3).map((lead, idx) => (
-                                <div key={idx} style={{ padding: '12px', background: '#fff', borderRadius: '12px', border: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div key={idx} style={{ padding: '12px', background: '#fff', borderRadius: '12px', border: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="hover:border-blue-200 transition-all cursor-pointer">
                                     <div>
-                                        <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', margin: 0 }}>{lead.name}</p>
-                                        <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>Score: {lead.score}% • Budget: {formatIndianCurrency(lead.budget)}</p>
+                                        <p style={{ fontSize: '0.8rem', fontWeight: 800, color: '#1e293b', margin: 0 }}>{lead.name}</p>
+                                        <p style={{ fontSize: '0.65rem', color: '#64748b', margin: 0 }}>Match Score: {lead.score}%</p>
                                     </div>
-                                    <button style={{ background: '#eff6ff', color: '#2563eb', border: 'none', width: '28px', height: '28px', borderRadius: '6px', cursor: 'pointer' }}>
-                                        <i className="fas fa-eye"></i>
-                                    </button>
+                                    <i className="fas fa-chevron-right text-slate-300" style={{ fontSize: '0.7rem' }}></i>
                                 </div>
                             )) : (
-                                <p style={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic', textAlign: 'center' }}>Searching for backup buyers...</p>
+                                <p style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic', textAlign: 'center' }}>Optimizing matches...</p>
                             )}
-                            <button className="text-btn" style={{ fontSize: '0.75rem', fontWeight: 700, color: '#059669', width: '100%', textAlign: 'center', marginTop: '4px' }}>
-                                View All 8 Potential Matches
+                            <button className="text-btn" style={{ fontSize: '0.7rem', fontWeight: 800, color: '#059669', width: '100%', textAlign: 'center', marginTop: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                View Full Potential Match List
                             </button>
                         </div>
                     </div>
@@ -676,73 +740,99 @@ const HealthRow = ({ label, value }) => (
 );
 
 // --- TAB MODULES ---
+// --- TAB MODULES ---
 const ActivityTimeline = ({ dealId, logs, loading }) => (
-    <div className="relative pl-8 space-y-8 before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[2px] before:bg-slate-100">
+    <div className="relative pl-8 space-y-6 before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[2px] before:bg-slate-100">
 
-        {/* Phase 5: Merged System Audit Logs */}
-        {logs && logs.map((log, idx) => (
-            <div key={idx} className="relative">
-                <div className="absolute -left-[37px] w-4 h-4 rounded-full bg-slate-400 border-4 border-white shadow-sm ring-4 ring-slate-50"></div>
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 shadow-sm max-w-2xl opacity-80">
-                    <div className="flex justify-between items-center mb-2">
-                        <span className="text-[0.65rem] font-black text-slate-500 uppercase">System Audit: {log.action || 'UPDATE'}</span>
-                        <span className="text-[0.6rem] text-slate-400">{new Date(log.executedAt || log.timestamp).toLocaleString()}</span>
+        <p className="text-[0.6rem] font-black text-slate-400 uppercase tracking-widest mb-8">Transaction Pulse</p>
+
+        {/* ⚡ ACTIVE PULSE ITEMS */}
+        <div className="relative group">
+            <div className="absolute -left-[37px] w-4 h-4 rounded-full bg-blue-600 border-4 border-white shadow-md ring-4 ring-blue-50 group-hover:scale-125 transition-transform"></div>
+            <div className="bg-white p-5 rounded-2xl border border-blue-100 shadow-sm max-w-2xl">
+                <div className="flex justify-between items-center mb-3">
+                    <span className="text-[0.65rem] font-black text-blue-600 uppercase tracking-wider bg-blue-50 px-2 py-1 rounded">Stage Evolution</span>
+                    <span className="text-[0.65rem] text-slate-400 font-bold">Today, 10:45 AM</span>
+                </div>
+                <p className="text-[0.85rem] font-bold text-slate-800 leading-relaxed">
+                    Transaction moved to <span className="text-blue-600">Negotiation Phase</span> following the receipt of a formal counter-proposal.
+                </p>
+            </div>
+        </div>
+
+        <div className="relative group">
+            <div className="absolute -left-[37px] w-4 h-4 rounded-full bg-emerald-500 border-4 border-white shadow-md ring-4 ring-emerald-50 group-hover:scale-125 transition-transform"></div>
+            <div className="bg-white p-5 rounded-2xl border border-emerald-50 shadow-sm max-w-2xl">
+                <div className="flex justify-between items-center mb-3">
+                    <span className="text-[0.65rem] font-black text-emerald-600 uppercase tracking-wider bg-emerald-50 px-2 py-1 rounded">Field Engagement</span>
+                    <span className="text-[0.65rem] text-slate-400 font-bold">Yesterday, 4:20 PM</span>
+                </div>
+                <p className="text-[0.85rem] font-bold text-slate-800 leading-relaxed mb-3">
+                    Site Visit #2 completed with Buyer and Relationship Manager.
+                </p>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 italic text-[0.8rem] text-slate-600 leading-snug">
+                    "Buyer evaluated the floor plan and natural lighting. Strong interest confirmed; requested a breakdown of park-facing premium charges."
+                </div>
+            </div>
+        </div>
+
+        {/* 🧩 SYSTEM AUDIT LOGS (Condensed) */}
+        {logs && logs.slice(0, 5).map((log, idx) => (
+            <div key={idx} className="relative group opacity-60 hover:opacity-100 transition-opacity">
+                <div className="absolute -left-[37px] w-4 h-4 rounded-full bg-slate-300 border-4 border-white shadow-sm ring-4 ring-slate-50"></div>
+                <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100 max-w-2xl">
+                    <div className="flex justify-between items-center mb-1">
+                        <span className="text-[0.6rem] font-black text-slate-500 uppercase">Audit: {log.action || 'Data Sync'}</span>
+                        <span className="text-[0.6rem] text-slate-400 font-bold">{new Date(log.executedAt || log.timestamp).toLocaleDateString()}</span>
                     </div>
-                    <p className="text-sm font-bold text-slate-600">{log.description || `Automatic log: ${log.field} updated to ${log.newValue}`}</p>
+                    <p className="text-[0.75rem] font-bold text-slate-600">{log.description || `${log.field} parameter adjustment recorded.`}</p>
                 </div>
             </div>
         ))}
 
-        <div className="relative">
-            <div className="absolute -left-[37px] w-4 h-4 rounded-full bg-indigo-600 border-4 border-white shadow-sm ring-4 ring-indigo-50"></div>
-            <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm max-w-2xl">
-                <div className="flex justify-between items-center mb-2">
-                    <span className="text-[0.65rem] font-black text-indigo-600 uppercase">System Update</span>
-                    <span className="text-[0.6rem] text-slate-400">10:45 AM</span>
-                </div>
-                <p className="text-sm font-bold text-slate-800">Deal stage moved to <span className="text-indigo-600">Negotiation</span> based on added Offer.</p>
-            </div>
-        </div>
-        <div className="relative">
-            <div className="absolute -left-[37px] w-4 h-4 rounded-full bg-emerald-500 border-4 border-white shadow-sm ring-4 ring-emerald-50"></div>
-            <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm max-w-2xl">
-                <div className="flex justify-between items-center mb-2">
-                    <span className="text-[0.65rem] font-black text-emerald-600 uppercase">Site Visit</span>
-                    <span className="text-[0.6rem] text-slate-400">Yesterday</span>
-                </div>
-                <p className="text-sm font-bold text-slate-800">Second site visit completed with Buyer and Channel Partner.</p>
-                <p className="text-xs text-slate-500 mt-2 italic">"Buyer liked the ventilation and corner view. Asked for a detailed pricing round on the park-facing premium."</p>
-            </div>
+        <div className="pt-4">
+            <button className="text-[0.7rem] font-black text-slate-400 uppercase tracking-widest hover:text-blue-600 transition-colors">
+                View All {logs?.length || 12} Activities <i className="fas fa-chevron-down ml-1"></i>
+            </button>
         </div>
     </div>
 );
 
 const NegotiationTracker = ({ rounds }) => (
     <div className="space-y-6">
+        <div className="flex justify-between items-center mb-4">
+            <h4 className="text-[0.7rem] font-black text-slate-400 uppercase tracking-widest">Active Negotiations</h4>
+            <div className="text-[0.65rem] font-black text-slate-900 bg-white border border-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-500"></div> LIVE ROUND
+            </div>
+        </div>
         {(rounds || [{ round: 1 }]).map((round, idx) => (
-            <div key={idx} className="bg-slate-50 p-6 rounded-2xl border border-slate-200">
-                <div className="flex items-center gap-3 mb-6">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-black text-sm">
+            <div key={idx} className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+                <div className="flex items-center gap-4 mb-8">
+                    <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-sm shadow-lg">
                         R{round.round || idx + 1}
                     </div>
-                    <h4 className="text-[0.75rem] font-black text-slate-800 uppercase tracking-widest">Negotiation Round {round.round || idx + 1}</h4>
+                    <div>
+                        <h4 className="text-[0.8rem] font-black text-slate-900 uppercase tracking-tight">Strategy Round {round.round || idx + 1}</h4>
+                        <p className="text-[0.65rem] text-slate-400 font-bold uppercase">{new Date().toLocaleDateString('en-IN', { month: 'long', day: '2-digit' })} • PRIMARY OFFER</p>
+                    </div>
                 </div>
-                <div className="grid grid-cols-4 gap-8">
-                    <div className="flex flex-col gap-1">
-                        <span className="text-[0.6rem] text-slate-400 font-black uppercase tracking-wider underline decoration-slate-200">Buyer Offer</span>
-                        <span className="text-base font-black text-rose-600">{formatIndianCurrency(round.buyerOffer || 4500000)}</span>
+                <div className="grid grid-cols-4 gap-10">
+                    <div className="flex flex-col gap-2">
+                        <span className="text-[0.6rem] text-slate-500 font-black uppercase tracking-wider">Buyer Intent</span>
+                        <span className="text-xl font-black text-rose-600 tracking-tight">{formatIndianCurrency(round.buyerOffer || 4500000)}</span>
                     </div>
-                    <div className="flex flex-col gap-1">
-                        <span className="text-[0.6rem] text-slate-400 font-black uppercase tracking-wider underline decoration-slate-200">Owner Counter</span>
-                        <span className="text-base font-black text-indigo-600">{formatIndianCurrency(round.ownerCounter || 4800000)}</span>
+                    <div className="flex flex-col gap-2">
+                        <span className="text-[0.6rem] text-slate-500 font-black uppercase tracking-wider">Owner Base</span>
+                        <span className="text-xl font-black text-indigo-600 tracking-tight">{formatIndianCurrency(round.ownerCounter || 4800000)}</span>
                     </div>
-                    <div className="flex flex-col gap-1">
-                        <span className="text-[0.6rem] text-slate-400 font-black uppercase tracking-wider underline decoration-slate-200">Adjustment</span>
-                        <span className="text-base font-black text-amber-600">-{formatIndianCurrency(round.adjustment || 50000)}</span>
+                    <div className="flex flex-col gap-2">
+                        <span className="text-[0.6rem] text-slate-500 font-black uppercase tracking-wider">Discount Spread</span>
+                        <span className="text-xl font-black text-slate-400 tracking-tight">-{formatIndianCurrency(round.adjustment || 50000)}</span>
                     </div>
-                    <div className="flex flex-col gap-1 bg-white p-3 rounded-lg border border-slate-100">
-                        <span className="text-[0.6rem] text-emerald-600 font-black uppercase tracking-wider">Final Value</span>
-                        <span className="text-lg font-black text-emerald-600">{formatIndianCurrency(round.final || 4750000)}</span>
+                    <div className="flex flex-col gap-2 bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100">
+                        <span className="text-[0.6rem] text-emerald-700 font-black uppercase tracking-wider">Fulfillment Price</span>
+                        <span className="text-2xl font-black text-emerald-600 tracking-tight">{formatIndianCurrency(round.final || 4750000)}</span>
                     </div>
                 </div>
             </div>
@@ -751,30 +841,30 @@ const NegotiationTracker = ({ rounds }) => (
 );
 
 const FinancialBreakdown = ({ details, type }) => (
-    <div className="grid grid-cols-2 gap-12">
+    <div className="grid grid-cols-2 gap-16">
         <div className="space-y-8">
-            <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-2">Milestone Payments</h4>
+            <h4 className="text-[0.7rem] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-3">Milestone Progression</h4>
             <div className="space-y-4">
-                <PaymentRow label="Token Payment" amount={details?.token?.amount || 500000} date={details?.token?.date} status="RECEIVED" color="emerald" />
-                <PaymentRow label="Agreement Closure" amount={details?.agreement?.amount || 1500000} date={details?.agreement?.date} status="PENDING" color="amber" />
-                <PaymentRow label="Registry / Possession" amount={details?.registry?.amount || 1000000} date={details?.registry?.date} status="LOCKED" color="slate" />
-                <PaymentRow label="Final Settlement" amount={details?.finalPayment?.amount || 2500000} date={details?.finalPayment?.date} status="LOCKED" color="slate" />
+                <PaymentRow label="Token Commitment" amount={details?.token?.amount || 500000} date={details?.token?.date} status="COLLECTED" color="emerald" />
+                <PaymentRow label="Agreement Closure" amount={details?.agreement?.amount || 1500000} date={details?.agreement?.date} status="UPCOMING" color="amber" />
+                <PaymentRow label="Registry Execution" amount={details?.registry?.amount || 1000000} date={details?.registry?.date} status="LOCKED" color="slate" />
+                <PaymentRow label="Final Fulfillmet" amount={details?.finalPayment?.amount || 2500000} date={details?.finalPayment?.date} status="LOCKED" color="slate" />
             </div>
         </div>
-        <div className="bg-indigo-50/50 p-8 rounded-2xl border border-indigo-100">
-            <h4 className="text-xs font-black text-indigo-800 uppercase tracking-widest mb-6">Type Specific Terms</h4>
+        <div className="bg-slate-50 p-10 rounded-[40px] border border-slate-100">
+            <h4 className="text-[0.7rem] font-black text-slate-400 uppercase tracking-widest mb-10">Transactional Terms</h4>
             {type === 'SELL' ? (
-                <div className="space-y-6">
-                    <TermItem label="Registration Type" value="Stamp Duty & Registry" />
-                    <TermItem label="Transfer Fees" value="1% of Transaction" />
-                    <TermItem label="Possession Date" value="Immediate after Registry" />
+                <div className="space-y-8">
+                    <TermItem label="Registry Protocol" value="Stamp Duty & Legal Transfer" />
+                    <TermItem label="Administrative Fee" value="1% of Consideration" />
+                    <TermItem label="Possession Timeline" value="Post-Registry Effective" />
                 </div>
             ) : (
-                <div className="space-y-6">
+                <div className="space-y-8">
                     <TermItem label="Security Deposit" value={formatIndianCurrency(details?.securityDeposit || 500000)} />
-                    <TermItem label="Monthly Rent" value={formatIndianCurrency(details?.monthlyRent || 150000)} />
-                    <TermItem label="Lock-in Phase" value={`${details?.lockInMonths || 12} Months`} />
-                    <TermItem label="Rent Escalation" value={`${details?.escalationPercent || 5}% Yearly`} />
+                    <TermItem label="Monthly Periodic Rent" value={formatIndianCurrency(details?.monthlyRent || 150000)} />
+                    <TermItem label="Lock-in Commitment" value={`${details?.lockInMonths || 12} Months`} />
+                    <TermItem label="Rent Escalation Policy" value={`${details?.escalationPercent || 5}% Annual`} />
                 </div>
             )}
         </div>

@@ -1112,7 +1112,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                 <div
                                     key={i}
                                     className="match-item-hover"
-                                    onClick={() => onNavigate('lead-matching', currentLead.mobile)}
+                                    onClick={() => onNavigate('lead-matching', currentLead._id)}
                                     style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '8px', borderRadius: '8px', marginBottom: '4px', cursor: 'pointer', transition: 'all 0.2s' }}
                                 >
                                     <div style={{ width: '50px', height: '40px', borderRadius: '6px', overflow: 'hidden', background: '#f1f5f9', flexShrink: 0 }}>
@@ -1135,7 +1135,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             )}
 
                             <button
-                                onClick={() => onNavigate('lead-matching', currentLead.mobile)}
+                                onClick={() => onNavigate('lead-matching', currentLead._id)}
                                 style={{ width: '100%', marginTop: '10px', padding: '10px', background: 'var(--primary-color)', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', boxShadow: '0 4px 6px rgba(59, 130, 246, 0.2)' }}
                             >
                                 View All Matches Center

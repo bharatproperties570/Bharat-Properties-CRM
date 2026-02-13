@@ -198,7 +198,12 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
                                 <DetailItem label="Category" value={project.category} />
                                 <DetailItem label="Sub Category" value={project.subCategory} />
-                                <DetailItem label="Developer" value={project.developerName} boldValue />
+                                <DetailItem
+                                    label="Developer"
+                                    value={project.developerName}
+                                    boldValue
+                                    onClick={project.developerId ? () => onNavigate('company-detail', project.developerId) : undefined}
+                                />
                                 <DetailItem label="Joint Venture" value={project.isJointVenture ? 'YES' : 'NO'} />
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
@@ -288,7 +293,10 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => 
                                         ))}
                                     </tbody>
                                 </table>
-                                <button style={{ width: '100%', marginTop: '16px', padding: '10px', background: '#f1f5f9', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>
+                                <button
+                                    style={{ width: '100%', marginTop: '16px', padding: '10px', background: '#f1f5f9', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#2563eb', cursor: 'pointer' }}
+                                    onClick={() => setActiveTab('inventory')}
+                                >
                                     View All Inventory
                                 </button>
                             </div>
@@ -322,7 +330,10 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => 
                                         <div style={{ width: '30%', background: '#10b981' }}></div>
                                     </div>
                                 </div>
-                                <button style={{ width: '100%', marginTop: '16px', padding: '10px', background: '#f1f5f9', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>
+                                <button
+                                    style={{ width: '100%', marginTop: '16px', padding: '10px', background: '#f1f5f9', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#2563eb', cursor: 'pointer' }}
+                                    onClick={() => setActiveTab('deals')}
+                                >
                                     View Project Deals
                                 </button>
                             </div>
@@ -536,12 +547,17 @@ const ActionButton = ({ icon, label, primary, full }) => (
     </button>
 );
 
-const DetailItem = ({ label, value, boldValue, color }) => (
-    <div>
+const DetailItem = ({ label, value, boldValue, color, onClick }) => (
+    <div
+        onClick={onClick}
+        style={{ cursor: onClick ? 'pointer' : 'default' }}
+    >
         <p style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', margin: '0 0 4px 0' }}>{label}</p>
         <p style={{
             fontSize: '0.85rem', fontWeight: boldValue ? 800 : 700,
-            color: color || '#1e293b', margin: 0
+            color: color || (onClick ? '#2563eb' : '#1e293b'), margin: 0,
+            textDecoration: onClick ? 'underline' : 'none',
+            textDecorationColor: '#2563eb33'
         }}>{Array.isArray(value) ? value.join(', ') : (renderValue(value) || '--')}</p>
     </div>
 );

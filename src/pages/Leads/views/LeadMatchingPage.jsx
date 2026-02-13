@@ -23,7 +23,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 // Fetch specific lead
                 const leadRes = await api.get(`leads/${leadId}`);
                 if (leadRes.data && leadRes.data.success) {
-                    setLead(leadRes.data.lead);
+                    setLead(leadRes.data.data);
                 }
 
                 // Fetch all inventory for matching
@@ -74,6 +74,12 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     // 2. Pre-parse Lead Context
     const leadContext = useMemo(() => {
         if (!lead) return null;
+
+        // Ensure name is present for display
+        if (!lead.name) {
+            lead.name = lead.firstName ? `${lead.salutation || ""} ${lead.firstName} ${lead.lastName || ""}`.trim() : (lead.name || "Unknown");
+        }
+
         const baseBudget = parseBudget(lead.budget);
         return {
             baseBudget,

@@ -74,9 +74,24 @@ export const deleteLead = async (req, res, next) => {
 
 export const getLeadById = async (req, res, next) => {
     try {
-        const lead = await Lead.findById(req.params.id);
+        const { id } = req.params;
+        let lead;
+
+        // Check if ID is a valid MongoDB ObjectId
+        if (id.match(/^[0-9a-fA-F]{24}$/)) {
+            lead = await Lead.findById(id);
+        } else {
+            // Fallback: search by mobile number
+            lead = await Lead.findOne({ mobile: id });
+        }
+
+        if (!lead) {
+            return res.status(404).json({ success: false, message: "Lead not found" });
+        }
+
         res.json({ success: true, data: lead });
     } catch (error) {
+        console.error("[ERROR] getLeadById failed:", error);
         next(error);
     }
 };

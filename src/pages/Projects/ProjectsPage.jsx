@@ -10,7 +10,7 @@ import ProjectFilterPanel from './components/ProjectFilterPanel';
 import { applyProjectFilters } from '../../utils/projectFilterLogic';
 import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
 
-function ProjectsPage() {
+function ProjectsPage({ onNavigate, onAddProject }) {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
 
@@ -238,7 +238,13 @@ function ProjectsPage() {
 
                         <div style={{ flex: 1, overflowY: 'auto' }}>
                             {filteredProjects.map(project => (
-                                <div key={project._id} style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.2s' }} onMouseOver={e => e.currentTarget.style.background = '#f8fafc'} onMouseOut={e => e.currentTarget.style.background = '#fff'}>
+                                <div
+                                    key={project._id}
+                                    style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.2s' }}
+                                    onMouseOver={e => e.currentTarget.style.background = '#f8fafc'}
+                                    onMouseOut={e => e.currentTarget.style.background = '#fff'}
+                                    onClick={() => onNavigate('project-detail', project._id)}
+                                >
                                     <div style={{ display: 'flex', gap: '12px' }}>
                                         <div style={{ width: '50px', height: '50px', background: '#f1f5f9', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                             <i className="fas fa-building" style={{ color: '#cbd5e1' }}></i>
@@ -280,11 +286,10 @@ function ProjectsPage() {
                                         left: position.left,
                                         top: position.top,
                                         transform: 'translate(-50%, -100%)',
-                                        cursor: 'pointer',
-                                        zIndex: 10,
                                         transition: 'all 0.2s'
                                     }}
                                     title={project.name}
+                                    onClick={() => onNavigate('project-detail', project._id)}
                                 >
                                     {/* Pin Marker */}
                                     <div style={{
