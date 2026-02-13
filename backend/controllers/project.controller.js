@@ -9,6 +9,16 @@ export const getProjects = async (req, res) => {
     }
 };
 
+export const getProjectById = async (req, res) => {
+    try {
+        const project = await Project.findById(req.params.id).lean();
+        if (!project) return res.status(404).json({ success: false, error: "Project not found" });
+        res.json({ success: true, data: project });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 export const addProject = async (req, res) => {
     try {
         const project = await Project.create(req.body);

@@ -21,6 +21,8 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
     const [showAddProjectModal, setShowAddProjectModal] = useState(false);
     const [showAddInventoryModal, setShowAddInventoryModal] = useState(false);
     const [showAddDealModal, setShowAddDealModal] = useState(false);
+    const [editingInventory, setEditingInventory] = useState(null);
+    const [dealContext, setDealContext] = useState(null);
 
     // Modal Data State
     const [modalEntityType, setModalEntityType] = useState('contact'); // 'contact' or 'lead'
@@ -95,8 +97,14 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
             setShowActivityModal(true);
         },
         onAddProject: handleAddProject,
-        onAddInventory: () => setShowAddInventoryModal(true),
-        onAddDeal: () => setShowAddDealModal(true)
+        onAddInventory: (inventory) => {
+            setEditingInventory(inventory || null);
+            setShowAddInventoryModal(true);
+        },
+        onAddDeal: (dealData) => {
+            setDealContext(dealData || null);
+            setShowAddDealModal(true);
+        }
     };
 
     return (
@@ -128,7 +136,7 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                     onAddInventory={() => setShowAddInventoryModal(true)}
                 />
 
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
                     {/* Render Children with injected props if children is a function, otherwise regular render */}
                     {typeof children === 'function' ? children(modalHandlers) : children}
                 </div>
@@ -170,9 +178,14 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
 
                 <AddInventoryModal
                     isOpen={showAddInventoryModal}
-                    onClose={() => setShowAddInventoryModal(false)}
+                    onClose={() => {
+                        setShowAddInventoryModal(false);
+                        setEditingInventory(null);
+                    }}
+                    property={editingInventory}
                     onSave={() => {
                         setShowAddInventoryModal(false);
+                        setEditingInventory(null);
                         // Trigger global refresh for inventory list
                         window.dispatchEvent(new Event('inventory-updated'));
                     }}
@@ -180,8 +193,17 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
 
                 <AddDealModal
                     isOpen={showAddDealModal}
-                    onClose={() => setShowAddDealModal(false)}
-                    onSave={() => setShowAddDealModal(false)}
+                    onClose={() => {
+                        setShowAddDealModal(false);
+                        setDealContext(null);
+                    }}
+                    deal={dealContext}
+                    onSave={() => {
+                        setShowAddDealModal(false);
+                        setDealContext(null);
+                        // Trigger global refresh for deals list
+                        window.dispatchEvent(new Event('deal-updated'));
+                    }}
                 />
             </main>
         </div>

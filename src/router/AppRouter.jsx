@@ -11,6 +11,7 @@ import AccountPage from '../pages/Account/AccountPage';
 import ActivitiesPage from '../pages/Activities/ActivitiesPage';
 import BookingPage from '../pages/Booking/BookingPage';
 import InventoryPage from '../pages/Inventory/InventoryPage';
+import InventoryDetailPage from '../pages/Inventory/InventoryDetailPage';
 import MarketingPage from '../pages/Marketing/MarketingPage';
 import ProfilePage from '../pages/Profile/ProfilePage';
 import ProjectsPage from '../pages/Projects/ProjectsPage';
@@ -21,6 +22,9 @@ import CommunicationPage from '../pages/Communication/CommunicationPage';
 import DealIntakePage from '../pages/Deals/views/DealIntakePage';
 import DealMatchingPage from '../pages/Deals/views/DealMatchingPage';
 import LeadMatchingPage from '../pages/Leads/views/LeadMatchingPage';
+import DealDetailPage from '../pages/Deals/DealDetailPage';
+import ProjectDetailPage from '../pages/Projects/ProjectDetailPage';
+import CompanyDetailPage from '../pages/Company/CompanyDetailPage';
 
 // Settings Sub-Pages
 import EmailSettingsPage from '../pages/Settings/views/EmailSettingsPage';
@@ -34,7 +38,7 @@ import ContactDetail from '../pages/Contacts/ContactDetail';
 
 import { leadData } from '../data/mockData';
 
-const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, onEditCompany, onAddActivity }) => {
+const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, onEditCompany, onAddActivity, onAddDeal, onAddInventory, onAddProject }) => {
     switch (currentView) {
         case 'dashboard':
             return <DashboardPage />;
@@ -48,7 +52,18 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
                 onAddActivity={onAddActivity}
             />;
         case 'company':
-            return <CompanyPage onEdit={onEditCompany} />;
+            return <CompanyPage onEdit={onEditCompany} onNavigate={onNavigate} />;
+        case 'company-detail':
+            return <CompanyDetailPage
+                companyId={currentContactId}
+                onBack={() => onNavigate('company')}
+                onNavigate={onNavigate}
+                onAddActivity={onAddActivity}
+                onAddProject={onAddProject}
+                onAddInventory={onAddInventory}
+                onAddDeal={onAddDeal}
+                onAddContact={onEditContact}
+            />;
         case 'leads':
             return <LeadsPage onAddActivity={onAddActivity} onEdit={onEditContact} onNavigate={onNavigate} />;
         case 'forms':
@@ -59,14 +74,37 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
             return <DealMatchingPage onNavigate={onNavigate} dealId={currentContactId} />;
         case 'lead-matching':
             return <LeadMatchingPage onNavigate={onNavigate} leadId={currentContactId} />;
+        case 'deal-detail':
+            return <DealDetailPage
+                dealId={currentContactId}
+                onBack={() => onNavigate('deals')}
+                onNavigate={onNavigate}
+                onAddActivity={onAddActivity}
+            />;
         case 'marketing':
             return <MarketingPage onNavigate={onNavigate} />;
         case 'wizard':
             return <WizardPage onBack={() => onNavigate('marketing')} />;
         case 'projects':
-            return <ProjectsPage />;
+            return <ProjectsPage onNavigate={onNavigate} onAddProject={onAddProject} />;
+        case 'project-detail':
+            return <ProjectDetailPage
+                projectId={currentContactId}
+                onBack={() => onNavigate('projects')}
+                onNavigate={onNavigate}
+                onAddActivity={onAddActivity}
+            />;
         case 'inventory':
             return <InventoryPage onNavigate={onNavigate} />;
+        case 'inventory-detail':
+            return <InventoryDetailPage
+                inventoryId={currentContactId}
+                onBack={() => onNavigate('inventory')}
+                onNavigate={onNavigate}
+                onAddActivity={onAddActivity}
+                onAddDeal={onAddDeal}
+                onEditInventory={onAddInventory}
+            />;
         case 'activities':
             return <ActivitiesPage />;
         case 'booking':

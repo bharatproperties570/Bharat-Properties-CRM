@@ -471,7 +471,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                 </div>
                             </div>
                             <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-user-tie" style={{ fontSize: '0.7rem' }}></i> {contact.owner?.name || contact.owner || contact.ownership || '-'}</span>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-user-tie" style={{ fontSize: '0.7rem' }}></i> {contact.owner?.name || contact.owner?.email || renderLookup(contact.ownership) || '-'}</span>
                                 <span style={{ color: '#cbd5e1' }}>|</span>
                                 <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-bullhorn" style={{ fontSize: '0.7rem', color: '#f59e0b' }}></i> {renderLookup(contact.source, 'Direct')}</span>
                                 <span style={{ color: '#cbd5e1' }}>|</span>
@@ -635,8 +635,8 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                             {/* Social Connect Icons */}
                                             {contact.socialMedia && contact.socialMedia.length > 0 && (
                                                 <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
-                                                    {contact.socialMedia.map((soc, i) => (
-                                                        <a key={i} href={soc.url.startsWith('http') ? soc.url : `https://${soc.url}`} target="_blank" rel="noopener noreferrer" style={{
+                                                    {contact.socialMedia.filter(soc => soc && soc.url).map((soc, i) => (
+                                                        <a key={i} href={String(soc.url).startsWith('http') ? soc.url : `https://${soc.url}`} target="_blank" rel="noopener noreferrer" style={{
                                                             width: '28px', height: '28px', borderRadius: '6px', background: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', transition: 'all 0.2s'
                                                         }} title={renderLookup(soc.platform)}>
                                                             <i className={`fab fa-${(renderLookup(soc.platform, '')).toLowerCase()}`} style={{ fontSize: '0.9rem' }}></i>

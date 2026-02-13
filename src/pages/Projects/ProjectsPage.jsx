@@ -571,7 +571,12 @@ function ProjectsPage() {
                                                     <i className="fas fa-building"></i>
                                                 </div>
                                                 <div>
-                                                    <div style={{ fontWeight: 800, color: 'var(--primary-color)', fontSize: '0.95rem', cursor: 'pointer', lineHeight: 1.2 }}>{project.name}</div>
+                                                    <div
+                                                        style={{ fontWeight: 800, color: 'var(--primary-color)', fontSize: '0.95rem', cursor: 'pointer', lineHeight: 1.2 }}
+                                                        onClick={() => onNavigate('project-detail', project._id)}
+                                                    >
+                                                        {project.name}
+                                                    </div>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
                                                         <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>ID: PRJ-{project._id}</span>
                                                         <i className="fas fa-check-circle" style={{ color: 'var(--primary-color)', fontSize: '0.7rem' }} title="Verified Project"></i>

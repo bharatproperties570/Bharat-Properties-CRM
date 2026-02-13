@@ -4,7 +4,7 @@ import CompanyFilterPanel from './components/CompanyFilterPanel';
 import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
 
-function CompanyPage({ onEdit }) {
+function CompanyPage({ onEdit, onNavigate }) {
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -394,7 +394,11 @@ function CompanyPage({ onEdit }) {
                                             {getInitials(company.name)}
                                         </div>
                                         <div style={{ overflow: 'hidden' }}>
-                                            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            <div
+                                                onClick={(e) => { e.stopPropagation(); onNavigate('company-detail', company._id); }}
+                                                style={{ fontWeight: 800, color: 'var(--primary-color)', fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}
+                                                className="hover:underline"
+                                            >
                                                 {company.name}
                                             </div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
@@ -516,7 +520,11 @@ function CompanyPage({ onEdit }) {
                                                 {getInitials(company.name)}
                                             </div>
                                             <div style={{ flex: 1, overflow: 'hidden' }}>
-                                                <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '1.05rem', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                <div
+                                                    onClick={(e) => { e.stopPropagation(); onNavigate('company-detail', company._id); }}
+                                                    style={{ fontWeight: 800, color: 'var(--primary-color)', fontSize: '1.05rem', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}
+                                                    className="hover:underline"
+                                                >
                                                     {company.name}
                                                 </div>
                                                 <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>

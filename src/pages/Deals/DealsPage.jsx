@@ -534,6 +534,7 @@ function DealsPage({ onNavigate }) {
                                     <div className="super-cell">
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
                                             <div
+                                                onClick={() => onNavigate('deal-detail', deal._id)}
                                                 className={`project-thumbnail ${deal.status === 'Open' ? 'thumb-active' : 'thumb-inactive'}`}
                                                 style={{
                                                     width: 'auto',
@@ -541,7 +542,8 @@ function DealsPage({ onNavigate }) {
                                                     height: '28px',
                                                     borderRadius: '6px',
                                                     padding: '0 10px',
-                                                    aspectRatio: 'auto'
+                                                    aspectRatio: 'auto',
+                                                    cursor: 'pointer'
                                                 }}
                                             >
                                                 {deal.unitNo || 'N/A'}

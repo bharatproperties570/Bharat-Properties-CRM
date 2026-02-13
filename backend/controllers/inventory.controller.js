@@ -1,4 +1,5 @@
 import Inventory from "../models/Inventory.js";
+import Lead from "../models/Lead.js";
 import { paginate } from "../utils/pagination.js";
 
 export const getInventory = async (req, res) => {
@@ -24,7 +25,13 @@ export const getInventory = async (req, res) => {
         if (subCategory) query.subCategory = subCategory;
         if (unitType) query.unitType = unitType;
         if (status) query.status = status;
-        if (project) query.projectId = project;
+        if (project) {
+            query.$or = [
+                ...(query.$or || []),
+                { projectId: project },
+                { projectName: project }
+            ];
+        }
 
         // Only populate fields that are reliably ObjectIds (Contact references)
         // category, status, etc. in Inventory seem to be stored as objects or strings already
@@ -44,8 +51,43 @@ export const getInventory = async (req, res) => {
     }
 };
 
+export const getInventoryById = async (req, res) => {
+    try {
+        const populateFields = [
+            { path: "owners", select: "name phones emails title personalAddress" },
+            { path: "associates", select: "name phones emails title" },
+            { path: "projectId" }
+        ];
+
+        const inventory = await Inventory.findById(req.params.id).populate(populateFields);
+
+        if (!inventory) {
+            return res.status(404).json({ success: false, error: "Inventory item not found" });
+        }
+
+        res.status(200).json({ success: true, data: inventory });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 export const addInventory = async (req, res) => {
     try {
+        const { projectName, block, unitNo, unitNumber } = req.body;
+        const finalUnitNo = unitNo || unitNumber;
+
+        if (projectName && block && finalUnitNo) {
+            const existing = await Inventory.findOne({
+                projectName,
+                block,
+                $or: [{ unitNo: finalUnitNo }, { unitNumber: finalUnitNo }]
+            });
+
+            if (existing) {
+                return res.status(400).json({ success: false, error: "Duplicate Inventory: This Unit already exists in this Project/Block." });
+            }
+        }
+
         const inventory = await Inventory.create(req.body);
         res.status(201).json({ success: true, data: inventory });
     } catch (error) {
@@ -99,9 +141,48 @@ export const bulkDeleteInventory = async (req, res) => {
 
 export const matchInventory = async (req, res) => {
     try {
-        const { leadId } = req.query;
-        // Logic for matching inventory with lead requirements would go here
-        res.status(200).json({ success: true, data: [] });
+        const { inventoryId, leadId } = req.query;
+
+        // Case 1: Find matching leads for a specific property
+        if (inventoryId) {
+            const inventory = await Inventory.findById(inventoryId).lean();
+            if (!inventory) {
+                return res.status(404).json({ success: false, error: "Inventory not found" });
+            }
+
+            const query = {
+                $or: [
+                    { project: inventory.projectId }, // Match by Project ID
+                    { project: inventory.projectName }, // Match by Project Name string
+                    { requirement: inventory.category }, // Match by Category
+                    { subRequirement: inventory.subCategory } // Match by Sub-Category
+                ]
+            };
+
+            const leads = await Lead.find(query).limit(50).sort({ updatedAt: -1 }).lean();
+            return res.status(200).json({ success: true, count: leads.length, data: leads });
+        }
+
+        // Case 2: Find matching inventory for a specific lead (Original placeholder intent)
+        if (leadId) {
+            const lead = await Lead.findById(leadId).lean();
+            if (!lead) {
+                return res.status(404).json({ success: false, error: "Lead not found" });
+            }
+
+            const query = {
+                $or: []
+            };
+            if (lead.project) query.$or.push({ projectId: lead.project }, { projectName: lead.project });
+            if (lead.requirement) query.$or.push({ category: lead.requirement });
+
+            if (query.$or.length === 0) return res.status(200).json({ success: true, data: [] });
+
+            const inventories = await Inventory.find(query).limit(50).lean();
+            return res.status(200).json({ success: true, count: inventories.length, data: inventories });
+        }
+
+        res.status(400).json({ success: false, error: "Either inventoryId or leadId is required" });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

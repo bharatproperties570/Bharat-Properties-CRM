@@ -1,8 +1,9 @@
 import express from "express";
-import { getProjects, addProject, updateProject, deleteProject, importProjects, checkDuplicatesImport } from "../controllers/project.controller.js";
+import { getProjects, addProject, updateProject, deleteProject, importProjects, checkDuplicatesImport, getProjectById } from "../controllers/project.controller.js";
 
 const router = express.Router();
 router.get("/", getProjects);
+router.get("/:id", getProjectById);
 router.post("/import", importProjects);
 router.post("/check-duplicates", checkDuplicatesImport);
 router.post("/", addProject);

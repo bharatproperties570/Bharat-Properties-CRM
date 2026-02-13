@@ -30,6 +30,75 @@ const DealSchema = new mongoose.Schema({
         fixed: { type: Boolean, default: false }
     },
 
+    dealId: String, // SELL-345-2026
+    inventoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' },
+    stage: {
+        type: String,
+        enum: ['Open', 'Quote', 'Negotiation', 'Booked', 'Closed', 'Cancelled'],
+        default: 'Open'
+    },
+    dealProbability: { type: Number, default: 50 },
+
+    // Financials & Pricing Panels
+    offerHistory: [{
+        date: { type: Date, default: Date.now },
+        offerBy: String,
+        amount: Number,
+        counterAmount: Number,
+        status: String,
+        remarks: String
+    }],
+
+    negotiationRounds: [{
+        round: Number,
+        buyerOffer: Number,
+        ownerCounter: Number,
+        adjustment: Number,
+        final: Number
+    }],
+
+    // Revenue Engine
+    commission: {
+        brokeragePercent: { type: Number, default: 0 },
+        expectedAmount: { type: Number, default: 0 },
+        actualAmount: { type: Number, default: 0 },
+        internalSplit: {
+            listingRM: { type: Number, default: 0 },
+            closingRM: { type: Number, default: 0 },
+            company: { type: Number, default: 0 }
+        },
+        channelPartnerShare: { type: Number, default: 0 }
+    },
+
+    financialDetails: {
+        token: { amount: Number, date: Date, status: String },
+        agreement: { amount: Number, date: Date, status: String },
+        registry: { amount: Number, date: Date, status: String },
+        finalPayment: { amount: Number, date: Date, status: String },
+
+        // Rent/Lease specifics
+        securityDeposit: Number,
+        monthlyRent: Number,
+        lockInMonths: Number,
+        escalationPercent: Number,
+        leaseTermMonths: Number
+    },
+
+    // Party Structure
+    partyStructure: {
+        owner: { type: mongoose.Schema.Types.Mixed, ref: 'Contact' },
+        buyer: { type: mongoose.Schema.Types.Mixed, ref: 'Contact' },
+        channelPartner: { type: mongoose.Schema.Types.Mixed, ref: 'Contact' },
+        internalRM: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+    },
+
+    documents: [{
+        name: String,
+        type: String, // Agreement, KYC, Receipt, etc.
+        url: String,
+        uploadedAt: { type: Date, default: Date.now }
+    }],
+
     status: { type: String, default: 'Open' },
 
 

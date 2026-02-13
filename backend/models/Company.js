@@ -43,7 +43,18 @@ const CompanySchema = new mongoose.Schema({
         headOffice: AddressSchema,
         siteOffice: [AddressSchema]
     },
-    employees: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Contact' }]
+    employees: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Contact' }],
+
+    // Relationship Intelligence
+    relationshipType: {
+        type: String,
+        enum: ['Developer', 'Land Owner', 'Channel Partner', 'Vendor', 'Institutional Owner', 'Other'],
+        default: 'Other'
+    },
+    commissionAgreementStatus: { type: String, default: 'Not Started' },
+    isPreferredPartner: { type: Boolean, default: false },
+    creditLimit: { type: Number, default: 0 },
+    outstandingAmount: { type: Number, default: 0 }
 }, { timestamps: true });
 
 CompanySchema.plugin(mongoosePaginate);

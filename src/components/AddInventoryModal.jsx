@@ -138,6 +138,37 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
             }));
         }
     }, [property, isOpen]);
+    const [duplicateWarning, setDuplicateWarning] = useState(false);
+    const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+
+    // Real-time Duplicate Check
+    useEffect(() => {
+        const checkDuplicate = async () => {
+            if (formData.projectName && formData.block && formData.unitNo && !property) {
+                setIsCheckingDuplicate(true);
+                try {
+                    const response = await api.get(`/inventory?project=${formData.projectId}&search=${formData.unitNo}`);
+                    if (response.data && response.data.success) {
+                        const exists = (response.data.records || []).some(item =>
+                            item.projectName === formData.projectName &&
+                            item.block === formData.block &&
+                            (item.unitNo === formData.unitNo || item.unitNumber === formData.unitNo)
+                        );
+                        setDuplicateWarning(exists);
+                    }
+                } catch (err) {
+                    console.error("Duplicate check error:", err);
+                } finally {
+                    setIsCheckingDuplicate(false);
+                }
+            } else {
+                setDuplicateWarning(false);
+            }
+        };
+
+        const timer = setTimeout(checkDuplicate, 800);
+        return () => clearTimeout(timer);
+    }, [formData.projectName, formData.block, formData.unitNo, property]);
 
 
     // Owner / Associate Search State
@@ -620,11 +651,17 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                         <label style={labelStyle}>Unit Number</label>
                         <input
                             type="text"
-                            style={inputStyle}
+                            style={{ ...inputStyle, borderColor: duplicateWarning ? '#ef4444' : '#e2e8f0' }}
                             value={formData.unitNo}
                             onChange={e => setFormData({ ...formData, unitNo: e.target.value })}
                             placeholder="Enter Unit No."
                         />
+                        {duplicateWarning && (
+                            <p style={{ fontSize: '0.7rem', color: '#ef4444', marginTop: '6px', fontWeight: 600 }}>
+                                <i className="fas fa-exclamation-circle"></i> Unit already exists in this project/block!
+                            </p>
+                        )}
+                        {isCheckingDuplicate && <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '6px' }}>Checking for duplicates...</p>}
                     </div>
                     <div>
                         <label style={labelStyle}>Unit Type (Orientation)</label>
@@ -1253,7 +1290,8 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
 
         } catch (error) {
             console.error("Save Error:", error);
-            toast.error("Failed to save inventory", { id: toastId });
+            const errMsg = error.response?.data?.error || error.message || "Failed to save inventory";
+            toast.error(errMsg, { id: toastId });
         } finally {
             setIsSaving(false);
         }

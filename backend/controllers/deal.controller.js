@@ -1,15 +1,30 @@
 import Deal from "../models/Deal.js";
 import Activity from "../models/Activity.js";
+import Inventory from "../models/Inventory.js";
 import { paginate } from "../utils/pagination.js";
+
+const syncInventoryStatus = async (deal) => {
+    if (!deal.inventoryId) return;
+
+    let targetStatus = 'Available';
+    if (deal.stage === 'Closed') {
+        targetStatus = 'Sold Out';
+    } else if (deal.stage === 'Booked') {
+        targetStatus = 'Booked';
+    }
+
+    await Inventory.findByIdAndUpdate(deal.inventoryId, { status: targetStatus });
+};
 
 export const getDeals = async (req, res) => {
     try {
-        const { page = 1, limit = 25, search = "" } = req.query;
+        const { page = 1, limit = 25, search = "", projectId, inventoryId } = req.query;
         let query = {};
 
         if (search) {
             query = {
                 $or: [
+                    { dealId: { $regex: search, $options: "i" } },
                     { unitNo: { $regex: search, $options: "i" } },
                     { location: { $regex: search, $options: "i" } },
                     { projectName: { $regex: search, $options: "i" } }
@@ -17,7 +32,10 @@ export const getDeals = async (req, res) => {
             };
         }
 
-        const populateFields = "projectId unitType propertyType location intent status dealType transactionType source owner associatedContact assignedTo";
+        if (projectId) query.projectId = projectId;
+        if (inventoryId) query.inventoryId = inventoryId;
+
+        const populateFields = "inventoryId projectId unitType propertyType location intent status dealType transactionType source owner associatedContact assignedTo partyStructure.buyer partyStructure.channelPartner partyStructure.internalRM";
         const results = await paginate(Deal, query, Number(page), Number(limit), { createdAt: -1 }, populateFields);
 
         // Fetch latest activities for owners and associates
@@ -65,7 +83,21 @@ export const getDeals = async (req, res) => {
 
 export const getDealById = async (req, res) => {
     try {
-        const populateFields = "projectId unitType propertyType location intent status dealType transactionType source owner associatedContact assignedTo";
+        const populateFields = [
+            { path: 'inventoryId' },
+            { path: 'projectId' },
+            { path: 'owner' },
+            { path: 'associatedContact' },
+            { path: 'assignedTo' },
+            { path: 'partyStructure.owner' },
+            { path: 'partyStructure.buyer' },
+            { path: 'partyStructure.channelPartner' },
+            { path: 'partyStructure.internalRM' },
+            { path: 'category' },
+            { path: 'subCategory' },
+            { path: 'intent' },
+            { path: 'status' }
+        ];
         const deal = await Deal.findById(req.params.id).populate(populateFields);
         if (!deal) {
             return res.status(404).json({ success: false, error: "Deal not found" });
@@ -84,17 +116,28 @@ export const getDealById = async (req, res) => {
  */
 const sanitizeData = (data) => {
     const refFields = [
-        'projectId', 'unitType', 'propertyType', 'location', 'intent',
+        'inventoryId', 'projectId', 'unitType', 'propertyType', 'location', 'intent',
         'status', 'dealType', 'transactionType', 'source', 'owner', 'associatedContact',
-        'category', 'subCategory', 'assignedTo'
+        'category', 'subCategory', 'assignedTo', 'partyStructure.owner',
+        'partyStructure.buyer', 'partyStructure.channelPartner', 'partyStructure.internalRM'
     ];
     const sanitized = { ...data };
+
+    // Recursive sanitizer for nested objects like partyStructure
+    const sanitizeValue = (val) => {
+        if (val === "" || val === undefined) return null;
+        if (typeof val === 'object' && val !== null) return val._id || val;
+        return val;
+    };
+
     refFields.forEach(field => {
-        if (sanitized[field] === "" || sanitized[field] === undefined) {
-            sanitized[field] = null;
-        } else if (typeof sanitized[field] === 'object' && sanitized[field] !== null) {
-            // Extract _id if it's an object, otherwise null to avoid CastError in populate
-            sanitized[field] = sanitized[field]._id || null;
+        if (field.includes('.')) {
+            const parts = field.split('.');
+            if (sanitized[parts[0]]) {
+                sanitized[parts[0]][parts[1]] = sanitizeValue(sanitized[parts[0]][parts[1]]);
+            }
+        } else {
+            sanitized[field] = sanitizeValue(sanitized[field]);
         }
     });
     return sanitized;
@@ -103,7 +146,36 @@ const sanitizeData = (data) => {
 export const addDeal = async (req, res) => {
     try {
         const sanitizedData = sanitizeData(req.body);
+
+        // Rule: One Deal per Type per Inventory
+        if (sanitizedData.inventoryId && sanitizedData.intent) {
+            const existingDeals = await Deal.find({
+                inventoryId: sanitizedData.inventoryId,
+                intent: sanitizedData.intent
+            });
+
+            // 1. If any deal of this type is already 'Closed', lock the type permanently
+            const hasClosed = existingDeals.some(d => d.stage === 'Closed');
+            if (hasClosed) {
+                return res.status(400).json({
+                    success: false,
+                    error: `This inventory unit has already been Closed for this transaction type. No further deals are allowed.`
+                });
+            }
+
+            // 2. If any deal is NOT 'Cancelled' (meaning it's active/open), block new ones
+            const activeDeal = existingDeals.find(d => d.stage !== 'Cancelled');
+            if (activeDeal) {
+                const typeName = typeof sanitizedData.intent === 'object' ? sanitizedData.intent?.lookup_value : sanitizedData.intent;
+                return res.status(400).json({
+                    success: false,
+                    error: `An active ${typeName} deal already exists for this inventory unit (#${activeDeal.dealId || activeDeal._id}). Please cancel the existing deal first.`
+                });
+            }
+        }
+
         const deal = await Deal.create(sanitizedData);
+        await syncInventoryStatus(deal);
         res.status(201).json({ success: true, data: deal });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -115,6 +187,7 @@ export const updateDeal = async (req, res) => {
         const sanitizedData = sanitizeData(req.body);
         const deal = await Deal.findByIdAndUpdate(req.params.id, sanitizedData, { new: true });
         if (!deal) return res.status(404).json({ success: false, error: "Deal not found" });
+        await syncInventoryStatus(deal);
         res.json({ success: true, data: deal });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -125,6 +198,12 @@ export const deleteDeal = async (req, res) => {
     try {
         const deal = await Deal.findByIdAndDelete(req.params.id);
         if (!deal) return res.status(404).json({ success: false, error: "Deal not found" });
+
+        // Reset inventory status if the deal was deleted
+        if (deal.inventoryId) {
+            await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Available' });
+        }
+
         res.json({ success: true, message: "Deal deleted successfully" });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

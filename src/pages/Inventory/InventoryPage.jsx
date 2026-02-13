@@ -4,6 +4,7 @@ import { useTriggers } from '../../context/TriggersContext';
 import { useCall } from '../../context/CallContext';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { PROJECTS_LIST } from '../../data/projectData';
+import { renderValue } from '../../utils/renderUtils';
 import { dealIntakeData } from '../../data/dealIntakeData';
 import { api } from "../../utils/api";
 
@@ -367,14 +368,6 @@ export default function InventoryPage({ onNavigate }) {
         setCurrentPage(1);
     };
 
-    // Helper to safely render lookup values or strings
-    const renderValue = (val) => {
-        if (val === null || val === undefined) return null;
-        if (typeof val === 'object') {
-            return val.lookup_value || val.name || val.label || val.value || '';
-        }
-        return val;
-    };
 
     return (
         <section id="inventoryView" className="view-section active">
@@ -676,13 +669,15 @@ export default function InventoryPage({ onNavigate }) {
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
                                                 <div
                                                     className={`project-thumbnail ${item.status === 'Active' ? 'thumb-active' : 'thumb-inactive'}`}
+                                                    onClick={() => onNavigate('inventory-detail', item._id)}
                                                     style={{
                                                         width: 'auto',
                                                         minWidth: '60px',
                                                         height: '28px',
                                                         borderRadius: '6px',
                                                         padding: '0 10px',
-                                                        aspectRatio: 'auto'
+                                                        aspectRatio: 'auto',
+                                                        cursor: 'pointer'
                                                     }}
                                                 >
                                                     {renderValue(item.unitNo) || renderValue(item.unitNumber) || 'N/A'}

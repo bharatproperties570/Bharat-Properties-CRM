@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 const ProjectSchema = new mongoose.Schema({
     // Basic Info
     name: { type: String, required: true, unique: true, index: true },
+    developerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', index: true },
     developerName: String,
     isJointVenture: { type: Boolean, default: false },
     secondaryDeveloper: String,

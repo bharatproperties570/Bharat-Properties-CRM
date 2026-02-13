@@ -36,11 +36,18 @@ function App() {
     const [currentView, setCurrentView] = useState(() => {
         const path = window.location.pathname;
         if (path.startsWith('/contacts/')) return 'contact-detail';
+        if (path.startsWith('/inventory/')) return 'inventory-detail';
         if (path === '/contacts') return 'contacts';
+        if (path === '/inventory') return 'inventory';
         if (path === '/leads') return 'leads';
+        if (path.startsWith('/deals/')) {
+            const possibleId = path.split('/').pop();
+            if (possibleId !== 'deals' && possibleId !== 'match') return 'deal-detail';
+        }
         if (path === '/deals') return 'deals';
         if (path === '/activities') return 'activities';
         if (path === '/projects') return 'projects';
+        if (path.startsWith('/projects/')) return 'project-detail';
         if (path === '/account') return 'account';
         if (path === '/deal-intake') return 'deal-intake';
         if (path.startsWith('/deals/match/')) return 'deal-matching';
@@ -53,10 +60,20 @@ function App() {
         if (path.startsWith('/contacts/')) {
             return path.split('/').pop();
         }
+        if (path.startsWith('/deals/')) {
+            const parts = path.split('/');
+            if (parts.length > 2 && parts[2] !== 'match') return parts[2];
+        }
+        if (path.startsWith('/inventory/')) {
+            return path.split('/').pop();
+        }
         if (path.startsWith('/deals/match/')) {
             return path.split('/').pop();
         }
         if (path.startsWith('/leads/match/')) {
+            return path.split('/').pop();
+        }
+        if (path.startsWith('/projects/')) {
             return path.split('/').pop();
         }
         return null;
@@ -69,9 +86,13 @@ function App() {
 
         let url = '/';
         if (view === 'contacts') url = '/contacts';
+        else if (view === 'inventory') url = '/inventory';
         else if (view === 'contact-detail' && contactId) url = `/contacts/${contactId}`;
+        else if (view === 'inventory-detail' && contactId) url = `/inventory/${contactId}`;
+        else if (view === 'deal-detail' && contactId) url = `/deals/${contactId}`;
         else if (view === 'deal-matching' && contactId) url = `/deals/match/${contactId}`;
         else if (view === 'lead-matching' && contactId) url = `/leads/match/${contactId}`;
+        else if (view === 'project-detail' && contactId) url = `/projects/${contactId}`;
         else if (view === 'dashboard') url = '/';
         else url = `/${view}`;
 
@@ -92,8 +113,21 @@ function App() {
                 if (path.startsWith('/contacts/')) {
                     setCurrentView('contact-detail');
                     setCurrentContactId(path.split('/').pop());
+                } else if (path.startsWith('/deals/')) {
+                    const parts = path.split('/');
+                    if (parts.length > 2 && parts[2] !== 'match') {
+                        setCurrentView('deal-detail');
+                        setCurrentContactId(parts[2]);
+                    } else if (parts[2] === 'match') {
+                        setCurrentView('deal-matching');
+                        setCurrentContactId(parts.pop());
+                    } else {
+                        setCurrentView('deals');
+                    }
                 } else if (path === '/contacts') {
                     setCurrentView('contacts');
+                } else if (path === '/inventory') {
+                    setCurrentView('inventory');
                 } else if (path === '/deal-intake') {
                     setCurrentView('deal-intake');
                 } else if (path.startsWith('/deals/match/')) {
@@ -101,6 +135,9 @@ function App() {
                     setCurrentContactId(path.split('/').pop());
                 } else if (path.startsWith('/leads/match/')) {
                     setCurrentView('lead-matching');
+                    setCurrentContactId(path.split('/').pop());
+                } else if (path.startsWith('/projects/')) {
+                    setCurrentView('project-detail');
                     setCurrentContactId(path.split('/').pop());
                 } else {
                     setCurrentView('dashboard');

@@ -327,7 +327,7 @@ const TemplateModal = ({ isOpen, onClose, onSave, initialData }) => {
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                             <button className="btn-outline" onClick={() => setShowLinkModal(false)} style={{ fontSize: '0.85rem' }}>Cancel</button>
-                            <button className="btn-primary" onClick={() => { insertHTML(`<a href="${linkUrl.startsWith('http') ? linkUrl : 'https://' + linkUrl}" target="_blank" style="color: var(--primary-color); text-decoration: underline;">${linkText || linkUrl}</a>`); setShowLinkModal(false); setLinkUrl(''); setLinkText(''); }} style={{ fontSize: '0.85rem', padding: '8px 24px' }}>Insert</button>
+                            <button className="btn-primary" onClick={() => { insertHTML(`<a href="${(linkUrl || '').startsWith('http') ? linkUrl : 'https://' + linkUrl}" target="_blank" style="color: var(--primary-color); text-decoration: underline;">${linkText || linkUrl}</a>`); setShowLinkModal(false); setLinkUrl(''); setLinkText(''); }} style={{ fontSize: '0.85rem', padding: '8px 24px' }}>Insert</button>
                         </div>
                     </div>
                 </div>
