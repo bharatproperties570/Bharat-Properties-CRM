@@ -6,7 +6,6 @@ import Swal from "sweetalert2";
 // ---------------- CONFIGURATION ----------------
 const TABS = [
   { id: "Professional", label: "Professional", type: "hierarchy" },
-  { id: "Campaign", label: "Campaign & Source", type: "hierarchy" }, // NEW: Campaign Hierarchy
   { id: "Document", label: "Document", type: "hierarchy" },
   { id: "Address", label: "Address", type: "hierarchy" },
   { id: "Education", label: "Education", type: "hierarchy" }, // NEW: Education Hierarchy
@@ -18,11 +17,6 @@ const HIERARCHY_CONFIG = {
     { title: "Category", lookup_type: "ProfessionalCategory" },
     { title: "Sub Category", lookup_type: "ProfessionalSubCategory" },
     { title: "Designation", lookup_type: "ProfessionalDesignation" },
-  ],
-  Campaign: [ // Campaign -> Source -> Sub-Source
-    { title: "Campaign", lookup_type: "Campaign" },
-    { title: "Source", lookup_type: "Source" },
-    { title: "Sub-Source", lookup_type: "Sub-Source" },
   ],
   Document: [ // Document Category -> Document Type
     { title: "Document Category", lookup_type: "Document-Category" },

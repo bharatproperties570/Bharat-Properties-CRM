@@ -786,9 +786,6 @@ const AddContactModal = ({
 
   const [title, setTitle] = useState([]);
   const [countrycode, setCountrycode] = useState([]);
-  const [campaigns, setcampaigns] = useState([]);
-  const [source, setsource] = useState([]);
-  const [subSource, setSubSource] = useState([]);
   const [team, setteam] = useState([]);
   const [visible, setvisible] = useState([]);
   const [doc_category, setdoc_category] = useState([]);
@@ -900,29 +897,20 @@ const AddContactModal = ({
         const [
           titleData,
           countryCodeData,
-          campaignData,
           categoryData,
-          sourceData,
-          subSourceData,
           profSubCategoryData,
           designationData
         ] = await Promise.all([
           fetchLookup("Title"),
           fetchLookup("Country-Code"),
-          fetchLookup("Campaign"),
           fetchLookup("ProfessionalCategory"),
-          initialData?.campaign ? fetchLookup("Source", getId(initialData.campaign)) : Promise.resolve([]),
-          initialData?.source ? fetchLookup("Sub-Source", getId(initialData.source)) : Promise.resolve([]),
           initialData?.professionCategory ? fetchLookup("ProfessionalSubCategory", getId(initialData.professionCategory)) : Promise.resolve([]),
           initialData?.professionSubCategory ? fetchLookup("ProfessionalDesignation", getId(initialData.professionSubCategory)) : Promise.resolve([])
         ]);
 
         setTitle(titleData);
         setCountrycode(countryCodeData);
-        setcampaigns(campaignData);
         setProfessionCategories(categoryData);
-        setsource(sourceData);
-        setSubSource(subSourceData);
         setProfessionSubCategories(profSubCategoryData);
         setDesignation(designationData);
 
@@ -1784,27 +1772,17 @@ const AddContactModal = ({
                             </label>
                             <select
                               value={formData.campaign}
-                              onFocus={async () => {
-                                if (campaigns.length === 0) {
-                                  setLoading("campaign");
-                                  const data = await fetchLookup("Campaign");
-                                  setcampaigns(data);
-                                  setLoading("");
-                                }
-                              }}
                               onChange={(e) => {
                                 handleInputChange("campaign", e.target.value);
                                 handleInputChange("source", ""); // Reset source
                                 handleInputChange("subSource", ""); // Reset subSource
-                                setsource([]); // Clear child options
-                                setSubSource([]); // Clear grandchild options
                               }}
                               style={customSelectStyle}
                             >
                               <option value="">Select Campaign</option>
-                              {campaigns.map((opt) => (
-                                <option key={opt._id} value={opt._id}>
-                                  {opt.lookup_value}
+                              {(leadMasterFields?.campaigns || []).map((c) => (
+                                <option key={c.name} value={c.name}>
+                                  {c.name}
                                 </option>
                               ))}
                             </select>
@@ -1827,18 +1805,9 @@ const AddContactModal = ({
                             </label>
                             <select
                               value={formData.source}
-                              onFocus={async () => {
-                                if (formData.campaign) {
-                                  setLoading("source");
-                                  const data = await fetchLookup("Source", formData.campaign);
-                                  setsource(data);
-                                  setLoading("");
-                                }
-                              }}
                               onChange={(e) => {
                                 handleInputChange("source", e.target.value);
                                 handleInputChange("subSource", ""); // Reset subSource
-                                setSubSource([]); // Clear child options
                               }}
                               style={
                                 !formData.campaign
@@ -1848,11 +1817,18 @@ const AddContactModal = ({
                               disabled={!formData.campaign}
                             >
                               <option value="">Select Source</option>
-                              {source.map((opt) => (
-                                <option key={opt._id} value={opt._id}>
-                                  {opt.lookup_value}
-                                </option>
-                              ))}
+                              {(() => {
+                                const selectedCamp = (
+                                  leadMasterFields?.campaigns || []
+                                ).find((c) => c.name === formData.campaign);
+                                return (selectedCamp?.sources || []).map(
+                                  (s) => (
+                                    <option key={s.name} value={s.name}>
+                                      {s.name}
+                                    </option>
+                                  ),
+                                );
+                              })()}
                             </select>
                           </div>
                         )}
@@ -1873,14 +1849,6 @@ const AddContactModal = ({
                             </label>
                             <select
                               value={formData.subSource}
-                              onFocus={async () => {
-                                if (formData.source) {
-                                  setLoading("subSource");
-                                  const data = await fetchLookup("Sub-Source", formData.source);
-                                  setSubSource(data);
-                                  setLoading("");
-                                }
-                              }}
                               onChange={(e) =>
                                 handleInputChange("subSource", e.target.value)
                               }
@@ -1892,11 +1860,19 @@ const AddContactModal = ({
                               disabled={!formData.source}
                             >
                               <option value="">Select Sub-Source</option>
-                              {subSource.map((opt) => (
-                                <option key={opt._id} value={opt._id}>
-                                  {opt.lookup_value}
-                                </option>
-                              ))}
+                              {(() => {
+                                const selectedCamp = (
+                                  leadMasterFields?.campaigns || []
+                                ).find((c) => c.name === formData.campaign);
+                                const selectedSrc = (
+                                  selectedCamp?.sources || []
+                                ).find((s) => s.name === formData.source);
+                                return (selectedSrc?.mediums || []).map((m) => (
+                                  <option key={m} value={m}>
+                                    {m}
+                                  </option>
+                                ));
+                              })()}
                             </select>
                           </div>
                         )}
