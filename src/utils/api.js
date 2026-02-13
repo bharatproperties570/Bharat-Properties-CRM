@@ -179,7 +179,17 @@ export const contactsAPI = {
     delete: (id) => apiRequest(`/contacts/${id}`, { method: 'DELETE' }),
 };
 
+// Activities API
+export const activitiesAPI = {
+    getAll: (params) => apiRequest('/activities', { params }),
+    getById: (id) => apiRequest(`/activities/${id}`),
+    create: (data) => apiRequest('/activities', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id, data) => apiRequest(`/activities/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id) => apiRequest(`/activities/${id}`, { method: 'DELETE' }),
+};
+
 export default {
+    activities: activitiesAPI,
     lookups: lookupsAPI,
     customFields: customFieldsAPI,
     fieldRules: fieldRulesAPI,

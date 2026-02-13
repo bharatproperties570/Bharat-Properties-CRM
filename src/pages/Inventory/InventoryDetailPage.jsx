@@ -5,6 +5,8 @@ import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { useTriggers } from '../../context/TriggersContext';
 import { useCall } from '../../context/CallContext';
 import { renderValue } from '../../utils/renderUtils';
+import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
+import UploadModal from '../../components/UploadModal';
 
 export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, onAddActivity, onAddDeal, onEditInventory }) {
     const { masterFields } = usePropertyConfig();
@@ -22,6 +24,8 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
     const [activities, setActivities] = useState([]);
     const [activitiesLoading, setActivitiesLoading] = useState(false);
     const [similarProperties, setSimilarProperties] = useState([]);
+    const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
+    const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
     const fetchInventoryDetails = useCallback(async () => {
         setLoading(true);
@@ -188,8 +192,11 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                     </button>
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>
+                            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-0.02em', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
                                 {renderValue(inventory.unitNo)}
+                                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#64748b' }}>
+                                    ({renderValue(inventory.unitType)})
+                                </span>
                             </h2>
                             <span style={{
                                 backgroundColor: statusStyle.bg,
@@ -205,7 +212,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                             </span>
                         </div>
                         <p style={{ fontSize: '0.85rem', color: '#64748b', margin: '2px 0 0 0', fontWeight: 500 }}>
-                            {renderValue(inventory.projectName)} • {renderValue(inventory.block)} • {renderValue(inventory.category)}
+                            {renderValue(inventory.projectName)} • {renderValue(inventory.block)}
                         </p>
                     </div>
                 </div>
@@ -394,12 +401,9 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                                 <DetailField label="Category" value={inventory.category} />
                                 <DetailField label="Subcategory" value={inventory.subCategory} />
-                                <DetailField label="Unit Type" value={inventory.unitType} />
-                                <DetailField label="Unit Number" value={inventory.unitNo} />
-                                <DetailField label="Project" value={inventory.projectName} />
-                                <DetailField label="Block" value={inventory.block} />
                                 <DetailField label="Size / Area" value={`${renderValue(inventory.size)} ${renderValue(inventory.sizeUnit)}`} />
-                                <DetailField label="Floor" value={inventory.floor} />
+                                <DetailField label="Length" value={inventory.length || (inventory.builtupDetails?.[0]?.length)} />
+                                <DetailField label="Width" value={inventory.width || (inventory.builtupDetails?.[0]?.width)} />
                             </div>
                         </section>
 
@@ -411,14 +415,112 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                 <DetailField label="Direction" value={inventory.direction} />
                                 <DetailField label="Facing" value={inventory.facing} />
                                 <DetailField label="Road Width" value={inventory.roadWidth} />
-                                <DetailField label="Corner Unit" value={inventory.corner ? 'Yes' : 'No'} />
-                                <DetailField label="Furnish Status" value={inventory.furnishType} />
-                                <DetailField label="Construction Age" value={inventory.constructionAge} />
-                                <DetailField label="Possession" value={inventory.possessionStatus} />
-                                <DetailField label="Occupation Date" value={inventory.occupationDate} />
                             </div>
                         </section>
                     </div>
+
+                    {/* BUILTUP & FURNISHING DETAILS */}
+                    <section className="detail-card" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+                        <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
+                            <i className="fas fa-layer-group" style={{ marginRight: '8px', color: '#8b5cf6' }}></i> Builtup & Furnishing Details
+                        </h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+                            <DetailField label="Built-up Type" value={inventory.builtupType} />
+                            <DetailField label="Possession Status" value={inventory.possessionStatus} />
+                            <DetailField label="Occupation Date" value={inventory.occupationDate ? new Date(inventory.occupationDate).toLocaleDateString() : '-'} />
+                            <DetailField label="Age of Construction" value={inventory.ageOfConstruction || inventory.constructionAge} />
+                            <DetailField label="Furnish Status" value={inventory.furnishType} />
+                            <div style={{ gridColumn: 'span 3' }}>
+                                <DetailField label="Furnished Items" value={inventory.furnishedItems} />
+                            </div>
+                        </div>
+
+                        {inventory.builtupDetails && inventory.builtupDetails.length > 0 && (
+                            <div style={{ marginTop: '20px', borderTop: '1px dashed #e2e8f0', paddingTop: '16px' }}>
+                                <p style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '12px' }}>Floor-wise Breakdown</p>
+                                <div style={{ overflowX: 'auto' }}>
+                                    <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
+                                        <thead>
+                                            <tr style={{ textAlign: 'left', borderBottom: '1px solid #f1f5f9' }}>
+                                                <th style={{ padding: '8px', color: '#94a3b8', fontWeight: 600 }}>Floor</th>
+                                                <th style={{ padding: '8px', color: '#94a3b8', fontWeight: 600 }}>Dimensions (L x W)</th>
+                                                <th style={{ padding: '8px', color: '#94a3b8', fontWeight: 600 }}>Area</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {inventory.builtupDetails.map((row, idx) => (
+                                                <tr key={idx} style={{ borderBottom: idx < inventory.builtupDetails.length - 1 ? '1px solid #f8fafc' : 'none' }}>
+                                                    <td style={{ padding: '8px', color: '#334155' }}>{row.floor}</td>
+                                                    <td style={{ padding: '8px', color: '#334155' }}>{row.length} x {row.width}</td>
+                                                    <td style={{ padding: '8px', color: '#334155' }}>{row.totalArea}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* IMAGES & VIDEOS GALLERY */}
+                        <div style={{ marginTop: '32px', borderTop: '1px solid #f1f5f9', paddingTop: '24px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <i className="fas fa-images" style={{ color: '#3b82f6' }}></i> Images & Videos Gallery
+                                </h4>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '16px' }}>
+                                {/* Images rendering */}
+                                {inventory.projectImages && inventory.projectImages.length > 0 ? (
+                                    inventory.projectImages.map((img, idx) => (
+                                        <div key={`img-${idx}`} style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', border: '1px solid #e2e8f0', height: '110px', background: '#f8fafc' }}>
+                                            {img.url || img.previewUrl ? (
+                                                <img src={img.url || img.previewUrl} alt={img.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            ) : (
+                                                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <i className="fas fa-image" style={{ color: '#cbd5e1', fontSize: '1.5rem' }}></i>
+                                                </div>
+                                            )}
+                                            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.7))', padding: '8px 4px', fontSize: '0.65rem', color: '#fff', fontWeight: 600 }}>
+                                                {img.title || img.category}
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : null}
+
+                                {/* Videos rendering */}
+                                {inventory.projectVideos && inventory.projectVideos.length > 0 ? (
+                                    inventory.projectVideos.map((vid, idx) => {
+                                        const ytThumb = vid.type === 'YouTube' ? `https://img.youtube.com/vi/${vid.url?.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1]}/mqdefault.jpg` : null;
+                                        return (
+                                            <div key={`vid-${idx}`} style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', border: '1px solid #e2e8f0', height: '110px', background: '#0f172a', cursor: 'pointer' }} onClick={() => window.open(vid.url, '_blank')}>
+                                                {ytThumb ? (
+                                                    <img src={ytThumb} alt={vid.title} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.7 }} />
+                                                ) : (
+                                                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                        <i className="fas fa-video" style={{ color: '#cbd5e1', fontSize: '1.5rem' }}></i>
+                                                    </div>
+                                                )}
+                                                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <i className="fas fa-play-circle" style={{ color: '#fff', fontSize: '2rem', opacity: 0.8 }}></i>
+                                                </div>
+                                                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.7))', padding: '4px 8px', fontSize: '0.65rem', color: '#fff', fontWeight: 600 }}>
+                                                    {vid.title}
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                ) : null}
+
+                                {(!inventory.projectImages?.length && !inventory.projectVideos?.length) && (
+                                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '32px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
+                                        <i className="fas fa-camera-retro" style={{ fontSize: '2rem', color: '#cbd5e1', marginBottom: '12px' }}></i>
+                                        <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: 0 }}>No media files uploaded yet</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </section>
 
                     {/* LOCATION CARD */}
                     <section className="detail-card" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
@@ -455,101 +557,73 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         </div>
                     </section>
 
-                    {/* OWNER CARD */}
-                    <section className="detail-card" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
-                                <i className="fas fa-user-tie" style={{ marginRight: '8px', color: '#6366f1' }}></i> Owner Information
-                            </h3>
-                            <button className="text-btn" style={{ color: '#2563eb', fontWeight: 600, fontSize: '0.85rem' }}>Edit Owner</button>
-                        </div>
-                        <div style={{ display: 'flex', gap: '24px' }}>
-                            <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', color: '#94a3b8' }}>
-                                <i className="fas fa-user"></i>
-                            </div>
-                            <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr 1.5fr', gap: '20px' }}>
-                                <div>
-                                    <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: '0 0 4px 0' }}>Owner Name</p>
-                                    <p style={{ fontWeight: 700, color: '#1e293b', margin: 0 }}>{renderValue(inventory.ownerName)}</p>
-                                </div>
-                                <div>
-                                    <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: '0 0 4px 0' }}>Phone Number</p>
-                                    <p style={{ fontWeight: 700, color: '#1e293b', margin: 0 }}>{renderValue(inventory.ownerPhone)}</p>
-                                </div>
-                                <div>
-                                    <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: '0 0 4px 0' }}>Ownership Type</p>
-                                    <p style={{ fontWeight: 700, color: '#1e293b', margin: 0 }}>{renderValue(inventory.ownership)}</p>
-                                </div>
-                                <div style={{ gridColumn: 'span 3' }}>
-                                    <div style={{ display: 'flex', gap: '12px' }}>
-                                        <button className="toolbar-btn" style={{ fontSize: '0.75rem' }}><i className="fas fa-phone-alt"></i> Call</button>
-                                        <button className="toolbar-btn" style={{ fontSize: '0.75rem' }}><i className="fas fa-comment-alt"></i> Message</button>
-                                        <button className="toolbar-btn" style={{ fontSize: '0.75rem' }}><i className="fas fa-envelope"></i> Email</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
 
-                    {/* TABS SECTION */}
-                    <section className="tabs-container" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                        <div className="tab-header" style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
-                            <TabBtn active={activeTab === 'full-details'} onClick={() => setActiveTab('full-details')}>Full Details</TabBtn>
-                            <TabBtn active={activeTab === 'activity-log'} onClick={() => setActiveTab('activity-log')}>Activity Log</TabBtn>
-                            <TabBtn active={activeTab === 'media'} onClick={() => setActiveTab('media')}>Media & Documents</TabBtn>
+                    {/* PROPERTY ACTIVITIES TIMELINE */}
+                    <section className="detail-card" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '24px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+                            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <i className="fas fa-stream" style={{ color: '#2563eb' }}></i> Activity Timeline
+                            </h3>
+                            <button
+                                onClick={() => onAddActivity([{ type: 'Inventory', id: inventory._id, name: inventory.unitNo, model: 'Inventory' }])}
+                                style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                            >
+                                <i className="fas fa-plus"></i> New Activity
+                            </button>
                         </div>
-                        <div className="tab-content" style={{ padding: '24px' }}>
-                            {activeTab === 'full-details' && (
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
-                                    <DetailField label="Built-up breakup" value={inventory.builtupType} />
-                                    <DetailField label="Dimensions" value={inventory.dimensions} />
-                                    <DetailField label="Built-up Area" value={inventory.builtUpArea} />
-                                    <DetailField label="Carpet Area" value={inventory.carpetArea} />
-                                    <DetailField label="Super Area" value={inventory.superArea} />
-                                    <DetailField label="Land Ownership" value={inventory.landOwnership} />
-                                </div>
-                            )}
-                            {activeTab === 'activity-log' && (
-                                <div style={{ padding: '10px' }}>
-                                    {activitiesLoading ? (
-                                        <div style={{ textAlign: 'center', padding: '20px' }}><div className="loader" style={{ width: '20px', height: '20px', margin: '0 auto' }}></div></div>
-                                    ) : activities.length > 0 ? (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                            {activities.map((act, i) => (
-                                                <div key={act._id || i} style={{ display: 'flex', gap: '16px', position: 'relative', paddingLeft: '20px' }}>
-                                                    {i < activities.length - 1 && <div style={{ position: 'absolute', left: '26px', top: '24px', bottom: '-10px', width: '2px', background: '#f1f5f9' }}></div>}
-                                                    <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#2563eb', marginTop: '6px', zIndex: 1, border: '3px solid #fff', boxShadow: '0 0 0 1px #2563eb' }}></div>
-                                                    <div style={{ flex: 1 }}>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                                            <span style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.9rem' }}>{act.subject}</span>
-                                                            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{new Date(act.dueDate || act.createdAt).toLocaleDateString()}</span>
-                                                        </div>
-                                                        <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>{act.description}</p>
-                                                        {act.type && <span style={{ display: 'inline-block', marginTop: '8px', fontSize: '0.7rem', padding: '2px 8px', background: '#f1f5f9', borderRadius: '4px', color: '#475569' }}>{act.type}</span>}
+
+                        <div style={{ padding: '0 10px' }}>
+                            {activitiesLoading ? (
+                                <div style={{ textAlign: 'center', padding: '40px' }}><div className="loader"></div></div>
+                            ) : activities.length > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+                                    {activities.map((act, i) => (
+                                        <div key={act._id || i} style={{ display: 'flex', gap: '20px', position: 'relative' }}>
+                                            {/* Left line */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '20px' }}>
+                                                <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#fff', border: '3px solid #2563eb', zIndex: 1 }}></div>
+                                                {i < activities.length - 1 && <div style={{ flex: 1, width: '2px', background: '#e2e8f0' }}></div>}
+                                            </div>
+
+                                            {/* Content */}
+                                            <div style={{ flex: 1, paddingBottom: (i === activities.length - 1) ? '0' : '32px' }}>
+                                                <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '16px', border: '1px solid #f1f5f9' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                                                        <span style={{ fontWeight: 800, color: '#1e293b', fontSize: '0.95rem' }}>{act.subject}</span>
+                                                        <span style={{ fontSize: '0.75rem', color: '#94a3b8', background: '#fff', padding: '4px 8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                                                            {new Date(act.dueDate || act.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                        </span>
+                                                    </div>
+                                                    <p style={{ fontSize: '0.85rem', color: '#475569', margin: '0 0 12px 0', lineHeight: '1.5' }}>{act.description}</p>
+
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                        {act.type && (
+                                                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '4px 10px', borderRadius: '20px' }}>
+                                                                {act.type}
+                                                            </span>
+                                                        )}
+                                                        <span style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                            <i className="far fa-user" style={{ fontSize: '0.65rem' }}></i> {renderValue(act.assignedTo) || 'Owner/Associate'}
+                                                        </span>
                                                     </div>
                                                 </div>
-                                            ))}
+                                            </div>
                                         </div>
-                                    ) : (
-                                        <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                                            <i className="fas fa-stream" style={{ fontSize: '2rem', marginBottom: '12px' }}></i>
-                                            <p>No activities recorded for this inventory.</p>
-                                            <button
-                                                className="secondary-btn"
-                                                style={{ marginTop: '12px' }}
-                                                onClick={() => onAddActivity([{ type: 'Inventory', id: inventory._id, name: inventory.unitNo, model: 'Inventory' }])}
-                                            >
-                                                Add First Activity
-                                            </button>
-                                        </div>
-                                    )}
+                                    ))}
                                 </div>
-                            )}
-                            {activeTab === 'media' && (
-                                <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                                    <i className="fas fa-images" style={{ fontSize: '2rem', marginBottom: '12px' }}></i>
-                                    <p>Photos and documents will be displayed here.</p>
-                                    <button className="secondary-btn" style={{ marginTop: '16px' }}><i className="fas fa-upload"></i> Upload Media</button>
+                            ) : (
+                                <div style={{ textAlign: 'center', padding: '60px 40px', background: '#f8fafc', borderRadius: '16px', border: '1px dashed #e2e8f0' }}>
+                                    <div style={{ width: '64px', height: '64px', background: '#fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                                        <i className="fas fa-stream" style={{ fontSize: '1.5rem', color: '#cbd5e1' }}></i>
+                                    </div>
+                                    <h4 style={{ margin: '0 0 8px 0', color: '#1e293b' }}>No Activities Yet</h4>
+                                    <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: '0 0 20px 0' }}>Start tracking interactions for this property unit and its contacts.</p>
+                                    <button
+                                        onClick={() => onAddActivity([{ type: 'Inventory', id: inventory._id, name: inventory.unitNo, model: 'Inventory' }])}
+                                        style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)' }}
+                                    >
+                                        Add First Activity
+                                    </button>
                                 </div>
                             )}
                         </div>
@@ -559,6 +633,110 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
 
                 {/* RIGHT SIDEBAR */}
                 <aside style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+                    {/* CONSOLIDATED CONTACT INFO */}
+                    <section className="detail-card" style={glassCardStyle}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid rgba(226, 232, 240, 0.5)', paddingBottom: '10px' }}>
+                            <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-user-tie" style={{ color: '#6366f1', fontSize: '0.8rem' }}></i> Contact Information
+                            </h3>
+                            <button className="text-btn" style={{ color: '#2563eb', fontWeight: 600, fontSize: '0.75rem', background: 'none', border: 'none', cursor: 'pointer' }}>Edit</button>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            {/* Unified view of Owner & Associate */}
+                            <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '12px', border: '1px solid #f1f5f9' }}>
+                                <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
+                                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        <i className="fas fa-crown" style={{ color: '#4f46e5', fontSize: '0.8rem' }}></i>
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                        <p style={{ fontSize: '0.65rem', color: '#64748b', margin: '0 0 2px 0', fontWeight: 700, textTransform: 'uppercase' }}>Owner</p>
+                                        <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', margin: '0 0 4px 0' }}>{renderValue(inventory.ownerName)}</p>
+                                        <p style={{ fontSize: '0.8rem', color: '#475569', margin: 0 }}>{renderValue(inventory.ownerPhone)}</p>
+                                    </div>
+                                </div>
+
+                                {inventory.associatedContact && (
+                                    <div style={{ display: 'flex', gap: '12px', paddingTop: '12px', borderTop: '1px dashed #e2e8f0' }}>
+                                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                            <i className="fas fa-user-friends" style={{ color: '#16a34a', fontSize: '0.8rem' }}></i>
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <p style={{ fontSize: '0.65rem', color: '#64748b', margin: '0 0 2px 0', fontWeight: 700, textTransform: 'uppercase' }}>Associate</p>
+                                            <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', margin: '0 0 4px 0' }}>{renderValue(inventory.associatedContact)}</p>
+                                            <p style={{ fontSize: '0.8rem', color: '#475569', margin: 0 }}>{renderValue(inventory.associatedPhone)}</p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                    onClick={() => startCall(inventory.ownerPhone, inventory.ownerName)}
+                                    style={{ flex: 1, padding: '10px', borderRadius: '10px', background: '#ecfdf5', color: '#059669', border: '1px solid #d1fae5', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', transition: 'all 0.2s' }}
+                                >
+                                    <i className="fas fa-phone-alt"></i> Call
+                                </button>
+                                <button
+                                    style={{ flex: 1, padding: '10px', borderRadius: '10px', background: '#eff6ff', color: '#2563eb', border: '1px solid #dbeafe', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', transition: 'all 0.2s' }}
+                                    onClick={() => window.open(`https://wa.me/${inventory.ownerPhone?.replace(/\D/g, '')}`, '_blank')}
+                                >
+                                    <i className="fab fa-whatsapp"></i> WhatsApp
+                                </button>
+                            </div>
+                        </div>
+                    </section>
+
+                    {/* DOCUMENTS SECTION */}
+                    <section className="detail-card" style={glassCardStyle}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid rgba(226, 232, 240, 0.5)', paddingBottom: '10px' }}>
+                            <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-file-alt" style={{ color: '#f59e0b', fontSize: '0.8rem' }}></i> Property Documents
+                            </h3>
+                            <button
+                                className="text-btn"
+                                style={{ color: '#2563eb', fontWeight: 600, fontSize: '0.75rem', background: 'none', border: 'none', cursor: 'pointer' }}
+                                onClick={() => setIsDocumentModalOpen(true)}
+                            >
+                                Manage
+                            </button>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {inventory.inventoryDocuments && inventory.inventoryDocuments.length > 0 ? (
+                                inventory.inventoryDocuments.map((doc, idx) => (
+                                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px', background: '#fff', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
+                                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#fff7ed', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <i className="fas fa-file-pdf" style={{ color: '#f97316', fontSize: '0.9rem' }}></i>
+                                        </div>
+                                        <div style={{ flex: 1, overflow: 'hidden' }}>
+                                            <p style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                {doc.documentType || 'Property Document'}
+                                            </p>
+                                            <p style={{ fontSize: '0.65rem', color: '#64748b', margin: 0 }}>{doc.documentName}</p>
+                                        </div>
+                                        <button
+                                            style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '4px' }}
+                                            onClick={() => window.open(doc.fileUrl, '_blank')}
+                                        >
+                                            <i className="fas fa-download"></i>
+                                        </button>
+                                    </div>
+                                ))
+                            ) : (
+                                <div style={{ textAlign: 'center', padding: '20px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
+                                    <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0 }}>No documents attached</p>
+                                    <button
+                                        style={{ fontSize: '0.75rem', color: '#2563eb', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', marginTop: '4px' }}
+                                        onClick={() => setIsDocumentModalOpen(true)}
+                                    >
+                                        + Add Documents
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </section>
 
                     {/* LIFECYCLE CARD */}
                     <section className="detail-card" style={glassCardStyle}>
@@ -624,42 +802,50 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
 
             </div>
 
-            {/* SIMILAR PROPERTIES SECTION */}
-            {similarProperties.length > 0 && (
-                <div style={{ padding: '0 24px 40px', maxWidth: '1600px', margin: '0 auto' }}>
-                    <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <i className="fas fa-layer-group" style={{ color: '#2563eb' }}></i> Other units in {renderValue(inventory.projectName)}
-                    </h3>
-                    <div style={{ display: 'flex', gap: '20px', overflowX: 'auto', paddingBottom: '16px', scrollbarWidth: 'thin' }}>
-                        {similarProperties.map(prop => (
-                            <div
-                                key={prop._id}
-                                onClick={() => onNavigate('inventory-detail', prop._id)}
-                                style={{
-                                    minWidth: '280px', background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0',
-                                    padding: '16px', cursor: 'pointer', transition: 'all 0.2s ease',
-                                    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)'
-                                }}
-                                onMouseEnter={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(-4px)';
-                                    e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0,0,0,0.1)';
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                    e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.05)';
-                                }}
-                            >
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                                    <span style={{ fontWeight: 800, color: '#1e293b' }}>{renderValue(prop.unitNo)}</span>
-                                    <span style={{ fontSize: '0.7rem', padding: '2px 8px', background: '#f1f5f9', borderRadius: '10px', color: '#64748b', fontWeight: 700 }}>{renderValue(prop.category)}</span>
-                                </div>
-                                <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '4px 0' }}>{renderValue(prop.block)} • {renderValue(prop.floor)} Floor</p>
-                                <p style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', margin: '8px 0 0' }}>{renderValue(prop.size)} {renderValue(prop.sizeUnit)}</p>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
+
+            {/* MODALS */}
+            <AddInventoryDocumentModal
+                isOpen={isDocumentModalOpen}
+                onClose={() => setIsDocumentModalOpen(false)}
+                onSave={async (newDocs) => {
+                    try {
+                        const response = await api.put(`inventory/${inventoryId}`, {
+                            inventoryDocuments: [...(inventory.inventoryDocuments || []), ...newDocs]
+                        });
+                        if (response.data && response.data.success) {
+                            toast.success("Documents updated successfully");
+                            fetchInventoryDetails();
+                        }
+                    } catch (error) {
+                        console.error("Error saving documents:", error);
+                        toast.error("Failed to save documents");
+                    }
+                }}
+                project={inventory}
+            />
+
+            <UploadModal
+                isOpen={isUploadModalOpen}
+                onClose={() => setIsUploadModalOpen(false)}
+                type="property"
+                project={inventory}
+                onSave={async (formData) => {
+                    try {
+                        const response = await api.put(`inventory/${inventoryId}`, {
+                            projectImages: formData.projectImages,
+                            projectVideos: formData.projectVideos,
+                            projectDocuments: formData.projectDocuments
+                        });
+                        if (response.data && response.data.success) {
+                            toast.success("Media updated successfully");
+                            fetchInventoryDetails();
+                        }
+                    } catch (error) {
+                        console.error("Error saving media:", error);
+                        toast.error("Failed to save media");
+                    }
+                }}
+            />
         </div>
     );
 }

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import api from '../utils/api'; // Assuming there's a pre-configured axios instance
+import { api, activitiesAPI } from '../utils/api';
 
 const ActivityContext = createContext();
 
@@ -19,10 +19,12 @@ export const ActivityProvider = ({ children }) => {
     const fetchActivities = async (filters = {}) => {
         setLoading(true);
         try {
-            const response = await api.get('/activities', { params: filters });
-            if (response.data.success) {
-                setActivities(response.data.data);
-                setPagination(response.data.pagination);
+            const response = await activitiesAPI.getAll(filters);
+            if (response.success) {
+                setActivities(response.data);
+                if (response.pagination) {
+                    setPagination(response.pagination);
+                }
             }
         } catch (error) {
             console.error('Failed to fetch activities:', error);
@@ -33,11 +35,11 @@ export const ActivityProvider = ({ children }) => {
 
     const addActivity = async (activityData) => {
         try {
-            const response = await api.post('/activities', activityData);
-            if (response.data.success) {
+            const response = await activitiesAPI.create(activityData);
+            if (response.success) {
                 // Fetch again to ensure consistency or local update
-                setActivities(prev => [response.data.data, ...prev]);
-                return response.data.data;
+                setActivities(prev => [response.data, ...prev]);
+                return response.data;
             }
         } catch (error) {
             console.error('Failed to add activity:', error);
@@ -47,12 +49,12 @@ export const ActivityProvider = ({ children }) => {
 
     const updateActivity = async (id, updates) => {
         try {
-            const response = await api.put(`/activities/${id}`, updates);
-            if (response.data.success) {
+            const response = await activitiesAPI.update(id, updates);
+            if (response.success) {
                 setActivities(prev => prev.map(activity =>
-                    activity._id === id ? response.data.data : activity
+                    activity._id === id ? response.data : activity
                 ));
-                return response.data.data;
+                return response.data;
             }
         } catch (error) {
             console.error('Failed to update activity:', error);
@@ -62,8 +64,8 @@ export const ActivityProvider = ({ children }) => {
 
     const deleteActivity = async (id) => {
         try {
-            const response = await api.delete(`/activities/${id}`);
-            if (response.data.success) {
+            const response = await activitiesAPI.delete(id);
+            if (response.success) {
                 setActivities(prev => prev.filter(activity => activity._id !== id));
                 return true;
             }

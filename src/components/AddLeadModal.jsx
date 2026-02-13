@@ -8,7 +8,7 @@ import { useSequences } from '../context/SequenceContext';
 import { useTriggers } from '../context/TriggersContext';
 import { useUserContext } from '../context/UserContext';
 
-import { INDIAN_LOCATION_HIERARCHY } from '../data/detailedLocationData';
+// 3.4 MB Unused data removed for performance
 import { PROJECT_DATA, CITIES } from '../data/projectData';
 import { LOCATION_DATA } from '../data/locationData';
 import { PROPERTY_CATEGORIES, DIRECTION_OPTIONS } from '../data/propertyData';

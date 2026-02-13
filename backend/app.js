@@ -21,9 +21,11 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
-// Request Logger
+// Concise Request Logger for Performance
 app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url.split('?')[0]}`);
+    }
     next();
 });
 

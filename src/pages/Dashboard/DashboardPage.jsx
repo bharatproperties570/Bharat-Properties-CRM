@@ -1,5 +1,14 @@
-import React, { useState } from 'react';
-import Chart from 'react-apexcharts';
+import React, { useState, lazy, Suspense } from 'react';
+
+// Lazy load heavy chart library
+const Chart = lazy(() => import('react-apexcharts'));
+
+// Chart specific placeholder
+const ChartPlaceholder = () => (
+    <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>CALCULATING METRICS...</div>
+    </div>
+);
 import { reportsData } from '../../data/reportsData';
 import { bookingData } from '../../data/bookingData';
 import { accountData } from '../../data/accountData';
@@ -133,18 +142,20 @@ const DashboardPage = () => {
                                         <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--marketing-orange)' }}>{formatCurrency(totalCommPending)}</div>
                                     </div>
                                 </div>
-                                <Chart
-                                    options={{
-                                        chart: { toolbar: { show: false } },
-                                        plotOptions: { bar: { borderRadius: 4, horizontal: true, barHeight: '70%' } },
-                                        colors: ['var(--primary-color)'],
-                                        xaxis: { categories: data.pipelineMoney?.funnel?.categories || [] },
-                                        grid: { borderColor: '#f1f5f9' },
-                                        dataLabels: { enabled: false }
-                                    }}
-                                    series={data.pipelineMoney?.funnel?.series || []}
-                                    type="bar" height={200}
-                                />
+                                <Suspense fallback={<ChartPlaceholder />}>
+                                    <Chart
+                                        options={{
+                                            chart: { toolbar: { show: false } },
+                                            plotOptions: { bar: { borderRadius: 4, horizontal: true, barHeight: '70%' } },
+                                            colors: ['var(--primary-color)'],
+                                            xaxis: { categories: data.pipelineMoney?.funnel?.categories || [] },
+                                            grid: { borderColor: '#f1f5f9' },
+                                            dataLabels: { enabled: false }
+                                        }}
+                                        series={data.pipelineMoney?.funnel?.series || []}
+                                        type="bar" height={200}
+                                    />
+                                </Suspense>
                             </div>
 
                             {/* Inventory Velocity Window */}
@@ -163,17 +174,19 @@ const DashboardPage = () => {
                                         </div>
                                     ))}
                                 </div>
-                                <Chart
-                                    options={{
-                                        labels: data.financialIntelligence?.portfolioMix?.labels || [],
-                                        colors: ['var(--primary-color)', 'var(--success-color)', 'var(--marketing-orange)', '#8b5cf6'],
-                                        legend: { position: 'bottom', fontSize: '11px', fontWeight: 600 },
-                                        stroke: { width: 0 },
-                                        plotOptions: { pie: { donut: { size: '75%' } } }
-                                    }}
-                                    series={data.financialIntelligence?.portfolioMix?.series || []}
-                                    type="donut" height={200}
-                                />
+                                <Suspense fallback={<ChartPlaceholder />}>
+                                    <Chart
+                                        options={{
+                                            labels: data.financialIntelligence?.portfolioMix?.labels || [],
+                                            colors: ['var(--primary-color)', 'var(--success-color)', 'var(--marketing-orange)', '#8b5cf6'],
+                                            legend: { position: 'bottom', fontSize: '11px', fontWeight: 600 },
+                                            stroke: { width: 0 },
+                                            plotOptions: { pie: { donut: { size: '75%' } } }
+                                        }}
+                                        series={data.financialIntelligence?.portfolioMix?.series || []}
+                                        type="donut" height={200}
+                                    />
+                                </Suspense>
                             </div>
                         </div>
 
@@ -207,33 +220,37 @@ const DashboardPage = () => {
                         <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '24px' }}>
                             <div className="dashboard-card" style={{ background: '#fff', padding: '24px', borderRadius: '20px', border: '1px solid var(--border-color)' }}>
                                 <h3 className="section-label">Cash Flow & Collection Matrix</h3>
-                                <Chart
-                                    options={{
-                                        chart: { toolbar: { show: false } },
-                                        stroke: { curve: 'smooth', width: 4 },
-                                        colors: ['var(--primary-color)'],
-                                        xaxis: { categories: data.financialIntelligence?.cashFlowProjection?.categories || [] },
-                                        grid: { borderColor: '#f1f5f9' },
-                                        markers: { size: 5, strokeColors: '#fff', strokeWidth: 3, hover: { size: 7 } },
-                                        fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.45, opacityTo: 0.05, stops: [20, 100] } }
-                                    }}
-                                    series={data.financialIntelligence?.cashFlowProjection?.series || []}
-                                    type="area" height={280}
-                                />
+                                <Suspense fallback={<ChartPlaceholder />}>
+                                    <Chart
+                                        options={{
+                                            chart: { toolbar: { show: false } },
+                                            stroke: { curve: 'smooth', width: 4 },
+                                            colors: ['var(--primary-color)'],
+                                            xaxis: { categories: data.financialIntelligence?.cashFlowProjection?.categories || [] },
+                                            grid: { borderColor: '#f1f5f9' },
+                                            markers: { size: 5, strokeColors: '#fff', strokeWidth: 3, hover: { size: 7 } },
+                                            fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.45, opacityTo: 0.05, stops: [20, 100] } }
+                                        }}
+                                        series={data.financialIntelligence?.cashFlowProjection?.series || []}
+                                        type="area" height={280}
+                                    />
+                                </Suspense>
                             </div>
                             <div className="dashboard-card" style={{ background: '#fff', padding: '24px', borderRadius: '20px', border: '1px solid var(--border-color)' }}>
                                 <h3 className="section-label">Revenue Origin</h3>
-                                <Chart
-                                    options={{
-                                        chart: { toolbar: { show: false } },
-                                        plotOptions: { bar: { columnWidth: '50%', borderRadius: 6 } },
-                                        colors: ['var(--success-color)'],
-                                        xaxis: { categories: data.financialIntelligence?.revenueBySource?.categories || [] },
-                                        grid: { borderColor: '#f1f5f9' }
-                                    }}
-                                    series={data.financialIntelligence?.revenueBySource?.series || []}
-                                    type="bar" height={280}
-                                />
+                                <Suspense fallback={<ChartPlaceholder />}>
+                                    <Chart
+                                        options={{
+                                            chart: { toolbar: { show: false } },
+                                            plotOptions: { bar: { columnWidth: '50%', borderRadius: 6 } },
+                                            colors: ['var(--success-color)'],
+                                            xaxis: { categories: data.financialIntelligence?.revenueBySource?.categories || [] },
+                                            grid: { borderColor: '#f1f5f9' }
+                                        }}
+                                        series={data.financialIntelligence?.revenueBySource?.series || []}
+                                        type="bar" height={280}
+                                    />
+                                </Suspense>
                             </div>
                         </div>
                     </div>
