@@ -107,6 +107,8 @@ export const matchInventory = async (req, res) => {
     }
 };
 
+import SystemSetting from "../models/SystemSetting.js";
+
 /**
  * @desc    Bulk import inventory
  * @route   POST /inventory/import
@@ -119,17 +121,23 @@ export const importInventory = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid data provided" });
         }
 
+        // Fetch property sizes for auto-populating area details
+        const sizesSetting = await SystemSetting.findOne({ key: 'property_sizes' }).lean();
+        const systemSizes = sizesSetting ? sizesSetting.value : [];
+
         const restructuredData = data.map(item => {
-            return {
+            const result = {
                 projectName: item.projectName,
                 projectId: item.projectId,
                 unitNo: item.unitNo,
+                unitNumber: item.unitNo,
                 unitType: item.unitType,
                 category: item.category || item.type,
                 subCategory: item.subCategory,
-                builtUpType: item.builtupType,
+                builtupType: item.builtupType,
                 block: item.block,
                 size: item.size,
+                sizeLabel: item.sizeLabel,
                 direction: item.direction,
                 facing: item.facing,
                 roadWidth: item.roadWidth,
@@ -157,7 +165,7 @@ export const importInventory = async (req, res) => {
                     lng: item.lng
                 },
 
-                // Owner Details (Mapped for backward compatibility or strict:false fields)
+                // Owner Details
                 ownerName: item.ownerName,
                 ownerPhone: item.ownerPhone,
                 ownerEmail: item.ownerEmail,
@@ -169,6 +177,33 @@ export const importInventory = async (req, res) => {
                 status: item.status || 'Available',
                 visibleTo: item.visibleTo || 'Everyone'
             };
+
+            // AUTO-POPULATE FROM SYSTEM SIZES
+            if (item.sizeLabel) {
+                // Find matching size by Label, Project, and Block
+                const matchedSize = systemSizes.find(s =>
+                    s.name === item.sizeLabel &&
+                    (s.project === item.projectName || s.project === 'Global')
+                );
+
+                if (matchedSize) {
+                    result.unitType = matchedSize.sizeType || result.unitType;
+                    result.builtUpArea = matchedSize.coveredArea || matchedSize.saleableArea; // Fallback
+                    result.carpetArea = matchedSize.carpetArea;
+                    result.superArea = matchedSize.saleableArea || matchedSize.totalArea;
+                    result.category = matchedSize.category || result.category;
+                    result.subCategory = matchedSize.subCategory || result.subCategory;
+
+                    // If plot type, use totalArea and resultMetric
+                    if (matchedSize.totalArea) {
+                        result.size = matchedSize.totalArea;
+                        result.sizeUnit = matchedSize.resultMetric;
+                        result.dimensions = `${matchedSize.width || ''} x ${matchedSize.length || ''}`;
+                    }
+                }
+            }
+
+            return result;
         });
 
         await Inventory.insertMany(restructuredData, { ordered: false });

@@ -11,43 +11,33 @@ export const PRIORITIES = ['High', 'Normal', 'Low'];
  */
 export const applyActivityFilters = (activities, filters, searchTerm = '') => {
     return activities.filter(activity => {
-        // 1. Search Term (Agenda, Contact Name, Type)
+        // 1. Search Term (Subject, Contact Name, Type)
         if (searchTerm) {
             const term = searchTerm.toLowerCase();
-            const agenda = (activity.agenda || activity.subject || '').toLowerCase();
-            const contact = (activity.contactName || '').toLowerCase();
-            const type = (activity.type || activity.activityType || '').toLowerCase();
+            const subject = (activity.subject || '').toLowerCase();
+            const contact = (activity.relatedTo?.[0]?.name || '').toLowerCase();
+            const type = (activity.type || '').toLowerCase();
+            const description = (activity.description || '').toLowerCase();
 
-            if (!agenda.includes(term) && !contact.includes(term) && !type.includes(term)) {
+            if (!subject.includes(term) && !contact.includes(term) && !type.includes(term) && !description.includes(term)) {
                 return false;
             }
         }
 
         // 2. Activity Type Filter
         if (filters.activityType && filters.activityType.length > 0) {
-            const type = activity.type || activity.activityType;
+            const type = activity.type;
             if (!filters.activityType.includes(type)) return false;
         }
 
         // 3. Status Filter
         if (filters.status && filters.status.length > 0) {
-            // Normalize status from data (usually lowercase 'complete', 'overdue') to match filter (Title Case)
-            const actStatus = (activity.status || 'pending').toLowerCase();
+            const actStatus = (activity.status || 'Pending').toLowerCase();
             const filterStatuses = filters.status.map(s => s.toLowerCase());
 
-            // Handle 'Upcoming' logic if strictly needed, but for now map broadly
-            // If data has 'complete', 'overdue', 'pending'
-            // Map 'Completed' -> 'complete'
-            // 'Overdue' -> 'overdue'
-            // 'Pending' -> 'pending' (or 'upcoming'?)
-
-            // Let's assume exact match after normalization for now, 
-            // but if 'Upcoming' is selected, it might mean 'pending' and date >= today.
-            // For simplicity, we check if the normalized status is in the filter list.
             if (!filterStatuses.includes(actStatus)) {
-                // Special handling if needed (e.g. 'Upcoming' vs 'Pending')
-                // If filter has 'Upcoming' and status is 'pending', we accept it?
-                const isPending = actStatus === 'pending' || actStatus === 'upcoming';
+                // Map 'Upcoming' to 'Pending' if needed
+                const isPending = actStatus === 'pending';
                 const wantsPending = filterStatuses.includes('pending') || filterStatuses.includes('upcoming');
 
                 if (!(isPending && wantsPending)) return false;
@@ -60,15 +50,15 @@ export const applyActivityFilters = (activities, filters, searchTerm = '') => {
             if (!filters.priority.includes(priority)) return false;
         }
 
-        // 5. Owner (Scheduled By) Filter
+        // 5. Owner (Performed By) Filter
         if (filters.owner && filters.owner.length > 0) {
-            const owner = activity.scheduledBy || activity.scheduled || 'Unknown';
+            const owner = activity.performedBy || 'System';
             if (!filters.owner.includes(owner)) return false;
         }
 
         // 6. Date Range Filter
         if (filters.dateRange && (filters.dateRange.start || filters.dateRange.end)) {
-            const dateStr = activity.scheduledDate || activity.date;
+            const dateStr = activity.dueDate;
             if (!dateStr) return false;
 
             const actDate = new Date(dateStr);

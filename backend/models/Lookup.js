@@ -7,7 +7,8 @@ const LookupSchema = new mongoose.Schema({
     parent_lookup_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup', default: null },
     parent_lookup_value: { type: String, default: null }, // Match legacy frontend logic
     isActive: { type: Boolean, default: true },
-    order: { type: Number, default: 0 }
+    order: { type: Number, default: 0 },
+    metadata: { type: mongoose.Schema.Types.Mixed, default: {} }
 }, { timestamps: true });
 
 export default mongoose.model("Lookup", LookupSchema);

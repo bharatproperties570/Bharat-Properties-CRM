@@ -8,8 +8,10 @@ import { PROJECTS_LIST } from '../../../data/projectData';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
 import { parseBudget, parseSizeSqYard, calculateMatch } from '../../../utils/matchingLogic';
+import { useActivities } from '../../../context/ActivityContext';
 
 const LeadMatchingPage = ({ onNavigate, leadId }) => {
+    const { addActivity } = useActivities();
     const [lead, setLead] = useState(null);
     const [inventoryItems, setInventoryItems] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -656,7 +658,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 onClose={() => setIsActivityOpen(false)}
                 initialData={activityInitialData}
                 onSave={(data) => {
-                    toast.success(`${data.activityType} logged successfully!`);
+                    addActivity(data);
                     setIsActivityOpen(false);
                 }}
             />

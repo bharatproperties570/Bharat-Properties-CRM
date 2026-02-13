@@ -1,9 +1,11 @@
 import React, { useState, useRef } from 'react';
 import { MODULE_CONFIG, parseCSV } from '../../../utils/dataManagementUtils';
+import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
 
 const ImportDataPage = () => {
+    const { projects, refreshSizes } = usePropertyConfig();
     const [step, setStep] = useState(1);
     const [module, setModule] = useState('contacts'); // Default module
     const [file, setFile] = useState(null);
@@ -16,24 +18,9 @@ const ImportDataPage = () => {
     const [isDragging, setIsDragging] = useState(false);
 
     // Size-specific context
-    const [projects, setProjects] = useState([]);
     const [selectedProject, setSelectedProject] = useState('');
     const [selectedBlock, setSelectedBlock] = useState('');
     const [blocks, setBlocks] = useState([]);
-
-    React.useEffect(() => {
-        const fetchProjects = async () => {
-            try {
-                const res = await api.get('/projects');
-                if (res.data.success) {
-                    setProjects(res.data.data || []);
-                }
-            } catch (err) {
-                console.error('Failed to fetch projects for import:', err);
-            }
-        };
-        fetchProjects();
-    }, []);
 
     const handleProjectChange = (projectId) => {
         setSelectedProject(projectId);
@@ -108,8 +95,6 @@ const ImportDataPage = () => {
     const [duplicates, setDuplicates] = useState([]);
 
     const checkDuplicates = async () => {
-        if (!fileData.data.length || Object.keys(mapping).length === 0) return;
-
         setCheckingDuplicates(true);
         try {
             const transformedData = fileData.data.map(row => {
@@ -120,24 +105,34 @@ const ImportDataPage = () => {
                 return item;
             });
 
-            let endpoint = `/${module}/check-duplicates`;
-            let payload = {};
+            let endpoint = `/lookups/check-duplicates`; // Use centralized lookup check
+            let payload = {
+                lookup_type: module === 'sizes' ? 'size' : module,
+                values: []
+            };
 
-            if (module === 'contacts' || module === 'leads') {
-                payload.mobiles = transformedData.map(d => d.mobile).filter(Boolean);
+            if (module === 'sizes') {
+                const projectObj = projects.find(p => p._id === selectedProject);
+                payload.values = transformedData.map(d => ({
+                    lookup_value: d.sizeLabel || d.lookup_value || d.label,
+                    project: projectObj ? projectObj.name : '',
+                    block: selectedBlock,
+                    category: d.category,
+                    subCategory: d.subCategory,
+                    unitType: d.unitType
+                }));
+            } else if (module === 'contacts' || module === 'leads') {
+                endpoint = `/${module}/check-duplicates`;
+                payload = { mobiles: transformedData.map(d => d.mobile).filter(Boolean) };
             } else if (module === 'users') {
-                payload.emails = transformedData.map(d => d.email).filter(Boolean);
-            } else if (module === 'companies') {
-                payload.names = transformedData.map(d => d.name).filter(Boolean);
-            } else if (module === 'projects') {
-                payload.names = transformedData.map(d => d.name).filter(Boolean);
-            } else if (module === 'sizes') {
-                payload.values = transformedData.map(d => d.label || d.value || d.lookup_value).filter(Boolean);
-                payload.lookup_type = 'size';
-            } else if (module === 'inventory') {
-                payload.items = transformedData.map(d => ({ unitNo: d.unitNo, projectId: d.projectId }));
+                endpoint = `/${module}/check-duplicates`;
+                payload = { emails: transformedData.map(d => d.email).filter(Boolean) };
+            } else if (module === 'companies' || module === 'projects') {
+                endpoint = `/${module}/check-duplicates`;
+                payload = { names: transformedData.map(d => d.name).filter(Boolean) };
             } else {
-                return toast.error('Duplicate check not supported for this module');
+                // Fallback for other potential lookup-based modules
+                payload.values = transformedData.map(d => d.label || d.value || d.lookup_value).filter(Boolean);
             }
 
             const res = await api.post(endpoint, payload);
@@ -173,9 +168,11 @@ const ImportDataPage = () => {
                     item[systemKey] = row[fileHeader];
                 });
 
-                // Inject size metadata
-                if (module === 'sizes') {
+                // Inject metadata for sizes and inventory
+                if (module === 'sizes' || module === 'inventory') {
+                    const projectObj = projects.find(p => p._id === selectedProject);
                     item.projectId = selectedProject;
+                    item.project = projectObj ? projectObj.name : ''; // Store name for display/filtering
                     item.block = selectedBlock;
                 }
 
@@ -202,6 +199,12 @@ const ImportDataPage = () => {
             if (response.data.success) {
                 const { successCount, errorCount } = response.data;
                 toast.success(`Import completed: ${successCount} success, ${errorCount} failed`);
+
+                // Refresh context data if needed
+                if (module === 'sizes') {
+                    refreshSizes();
+                }
+
                 setProgress(100);
                 setStep(5);
             } else {
@@ -303,7 +306,7 @@ const ImportDataPage = () => {
                     <div style={{ maxWidth: '600px', margin: '0 auto' }}>
                         <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Upload File for {MODULE_CONFIG[module].label}</h3>
 
-                        {module === 'sizes' && (
+                        {(module === 'sizes' || module === 'inventory') && (
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
                                 <div>
                                     <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>Select Project</label>
@@ -389,7 +392,28 @@ const ImportDataPage = () => {
                                 <div>Your File Header</div>
                                 <div>Sample Data (Row 1)</div>
                             </div>
-                            {MODULE_CONFIG[module].fields.map((field) => (
+                            {(() => {
+                                const allFields = MODULE_CONFIG[module].fields;
+                                if (module !== 'sizes') return allFields;
+
+                                // Size-specific dynamic visibility
+                                const unitTypeFileHeader = mapping['unitType'];
+                                const firstRowValue = (unitTypeFileHeader && fileData.data.length > 0)
+                                    ? fileData.data[0][unitTypeFileHeader]
+                                    : '';
+
+                                const isBHK = /bhk/i.test(firstRowValue);
+
+                                return allFields.filter(field => {
+                                    if (isBHK) {
+                                        // If BHK, hide Plot-specific fields (Width, Length, Area and their Metrics)
+                                        return !['width', 'length', 'lengthMetrics', 'area', 'areaMetrics'].includes(field.key);
+                                    } else {
+                                        // If Plot/Other, hide BHK-specific fields (Builtup, Carpet, Super Area)
+                                        return !['builtupArea', 'carpetArea', 'superArea'].includes(field.key);
+                                    }
+                                });
+                            })().map((field) => (
                                 <div key={field.key} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '16px', borderBottom: '1px solid #f1f5f9', alignItems: 'center', fontSize: '0.9rem' }}>
                                     <div style={{ fontWeight: 600, color: '#1e293b' }}>
                                         {field.label} {field.required && <span style={{ color: '#ef4444' }}>*</span>}
@@ -530,7 +554,7 @@ const ImportDataPage = () => {
                     <button
                         onClick={() => {
                             if (step === 2) {
-                                if (module === 'sizes' && (!selectedProject || !selectedBlock)) {
+                                if ((module === 'sizes' || module === 'inventory') && (!selectedProject || !selectedBlock)) {
                                     return toast.error('Please select both Project and Block');
                                 }
                                 if (!file) return toast.error('Please upload a file');

@@ -163,6 +163,7 @@ export const MODULE_CONFIG = {
             { key: 'unitType', label: 'Unit Type' },
             { key: 'category', label: 'Category' },
             { key: 'subCategory', label: 'Sub Category' },
+            { key: 'sizeLabel', label: 'Size Label *', required: true },
             { key: 'builtupType', label: 'Builtup Type' },
             { key: 'block', label: 'Block' },
             { key: 'size', label: 'Size' },
@@ -314,15 +315,19 @@ export const MODULE_CONFIG = {
         description: 'Manage standard property sizes',
         data: sizeData,
         fields: [
-            { key: 'projectName', label: 'Project Name', required: true },
-            { key: 'blockName', label: 'Block Name', required: true },
+            { key: 'category', label: 'Category', required: true },
+            { key: 'subCategory', label: 'Sub Category' },
+            { key: 'unitType', label: 'Unit Type', required: true },
             { key: 'label', label: 'Size Label', required: true },
-            { key: 'unitType', label: 'Unit Type' },
+            { key: 'width', label: 'Width' },
+            { key: 'length', label: 'Length' },
+            { key: 'lengthMetrics', label: 'Metrics (Length & Width)' },
+            { key: 'area', label: 'Area' },
+            { key: 'areaMetrics', label: 'Metrics (Area)' },
             { key: 'builtupArea', label: 'Builtup Area' },
             { key: 'carpetArea', label: 'Carpet Area' },
             { key: 'superArea', label: 'Super Area' },
-            { key: 'description', label: 'Description' },
-            { key: 'status', label: 'Status' }
+            { key: 'description', label: 'Description' }
         ]
     }
 };

@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { contactData } from '../data/mockData';
-import { PROJECT_DATA } from '../data/projectData';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import api, { leadsAPI, contactsAPI, usersAPI } from '../utils/api';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useSequences } from '../context/SequenceContext';
 import { useTriggers } from '../context/TriggersContext';
@@ -230,21 +229,68 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
 
     const handleSubmit = () => {
         if (validate()) {
-            if (onSave) onSave(formData);
+            // Restructure data for Professional Backend
+            const backendData = {
+                type: formData.activityType,
+                subject: formData.subject,
+                dueDate: formData.dueDate,
+                dueTime: formData.dueTime,
+                priority: formData.priority,
+                status: formData.status === 'Not Started' ? 'Pending' : formData.status,
+                description: formData.description,
+                relatedTo: formData.relatedTo.map(r => ({
+                    id: r.id || r._id,
+                    name: r.name,
+                    model: r.model || 'Contact' // Default to Contact if unknown
+                })),
+                participants: formData.participants,
+                tasks: formData.tasks.map(t => ({
+                    subject: t.subject,
+                    reminder: t.reminder,
+                    reminderTime: t.reminderTime
+                })),
+                // Type-specific details
+                details: {
+                    purpose: formData.purpose,
+                    duration: formData.duration,
+                    callOutcome: formData.callOutcome,
+                    meetingType: formData.meetingType,
+                    meetingLocation: formData.meetingLocation,
+                    clientFeedback: formData.clientFeedback,
+                    visitConfirmation: formData.visitConfirmation,
+                    direction: formData.direction,
+                    completionResult: formData.completionResult,
+                    meetingOutcomeStatus: formData.meetingOutcomeStatus,
+                    visitedProperties: formData.visitedProperties,
+                    cancellationReason: formData.cancellationReason,
+                    mailStatus: formData.mailStatus
+                }
+            };
 
-            // Fire activity_created event
-            fireEvent('activity_created', formData, { entityType: 'activities' });
+            // Set entityId and entityType from the first related item
+            if (formData.relatedTo.length > 0) {
+                backendData.entityId = formData.relatedTo[0].id || formData.relatedTo[0]._id;
+                backendData.entityType = formData.relatedTo[0].model || 'Contact';
+            } else {
+                backendData.entityType = 'Global';
+                backendData.entityId = null;
+            }
+
+            if (onSave) onSave(backendData);
+
+            // Fire activity_created event with restructured data
+            fireEvent('activity_created', backendData, { entityType: 'activities' });
 
             // Pause sequences for related entities
             if (formData.relatedTo && formData.relatedTo.length > 0) {
                 formData.relatedTo.forEach(related => {
-                    updateEnrollmentStatus(related.id, 'paused');
+                    updateEnrollmentStatus(related.id || related._id, 'paused');
                 });
             }
 
             // Fire activity_completed event if status is completed
             if (formData.status === 'Completed') {
-                fireEvent('activity_completed', formData, { entityType: 'activities' });
+                fireEvent('activity_completed', backendData, { entityType: 'activities' });
             }
 
             onClose();
@@ -1685,12 +1731,17 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                                     style={{ ...inputStyle(false), paddingLeft: '32px' }}
                                 />
                                 <SearchDropdown
-                                    contacts={contactData}
-                                    onSelect={(contact) => {
-                                        if (!formData.relatedTo.some(c => c.mobile === contact.mobile)) {
+                                    searchType="all"
+                                    onSelect={(item) => {
+                                        if (!formData.relatedTo.some(c => c.id === item.id)) {
                                             setFormData(prev => ({
                                                 ...prev,
-                                                relatedTo: [...prev.relatedTo, { name: contact.name, mobile: contact.mobile }]
+                                                relatedTo: [...prev.relatedTo, {
+                                                    id: item.id,
+                                                    name: item.name,
+                                                    mobile: item.mobile,
+                                                    model: item.model
+                                                }]
                                             }));
                                         }
                                     }}
@@ -1733,16 +1784,17 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                                         style={{ ...inputStyle(false), paddingLeft: '32px' }}
                                     />
                                     <SearchDropdown
-                                        contacts={contactData.filter(c =>
-                                            c.professionSubCategory === 'Sales Person' ||
-                                            c.professionSubCategory === 'Real Estate Agent' ||
-                                            c.category === 'Real Estate Agent'
-                                        )}
-                                        onSelect={(contact) => {
-                                            if (!formData.participants.some(c => c.mobile === contact.mobile)) {
+                                        searchType="users"
+                                        onSelect={(user) => {
+                                            if (!formData.participants.some(c => c.id === user.id)) {
                                                 setFormData(prev => ({
                                                     ...prev,
-                                                    participants: [...prev.participants, { name: contact.name, mobile: contact.mobile }]
+                                                    participants: [...prev.participants, {
+                                                        id: user.id,
+                                                        name: user.name,
+                                                        mobile: user.mobile,
+                                                        email: user.email
+                                                    }]
                                                 }));
                                             }
                                         }}
@@ -1819,10 +1871,90 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
 };
 
 // Helper Component for Search Results
-const SearchDropdown = ({ contacts, onSelect }) => {
+const SearchDropdown = ({ searchType, onSelect }) => {
     const [term, setTerm] = useState('');
+    const [results, setResults] = useState([]);
+    const [loading, setLoading] = useState(false);
     const [show, setShow] = useState(false);
     const wrapperRef = useRef(null);
+    const timeoutRef = useRef(null);
+
+    const performSearch = useCallback(async (searchTerm) => {
+        if (!searchTerm || searchTerm.length < 2) {
+            setResults([]);
+            return;
+        }
+
+        setLoading(true);
+        try {
+            let combinedResults = [];
+
+            if (searchType === 'all' || searchType === 'leads') {
+                const leadRes = await leadsAPI.getAll({ search: searchTerm, limit: 5 });
+                if (leadRes.success) {
+                    const leads = leadRes.records || leadRes.data || [];
+                    combinedResults.push(...leads.map(l => ({
+                        id: l._id,
+                        name: `${l.firstName || ''} ${l.lastName || ''}`.trim() || l.name,
+                        mobile: l.mobile,
+                        model: 'Lead',
+                        subtext: `Lead • ${l.mobile || 'No mobile'}`
+                    })));
+                }
+            }
+
+            if (searchType === 'all' || searchType === 'contacts') {
+                const contactRes = await contactsAPI.getAll({ search: searchTerm, limit: 5 });
+                if (contactRes.success) {
+                    const contacts = contactRes.records || contactRes.data || [];
+                    combinedResults.push(...contacts.map(c => ({
+                        id: c._id,
+                        name: c.name,
+                        mobile: c.phones?.[0]?.number || c.mobile,
+                        model: 'Contact',
+                        subtext: `Contact • ${c.phones?.[0]?.number || 'No mobile'}`
+                    })));
+                }
+            }
+
+            if (searchType === 'users') {
+                const userRes = await usersAPI.getAll({ search: searchTerm, limit: 10 });
+                if (userRes.success) {
+                    const users = userRes.data || userRes.records || [];
+                    combinedResults.push(...users.map(u => ({
+                        id: u._id,
+                        name: u.fullName || u.name,
+                        mobile: u.mobile,
+                        email: u.email,
+                        model: 'User',
+                        subtext: `${u.role?.name || 'User'} • ${u.email || ''}`
+                    })));
+                }
+            }
+
+            setResults(combinedResults);
+        } catch (error) {
+            console.error('Search failed:', error);
+        } finally {
+            setLoading(false);
+        }
+    }, [searchType]);
+
+    useEffect(() => {
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
+        if (term) {
+            timeoutRef.current = setTimeout(() => {
+                performSearch(term);
+            }, 300);
+        } else {
+            setResults([]);
+        }
+
+        return () => {
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        };
+    }, [term, performSearch]);
 
     useEffect(() => {
         function handleClickOutside(event) {
@@ -1836,16 +1968,11 @@ const SearchDropdown = ({ contacts, onSelect }) => {
         };
     }, [wrapperRef]);
 
-    const filtered = contacts.filter(c =>
-        c.name.toLowerCase().includes(term.toLowerCase()) ||
-        c.mobile.includes(term)
-    );
-
     return (
         <div ref={wrapperRef} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none' }}>
             <input
                 type="text"
-                placeholder="Search Contact to add..."
+                placeholder={searchType === 'users' ? "Search for staff..." : "Search for leads/contacts..."}
                 value={term}
                 onChange={(e) => { setTerm(e.target.value); setShow(true); }}
                 onFocus={() => setShow(true)}
@@ -1855,28 +1982,33 @@ const SearchDropdown = ({ contacts, onSelect }) => {
                     backgroundColor: '#f8fafc', pointerEvents: 'auto'
                 }}
             />
-            {show && term && (
+            {show && (term.length >= 2) && (
                 <div style={{
                     position: 'absolute', top: '100%', left: 0, right: 0,
                     background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px',
-                    maxHeight: '200px', overflowY: 'auto', zIndex: 50,
-                    marginTop: '4px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                    maxHeight: '250px', overflowY: 'auto', zIndex: 100,
+                    marginTop: '4px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
                     pointerEvents: 'auto'
                 }}>
-                    {filtered.map((contact, i) => (
+                    {loading && (
+                        <div style={{ padding: '12px', textAlign: 'center', color: '#64748b', fontSize: '0.85rem' }}>
+                            <i className="fas fa-spinner fa-spin" style={{ marginRight: '8px' }}></i> Searching...
+                        </div>
+                    )}
+                    {!loading && results.map((item, i) => (
                         <div
                             key={i}
-                            onClick={() => { onSelect(contact); setTerm(''); setShow(false); }}
-                            style={{ padding: '10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                            onClick={() => { onSelect(item); setTerm(''); setShow(false); }}
+                            style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', transition: 'background 0.2s' }}
                             onMouseEnter={(e) => e.target.style.background = '#f8fafc'}
                             onMouseLeave={(e) => e.target.style.background = '#fff'}
                         >
-                            <div style={{ fontWeight: 600, fontSize: '0.9rem', pointerEvents: 'none' }}>{contact.name}</div>
-                            <div style={{ fontSize: '0.8rem', color: '#64748b', pointerEvents: 'none' }}>{contact.mobile}</div>
+                            <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#0f172a', pointerEvents: 'none' }}>{item.name}</div>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b', pointerEvents: 'none' }}>{item.subtext}</div>
                         </div>
                     ))}
-                    {filtered.length === 0 && (
-                        <div style={{ padding: '10px', color: '#94a3b8', fontSize: '0.9rem', textAlign: 'center' }}>No results found</div>
+                    {!loading && results.length === 0 && (
+                        <div style={{ padding: '12px', color: '#94a3b8', fontSize: '0.85rem', textAlign: 'center' }}>No matches found</div>
                     )}
                 </div>
             )}

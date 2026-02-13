@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect, useMemo, useCallback } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { PROPERTY_CATEGORIES } from '../data/propertyData';
 import { PROJECTS_LIST } from '../data/projectData';
 
@@ -21,6 +21,22 @@ export const PropertyConfigProvider = ({ children }) => {
 
     // Initialize Projects State (Dynamic)
     const [projects, setProjects] = useState([]);
+
+    const refreshSizes = useCallback(async () => {
+        try {
+            const sizesResponse = await lookupsAPI.getByCategory('size');
+            if (sizesResponse && sizesResponse.status === "success" && Array.isArray(sizesResponse.data)) {
+                const normalizedSizes = sizesResponse.data.map(l => ({
+                    id: l._id,
+                    name: l.lookup_value,
+                    ...l.metadata
+                }));
+                setSizes(normalizedSizes);
+            }
+        } catch (error) {
+            console.error('Failed to refresh sizes:', error);
+        }
+    }, []);
 
     // Load all configurations from backend on mount
     useEffect(() => {
@@ -52,11 +68,13 @@ export const PropertyConfigProvider = ({ children }) => {
                             case 'stage_multipliers': setStageMultipliers(setting.value); break;
                             case 'deal_scoring_rules': setDealScoringRules(setting.value); break;
                             case 'score_bands': setScoreBands(setting.value); break;
-                            case 'property_sizes': setSizes(setting.value); break;
                             case 'activity_master_fields': setActivityMasterFields(setting.value); break;
                         }
                     });
                 }
+
+                // FETCH REAL SIZES FROM LOOKUPS
+                await refreshSizes();
 
                 // FETCH REAL PROJECTS FROM BACKEND
                 const projectsRes = await api.get('/projects');
@@ -85,7 +103,7 @@ export const PropertyConfigProvider = ({ children }) => {
             }
         };
         loadAllConfigs();
-    }, []);
+    }, [refreshSizes]);
 
     const addProject = useCallback(async (newProject) => {
         const project = {
@@ -931,54 +949,60 @@ export const PropertyConfigProvider = ({ children }) => {
         ]
     });
 
-    // Project Property Sizes
-    const [sizes, setSizes] = useLocalStorage('property_sizes', [
-        { id: 1, name: '900 Sq. Ft.', category: 'Residential', project: 'AeroCity Mohali', block: 'Block A' },
-        { id: 2, name: '1200 Sq. Ft.', category: 'Residential', project: 'AeroCity Mohali', block: 'Block B' },
-        { id: 3, name: '1500 Sq. Ft.', category: 'Residential', project: 'AeroCity Mohali', block: 'Block C' }
-    ]);
+    // Project Property Sizes (Migrated to use Lookups)
+    const [sizes, setSizes] = useState([]);
 
     const addSize = async (newSize) => {
-        const sizeWithId = { ...newSize, id: Date.now() };
-        const updatedSizes = [...sizes, sizeWithId];
-        setSizes(updatedSizes);
         try {
-            await systemSettingsAPI.upsert('property_sizes', {
-                category: 'property',
-                value: updatedSizes,
-                isPublic: true
+            const { name, ...metadata } = newSize;
+            const res = await lookupsAPI.create({
+                lookup_type: 'size',
+                lookup_value: name,
+                metadata: metadata
             });
+
+            if (res && res.data) {
+                const added = {
+                    id: res.data._id,
+                    name: res.data.lookup_value,
+                    ...res.data.metadata
+                };
+                setSizes(prev => [...prev, added]);
+                return added;
+            }
         } catch (error) {
-            console.error('Failed to save property sizes:', error);
+            console.error('Failed to save property size:', error);
             throw error;
         }
-        return sizeWithId;
     };
 
     const updateSize = async (updatedSize) => {
-        const updatedSizes = sizes.map(s => s.id === updatedSize.id ? updatedSize : s);
-        setSizes(updatedSizes);
         try {
-            await systemSettingsAPI.upsert('property_sizes', {
-                category: 'property',
-                value: updatedSizes,
-                isPublic: true
+            const { id, name, ...metadata } = updatedSize;
+            const res = await lookupsAPI.update(id, {
+                lookup_value: name,
+                metadata: metadata
             });
+
+            if (res && res.data) {
+                const updated = {
+                    id: res.data._id,
+                    name: res.data.lookup_value,
+                    ...res.data.metadata
+                };
+                setSizes(prev => prev.map(s => s.id === id ? updated : s));
+                return updated;
+            }
         } catch (error) {
-            console.error('Failed to update property sizes:', error);
+            console.error('Failed to update property size:', error);
             throw error;
         }
     };
 
     const deleteSize = async (id) => {
-        const updatedSizes = sizes.filter(s => s.id !== id);
-        setSizes(updatedSizes);
         try {
-            await systemSettingsAPI.upsert('property_sizes', {
-                category: 'property',
-                value: updatedSizes,
-                isPublic: true
-            });
+            await lookupsAPI.delete(id);
+            setSizes(prev => prev.filter(s => s.id !== id));
         } catch (error) {
             console.error('Failed to delete property size:', error);
             throw error;
@@ -1031,7 +1055,8 @@ export const PropertyConfigProvider = ({ children }) => {
         sizes,
         addSize,
         updateSize,
-        deleteSize
+        deleteSize,
+        refreshSizes
     };
 
 

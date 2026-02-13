@@ -14,7 +14,25 @@ export const api = axios.create({
 // Generic API request handler
 const apiRequest = async (endpoint, options = {}) => {
     try {
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        let url = `${API_BASE_URL}${endpoint}`;
+
+        // Handle query parameters
+        if (options.params) {
+            const queryParams = new URLSearchParams();
+            Object.entries(options.params).forEach(([key, value]) => {
+                if (value !== undefined && value !== null && value !== '') {
+                    queryParams.append(key, value);
+                }
+            });
+            const queryString = queryParams.toString();
+            if (queryString) {
+                url += (url.includes('?') ? '&' : '?') + queryString;
+            }
+            // Remove params from options so it's not passed to fetch
+            delete options.params;
+        }
+
+        const response = await fetch(url, {
             headers: {
                 'Content-Type': 'application/json',
                 ...options.headers,
@@ -143,6 +161,24 @@ export const projectsAPI = {
     delete: (id) => apiRequest(`/projects/${id}`, { method: 'DELETE' }),
 };
 
+// Leads API
+export const leadsAPI = {
+    getAll: (params) => apiRequest('/leads', { params }),
+    getById: (id) => apiRequest(`/leads/${id}`),
+    create: (data) => apiRequest('/leads', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id, data) => apiRequest(`/leads/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id) => apiRequest(`/leads/${id}`, { method: 'DELETE' }),
+};
+
+// Contacts API
+export const contactsAPI = {
+    getAll: (params) => apiRequest('/contacts', { params }),
+    getById: (id) => apiRequest(`/contacts/${id}`),
+    create: (data) => apiRequest('/contacts', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id, data) => apiRequest(`/contacts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id) => apiRequest(`/contacts/${id}`, { method: 'DELETE' }),
+};
+
 export default {
     lookups: lookupsAPI,
     customFields: customFieldsAPI,
@@ -153,4 +189,6 @@ export default {
     users: usersAPI,
     roles: rolesAPI,
     projects: projectsAPI,
+    leads: leadsAPI,
+    contacts: contactsAPI,
 };

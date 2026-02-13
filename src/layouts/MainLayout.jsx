@@ -33,22 +33,8 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
     const { addActivity } = useActivities();
 
     const handleSaveGlobalActivity = (activityData) => {
-        const newActivity = {
-            id: Date.now().toString(),
-            type: activityData.activityType,
-            contactName: activityData.relatedTo?.[0]?.name || 'Unknown Client',
-            contactPhone: activityData.participants?.[0]?.mobile || '',
-            scheduledDate: `${activityData.dueDate}T${activityData.dueTime}`,
-            agenda: activityData.subject,
-            activityType: activityData.activityType,
-            scheduledBy: 'Current User',
-            scheduledFor: 'Follow Up',
-            stage: 'Pending',
-            status: 'pending',
-            feedback: activityData.description || '',
-            project: activityData.visitedProperties?.[0]?.project || ''
-        };
-        addActivity(newActivity);
+        // activityData is already restructured by CreateActivityModal
+        addActivity(activityData);
         setShowActivityModal(false);
     };
 

@@ -56,11 +56,14 @@ export const importLookups = async (req, res) => {
 
         for (const item of data) {
             try {
+                const { label, value, lookup_value, order, ...rest } = item;
+
                 const lookupObj = {
                     lookup_type: type,
-                    lookup_value: item.label || item.value || item.lookup_value,
+                    lookup_value: label || value || lookup_value,
                     isActive: true,
-                    order: Number(item.order) || 0
+                    order: Number(order) || 0,
+                    metadata: rest // Store all other fields in metadata
                 };
 
                 if (!lookupObj.lookup_value) {
@@ -76,7 +79,38 @@ export const importLookups = async (req, res) => {
         }
 
         if (lookupsToCreate.length > 0) {
-            await Lookup.insertMany(lookupsToCreate, { ordered: false });
+            if (type === 'size') {
+                // Professional Size Duplicate Prevention
+                const filteredToCreate = [];
+                for (const candidate of lookupsToCreate) {
+                    const existing = await Lookup.findOne({
+                        lookup_type: 'size',
+                        lookup_value: candidate.lookup_value,
+                        'metadata.project': candidate.metadata.project,
+                        'metadata.block': candidate.metadata.block,
+                        'metadata.category': candidate.metadata.category,
+                        'metadata.subCategory': candidate.metadata.subCategory,
+                        'metadata.unitType': candidate.metadata.unitType
+                    });
+
+                    if (!existing) {
+                        filteredToCreate.push(candidate);
+                    } else {
+                        results.successCount--; // Already incremented in the loop
+                        results.errorCount++;
+                        results.errors.push({
+                            item: candidate.lookup_value,
+                            error: `Duplicate size in project '${candidate.metadata.project}', block '${candidate.metadata.block}'`
+                        });
+                    }
+                }
+
+                if (filteredToCreate.length > 0) {
+                    await Lookup.insertMany(filteredToCreate, { ordered: false });
+                }
+            } else {
+                await Lookup.insertMany(lookupsToCreate, { ordered: false });
+            }
         }
 
         res.status(200).json({
@@ -137,21 +171,40 @@ export const checkDuplicatesImport = async (req, res) => {
 
         const type = lookup_type || 'generic';
 
-        const duplicates = await Lookup.find({
-            lookup_type: type,
-            lookup_value: { $in: values }
-        }, 'lookup_value').lean();
+        let duplicates = [];
+        if (type === 'size') {
+            // Complex multi-field duplicate check for sizes
+            for (const val of values) {
+                // val is expected to be an object for 'size' type
+                const query = {
+                    lookup_type: 'size',
+                    lookup_value: val.name || val.lookup_value,
+                    'metadata.project': val.project,
+                    'metadata.block': val.block,
+                    'metadata.category': val.category,
+                    'metadata.subCategory': val.subCategory,
+                    'metadata.unitType': val.unitType
+                };
+                const match = await Lookup.findOne(query).lean();
+                if (match) duplicates.push(match);
+            }
+        } else {
+            // Standard check for other types
+            duplicates = await Lookup.find({
+                lookup_type: type,
+                lookup_value: { $in: values }
+            }, 'lookup_value').lean();
+        }
 
         const existingValues = duplicates.map(d => d.lookup_value);
-        const matchedValues = values.filter(v => existingValues.includes(v));
-        const uniqueMatched = [...new Set(matchedValues)];
 
         res.status(200).json({
             success: true,
-            duplicates: uniqueMatched,
+            duplicates: existingValues,
             details: duplicates.map(d => ({
                 id: d._id,
-                value: d.lookup_value
+                value: d.lookup_value,
+                metadata: d.metadata
             }))
         });
     } catch (error) {

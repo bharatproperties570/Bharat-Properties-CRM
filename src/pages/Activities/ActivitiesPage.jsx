@@ -6,7 +6,7 @@ import { applyActivityFilters } from '../../utils/activityFilterLogic';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 
 function ActivitiesPage() {
-    const { activities } = useActivities(); // Use global state
+    const { activities, loading, fetchActivities, addActivity } = useActivities();
 
     // UI State
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'calendar'
@@ -39,27 +39,13 @@ function ActivitiesPage() {
 
     const [searchTerm, setSearchTerm] = useState('');
 
-    const { addActivity } = useActivities();
-
-    const handleSaveActivity = (activityData) => {
-        const newActivity = {
-            id: Date.now().toString(),
-            type: activityData.activityType,
-            contactName: activityData.relatedTo?.[0]?.name || 'Unknown Client',
-            contactPhone: activityData.participants?.[0]?.mobile || '',
-            scheduledDate: `${activityData.dueDate}T${activityData.dueTime}`,
-            agenda: activityData.subject,
-            activityType: activityData.activityType,
-            scheduledBy: 'Current User',
-            scheduledFor: 'Follow Up',
-            stage: 'Pending',
-            status: 'pending',
-            feedback: activityData.description || '',
-            project: activityData.visitedProperties?.[0]?.project || '',
-            priority: activityData.priority || 'Normal'
-        };
-        addActivity(newActivity);
-        setIsCreateModalOpen(false);
+    const handleSaveActivity = async (backendData) => {
+        try {
+            await addActivity(backendData);
+            setIsCreateModalOpen(false);
+        } catch (error) {
+            console.error('Failed to save activity:', error);
+        }
     };
 
     const toggleSelect = (id) => {
@@ -70,7 +56,7 @@ function ActivitiesPage() {
 
     const toggleSelectAll = () => {
         setSelectedIds(prev =>
-            prev.length === filteredActivities.length ? [] : filteredActivities.map(a => a.id)
+            prev.length === filteredActivities.length ? [] : filteredActivities.map(a => a._id)
         );
     };
 
@@ -242,7 +228,7 @@ function ActivitiesPage() {
                 const isToday = new Date().toDateString() === new Date(currentDate.getFullYear(), currentDate.getMonth(), d).toDateString();
                 const dateStr = `${year}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                 const dayActivities = filteredActivities.filter(a => {
-                    const aDate = a.scheduledDate ? a.scheduledDate.split('T')[0] : a.date ? a.date.split('T')[0] : '';
+                    const aDate = a.dueDate ? new Date(a.dueDate).toISOString().split('T')[0] : '';
                     return aDate === dateStr;
                 });
 
@@ -276,7 +262,7 @@ function ActivitiesPage() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', overflowY: 'auto', flex: 1 }}>
                             {dayActivities.map(a => (
                                 <div
-                                    key={a.id}
+                                    key={a._id}
                                     onClick={(e) => { e.stopPropagation(); setSelectedActivity(a); }}
                                     style={{
                                         fontSize: '0.65rem',
@@ -285,7 +271,7 @@ function ActivitiesPage() {
                                         background: a.type === 'Meeting' ? '#e1f5fe' : a.type === 'Call' ? '#fff9c4' : '#e8f5e9',
                                         color: a.type === 'Meeting' ? '#0288d1' : a.type === 'Call' ? '#fbc02d' : '#2e7d32',
                                         borderLeft: `3px solid ${a.type === 'Meeting' ? '#03a9f4' : a.type === 'Call' ? '#fdd835' : '#4caf50'}`,
-                                        boxShadow: selectedActivity?.id === a.id ? '0 0 0 2px #10b981' : 'none',
+                                        boxShadow: selectedActivity?._id === a._id ? '0 0 0 2px #10b981' : 'none',
                                         whiteSpace: 'nowrap',
                                         overflow: 'hidden',
                                         textOverflow: 'ellipsis',
@@ -293,10 +279,10 @@ function ActivitiesPage() {
                                         fontWeight: 700,
                                         zIndex: 2
                                     }}
-                                    title={`${a.type}: ${a.agenda}`}
+                                    title={`${a.type}: ${a.subject}`}
                                 >
                                     <i className={`fas ${a.type === 'Meeting' ? 'fa-users' : a.type === 'Call' ? 'fa-phone' : 'fa-map-marker-alt'}`} style={{ marginRight: '4px', opacity: 0.7 }}></i>
-                                    {a.contactName}
+                                    {a.relatedTo?.[0]?.name || 'Unknown'}
                                 </div>
                             ))}
                         </div>
@@ -406,7 +392,7 @@ function ActivitiesPage() {
                                 const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
                                 const hourActivities = filteredActivities.filter(a => {
-                                    const fullDate = a.scheduledDate || a.date || '';
+                                    const fullDate = a.dueDate ? new Date(a.dueDate).toISOString() : '';
                                     if (!fullDate) return false;
                                     const [d, t] = fullDate.split('T');
                                     if (d !== dateStr) return false;
@@ -424,7 +410,7 @@ function ActivitiesPage() {
                                     }}>
                                         {hourActivities.map(a => (
                                             <div
-                                                key={a.id}
+                                                key={a._id}
                                                 onClick={(e) => { e.stopPropagation(); setSelectedActivity(a); }}
                                                 style={{
                                                     fontSize: '0.6rem',
@@ -433,7 +419,7 @@ function ActivitiesPage() {
                                                     background: a.type === 'Meeting' ? '#e1f5fe' : a.type === 'Call' ? '#fff9c4' : '#e8f5e9',
                                                     color: a.type === 'Meeting' ? '#0288d1' : a.type === 'Call' ? '#fbc02d' : '#2e7d32',
                                                     borderLeft: `3px solid ${a.type === 'Meeting' ? '#03a9f4' : a.type === 'Call' ? '#fdd835' : '#4caf50'}`,
-                                                    boxShadow: selectedActivity?.id === a.id ? '0 0 0 2px #10b981' : 'none',
+                                                    boxShadow: selectedActivity?._id === a._id ? '0 0 0 2px #10b981' : 'none',
                                                     fontWeight: 800,
                                                     marginBottom: '2px',
                                                     whiteSpace: 'nowrap',
@@ -443,7 +429,7 @@ function ActivitiesPage() {
                                                     zIndex: 2
                                                 }}
                                             >
-                                                {a.contactName}
+                                                {a.relatedTo?.[0]?.name || 'Unknown'}
                                             </div>
                                         ))}
                                     </div>
@@ -794,36 +780,36 @@ function ActivitiesPage() {
                                 <div className="list-content" style={{ background: '#fafbfc', padding: '1rem 2rem' }}>
                                     {paginatedActivities.map((activity, index) => (
                                         <div
-                                            key={activity.id}
+                                            key={activity._id}
                                             onClick={() => setSelectedActivity(activity)}
                                             style={{
                                                 padding: '18px 20px',
                                                 marginBottom: '8px',
                                                 borderRadius: '8px',
-                                                border: selectedActivity?.id === activity.id ? '2px solid #10b981' : '1px solid #e2e8f0',
-                                                background: selectedActivity?.id === activity.id ? '#f0fdf4' : '#fff',
+                                                border: selectedActivity?._id === activity._id ? '2px solid #10b981' : '1px solid #e2e8f0',
+                                                background: selectedActivity?._id === activity._id ? '#f0fdf4' : '#fff',
                                                 display: 'grid',
                                                 gridTemplateColumns: '40px 200px 150px 300px 120px 300px 120px 120px 120px',
                                                 gap: '1rem',
                                                 alignItems: 'center',
                                                 transition: 'all 0.2s',
                                                 cursor: 'pointer',
-                                                boxShadow: selectedActivity?.id === activity.id ? '0 4px 12px rgba(16, 185, 129, 0.1)' : '0 1px 2px rgba(0,0,0,0.04)',
+                                                boxShadow: selectedActivity?._id === activity._id ? '0 4px 12px rgba(16, 185, 129, 0.1)' : '0 1px 2px rgba(0,0,0,0.04)',
                                                 minWidth: '1600px'
                                             }}
                                         >
                                             {/* Checkbox */}
                                             <input
                                                 type="checkbox"
-                                                checked={selectedIds.includes(activity.id)}
-                                                onChange={() => toggleSelect(activity.id)}
+                                                checked={selectedIds.includes(activity._id)}
+                                                onChange={() => toggleSelect(activity._id)}
                                             />
 
                                             {/* Details */}
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
-                                                <div className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{activity.contactName}</div>
+                                                <div className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{activity.relatedTo?.[0]?.name || 'Unknown Client'}</div>
                                                 <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600 }}>
-                                                    <i className="fas fa-phone" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>{activity.contactPhone}
+                                                    <i className="fas fa-phone" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>{activity.participants?.[0]?.mobile || '--'}
                                                 </div>
                                                 {activity.contactEmail && (
                                                     <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#64748b' }}>
@@ -841,17 +827,17 @@ function ActivitiesPage() {
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                                                 <div style={{ fontSize: '0.8rem', color: '#0f172a', fontWeight: 700 }}>
                                                     <i className="far fa-calendar" style={{ marginRight: '4px', color: '#6366f1' }}></i>
-                                                    {activity.scheduledDate ? activity.scheduledDate.split('T')[0] : activity.date ? activity.date.split('T')[0] : '--'}
+                                                    {activity.dueDate ? new Date(activity.dueDate).toLocaleDateString() : '--'}
                                                 </div>
                                                 <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
                                                     <i className="far fa-clock" style={{ marginRight: '4px' }}></i>
-                                                    {activity.scheduledDate ? activity.scheduledDate.split('T')[1] : activity.date ? activity.date.split('T')[1] : '--'}
+                                                    {activity.dueTime || '--'}
                                                 </div>
                                             </div>
 
                                             {/* Agenda */}
                                             <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.5, overflow: 'hidden' }}>
-                                                <div className="address-clamp" style={{ fontStyle: 'italic' }}>{activity.agenda}</div>
+                                                <div className="address-clamp" style={{ fontStyle: 'italic' }}>{activity.subject}</div>
                                             </div>
 
                                             {/* Activity Type */}
@@ -870,18 +856,15 @@ function ActivitiesPage() {
 
                                             {/* Project / Feedback */}
                                             <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.5, overflow: 'hidden' }}>
-                                                {activity.type === 'Site Visit' && activity.project && (
+                                                {activity.details?.visitedProperties?.[0]?.project && (
                                                     <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#0891b2', fontWeight: 600, marginBottom: '4px' }}>
-                                                        <i className="fas fa-building" style={{ marginRight: '4px' }}></i>{activity.project}
+                                                        <i className="fas fa-building" style={{ marginRight: '4px' }}></i>{activity.details.visitedProperties[0].project}
                                                     </div>
                                                 )}
-                                                {activity.type === 'Site Visit' && activity.feedback && (
+                                                {activity.description && (
                                                     <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600, padding: '4px 8px', background: '#d1fae5', borderRadius: '4px', borderLeft: '3px solid #10b981' }}>
-                                                        <i className="fas fa-comment-dots" style={{ marginRight: '4px' }}></i>{activity.feedback}
+                                                        <i className="fas fa-comment-dots" style={{ marginRight: '4px' }}></i>{activity.description}
                                                     </div>
-                                                )}
-                                                {activity.type !== 'Site Visit' && (
-                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>--</div>
                                                 )}
                                             </div>
 
@@ -892,7 +875,7 @@ function ActivitiesPage() {
 
                                             {/* Scheduled For */}
                                             <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                                {activity.scheduledFor || '--'}
+                                                {activity.details?.purpose || '--'}
                                             </div>
 
                                             {/* Stage / Status */}
@@ -902,8 +885,8 @@ function ActivitiesPage() {
                                                     fontWeight: 800,
                                                     padding: '4px 10px',
                                                     borderRadius: '12px',
-                                                    background: activity.status === 'complete' ? '#d1fae5' : '#fee2e2',
-                                                    color: activity.status === 'complete' ? '#065f46' : '#991b1b',
+                                                    background: activity.status?.toLowerCase() === 'completed' ? '#d1fae5' : '#fee2e2',
+                                                    color: activity.status?.toLowerCase() === 'completed' ? '#065f46' : '#991b1b',
                                                     width: 'fit-content'
                                                 }}>
                                                     {activity.status}
@@ -947,14 +930,14 @@ function ActivitiesPage() {
                             <div style={{ display: 'flex', gap: '30px', alignItems: 'center', flex: 1 }}>
                                 <div style={{ background: '#334155', color: '#fff', borderRadius: '6px', fontSize: '0.7rem', padding: '4px 12px', fontWeight: 800 }}>ACTIVITY SUMMARY</div>
                                 <div style={{ display: 'flex', gap: '20px' }}>
-                                    <div style={{ fontSize: '0.8rem' }}><span style={{ color: '#94a3b8' }}>CONTACT:</span> <span style={{ fontWeight: 800 }}>{selectedActivity.contactName}</span></div>
+                                    <div style={{ fontSize: '0.8rem' }}><span style={{ color: '#94a3b8' }}>CONTACT:</span> <span style={{ fontWeight: 800 }}>{selectedActivity.relatedTo?.[0]?.name || 'Unknown'}</span></div>
                                     <div style={{ fontSize: '0.8rem' }}><span style={{ color: '#94a3b8' }}>TYPE:</span> <span style={{ fontWeight: 800, color: '#10b981' }}>{selectedActivity.type}</span></div>
                                     <div style={{ fontSize: '0.8rem', maxWidth: '400px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                        <span style={{ color: '#94a3b8' }}>AGENDA:</span> <span style={{ fontWeight: 600 }}>{selectedActivity.agenda}</span>
+                                        <span style={{ color: '#94a3b8' }}>SUBJECT:</span> <span style={{ fontWeight: 600 }}>{selectedActivity.subject}</span>
                                     </div>
-                                    {selectedActivity.feedback && (
+                                    {selectedActivity.description && (
                                         <div style={{ fontSize: '0.8rem', maxWidth: '300px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                            <span style={{ color: '#94a3b8' }}>FEEDBACK:</span> <span style={{ fontWeight: 600, color: '#fbbf24' }}>{selectedActivity.feedback}</span>
+                                            <span style={{ color: '#94a3b8' }}>DESCRIPTION:</span> <span style={{ fontWeight: 600, color: '#fbbf24' }}>{selectedActivity.description}</span>
                                         </div>
                                     )}
                                 </div>

@@ -4,8 +4,10 @@ import SendMessageModal from '../../../components/SendMessageModal';
 import CreateActivityModal from '../../../components/CreateActivityModal';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
+import { useActivities } from '../../../context/ActivityContext';
 
 const DealMatchingPage = ({ onNavigate, dealId }) => {
+    const { addActivity } = useActivities();
     const [deal, setDeal] = useState(null);
     const [leads, setLeads] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -672,7 +674,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                 onClose={() => setIsActivityOpen(false)}
                 initialData={activityInitialData}
                 onSave={(data) => {
-                    toast.success(`${data.activityType} logged successfully!`);
+                    addActivity(data);
                     setIsActivityOpen(false);
                 }}
             />

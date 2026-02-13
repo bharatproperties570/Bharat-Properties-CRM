@@ -597,13 +597,29 @@ const PropertySettingsPage = () => {
                 await updateSize({ ...sizeData, id: editingSize.id });
                 showToast('Property size updated successfully');
             } else {
+                // Professional Duplicate Prevention
+                const isDuplicate = sizes.some(s =>
+                    s.name === sizeData.name &&
+                    s.project === sizeData.project &&
+                    s.block === sizeData.block &&
+                    s.category === sizeData.category &&
+                    s.subCategory === sizeData.subCategory &&
+                    s.unitType === sizeData.unitType
+                );
+
+                if (isDuplicate) {
+                    alert(`This size configuration already exists for Project: ${sizeData.project}, Block: ${sizeData.block}. Duplicate creation is not allowed.`);
+                    return;
+                }
+
                 await addSize(sizeData);
-                showToast('New property size added successfully');
+                showToast('Property size added successfully');
             }
-            handleCloseModal();
+            setIsModalOpen(false);
+            setEditingSize(null);
         } catch (error) {
-            console.error(error);
-            showToast('Failed to save size. Please try again.', 'error');
+            console.error('Failed to save size:', error);
+            showToast('Error: Duplicate or invalid configuration');
         }
     };
 
