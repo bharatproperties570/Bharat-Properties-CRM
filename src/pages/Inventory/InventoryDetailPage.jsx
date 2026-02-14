@@ -7,6 +7,7 @@ import { useCall } from '../../context/CallContext';
 import { renderValue } from '../../utils/renderUtils';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
 import UploadModal from '../../components/UploadModal';
+import AddOwnerModal from '../../components/AddOwnerModal';
 
 export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, onAddActivity, onAddDeal, onEditInventory }) {
     const { masterFields } = usePropertyConfig();
@@ -26,6 +27,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
     const [similarProperties, setSimilarProperties] = useState([]);
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+    const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false);
 
     const fetchInventoryDetails = useCallback(async () => {
         setLoading(true);
@@ -235,73 +237,56 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         <i className="fab fa-whatsapp" style={{ fontSize: '1.2rem' }}></i>
                     </button>
                     <div style={{ width: '1px', height: '30px', background: '#e2e8f0', margin: 'auto 4px' }}></div>
+
+                    {/* Action Buttons */}
                     <button
                         className="toolbar-btn"
-                        onClick={() => onEditInventory(inventory)}
-                        style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', padding: '8px 16px', borderRadius: '10px', fontWeight: 600, transition: 'all 0.2s' }}
+                        onClick={() => window.location.href = `tel:${inventory.owners?.[0]?.phone || inventory.ownerPhone || ''}`} // Placeholder action
+                        style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', padding: '8px 16px', borderRadius: '10px', fontWeight: 600, transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
-                        <i className="fas fa-edit" style={{ marginRight: '6px', color: '#2563eb' }}></i> Edit
+                        <i className="fas fa-phone-alt" style={{ color: '#2563eb' }}></i> Call
                     </button>
                     <button
                         className="toolbar-btn"
-                        style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', padding: '8px 16px', borderRadius: '10px', fontWeight: 600, transition: 'all 0.2s' }}
-                        onClick={() => fireEvent('inventory_status_change_requested', inventory)}
+                        onClick={() => window.open(`mailto:${inventory.owners?.[0]?.email || ''}`)} // Placeholder action
+                        style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', padding: '8px 16px', borderRadius: '10px', fontWeight: 600, transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
-                        <i className="fas fa-history" style={{ marginRight: '6px', color: '#f59e0b' }}></i> Status
+                        <i className="fas fa-envelope" style={{ color: '#ea580c' }}></i> Email
                     </button>
                     <button
                         className="toolbar-btn"
-                        onClick={() => onAddActivity([{ type: 'Inventory', id: inventory._id, name: inventory.unitNo, model: 'Inventory' }])}
-                        style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', padding: '8px 16px', borderRadius: '10px', fontWeight: 600, transition: 'all 0.2s' }}
+                        onClick={() => { /* Placeholder for Message Modal */ toast('Message Feature Coming Soon'); }}
+                        style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', padding: '8px 16px', borderRadius: '10px', fontWeight: 600, transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
-                        <i className="fas fa-plus" style={{ marginRight: '6px', color: '#16a34a' }}></i> Activity
+                        <i className="fas fa-comment-alt" style={{ color: '#8b5cf6' }}></i> Message
                     </button>
-                    <div className="dropdown" style={{ position: 'relative' }}>
-                        <button
-                            className="primary-btn"
-                            style={{ padding: '10px 24px', borderRadius: '10px', background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)', border: 'none', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)' }}
-                            onClick={() => setShowDealDropdown(!showDealDropdown)}
-                        >
-                            Create Deal <i className="fas fa-chevron-down" style={{ fontSize: '0.8rem', marginLeft: '6px' }}></i>
-                        </button>
-                        {showDealDropdown && (
-                            <div style={{
-                                position: 'absolute', top: 'calc(100% + 8px)', right: 0,
-                                background: 'rgba(255, 255, 255, 0.95)', border: '1px solid rgba(226, 232, 240, 0.8)', borderRadius: '14px',
-                                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)', minWidth: '200px',
-                                zIndex: 1000, padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px',
-                                backdropFilter: 'blur(10px)'
-                            }}>
-                                {['Sell', 'Rent', 'Lease'].map(type => (
-                                    <button
-                                        key={type}
-                                        onClick={() => {
-                                            handleCreateDeal(type);
-                                            setShowDealDropdown(false);
-                                        }}
-                                        style={{
-                                            padding: '12px 14px', textAlign: 'left', background: 'transparent',
-                                            border: 'none', borderRadius: '10px', cursor: 'pointer',
-                                            fontSize: '0.9rem', fontWeight: 600, color: '#334155',
-                                            display: 'flex', alignItems: 'center', gap: '12px',
-                                            transition: 'all 0.2s'
-                                        }}
-                                        onMouseEnter={(e) => {
-                                            e.currentTarget.style.background = '#eff6ff';
-                                            e.currentTarget.style.color = '#2563eb';
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            e.currentTarget.style.background = 'transparent';
-                                            e.currentTarget.style.color = '#334155';
-                                        }}
-                                    >
-                                        <i className={`fas fa-${type === 'Sell' ? 'hand-holding-usd' : type === 'Rent' ? 'key' : 'file-signature'}`} style={{ width: '16px' }}></i>
-                                        For {type}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
+
+                    <button
+                        className="toolbar-btn"
+                        onClick={() => { /* Placeholder for Feedback Modal */ toast('Feedback Feature Coming Soon'); }}
+                        style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', padding: '8px 16px', borderRadius: '10px', fontWeight: 600, transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                        <i className="fas fa-comment-dots" style={{ color: '#f59e0b' }}></i> Feedback
+                    </button>
+
+                    <button
+                        className="primary-btn"
+                        onClick={() => onAddActivity([{ type: 'Inventory', id: inventory._id, name: inventory.unitNo, model: 'Inventory' }], { inventory })}
+                        style={{
+                            background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                            color: '#fff',
+                            border: 'none',
+                            padding: '8px 16px',
+                            borderRadius: '10px',
+                            fontWeight: 600,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.2)'
+                        }}
+                    >
+                        <i className="fas fa-plus"></i> Activity
+                    </button>
                 </div>
             </header>
 
@@ -356,31 +341,95 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                             }}>
                                                 <i className={`fas fa-${type === 'Sell' ? 'hand-holding-usd' : type === 'Rent' ? 'key' : 'file-signature'}`}></i>
                                             </div>
-                                            <span style={{ fontWeight: 600, color: '#334155' }}>{type}</span>
-                                            {dealExists && <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#dcfce7', color: '#166534', borderRadius: '4px', fontWeight: 700 }}>ACTIVE DEAL</span>}
+                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                <span style={{ fontWeight: 700, color: '#334155', fontSize: '0.9rem' }}>{type}</span>
+                                                {dealExists && (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+                                                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a' }}>
+                                                            {dealForType.price || dealForType.budget || 'Price N/A'}
+                                                        </span>
+                                                        <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>
+                                                            • {new Date(dealForType.createdAt).toLocaleDateString()}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            {dealExists && <span style={{ fontSize: '0.6rem', padding: '2px 6px', background: '#dcfce7', color: '#166534', borderRadius: '4px', fontWeight: 800, marginLeft: '4px' }}>ACTIVE DEAL</span>}
                                         </div>
-                                        {dealExists ? (
-                                            <button
-                                                className="secondary-btn"
-                                                style={{ fontSize: '0.85rem' }}
-                                                onClick={() => onNavigate('deal-matching', dealForType._id)}
-                                            >
-                                                View Deal
-                                            </button>
-                                        ) : (
+
+                                        {/* Matching Stats Inline */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                                            <div style={{ display: 'flex', gap: '20px' }}>
+                                                <div>
+                                                    <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600, display: 'block' }}>Matching Leads</span>
+                                                    <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#2563eb' }}>
+                                                        {matchingLeads.filter(l => {
+                                                            const lReq = l.requirement?.lookup_value || l.requirement || '';
+                                                            const lIntent = l.intent || (typeof lReq === 'string' ? lReq : '');
+                                                            if (type === 'Sell') return lIntent.toLowerCase().includes('buy') || lIntent.toLowerCase().includes('sale');
+                                                            if (type === 'Rent') return lIntent.toLowerCase().includes('rent');
+                                                            if (type === 'Lease') return lIntent.toLowerCase().includes('lease');
+                                                            return false;
+                                                        }).length}
+                                                    </span>
+                                                </div>
+                                                <div style={{ width: '1px', height: '24px', background: '#e2e8f0' }}></div>
+                                                <div>
+                                                    <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600, display: 'block' }}>Active Interest</span>
+                                                    <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#16a34a' }}>
+                                                        {matchingLeads.filter(l => {
+                                                            const lReq = l.requirement?.lookup_value || l.requirement || '';
+                                                            const lIntent = l.intent || (typeof lReq === 'string' ? lReq : '');
+                                                            const matchesIntent = (type === 'Sell' && (lIntent.toLowerCase().includes('buy') || lIntent.toLowerCase().includes('sale'))) ||
+                                                                (type === 'Rent' && lIntent.toLowerCase().includes('rent')) ||
+                                                                (type === 'Lease' && lIntent.toLowerCase().includes('lease'));
+                                                            return matchesIntent && (l.status?.lookup_value === 'Active' || l.status === 'Active');
+                                                        }).length}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* Lead Match Icon Button */}
                                             <button
                                                 className="primary-btn"
-                                                disabled={isDisabled}
-                                                onClick={() => handleCreateDeal(type)}
                                                 style={{
-                                                    fontSize: '0.85rem', padding: '6px 16px',
-                                                    opacity: isDisabled ? 0.5 : 1,
-                                                    cursor: isDisabled ? 'not-allowed' : 'pointer'
+                                                    width: '32px', height: '32px',
+                                                    borderRadius: '8px',
+                                                    background: 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)',
+                                                    color: '#fff',
+                                                    border: 'none',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    padding: 0
                                                 }}
+                                                onClick={() => onNavigate('inventory-matching', inventory._id)}
+                                                title="Find Matching Leads"
                                             >
-                                                Create Deal
+                                                <i className="fas fa-sync-alt" style={{ fontSize: '0.8rem' }}></i>
                                             </button>
-                                        )}
+
+                                            {dealExists ? (
+                                                <button
+                                                    className="secondary-btn"
+                                                    style={{ fontSize: '0.85rem', padding: '6px 12px' }}
+                                                    onClick={() => onNavigate('deal-detail', dealForType._id)}
+                                                >
+                                                    View Deal
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    className="primary-btn"
+                                                    disabled={isDisabled}
+                                                    onClick={() => handleCreateDeal(type)}
+                                                    style={{
+                                                        fontSize: '0.85rem', padding: '6px 16px',
+                                                        opacity: isDisabled ? 0.5 : 1,
+                                                        cursor: isDisabled ? 'not-allowed' : 'pointer'
+                                                    }}
+                                                >
+                                                    Create Deal
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                 );
                             })}
@@ -392,32 +441,118 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         )}
                     </section>
 
-                    {/* BASIC UNIT DETAILS */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                        <section className="detail-card" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
-                            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                                <i className="fas fa-home" style={{ marginRight: '8px', color: '#2563eb' }}></i> Basic Unit Details
-                            </h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                <DetailField label="Category" value={inventory.category} />
-                                <DetailField label="Subcategory" value={inventory.subCategory} />
-                                <DetailField label="Size / Area" value={`${renderValue(inventory.size)} ${renderValue(inventory.sizeUnit)}`} />
-                                <DetailField label="Length" value={inventory.length || (inventory.builtupDetails?.[0]?.length)} />
-                                <DetailField label="Width" value={inventory.width || (inventory.builtupDetails?.[0]?.width)} />
-                            </div>
-                        </section>
+                    {/* UNIT SPECIFICATIONS (Combined Basic Details & Orientation) */}
+                    <section className="detail-card" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+                        <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '20px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
+                            <i className="fas fa-th-list" style={{ marginRight: '8px', color: '#2563eb' }}></i> Unit Specifications
+                        </h3>
 
-                        <section className="detail-card" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
-                            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                                <i className="fas fa-compass" style={{ marginRight: '8px', color: '#f59e0b' }}></i> Orientation & Features
-                            </h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                <DetailField label="Direction" value={inventory.direction} />
-                                <DetailField label="Facing" value={inventory.facing} />
-                                <DetailField label="Road Width" value={inventory.roadWidth} />
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+                            {/* Sub-section: Basic Details */}
+                            <div>
+                                <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#475569', marginBottom: '16px', display: 'flex', alignItems: 'center' }}>
+                                    <i className="fas fa-home" style={{ marginRight: '8px', fontSize: '0.8rem', color: '#2563eb' }}></i> Basic Details
+                                </h4>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                    <DetailField label="Category" value={inventory.category} />
+                                    <DetailField label="Subcategory" value={inventory.subCategory} />
+
+                                    {/* Dimensions Row (Size, Length, Width) */}
+                                    <div style={{
+                                        gridColumn: 'span 2',
+                                        display: 'grid',
+                                        gridTemplateColumns: '1fr 1fr 1fr',
+                                        gap: '16px',
+                                        background: '#f8fafc',
+                                        padding: '12px',
+                                        borderRadius: '8px',
+                                        border: '1px solid #f1f5f9'
+                                    }}>
+                                        <DetailField label="Size / Area" value={`${renderValue(inventory.size)} ${renderValue(inventory.sizeUnit)}`} />
+                                        <DetailField label="Length" value={inventory.length || (inventory.builtupDetails?.[0]?.length)} />
+                                        <DetailField label="Width" value={inventory.width || (inventory.builtupDetails?.[0]?.width)} />
+                                    </div>
+                                </div>
                             </div>
-                        </section>
-                    </div>
+
+                            {/* Sub-section: Orientation */}
+                            <div>
+                                <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#475569', marginBottom: '16px', display: 'flex', alignItems: 'center' }}>
+                                    <i className="fas fa-compass" style={{ marginRight: '8px', fontSize: '0.8rem', color: '#f59e0b' }}></i> Orientation & Features
+                                </h4>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                    <DetailField label="Direction" value={inventory.direction} />
+                                    <DetailField label="Facing" value={inventory.facing} />
+                                    <DetailField label="Road Width" value={inventory.roadWidth} />
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+
+                    {/* LOCATION CARD (Moved Up) */}
+                    <section className="detail-card" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
+                                <i className="fas fa-map-marker-alt" style={{ marginRight: '8px', color: '#ef4444' }}></i> Location Details
+                            </h3>
+                            <button
+                                onClick={() => {
+                                    const lat = inventory.address?.lat || inventory.latitude;
+                                    const lng = inventory.address?.lng || inventory.longitude;
+                                    if (lat && lng) {
+                                        window.open(`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`, '_blank');
+                                    } else {
+                                        const query = `${inventory.address?.locality || ''} ${inventory.address?.city || ''} ${inventory.address?.state || ''}`.trim();
+                                        window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
+                                    }
+                                }}
+                                style={{
+                                    padding: '6px 14px',
+                                    borderRadius: '8px',
+                                    background: '#f0f9ff',
+                                    color: '#0369a1',
+                                    border: '1px solid #bae6fd',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <i className="fas fa-external-link-alt"></i> View on Google Maps
+                            </button>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '24px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                <DetailField label="City" value={inventory.address?.city} />
+                                <DetailField label="Locality / Area" value={inventory.address?.locality || inventory.address?.area} />
+                                <DetailField label="Post Office / Pincode" value={`${renderValue(inventory.address?.postOffice)} - ${renderValue(inventory.address?.pinCode)}`} />
+                                <DetailField label="Landmark" value={inventory.address?.landmark} />
+                                <div style={{ gridColumn: 'span 2' }}>
+                                    <DetailField label="Full Address" value={`${renderValue(inventory.address?.hNo)} ${renderValue(inventory.address?.street)} ${renderValue(inventory.address?.locality)}`} />
+                                </div>
+                            </div>
+                            <div style={{ background: '#f8fafc', borderRadius: '10px', height: '180px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                                {(inventory.address?.lat && inventory.address?.lng) ? (
+                                    <iframe
+                                        width="100%"
+                                        height="100%"
+                                        frameBorder="0"
+                                        style={{ border: 0 }}
+                                        src={`https://www.google.com/maps/embed/v1/view?key=YOUR_API_KEY&center=${inventory.address.lat},${inventory.address.lng}&zoom=15`}
+                                        allowFullScreen
+                                    ></iframe>
+                                ) : (
+                                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+                                        <i className="fas fa-map" style={{ fontSize: '2rem', marginBottom: '8px' }}></i>
+                                        <span style={{ fontSize: '0.8rem' }}>Map View Unavailable</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </section>
 
                     {/* BUILTUP & FURNISHING DETAILS */}
                     <section className="detail-card" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
@@ -443,6 +578,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                         <thead>
                                             <tr style={{ textAlign: 'left', borderBottom: '1px solid #f1f5f9' }}>
                                                 <th style={{ padding: '8px', color: '#94a3b8', fontWeight: 600 }}>Floor</th>
+                                                <th style={{ padding: '8px', color: '#94a3b8', fontWeight: 600 }}>Plan</th>
                                                 <th style={{ padding: '8px', color: '#94a3b8', fontWeight: 600 }}>Dimensions (L x W)</th>
                                                 <th style={{ padding: '8px', color: '#94a3b8', fontWeight: 600 }}>Area</th>
                                             </tr>
@@ -451,6 +587,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                             {inventory.builtupDetails.map((row, idx) => (
                                                 <tr key={idx} style={{ borderBottom: idx < inventory.builtupDetails.length - 1 ? '1px solid #f8fafc' : 'none' }}>
                                                     <td style={{ padding: '8px', color: '#334155' }}>{row.floor}</td>
+                                                    <td style={{ padding: '8px', color: '#334155' }}>{row.cluster || '-'}</td>
                                                     <td style={{ padding: '8px', color: '#334155' }}>{row.length} x {row.width}</td>
                                                     <td style={{ padding: '8px', color: '#334155' }}>{row.totalArea}</td>
                                                 </tr>
@@ -522,40 +659,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         </div>
                     </section>
 
-                    {/* LOCATION CARD */}
-                    <section className="detail-card" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
-                        <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                            <i className="fas fa-map-marker-alt" style={{ marginRight: '8px', color: '#ef4444' }}></i> Location Details
-                        </h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '24px' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                <DetailField label="City" value={inventory.address?.city} />
-                                <DetailField label="Locality / Area" value={inventory.address?.locality || inventory.address?.area} />
-                                <DetailField label="Post Office / Pincode" value={`${renderValue(inventory.address?.postOffice)} - ${renderValue(inventory.address?.pinCode)}`} />
-                                <DetailField label="Landmark" value={inventory.address?.landmark} />
-                                <div style={{ gridColumn: 'span 2' }}>
-                                    <DetailField label="Full Address" value={`${renderValue(inventory.address?.hNo)} ${renderValue(inventory.address?.street)} ${renderValue(inventory.address?.locality)}`} />
-                                </div>
-                            </div>
-                            <div style={{ background: '#f8fafc', borderRadius: '10px', height: '180px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-                                {(inventory.address?.lat && inventory.address?.lng) ? (
-                                    <iframe
-                                        width="100%"
-                                        height="100%"
-                                        frameBorder="0"
-                                        style={{ border: 0 }}
-                                        src={`https://www.google.com/maps/embed/v1/view?key=YOUR_API_KEY&center=${inventory.address.lat},${inventory.address.lng}&zoom=15`}
-                                        allowFullScreen
-                                    ></iframe>
-                                ) : (
-                                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
-                                        <i className="fas fa-map" style={{ fontSize: '2rem', marginBottom: '8px' }}></i>
-                                        <span style={{ fontSize: '0.8rem' }}>Map View Unavailable</span>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </section>
+
 
 
                     {/* PROPERTY ACTIVITIES TIMELINE */}
@@ -565,7 +669,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                 <i className="fas fa-stream" style={{ color: '#2563eb' }}></i> Activity Timeline
                             </h3>
                             <button
-                                onClick={() => onAddActivity([{ type: 'Inventory', id: inventory._id, name: inventory.unitNo, model: 'Inventory' }])}
+                                onClick={() => onAddActivity([{ type: 'Inventory', id: inventory._id, name: inventory.unitNo, model: 'Inventory' }], { inventory })}
                                 style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                             >
                                 <i className="fas fa-plus"></i> New Activity
@@ -619,7 +723,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                     <h4 style={{ margin: '0 0 8px 0', color: '#1e293b' }}>No Activities Yet</h4>
                                     <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: '0 0 20px 0' }}>Start tracking interactions for this property unit and its contacts.</p>
                                     <button
-                                        onClick={() => onAddActivity([{ type: 'Inventory', id: inventory._id, name: inventory.unitNo, model: 'Inventory' }])}
+                                        onClick={() => onAddActivity([{ type: 'Inventory', id: inventory._id, name: inventory.unitNo, model: 'Inventory' }], { inventory })}
                                         style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)' }}
                                     >
                                         Add First Activity
@@ -640,7 +744,13 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                             <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fas fa-user-tie" style={{ color: '#6366f1', fontSize: '0.8rem' }}></i> Contact Information
                             </h3>
-                            <button className="text-btn" style={{ color: '#2563eb', fontWeight: 600, fontSize: '0.75rem', background: 'none', border: 'none', cursor: 'pointer' }}>Edit</button>
+                            <button
+                                className="text-btn"
+                                style={{ color: '#2563eb', fontWeight: 600, fontSize: '0.75rem', background: 'none', border: 'none', cursor: 'pointer' }}
+                                onClick={() => setIsOwnerModalOpen(true)}
+                            >
+                                Edit
+                            </button>
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -711,16 +821,20 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                             <i className="fas fa-file-pdf" style={{ color: '#f97316', fontSize: '0.9rem' }}></i>
                                         </div>
                                         <div style={{ flex: 1, overflow: 'hidden' }}>
-                                            <p style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                {doc.documentType || 'Property Document'}
+                                            <p style={{ fontSize: '0.65rem', color: '#64748b', margin: '0 0 2px 0', fontWeight: 600, textTransform: 'uppercase' }}>
+                                                {doc.documentType || 'Other'}
                                             </p>
-                                            <p style={{ fontSize: '0.65rem', color: '#64748b', margin: 0 }}>{doc.documentName}</p>
+                                            <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                {doc.documentName}
+                                            </p>
                                         </div>
                                         <button
-                                            style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '4px' }}
+                                            style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', cursor: 'pointer', padding: '6px', borderRadius: '6px', transition: 'all 0.2s' }}
                                             onClick={() => window.open(doc.fileUrl, '_blank')}
+                                            onMouseEnter={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = '#2563eb'; }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.color = '#64748b'; }}
                                         >
-                                            <i className="fas fa-download"></i>
+                                            <i className="fas fa-external-link-alt" style={{ fontSize: '0.75rem' }}></i>
                                         </button>
                                     </div>
                                 ))
@@ -763,39 +877,33 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         <button className="toolbar-btn" style={{ width: '100%', justifyContent: 'center', borderRadius: '10px', height: '40px', background: '#fff' }}>Change Assignment</button>
                     </section>
 
-                    {/* LEAD REFERENCE CARD */}
-                    <section className="detail-card" style={{
-                        ...glassCardStyle,
-                        background: 'linear-gradient(135deg, rgba(239, 246, 255, 0.7) 0%, rgba(219, 234, 254, 0.7) 100%)',
-                        border: '1px solid rgba(37, 99, 235, 0.1)'
-                    }}>
-                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e40af', marginBottom: '16px' }}>Lead Reference</h3>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-                            <div style={{ textAlign: 'center' }}>
-                                <p style={{ fontSize: '1.75rem', fontWeight: 900, color: '#2563eb', margin: 0, lineHeight: 1 }}>{matchingLeads.length}</p>
-                                <p style={{ fontSize: '0.75rem', color: '#1e40af', fontWeight: 600, margin: '4px 0 0 0' }}>Matching Leads</p>
-                            </div>
-                            <div style={{ width: '1px', height: '30px', background: 'rgba(37, 99, 235, 0.2)' }}></div>
-                            <div style={{ textAlign: 'center' }}>
-                                <p style={{ fontSize: '1.75rem', fontWeight: 900, color: '#16a34a', margin: 0, lineHeight: 1 }}>{activeLeadsCount}</p>
-                                <p style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 600, margin: '4px 0 0 0' }}>Active Interest</p>
-                            </div>
+
+
+                    {/* PREVIOUS OWNER HISTORY CARD */}
+                    <section className="detail-card" style={glassCardStyle}>
+                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <i className="fas fa-history" style={{ color: '#64748b', fontSize: '0.8rem' }}></i> Previous Owner History
+                        </h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            {inventory.previousOwners && inventory.previousOwners.length > 0 ? (
+                                inventory.previousOwners.map((owner, idx) => (
+                                    <div key={idx} style={{ padding: '12px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                            <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b' }}>{owner.name}</span>
+                                            <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>{owner.fromDate} - {owner.toDate}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                            <i className="fas fa-exchange-alt" style={{ fontSize: '0.65rem', color: '#64748b' }}></i>
+                                            <span style={{ fontSize: '0.75rem', color: '#475569' }}>Changed via: <b>{owner.changeReason || 'Sale Deed'}</b></span>
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <div style={{ textAlign: 'center', padding: '20px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
+                                    <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0 }}>No previous owner history recorded</p>
+                                </div>
+                            )}
                         </div>
-                        <button
-                            className="primary-btn"
-                            style={{
-                                width: '100%',
-                                justifyContent: 'center',
-                                borderRadius: '10px',
-                                height: '44px',
-                                background: 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)',
-                                border: 'none',
-                                fontWeight: 700
-                            }}
-                            onClick={() => fireEvent('inventory_matching_requested', inventory)}
-                        >
-                            View Matching Leads
-                        </button>
                     </section>
 
                 </aside>
@@ -846,7 +954,38 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                     }
                 }}
             />
-        </div>
+
+            <AddOwnerModal
+                isOpen={isOwnerModalOpen}
+                onClose={() => setIsOwnerModalOpen(false)}
+                currentOwners={[
+                    ...(inventory.ownerName ? [{ name: inventory.ownerName, mobile: inventory.ownerPhone, role: 'Property Owner' }] : []),
+                    ...(inventory.associatedContact ? [{ name: inventory.associatedContact, mobile: inventory.associatedPhone, role: 'Associate' }] : [])
+                ]}
+                onSave={async (owners) => {
+                    try {
+                        const owner = owners.find(o => o.role === 'Owner' || o.role === 'Property Owner');
+                        const associate = owners.find(o => o.role === 'Associate' || o.role === 'Buyer');
+
+                        const updates = {
+                            ownerName: owner?.name || '',
+                            ownerPhone: owner?.mobile || '',
+                            associatedContact: associate?.name || '',
+                            associatedPhone: associate?.mobile || ''
+                        };
+
+                        const response = await api.put(`inventory/${inventoryId}`, updates);
+                        if (response.data && response.data.success) {
+                            toast.success("Owner information updated");
+                            fetchInventoryDetails();
+                        }
+                    } catch (error) {
+                        console.error("Error saving owner data:", error);
+                        toast.error("Failed to update owner information");
+                    }
+                }}
+            />
+        </div >
     );
 }
 

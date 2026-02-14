@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useContactConfig } from '../context/ContactConfigContext';
+import { api } from '../utils/api';
+import toast from 'react-hot-toast';
 
 const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) => {
     const { propertyConfig } = usePropertyConfig();
     const config = useContactConfig();
-    const profileConfig = config?.profileConfig || {};
+    const documentConfig = config?.documentConfig || {};
 
     const [formData, setFormData] = useState({
         inventoryDocuments: [{ documentName: '', documentType: '', linkedContactMobile: '', file: null }],
@@ -51,12 +53,39 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
         }
     }, [isOpen, project]);
 
-    const handleSave = () => {
-        if (typeof onSave === 'function') {
-            onSave(formData.inventoryDocuments);
-        }
-        if (typeof onClose === 'function') {
-            onClose();
+    const handleSave = async () => {
+        const toastId = toast.loading('Uploading documents to Google Drive...');
+        try {
+            const updatedDocs = await Promise.all(formData.inventoryDocuments.map(async (doc) => {
+                if (doc.file) {
+                    const uploadData = new FormData();
+                    uploadData.append('file', doc.file);
+
+                    const response = await api.post('/upload', uploadData, {
+                        headers: { 'Content-Type': 'multipart/form-data' }
+                    });
+
+                    if (response.data && response.data.success) {
+                        return {
+                            ...doc,
+                            url: response.data.url,
+                            file: null // Remove file object after upload
+                        };
+                    }
+                }
+                return doc;
+            }));
+
+            if (typeof onSave === 'function') {
+                onSave(updatedDocs);
+            }
+            toast.success('Documents uploaded successfully!', { id: toastId });
+            if (typeof onClose === 'function') {
+                onClose();
+            }
+        } catch (error) {
+            console.error("Upload error:", error);
+            toast.error(error.response?.data?.error || "Failed to upload documents", { id: toastId });
         }
     };
 
@@ -73,8 +102,11 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
     // --- Safety Getters ---
     const getDocCategories = () => {
         try {
-            const cats = profileConfig?.Documents?.subCategories || [];
-            return Array.isArray(cats) ? cats : [];
+            return Object.values(documentConfig).map(cat => ({
+                id: cat.id,
+                lookup_value: cat.name,
+                subCategories: cat.subCategories
+            }));
         } catch (e) {
             console.error("Error getting doc categories", e);
             return [];
@@ -85,7 +117,7 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
         if (!catName || !Array.isArray(categories)) return [];
         try {
             const cat = categories.find(c => c && (c.name === catName || c.lookup_value === catName));
-            const types = cat?.subCategories || cat?.types || [];
+            const types = cat?.subCategories || [];
             return Array.isArray(types) ? types : [];
         } catch (e) {
             console.error("Error in getDocTypes", e);

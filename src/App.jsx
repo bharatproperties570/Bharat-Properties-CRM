@@ -40,6 +40,8 @@ function App() {
         if (path === '/contacts') return 'contacts';
         if (path === '/inventory') return 'inventory';
         if (path === '/leads') return 'leads';
+        if (path.startsWith('/company/')) return 'company-detail';
+        if (path === '/company') return 'company';
         if (path.startsWith('/deals/')) {
             const possibleId = path.split('/').pop();
             if (possibleId !== 'deals' && possibleId !== 'match') return 'deal-detail';
@@ -76,6 +78,12 @@ function App() {
         if (path.startsWith('/projects/')) {
             return path.split('/').pop();
         }
+        if (path.startsWith('/projects/')) {
+            return path.split('/').pop();
+        }
+        if (path.startsWith('/company/')) {
+            return path.split('/').pop();
+        }
         return null;
     });
 
@@ -93,6 +101,8 @@ function App() {
         else if (view === 'deal-matching' && contactId) url = `/deals/match/${contactId}`;
         else if (view === 'lead-matching' && contactId) url = `/leads/match/${contactId}`;
         else if (view === 'project-detail' && contactId) url = `/projects/${contactId}`;
+        else if (view === 'project-detail' && contactId) url = `/projects/${contactId}`;
+        else if (view === 'company-detail' && contactId) url = `/company/${contactId}`;
         else if (view === 'dashboard') url = '/';
         else url = `/${view}`;
 

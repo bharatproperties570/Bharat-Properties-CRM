@@ -60,10 +60,14 @@ export const getDeals = async (req, res) => {
         // Attach last activity to each deal
         const enrichedRecords = results.records.map(deal => {
             const dealObj = deal.toObject ? deal.toObject() : deal;
-            const ownerActivity = deal.owner?._id ? activityMap[deal.owner._id.toString()] : null;
-            const associateActivity = deal.associatedContact?._id ? activityMap[deal.associatedContact._id.toString()] : null;
 
             // Pick the latest between owner and associate activity
+            const ownerId = deal.owner && typeof deal.owner === 'object' ? deal.owner._id : deal.owner;
+            const assocId = deal.associatedContact && typeof deal.associatedContact === 'object' ? deal.associatedContact._id : deal.associatedContact;
+
+            const ownerActivity = ownerId ? activityMap[ownerId.toString()] : null;
+            const associateActivity = assocId ? activityMap[assocId.toString()] : null;
+
             dealObj.lastActivity = [ownerActivity, associateActivity]
                 .filter(Boolean)
                 .sort((a, b) => new Date(b.performedAt) - new Date(a.performedAt))[0] || null;
@@ -125,8 +129,10 @@ const sanitizeData = (data) => {
 
     // Recursive sanitizer for nested objects like partyStructure
     const sanitizeValue = (val) => {
-        if (val === "" || val === undefined) return null;
-        if (typeof val === 'object' && val !== null) return val._id || val;
+        if (val === "" || val === undefined || val === null) return null;
+        if (typeof val === 'object' && !Array.isArray(val)) {
+            return val._id || null;
+        }
         return val;
     };
 

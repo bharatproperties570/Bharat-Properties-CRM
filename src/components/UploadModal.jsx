@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
+import { api } from '../utils/api';
+import toast from 'react-hot-toast';
 
 // Helper: Get YouTube Thumbnail
 const getYouTubeThumbnail = (url) => {
@@ -45,9 +47,49 @@ const UploadModal = ({ isOpen, onClose, onSave, project = null, type = 'project'
         }
     }, [isOpen, project]);
 
-    const handleSave = () => {
-        onSave(formData);
-        onClose();
+    const handleSave = async () => {
+        const toastId = toast.loading('Uploading media to Google Drive...');
+
+        try {
+            // 1. Upload Images
+            const updatedImages = await Promise.all(formData.projectImages.map(async (img) => {
+                if (img.file) {
+                    const uploadData = new FormData();
+                    uploadData.append('file', img.file);
+                    const res = await api.post('/upload', uploadData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                    if (res.data && res.data.success) {
+                        return { ...img, url: res.data.url, file: null, previewUrl: null };
+                    }
+                }
+                return img;
+            }));
+
+            // 2. Upload Videos
+            const updatedVideos = await Promise.all(formData.projectVideos.map(async (vid) => {
+                if (vid.type === 'Upload' && vid.file) {
+                    const uploadData = new FormData();
+                    uploadData.append('file', vid.file);
+                    const res = await api.post('/upload', uploadData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                    if (res.data && res.data.success) {
+                        return { ...vid, url: res.data.url, file: null };
+                    }
+                }
+                return vid;
+            }));
+
+            const finalData = {
+                ...formData,
+                projectImages: updatedImages,
+                projectVideos: updatedVideos
+            };
+
+            onSave(finalData);
+            toast.success('Media uploaded successfully!', { id: toastId });
+            onClose();
+        } catch (error) {
+            console.error("Upload error:", error);
+            toast.error(error.response?.data?.error || "Failed to upload media", { id: toastId });
+        }
     };
 
     if (!isOpen) return null;

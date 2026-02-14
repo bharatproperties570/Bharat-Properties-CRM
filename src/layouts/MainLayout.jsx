@@ -92,8 +92,11 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
             setEditingCompany(company);
             setShowAddCompanyModal(true);
         },
-        onAddActivity: (relatedTo) => {
-            setActivityInitialData(relatedTo ? { relatedTo } : { relatedTo: [] });
+        onAddActivity: (relatedTo, context) => {
+            setActivityInitialData({
+                relatedTo: relatedTo || [],
+                ...context
+            });
             setShowActivityModal(true);
         },
         onAddProject: handleAddProject,

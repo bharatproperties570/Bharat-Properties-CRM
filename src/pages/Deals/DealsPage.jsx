@@ -15,7 +15,7 @@ import { api } from "../../utils/api";
 import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
 import { formatIndianCurrency, numberToIndianWords } from '../../utils/numberToWords';
 
-function DealsPage({ onNavigate }) {
+function DealsPage({ onNavigate, onAddActivity }) {
     const { startCall } = useCall();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
@@ -259,11 +259,16 @@ function DealsPage({ onNavigate }) {
         <section id="dealsView" className="view-section active">
             <div className="view-scroll-wrapper">
                 <div className="page-header">
-                    <div className="page-title-group">
-                        <i className="fas fa-handshake" style={{ color: '#68737d' }}></i>
+                    <div className="page-title-group" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ width: '40px', height: '40px', background: '#eff6ff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <i className="fas fa-handshake" style={{ color: '#2563eb', fontSize: '1.2rem' }}></i>
+                        </div>
                         <div>
-                            <span className="working-list-label" style={{ display: 'block', whiteSpace: 'nowrap' }}>Sales Operations</span>
-                            <h1>Deals</h1>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Deals</h1>
+                                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px' }}>Sales Operations</span>
+                            </div>
+                            <p style={{ fontSize: '0.85rem', color: '#64748b', margin: '2px 0 0 0' }}>Manage your property transactions pipeline</p>
                         </div>
                     </div>
                     <div className="header-actions" style={{ display: 'flex', gap: '12px' }}>
@@ -319,6 +324,18 @@ function DealsPage({ onNavigate }) {
                                 {selectedIds.length === 1 && (
                                     <>
                                         <button className="action-btn" title="Edit Deal" onClick={handleEditClick}><i className="fas fa-edit"></i> Edit</button>
+                                        <button
+                                            className="action-btn"
+                                            title="Add Activity"
+                                            onClick={() => {
+                                                const selectedDeal = deals.find(d => d._id === selectedIds[0]);
+                                                if (selectedDeal && onAddActivity) {
+                                                    onAddActivity([{ type: 'Deal', id: selectedDeal._id, name: selectedDeal.dealNo || selectedDeal.dealId || 'Deal', model: 'Deal' }], { deal: selectedDeal });
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-calendar-plus"></i> Activity
+                                        </button>
                                         <button className="action-btn" title="Move Stage"><i className="fas fa-step-forward"></i> Move</button>
                                         <button
                                             className="action-btn"

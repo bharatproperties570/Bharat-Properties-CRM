@@ -15,18 +15,20 @@ export const ContactConfigProvider = ({ children }) => {
     const [professionalConfig, setProfessionalConfig] = useState({});
     const [addressConfig, setAddressConfig] = useState({});
     const [profileConfig, setProfileConfig] = useState({});
+    const [documentConfig, setDocumentConfig] = useState({});
     const [loading, setLoading] = useState(true);
 
     const fetchLookups = async () => {
         try {
             setLoading(true);
 
-            const [profRes, addrRes, profiRes] = await Promise.all([
+            const [profRes, addrRes, profiRes, docCatRes, docTypeRes] = await Promise.all([
                 api.get('/lookups', { params: { lookup_type: 'Professional' } }),
                 api.get('/lookups', { params: { lookup_type: 'Address' } }),
-                api.get('/lookups', { params: { lookup_type: 'Profile' } })
+                api.get('/lookups', { params: { lookup_type: 'Profile' } }),
+                api.get('/lookups', { params: { lookup_type: 'Document-Category' } }),
+                api.get('/lookups', { params: { lookup_type: 'Document-Type' } })
             ]);
-
 
             if (profRes.data && profRes.data.status === 'success') {
                 setProfessionalConfig(buildHierarchy(profRes.data.data, 'Professional'));
@@ -37,6 +39,13 @@ export const ContactConfigProvider = ({ children }) => {
             if (profiRes.data && profiRes.data.status === 'success') {
                 setProfileConfig(buildHierarchy(profiRes.data.data, 'Profile'));
             }
+
+            // Combine Document-Category and Document-Type for hierarchy
+            const combinedDocs = [
+                ...(docCatRes?.data?.data || []),
+                ...(docTypeRes?.data?.data || [])
+            ];
+            setDocumentConfig(buildDocHierarchy(combinedDocs));
 
         } catch (error) {
             console.error("Failed to fetch lookups", error);
@@ -81,6 +90,29 @@ export const ContactConfigProvider = ({ children }) => {
                 lookup_type: item.lookup_type,
                 parent_lookup_value: item.parent_lookup_value,
                 subCategories: children || []
+            };
+        });
+
+        return hierarchy;
+    };
+
+    const buildDocHierarchy = (flatList) => {
+        const categories = flatList.filter(item => item.lookup_type === 'Document-Category');
+        const hierarchy = {};
+
+        categories.forEach(cat => {
+            const types = flatList.filter(item =>
+                item.lookup_type === 'Document-Type' &&
+                (item.parent_lookup_id === cat._id || item.parent_lookup_id?._id === cat._id)
+            );
+
+            hierarchy[cat.lookup_value] = {
+                id: cat._id,
+                name: cat.lookup_value,
+                subCategories: types.map(t => ({
+                    id: t._id,
+                    name: t.lookup_value
+                }))
             };
         });
 
@@ -136,6 +168,7 @@ export const ContactConfigProvider = ({ children }) => {
             professionalConfig,
             addressConfig,
             profileConfig,
+            documentConfig,
             loading,
             addLookup,
             updateLookup,

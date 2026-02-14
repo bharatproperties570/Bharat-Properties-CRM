@@ -985,11 +985,33 @@ const AddContactModal = ({
         }
       }
 
+      // --- GOOGLE DRIVE UPLOAD ---
+      const finalFormData = { ...formData };
+      if (finalFormData.documents && finalFormData.documents.length > 0) {
+        finalFormData.documents = await Promise.all(finalFormData.documents.map(async (doc) => {
+          if (doc.documentPicture && (doc.documentPicture instanceof File)) {
+            try {
+              const uploadData = new FormData();
+              uploadData.append('file', doc.documentPicture);
+              const res = await api.post('/upload', uploadData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+              });
+              if (res.data && res.data.success) {
+                return { ...doc, documentPicture: res.data.url };
+              }
+            } catch (err) {
+              console.error("Document upload error:", err);
+            }
+          }
+          return doc;
+        }));
+      }
+
       let response;
       if (mode === "edit" && initialData?._id) {
-        response = await api.put(`contacts/${initialData._id}`, formData);
+        response = await api.put(`contacts/${initialData._id}`, finalFormData);
       } else {
-        response = await api.post("contacts", formData);
+        response = await api.post("contacts", finalFormData);
       }
 
       if (response.data && response.data.success) {

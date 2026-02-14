@@ -20,7 +20,7 @@ import InventoryFilterPanel from './components/InventoryFilterPanel';
 import { applyInventoryFilters } from '../../utils/inventoryFilterLogic';
 import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
 
-export default function InventoryPage({ onNavigate }) {
+export default function InventoryPage({ onNavigate, onAddActivity }) {
     const { fireEvent } = useTriggers();
     const { startCall } = useCall();
     const { masterFields } = usePropertyConfig();
@@ -464,6 +464,19 @@ export default function InventoryPage({ onNavigate }) {
                                     {selectedIds.length === 1 && (
                                         <>
                                             <button className="action-btn" title="Edit Property" style={{ flexShrink: 0 }} onClick={handleEditClick}><i className="fas fa-edit"></i> Edit</button>
+                                            <button
+                                                className="action-btn"
+                                                title="Add Activity"
+                                                style={{ flexShrink: 0 }}
+                                                onClick={() => {
+                                                    const property = getSelectedProperty();
+                                                    if (property && onAddActivity) {
+                                                        onAddActivity([{ type: 'Inventory', id: property._id, name: property.unitNo, model: 'Inventory' }], { inventory: property });
+                                                    }
+                                                }}
+                                            >
+                                                <i className="fas fa-calendar-plus"></i> Activity
+                                            </button>
                                             <button className="action-btn" title="Create Deal" style={{ flexShrink: 0 }}><i className="fas fa-plus-circle"></i> Deal</button>
                                             <button
                                                 className="action-btn"

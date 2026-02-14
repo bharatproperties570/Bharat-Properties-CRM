@@ -15,6 +15,8 @@ import systemSettingRoutes from "./routes/systemSetting.routes.js";
 import roleRoutes from "./routes/role.routes.js";
 import dealRoutes from "./routes/deal.routes.js";
 import companyRoutes from "./routes/company.routes.js";
+import uploadRoutes from "./routes/upload.routes.js";
+import collectorRateRoutes from "./routes/collectorRate.routes.js";
 
 const app = express();
 
@@ -44,6 +46,8 @@ app.use("/api/field-rules", fieldRuleRoutes);
 app.use("/api/distribution-rules", distributionRuleRoutes);
 app.use("/api/system-settings", systemSettingRoutes);
 app.use("/api/companies", companyRoutes);
+app.use("/api/upload", uploadRoutes);
+app.use("/api/collector-rates", collectorRateRoutes);
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {

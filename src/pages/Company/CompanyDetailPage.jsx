@@ -12,7 +12,10 @@ const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddActivity, onAdd
     const [activeTab, setActiveTab] = useState('activity');
     const [projectsData, setProjectsData] = useState([]);
     const [dealsData, setDealsData] = useState([]);
+
     const [inventoryData, setInventoryData] = useState([]);
+    const [contactsData, setContactsData] = useState([]);
+    const [documentsData, setDocumentsData] = useState([]);
     const [stats, setStats] = useState({
         totalProjects: 0,
         totalInventory: 0,
@@ -66,6 +69,19 @@ const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddActivity, onAdd
                 inventory = invRes.data?.data || [];
             }
             setInventoryData(inventory);
+
+            // 4. Fetch Contacts (Mock for now, or fetch if API exists)
+            // Assuming contacts are linked via companyId field in contact model
+            // const contactRes = await api.get(`contacts?companyId=${companyId}`);
+            // setContactsData(contactRes.data?.data || []);
+            setContactsData(companyData.employees || []); // Using employees as contacts for now
+
+            // 5. Fetch Documents (Mock)
+            setDocumentsData([
+                { name: 'Incorporation Certificate.pdf', type: 'PDF', date: '2023-01-15' },
+                { name: 'GST Registration.pdf', type: 'PDF', date: '2023-02-20' },
+                { name: 'RERA Registration.pdf', type: 'PDF', date: '2023-03-10' }
+            ]);
 
             // Calculate Stats
             const closedRevenue = deals
@@ -428,18 +444,25 @@ const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddActivity, onAdd
                     <TabBtn active={activeTab === 'projects'} onClick={() => setActiveTab('projects')} label="Projects" icon="city" />
                     <TabBtn active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')} label="Inventory" icon="boxes" />
                     <TabBtn active={activeTab === 'deals'} onClick={() => setActiveTab('deals')} label="Deals" icon="agreement" />
+                    <TabBtn active={activeTab === 'contacts'} onClick={() => setActiveTab('contacts')} label="Contacts" icon="users" />
+                    <TabBtn active={activeTab === 'documents'} onClick={() => setActiveTab('documents')} label="Documents" icon="file-alt" />
                     <TabBtn active={activeTab === 'financials'} onClick={() => setActiveTab('financials')} label="Financial Overview" icon="chart-line" />
-                </div>
-
-                <div style={{ minHeight: '300px' }}>
-                    {activeTab === 'activity' && <ActivityTimeline />}
-                    {activeTab === 'projects' && <DataList items={projectsData} type="project" onNavigate={onNavigate} />}
-                    {activeTab === 'inventory' && <DataList items={inventoryData} type="inventory" onNavigate={onNavigate} />}
-                    {activeTab === 'deals' && <DataList items={dealsData} type="deal" onNavigate={onNavigate} />}
-                    {activeTab === 'financials' && <FinancialOverview deals={dealsData} inventory={inventoryData} />}
+                    <TabBtn active={activeTab === 'commission'} onClick={() => setActiveTab('commission')} label="Commission Structure" icon="percentage" />
                 </div>
             </div>
+
+            <div style={{ minHeight: '300px' }}>
+                {activeTab === 'activity' && <ActivityTimeline />}
+                {activeTab === 'projects' && <DataList items={projectsData} type="project" onNavigate={onNavigate} />}
+                {activeTab === 'inventory' && <DataList items={inventoryData} type="inventory" onNavigate={onNavigate} />}
+                {activeTab === 'deals' && <DataList items={dealsData} type="deal" onNavigate={onNavigate} />}
+                {activeTab === 'contacts' && <ContactsList contacts={contactsData} />}
+                {activeTab === 'documents' && <DocumentsList documents={documentsData} />}
+                {activeTab === 'financials' && <FinancialOverview deals={dealsData} inventory={inventoryData} />}
+                {activeTab === 'commission' && <CommissionStructure company={company} />}
+            </div>
         </div>
+
     );
 };
 
@@ -626,5 +649,108 @@ const DataList = ({ items, type, onNavigate }) => (
 
 const tableHeaderStyle = { textAlign: 'left', padding: '12px 20px', color: '#64748b', fontWeight: 800, fontSize: '0.65rem', textTransform: 'uppercase' };
 const tableCellStyle = { padding: '14px 20px', color: '#1e293b' };
+
+
+const ContactsList = ({ contacts }) => (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
+        {contacts.length > 0 ? contacts.map((contact, i) => (
+            <div key={i} style={{ padding: '20px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#475569' }}>
+                    {getInitials(contact.name)}
+                </div>
+                <div>
+                    <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#1e293b' }}>{contact.name} {contact.surname}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{contact.designation || 'Contact Person'}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#3b82f6', marginTop: '4px' }}>{contact.phones?.[0]?.phoneNumber || 'No Phone'}</div>
+                </div>
+            </div>
+        )) : (
+            <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '60px', color: '#94a3b8' }}>No contacts linked.</div>
+        )}
+    </div>
+);
+
+const DocumentsList = ({ documents }) => (
+    <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+            <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                <tr>
+                    <th style={tableHeaderStyle}>Document Name</th>
+                    <th style={tableHeaderStyle}>Type</th>
+                    <th style={tableHeaderStyle}>Date Added</th>
+                    <th style={tableHeaderStyle}>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {documents.map((doc, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={tableCellStyle}><i className="fas fa-file-pdf" style={{ color: '#ef4444', marginRight: '10px' }}></i>{doc.name}</td>
+                        <td style={tableCellStyle}>{doc.type}</td>
+                        <td style={tableCellStyle}>{doc.date}</td>
+                        <td style={tableCellStyle}>
+                            <button className="btn-ghost" style={{ fontSize: '0.7rem', color: '#3b82f6' }}>Download</button>
+                        </td>
+                    </tr>
+                ))}
+            </tbody>
+        </table>
+    </div>
+);
+
+const CommissionStructure = ({ company }) => (
+    <div style={{ background: '#fff', padding: '32px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+        <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#1e293b', marginBottom: '24px' }}>Commission Structure & Agreements</h3>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+            <div>
+                <h4 style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '16px' }}>Current Agreement</h4>
+                <div style={{ padding: '20px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                        <span style={{ fontSize: '0.85rem', color: '#475569' }}>Agreement Type</span>
+                        <span style={{ fontWeight: 700 }}>Exclusive Partner</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                        <span style={{ fontSize: '0.85rem', color: '#475569' }}>Standard Commission</span>
+                        <span style={{ fontWeight: 700, color: '#10b981' }}>2.5% + GST</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                        <span style={{ fontSize: '0.85rem', color: '#475569' }}>Valid Until</span>
+                        <span style={{ fontWeight: 700 }}>31 March 2026</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: '0.85rem', color: '#475569' }}>Status</span>
+                        <span style={{ padding: '2px 8px', borderRadius: '4px', background: '#dcfce7', color: '#166534', fontSize: '0.7rem', fontWeight: 700 }}>ACTIVE</span>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <h4 style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '16px' }}>Incentive Slabs</h4>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                    <thead>
+                        <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                            <th style={{ textAlign: 'left', paddingBottom: '8px', color: '#64748b' }}>Revenue Slab</th>
+                            <th style={{ textAlign: 'right', paddingBottom: '8px', color: '#64748b' }}>Kicker</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style={{ padding: '8px 0', color: '#334155' }}>₹0 - ₹5 Cr</td>
+                            <td style={{ textAlign: 'right', fontWeight: 700 }}>0%</td>
+                        </tr>
+                        <tr>
+                            <td style={{ padding: '8px 0', color: '#334155' }}>₹5 Cr - ₹10 Cr</td>
+                            <td style={{ textAlign: 'right', fontWeight: 700 }}>+0.25%</td>
+                        </tr>
+                        <tr>
+                            <td style={{ padding: '8px 0', color: '#334155' }}>Above ₹10 Cr</td>
+                            <td style={{ textAlign: 'right', fontWeight: 700 }}>+0.50%</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+);
 
 export default CompanyDetailPage;

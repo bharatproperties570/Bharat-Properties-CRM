@@ -1225,22 +1225,58 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
 
             // Clean up files which shouldn't be in JSON
             if (payload.inventoryDocuments) {
-                payload.inventoryDocuments = payload.inventoryDocuments.map(doc => {
+                payload.inventoryDocuments = await Promise.all(payload.inventoryDocuments.map(async (doc) => {
+                    if (doc.file) {
+                        try {
+                            const uploadData = new FormData();
+                            uploadData.append('file', doc.file);
+                            const res = await api.post('/upload', uploadData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                            if (res.data && res.data.success) {
+                                return { ...doc, url: res.data.url, file: null };
+                            }
+                        } catch (err) {
+                            console.error("Document upload error:", err);
+                        }
+                    }
                     const { file, ...rest } = doc;
                     return rest;
-                });
+                }));
             }
             if (payload.inventoryImages) {
-                payload.inventoryImages = payload.inventoryImages.map(img => {
+                payload.inventoryImages = await Promise.all(payload.inventoryImages.map(async (img) => {
+                    if (img.file) {
+                        try {
+                            const uploadData = new FormData();
+                            uploadData.append('file', img.file);
+                            const res = await api.post('/upload', uploadData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                            if (res.data && res.data.success) {
+                                return { ...img, url: res.data.url, file: null };
+                            }
+                        } catch (err) {
+                            console.error("Image upload error:", err);
+                        }
+                    }
                     const { file, ...rest } = img;
                     return rest;
-                });
+                }));
             }
             if (payload.inventoryVideos) {
-                payload.inventoryVideos = payload.inventoryVideos.map(vid => {
+                payload.inventoryVideos = await Promise.all(payload.inventoryVideos.map(async (vid) => {
+                    if (vid.file) {
+                        try {
+                            const uploadData = new FormData();
+                            uploadData.append('file', vid.file);
+                            const res = await api.post('/upload', uploadData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                            if (res.data && res.data.success) {
+                                return { ...vid, url: res.data.url, file: null };
+                            }
+                        } catch (err) {
+                            console.error("Video upload error:", err);
+                        }
+                    }
                     const { file, ...rest } = vid;
                     return rest;
-                });
+                }));
             }
 
             // Real API call

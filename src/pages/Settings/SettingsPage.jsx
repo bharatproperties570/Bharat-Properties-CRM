@@ -19,6 +19,7 @@ import CustomizeProjectPage from './views/CustomizeProjectPage';
 import CustomizeLeadPage from './views/CustomizeLeadPage';
 
 import CustomizeCompanyPage from './views/CustomizeCompanyPage';
+import DealSettingsPage from './views/DealSettingsPage';
 import ActivitySettingsPage from './views/ActivitySettingsPage';
 import CustomizeFeedbackPage from './views/CustomizeFeedbackPage';
 import FeedbackTemplatePage from './views/FeedbackTemplatePage';
@@ -751,6 +752,8 @@ const SettingsHubPage = () => {
                         <BulkUpdatePage />
                     ) : activeTab === 'parsing-rules' ? (
                         <ParsingRulesPage />
+                    ) : activeTab === 'deals-c' ? (
+                        <DealSettingsPage />
                     ) : activeTab === 'export' ? (
                         <ExportDataPage />
                     ) : (

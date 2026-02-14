@@ -161,6 +161,15 @@ export const projectsAPI = {
     delete: (id) => apiRequest(`/projects/${id}`, { method: 'DELETE' }),
 };
 
+// Deals API
+export const dealsAPI = {
+    getAll: (params) => apiRequest('/deals', { params }),
+    getById: (id) => apiRequest(`/deals/${id}`),
+    create: (data) => apiRequest('/deals', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id, data) => apiRequest(`/deals/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id) => apiRequest(`/deals/${id}`, { method: 'DELETE' }),
+};
+
 // Leads API
 export const leadsAPI = {
     getAll: (params) => apiRequest('/leads', { params }),
@@ -199,6 +208,7 @@ export default {
     users: usersAPI,
     roles: rolesAPI,
     projects: projectsAPI,
+    deals: dealsAPI,
     leads: leadsAPI,
     contacts: contactsAPI,
 };

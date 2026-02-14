@@ -12,6 +12,7 @@ const ActivitiesPage = lazy(() => import('../pages/Activities/ActivitiesPage'));
 const BookingPage = lazy(() => import('../pages/Booking/BookingPage'));
 const InventoryPage = lazy(() => import('../pages/Inventory/InventoryPage'));
 const InventoryDetailPage = lazy(() => import('../pages/Inventory/InventoryDetailPage'));
+const InventoryMatchingPage = lazy(() => import('../pages/Inventory/views/InventoryMatchingPage'));
 const MarketingPage = lazy(() => import('../pages/Marketing/MarketingPage'));
 const ProfilePage = lazy(() => import('../pages/Profile/ProfilePage'));
 const ProjectsPage = lazy(() => import('../pages/Projects/ProjectsPage'));
@@ -79,9 +80,14 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
             case 'forms':
                 return <FormsPage />;
             case 'deals':
-                return <DealsPage onNavigate={onNavigate} />;
+                return <DealsPage onNavigate={onNavigate} onAddActivity={onAddActivity} />;
             case 'deal-matching':
                 return <DealMatchingPage onNavigate={onNavigate} dealId={currentContactId} />;
+            case 'inventory-matching':
+                return <InventoryMatchingPage
+                    onNavigate={onNavigate}
+                    inventoryId={currentContactId}
+                />;
             case 'lead-matching':
                 return <LeadMatchingPage onNavigate={onNavigate} leadId={currentContactId} />;
             case 'deal-detail':
@@ -105,7 +111,7 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
                     onAddActivity={onAddActivity}
                 />;
             case 'inventory':
-                return <InventoryPage onNavigate={onNavigate} />;
+                return <InventoryPage onNavigate={onNavigate} onAddActivity={onAddActivity} />;
             case 'inventory-detail':
                 return <InventoryDetailPage
                     inventoryId={currentContactId}

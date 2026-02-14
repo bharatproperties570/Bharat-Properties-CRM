@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { contactData } from '../data/mockData';
+import { contactsAPI } from '../utils/api';
 import toast from 'react-hot-toast';
 
 const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
@@ -24,29 +24,35 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
     const [owners, setOwners] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [filteredContacts, setFilteredContacts] = useState([]);
+    const [isSearching, setIsSearching] = useState(false);
     const [selectedContact, setSelectedContact] = useState(null);
     const [linkData, setLinkData] = useState({ role: 'Property Owner', relationship: '' });
     const searchRef = useRef(null);
 
     // Search Logic
     useEffect(() => {
-        if (searchTerm.trim()) {
-            const term = searchTerm.toLowerCase();
-            const results = contactData.filter(c => {
-                const nameMatch = (c.name || '').toLowerCase().includes(term) ||
-                    (c.firstName || '').toLowerCase().includes(term) ||
-                    (c.lastName || '').toLowerCase().includes(term);
+        const fetchContacts = async () => {
+            if (!searchTerm.trim()) {
+                setFilteredContacts([]);
+                return;
+            }
 
-                const phoneMatch = (c.mobile || '').includes(searchTerm) ||
-                    (c.phones || []).some(p => (p.number || '').includes(searchTerm)) ||
-                    (c.contacts || []).some(p => (p.number || '').includes(searchTerm));
+            setIsSearching(true);
+            try {
+                const response = await contactsAPI.getAll({ search: searchTerm });
+                if (response.success) {
+                    setFilteredContacts(response.records || []);
+                }
+            } catch (err) {
+                console.error("Error searching contacts:", err);
+                toast.error("Failed to search contacts");
+            } finally {
+                setIsSearching(false);
+            }
+        };
 
-                return nameMatch || phoneMatch;
-            });
-            setFilteredContacts(results);
-        } else {
-            setFilteredContacts([]);
-        }
+        const timeoutId = setTimeout(fetchContacts, 300);
+        return () => clearTimeout(timeoutId);
     }, [searchTerm]);
 
     // Close search results on outside click
@@ -84,10 +90,10 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
 
         const newOwner = {
             name: selectedContact.name || `${selectedContact.firstName || ''} ${selectedContact.lastName || ''}`.trim() || 'Unknown',
-            mobile: selectedContact.mobile || selectedContact.phones?.[0]?.number || selectedContact.contacts?.[0]?.number || '',
+            mobile: selectedContact.mobile || (selectedContact.phones && selectedContact.phones[0]?.number) || (selectedContact.contacts && selectedContact.contacts[0]?.number) || '',
             role: linkData.role,
             relationship: linkData.relationship,
-            id: selectedContact.id || Date.now().toString()
+            id: selectedContact._id || selectedContact.id || Date.now().toString()
         };
 
         const updatedOwners = [...owners, newOwner];
@@ -136,6 +142,7 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
                                     />
+                                    {isSearching && <i className="fas fa-spinner fa-spin" style={{ color: '#3b82f6', marginLeft: '8px' }}></i>}
                                 </div>
                                 {filteredContacts.length > 0 && (
                                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', zIndex: 10, maxHeight: '200px', overflowY: 'auto' }}>
