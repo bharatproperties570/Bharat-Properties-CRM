@@ -14,7 +14,9 @@ export const api = axios.create({
 // Generic API request handler
 const apiRequest = async (endpoint, options = {}) => {
     try {
-        let url = `${API_BASE_URL}${endpoint}`;
+        const cleanBaseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+        const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+        const url = `${cleanBaseUrl}${cleanEndpoint}`;
 
         // Handle query parameters
         if (options.params) {
@@ -211,6 +213,17 @@ export const teamsAPI = {
 };
 
 export default {
+    auth: authAPI,
+    users: usersAPI,
+    roles: rolesAPI,
+    leads: leadsAPI,
+    contacts: contactsAPI,
+    properties: propertiesAPI,
+    inventory: inventoryAPI,
+    companies: companiesAPI,
+    projects: projectsAPI,
+    teams: teamsAPI,
+    settings: settingsAPI,
     activities: activitiesAPI,
     lookups: lookupsAPI,
     customFields: customFieldsAPI,
@@ -218,12 +231,5 @@ export default {
     distributionRules: distributionRulesAPI,
     scoringRules: scoringRulesAPI,
     systemSettings: systemSettingsAPI,
-    users: usersAPI,
-    roles: rolesAPI,
-    projects: projectsAPI,
-    deals: dealsAPI,
-    leads: leadsAPI,
-    leads: leadsAPI,
-    contacts: contactsAPI,
-    teams: teamsAPI,
+    deals: dealsAPI
 };
