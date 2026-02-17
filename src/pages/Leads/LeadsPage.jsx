@@ -43,7 +43,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const { fireEvent } = useTriggers();
     const { startCall } = useCall();
     const { executeDistribution } = useDistribution();
-    const { teams } = useUserContext();
+    const { teams, users } = useUserContext();
 
     // Bundle config for scoring engine
     const scoringConfig = {
@@ -88,6 +88,15 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
         return found ? (found.name || found.lookup_value) : teamValue;
     }, [teams]);
+
+    const getUserName = useCallback((userValue) => {
+        if (!userValue) return "Admin";
+        if (typeof userValue === 'object') {
+            return userValue.name || userValue.lookup_value || "Admin";
+        }
+        const found = users.find(u => (u._id === userValue) || (u.id === userValue));
+        return found ? (found.name || found.displayName || found.username) : userValue;
+    }, [users]);
 
     // Modals State
     const [isSendMessageOpen, setIsSendMessageOpen] = useState(false);
@@ -206,6 +215,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         // ===== SOURCE & ASSIGNMENT =====
                         source: lead.source?.lookup_value || (typeof lead.source === 'string' ? lead.source : "") || contact.source || "Direct",
                         owner: lead.owner?.fullName || lead.owner?.email || lead.owner || contact.owner || (lead.assignment?.assignedTo) || "Unassigned",
+                        rawOwner: lead.owner?._id || lead.owner?.id || lead.owner || contact.owner || lead.assignment?.assignedTo,
                         team: contact.team || lead.assignment?.team || "",
 
                         // ===== STATUS =====
@@ -753,6 +763,20 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             <span className={`status-badge ${lead.status?.class || 'new'}`} style={{ fontSize: '0.75rem' }}>{lead.status?.label || lead.status}</span>
                                             <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{lead.source}</span>
                                         </div>
+
+                                        {/* Assigned To Section */}
+                                        <div style={{ padding: '10px 0', borderTop: '1px solid #f1f5f9', marginBottom: '12px' }}>
+                                            <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#9ca3af', marginBottom: '6px', textTransform: 'uppercase' }}>Assigned To</div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <div className="avatar-circle" style={{ width: '28px', height: '28px', fontSize: '0.7rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b' }}>
+                                                    {getInitials(getUserName(lead.rawOwner || lead.owner))}
+                                                </div>
+                                                <div style={{ lineHeight: 1.2 }}>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{getUserName(lead.rawOwner || lead.owner)}</div>
+                                                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{getTeamName(lead.team)}</div>
+                                                </div>
+                                            </div>
+                                        </div>
                                         <div style={{ display: 'flex', gap: '8px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
                                             <button className="btn-icon" style={{ flex: 1, padding: '6px', fontSize: '0.9rem', color: '#3b82f6', background: '#eff6ff', borderRadius: '6px', border: 'none', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); startCall({ name: lead.name, mobile: lead.mobile }, { purpose: 'Lead Follow-up', entityId: lead._id, entityType: 'lead' }); }}><i className="fas fa-phone-alt"></i></button>
                                             <button className="btn-icon" style={{ flex: 1, padding: '6px', fontSize: '0.9rem', color: '#64748b', background: '#f1f5f9', borderRadius: '6px', border: 'none', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onEdit(lead); }}><i className="fas fa-edit"></i></button>
@@ -959,10 +983,10 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         <div className="col-assignment">
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                                 <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
-                                                    {getInitials(c.owner || 'Admin')}
+                                                    {getInitials(getUserName(c.rawOwner || c.owner))}
                                                 </div>
                                                 <div style={{ lineHeight: 1.2 }}>
-                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{c.owner || 'Admin'}</div>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{getUserName(c.rawOwner || c.owner)}</div>
                                                     <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{getTeamName(c.team || c.assignment?.team)}</div>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px', fontSize: '0.6rem', color: '#94a3b8' }}>
                                                         <i className="far fa-clock" style={{ fontSize: '0.6rem' }}></i>
