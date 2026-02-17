@@ -213,17 +213,12 @@ export const teamsAPI = {
 };
 
 export default {
-    auth: authAPI,
     users: usersAPI,
     roles: rolesAPI,
     leads: leadsAPI,
     contacts: contactsAPI,
-    properties: propertiesAPI,
-    inventory: inventoryAPI,
-    companies: companiesAPI,
     projects: projectsAPI,
     teams: teamsAPI,
-    settings: settingsAPI,
     activities: activitiesAPI,
     lookups: lookupsAPI,
     customFields: customFieldsAPI,
@@ -231,5 +226,6 @@ export default {
     distributionRules: distributionRulesAPI,
     scoringRules: scoringRulesAPI,
     systemSettings: systemSettingsAPI,
+    settings: systemSettingsAPI, // Map settings to systemSettingsAPI for compatibility
     deals: dealsAPI
 };
