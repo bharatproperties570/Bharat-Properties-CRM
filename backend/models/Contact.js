@@ -97,8 +97,19 @@ const ContactSchema = new mongoose.Schema({
     }],
 
     documents: [{
-        documentName: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-        documentType: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+        documentCategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' }, // Added
+        documentName: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' }, // This is actually 'Type' based on front-end usage
+        documentType: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' }, // Keeping both to align with front-end 'type' vs 'name' confusion, or just use one.
+        // Wait, standardizing:
+        // documentCategory -> Lookup (Category)
+        // documentType -> Lookup (Type) - used as 'documentName' in some places? 
+        // Let's stick to the plan: documentCategory, documentType.
+        // Existing schema has documentName and documentType. I will add documentCategory.
+
+        documentCategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+        documentType: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' }, // Type (e.g. Aadhar)
+        documentName: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' }, // Legacy? Or same as type?
+
         documentNo: String,
         projectName: String,
         block: String,
