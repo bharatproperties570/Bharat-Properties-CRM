@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { companyData } from '../data/companyData';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { PROPERTY_CATEGORIES } from '../data/propertyData';
 import { INDIAN_ADDRESS_DATA } from '../data/locationData';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useUserContext } from '../context/UserContext';
@@ -38,11 +38,16 @@ const MultiSelect = ({ options, selected, onChange, placeholder = "Select..." })
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    const toggleOption = (option) => {
-        const newSelected = selected.includes(option)
-            ? selected.filter(item => item !== option)
-            : [...selected, option];
+    const toggleOption = (optionValue) => {
+        const newSelected = selected.includes(optionValue)
+            ? selected.filter(item => item !== optionValue)
+            : [...selected, optionValue];
         onChange(newSelected);
+    };
+
+    const getLabel = (value) => {
+        const option = options.find(o => (o.value || o) === value);
+        return option?.label || option || value;
     };
 
     return (
@@ -60,13 +65,13 @@ const MultiSelect = ({ options, selected, onChange, placeholder = "Select..." })
                 {selected.length === 0 ? (
                     <span style={{ color: '#94a3b8' }}>{placeholder}</span>
                 ) : (
-                    selected.map(item => (
-                        <span key={item} style={{ background: '#e0f2fe', color: '#0284c7', fontSize: '0.8rem', padding: '2px 8px', borderRadius: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            {item}
+                    selected.map(val => (
+                        <span key={val} style={{ background: '#e0f2fe', color: '#0284c7', fontSize: '0.8rem', padding: '2px 8px', borderRadius: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            {getLabel(val)}
                             <i
                                 className="fas fa-times"
                                 style={{ cursor: 'pointer', fontSize: '0.75rem' }}
-                                onClick={(e) => { e.stopPropagation(); toggleOption(item); }}
+                                onClick={(e) => { e.stopPropagation(); toggleOption(val); }}
                             ></i>
                         </span>
                     ))
@@ -74,24 +79,28 @@ const MultiSelect = ({ options, selected, onChange, placeholder = "Select..." })
             </div>
 
             {isOpen && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', zIndex: 50, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-                    {options.map(option => (
-                        <div
-                            key={option}
-                            onClick={() => toggleOption(option)}
-                            style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
-                            onMouseOver={(e) => e.currentTarget.style.background = '#f8fafc'}
-                            onMouseOut={(e) => e.currentTarget.style.background = '#fff'}
-                        >
-                            <input
-                                type="checkbox"
-                                checked={selected.includes(option)}
-                                readOnly
-                                style={{ width: '16px', height: '16px', accentColor: '#3b82f6', cursor: 'pointer' }}
-                            />
-                            <span style={{ fontSize: '0.9rem', color: '#334155' }}>{option}</span>
-                        </div>
-                    ))}
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', zIndex: 100, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+                    {options.map(option => {
+                        const val = option.value || option;
+                        const label = option.label || option;
+                        return (
+                            <div
+                                key={val}
+                                onClick={() => toggleOption(val)}
+                                style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                                onMouseOver={(e) => e.currentTarget.style.background = '#f8fafc'}
+                                onMouseOut={(e) => e.currentTarget.style.background = '#fff'}
+                            >
+                                <input
+                                    type="checkbox"
+                                    checked={selected.includes(val)}
+                                    readOnly
+                                    style={{ width: '16px', height: '16px', accentColor: '#3b82f6', cursor: 'pointer' }}
+                                />
+                                <span style={{ fontSize: '0.9rem', color: '#334155' }}>{label}</span>
+                            </div>
+                        );
+                    })}
                 </div>
             )}
         </div>
@@ -115,7 +124,7 @@ const DEFAULT_FORM_DATA = {
 
     // System Details (Multi-select)
     assign: [],
-    team: ['Sales'],
+    team: [],
 
     // Project Stats
     landArea: '',
@@ -204,15 +213,32 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
     // Real-time Duplicate Check
 
 
-    if (!companyData) {
-        console.error('companyData is undefined!');
-    }
+
 
     const projectMasterFieldsSafe = masterFieldsFromContext || {};
+    const [companies, setCompanies] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [hasPermission, setHasPermission] = useState(false);
     const [activeTab, setActiveTab] = useState(initialTab || 'Basic');
     const [currentTime, setCurrentTime] = useState(new Date());
+
+    // Fetch Companies
+    useEffect(() => {
+        const fetchCompanies = async () => {
+            try {
+                const response = await api.get('/companies?limit=500');
+                if (response.data && response.data.success) {
+                    setCompanies(response.data.records || response.data.data || []);
+                }
+            } catch (error) {
+                console.error("Failed to fetch companies:", error);
+                toast.error("Failed to load developers list");
+            }
+        };
+        if (isOpen) {
+            fetchCompanies();
+        }
+    }, [isOpen]);
 
     // Helper: Fetch Address from Lat/Lng
     const fetchAddressFromCoordinates = (lat, lng) => {
@@ -389,11 +415,86 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
     const canCreateProject = usePermission('create_project');
 
 
-    const categories = ['Residential', 'Commercial', 'Agricultural', 'Industrial', 'Institutional'];
-    const subCategories = ['Plot', 'House', 'Flat/Apartment', 'Builder Floor', 'Villa', 'Penthouse', 'SCO', 'Office Space', 'Shop'];
-    const teams = ['Sales', 'Marketing', 'Post Sales', 'Pre Sales', 'Finance', 'HR'];
-    const userOptions = contextUsers.map(u => u.name);
-    const developers = companyData.map(c => c.name).sort();
+    const categories = Object.keys(PROPERTY_CATEGORIES);
+
+    // Dynamic Subcategories based on selected Categories
+    const getSubCategories = () => {
+        if (!formData.category || formData.category.length === 0) return [];
+
+        let allSubCats = [];
+        formData.category.forEach(cat => {
+            if (PROPERTY_CATEGORIES[cat] && PROPERTY_CATEGORIES[cat].subCategories) {
+                const subNames = PROPERTY_CATEGORIES[cat].subCategories.map(sc => sc.name);
+                allSubCats = [...allSubCats, ...subNames];
+            }
+        });
+
+        return [...new Set(allSubCats)]; // Unique subcategories
+    };
+
+    const subCategories = getSubCategories();
+    // const categories = ['Residential', 'Commercial', 'Agricultural', 'Industrial', 'Institutional'];
+    // const subCategories = ['Plot', 'House', 'Flat/Apartment', 'Builder Floor', 'Villa', 'Penthouse', 'SCO', 'Office Space', 'Shop'];
+
+    // Fetch Teams from Context
+    const { teams: contextTeams } = useUserContext();
+    const teams = contextTeams.length > 0
+        ? contextTeams.map(t => ({ label: t.name, value: t._id || t.id }))
+        : [
+            { label: 'Sales', value: 'Sales' },
+            { label: 'Marketing', value: 'Marketing' },
+            { label: 'Post Sales', value: 'Post Sales' },
+            { label: 'Pre Sales', value: 'Pre Sales' },
+            { label: 'Finance', value: 'Finance' },
+            { label: 'HR', value: 'HR' }
+        ];
+
+    // usage: contextUsers comes from useUserContext
+    // formData.team is an array of selected team IDs
+    const userOptions = useMemo(() => {
+        if (!formData.team || formData.team.length === 0) {
+            return contextUsers.map(u => ({ label: u.fullName || u.name, value: u._id || u.id }));
+        }
+
+        const selectedTeamIds = formData.team;
+
+        const filteredUsers = contextUsers
+            .filter(u => {
+                const userTeamId = u.team?._id || u.team; // Handle object or string ID
+                if (!userTeamId) return false;
+                return selectedTeamIds.includes(userTeamId);
+            })
+            .map(u => ({ label: u.fullName || u.name, value: u._id || u.id }));
+
+        return filteredUsers;
+    }, [contextUsers, formData.team]);
+
+    // Filter Developers based on Type and Industry
+    const allowedCompanyTypes = ['LLP', 'Pvt Ltd', 'Public Ltd', 'Govt', 'Government', 'Partnership', 'Proprietorship', 'OPC', 'One Person Company', 'Private Limited', 'Govt Limited', 'Limited Liability Partnership'];
+    const getLookupValue = (field) => {
+        if (!field) return '';
+        if (typeof field === 'object' && field.lookup_value) return field.lookup_value;
+        if (typeof field === 'string') return field;
+        return String(field);
+    };
+
+    const developers = (Array.isArray(companies) ? companies : [])
+        .filter(c => {
+            const typeValue = getLookupValue(c.companyType || c.type || c.company_type);
+            const industryValue = getLookupValue(c.industry || c.category);
+
+            // Filter by "Private Ltd", "Public Ltd" and "Real Estate"
+            const typeMatch = [
+                'private ltd', 'pvt ltd', 'private limited',
+                'public ltd', 'public limited'
+            ].includes(typeValue.toLowerCase());
+            const industryMatch = industryValue.toLowerCase() === 'real estate';
+
+            return typeMatch && industryMatch;
+        })
+        .map(c => c.name)
+        .filter(Boolean)
+        .sort();
 
     // Cascading Address Logic handled by AddressDetailsForm
 

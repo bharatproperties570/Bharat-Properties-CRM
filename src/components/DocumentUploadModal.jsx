@@ -3,8 +3,18 @@ import { api } from '../utils/api';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { fetchLookup } from '../utils/fetchLookup'; // Ensure this utility exists or use api directly
 
-const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType = 'Contact', onUpdate }) => {
-    const { masterFields } = usePropertyConfig();
+const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, ownerType, ownerName, onUpdate }) => {
+
+    const { masterFields } = usePropertyConfig(); // Keep hooks at top level
+
+    // Use finalEntityId and finalEntityType instead of entityId/entityType in the rest of the component
+    // We need to replace usages of entityId with finalEntityId and entityType with finalEntityType
+    // But since I can't replace the whole file easily, I'll assign them to variables and use them.
+    // Actually, I should probably rename the props in the destructure to avoid conflict if I change the body.
+    // Let's use `entityId` as the internal name derived from props.
+
+    const activeEntityId = entityId || ownerId;
+    const activeEntityType = entityType || ownerType || 'Contact';
     const [documents, setDocuments] = useState([]);
     const [loading, setLoading] = useState(false);
     const [uploading, setUploading] = useState(false);
@@ -36,12 +46,12 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType = 'Contact'
     const [duplicateMessage, setDuplicateMessage] = useState('');
 
     useEffect(() => {
-        if (isOpen && entityId) {
+        if (isOpen && activeEntityId) {
             fetchDocuments();
             fetchCategories();
             fetchProjects();
         }
-    }, [isOpen, entityId]);
+    }, [isOpen, activeEntityId]);
 
     // Fetch Categories
     const fetchCategories = async () => {
@@ -128,13 +138,13 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType = 'Contact'
 
 
     const getEndpoint = () => {
-        return entityType.toLowerCase() === 'contact' ? 'contacts' : 'leads';
+        return activeEntityType.toLowerCase() === 'contact' ? 'contacts' : 'leads';
     };
 
     const fetchDocuments = async () => {
         setLoading(true);
         try {
-            const response = await api.get(`${getEndpoint()}/${entityId}`);
+            const response = await api.get(`${getEndpoint()}/${activeEntityId}`);
             if (response.data && response.data.success) {
                 setDocuments(response.data.data.documents || []);
             }
@@ -158,8 +168,8 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType = 'Contact'
                 const response = await api.post('duplication-rules/check-document', {
                     documentType: selectedType, // ID of lookup
                     documentNo: docNumber,
-                    excludeEntityId: entityId,
-                    entityType: entityType
+                    excludeEntityId: activeEntityId,
+                    entityType: activeEntityType
                 });
 
                 if (response.data && response.data.isDuplicate) {
@@ -179,7 +189,7 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType = 'Contact'
         }, 500);
 
         return () => clearTimeout(timer);
-    }, [selectedType, docNumber, entityId, entityType]);
+    }, [selectedType, docNumber, activeEntityId, activeEntityType]);
 
 
     const handleFileChange = (e) => {
@@ -239,7 +249,7 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType = 'Contact'
 
             const updatedDocuments = [...documents, newDocument];
 
-            const response = await api.patch(`${getEndpoint()}/${entityId}`, {
+            const response = await api.patch(`${getEndpoint()}/${activeEntityId}`, {
                 documents: updatedDocuments
             });
 
@@ -270,7 +280,7 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType = 'Contact'
 
         try {
             const updatedDocuments = documents.filter((_, i) => i !== index);
-            const response = await api.patch(`${getEndpoint()}/${entityId}`, {
+            const response = await api.patch(`${getEndpoint()}/${activeEntityId}`, {
                 documents: updatedDocuments
             });
 
@@ -302,7 +312,7 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType = 'Contact'
         <div style={overlayStyle}>
             <div style={modalStyle}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#1e293b' }}>Manage Documents</h3>
+                    <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#1e293b' }}>Manage Documents {ownerName ? <span style={{ fontSize: '1rem', color: '#64748b', fontWeight: 'normal' }}>for {ownerName}</span> : ''}</h3>
                     <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#64748b' }}>×</button>
                 </div>
 

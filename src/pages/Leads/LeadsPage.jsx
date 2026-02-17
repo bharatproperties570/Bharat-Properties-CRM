@@ -3,6 +3,7 @@ import PipelineDashboard from '../../components/PipelineDashboard';
 import { leadData } from '../../data/mockData';
 import { api } from '../../utils/api';
 import { getInitials } from '../../utils/helpers';
+import toast from 'react-hot-toast';
 import SendMessageModal from '../../components/SendMessageModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
 import AssignContactModal from '../../components/AssignContactModal';
@@ -114,14 +115,14 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const [activeMatchPopover, setActiveMatchPopover] = useState(null); // {leadName, x, y}
     const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
     const [selectedLeadForSequence, setSelectedLeadForSequence] = useState(null);
-    const [toast, setToast] = useState(null);
+    const [toastMessage, setToastMessage] = useState(null);
 
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
     const [documentModalData, setDocumentModalData] = useState(null);
 
     const showToast = (msg) => {
-        setToast(msg);
-        setTimeout(() => setToast(null), 3000);
+        setToastMessage(msg);
+        setTimeout(() => setToastMessage(null), 3000);
     };
 
     // Server-side Pagination & Search
@@ -1200,15 +1201,16 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     ownerId={documentModalData?.ownerId}
                     ownerType={documentModalData?.ownerType}
                     ownerName={documentModalData?.ownerName}
+                    onUpdate={() => setRefreshTrigger(prev => prev + 1)}
                 />
             )}
 
             {/* Toast Notification */}
             {
-                toast && (
+                toastMessage && (
                     <div style={{ position: 'fixed', bottom: '80px', left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', padding: '10px 24px', borderRadius: '12px', zIndex: 3000, boxShadow: '0 10px 25px rgba(0,0,0,0.2)', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <i className="fas fa-check-circle" style={{ color: '#10b981' }}></i>
-                        {toast}
+                        {toastMessage}
                     </div>
                 )
             }

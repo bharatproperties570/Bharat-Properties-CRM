@@ -455,7 +455,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     const { executeDistribution } = useDistribution(); // Get Distribution Engine
     const { evaluateAndEnroll } = useSequences();
     const { fireEvent } = useTriggers();
-    const { users } = useUserContext();
+    const { users, teams } = useUserContext();
     const [currentTab, setCurrentTab] = useState('requirement');
     const [showOnlyRequired, setShowOnlyRequired] = useState(false);
 
@@ -564,9 +564,15 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                     const grouped = fetchedProjects.reduce((acc, project) => {
                         const city = project.address?.city || 'Other';
                         if (!acc[city]) acc[city] = [];
+
+                        // Fix for crash: Ensure blocks are strings
+                        const safeBlocks = (project.blocks || []).map(b =>
+                            typeof b === 'object' ? (b.name || '') : b
+                        ).filter(Boolean);
+
                         acc[city].push({
                             ...project,
-                            towers: project.blocks || [] // Backend uses 'blocks', UI uses 'towers'
+                            towers: safeBlocks // Backend uses 'blocks', UI uses 'towers'
                         });
                         return acc;
                     }, {});
@@ -690,6 +696,42 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             }));
         }
     }, [contactData]);
+
+    // Auto-fill from initialData (Edit Mode)
+    useEffect(() => {
+        if (mode === 'edit' && initialData) {
+            setFormData(prev => ({
+                ...prev,
+                ...initialData,
+                title: initialData.title || prev.title,
+                name: initialData.firstName || initialData.name || '',
+                surname: initialData.lastName || initialData.surname || '',
+                phones: initialData.phones && initialData.phones.length > 0 ? initialData.phones : prev.phones,
+                emails: initialData.emails && initialData.emails.length > 0 ? initialData.emails : prev.emails,
+                team: initialData.team ? (initialData.team._id || initialData.team.id || initialData.team) : prev.team,
+                owner: initialData.owner ? (initialData.owner._id || initialData.owner.id || initialData.owner) : prev.owner,
+                visibleTo: initialData.visibleTo || prev.visibleTo,
+                requirement: initialData.requirement || prev.requirement,
+                propertyType: Array.isArray(initialData.propertyType) ? initialData.propertyType : (initialData.propertyType ? [initialData.propertyType] : prev.propertyType),
+                subType: Array.isArray(initialData.subType) ? initialData.subType : (initialData.subType ? [initialData.subType] : prev.subType),
+                unitType: Array.isArray(initialData.unitType) ? initialData.unitType : (initialData.unitType ? [initialData.unitType] : prev.unitType),
+                budgetMin: initialData.budgetMin || '',
+                budgetMax: initialData.budgetMax || '',
+                areaMin: initialData.areaMin || '',
+                areaMax: initialData.areaMax || '',
+                locCity: initialData.locCity || '',
+                locArea: initialData.locArea || '',
+                searchLocation: initialData.searchLocation || '',
+                description: initialData.description || '',
+                source: initialData.source || prev.source,
+                campaign: initialData.campaign || prev.campaign,
+            }));
+
+            if (initialData.contactDetails && typeof initialData.contactDetails === 'object') {
+                setSelectedContact(initialData.contactDetails);
+            }
+        }
+    }, [initialData, mode]);
 
     const handleInputChange = (field, value) => {
         setFormData(prev => ({
@@ -899,9 +941,15 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 }
             }
 
-            // Call Add Lead API (from origin/main)
+            // Call Add/Update Lead API
             try {
-                const response = await api.post("leads", leadPayload);
+                let response;
+                if (mode === 'edit' && initialData && (initialData._id || initialData.id)) {
+                    const leadId = initialData._id || initialData.id;
+                    response = await api.put(`leads/${leadId}`, leadPayload);
+                } else {
+                    response = await api.post("leads", leadPayload);
+                }
                 if (!response.data || !response.data.success) {
                     throw new Error("Failed to create lead: " + (response.data?.message || "Unknown error"));
                 }
@@ -1855,12 +1903,20 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Team</label>
                                         <select
                                             value={formData.team}
-                                            onChange={(e) => handleInputChange('team', e.target.value)}
+                                            onChange={(e) => {
+                                                const newTeam = e.target.value;
+                                                setFormData(prev => ({
+                                                    ...prev,
+                                                    team: newTeam,
+                                                    owner: '' // Reset owner when team changes
+                                                }));
+                                            }}
                                             style={customSelectStyle}
                                         >
                                             <option value="">Select Team</option>
-                                            <option value="Sales">Sales</option>
-                                            <option value="Marketing">Marketing</option>
+                                            {teams?.map(team => (
+                                                <option key={team._id} value={team._id}>{team.name}</option>
+                                            ))}
                                         </select>
                                     </div>
                                     <div>
@@ -1871,8 +1927,13 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             style={customSelectStyle}
                                         >
                                             <option value="">Select Owner</option>
-                                            <option value="Self">Self</option>
-                                            {/* Add more owners here or map from props */}
+                                            {/* Filter users based on selected team */}
+                                            {users
+                                                .filter(user => !formData.team || (user.team && user.team === formData.team) || (user.team?._id === formData.team))
+                                                .map(user => (
+                                                    <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
+                                                ))
+                                            }
                                         </select>
                                     </div>
                                     <div>

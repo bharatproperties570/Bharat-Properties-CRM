@@ -55,7 +55,6 @@ export const PropertyConfigProvider = ({ children }) => {
                             case 'master_fields': setMasterFields(setting.value); break;
                             case 'project_master_fields': setProjectMasterFields(setting.value); break;
                             case 'project_amenities': setProjectAmenities(setting.value); break;
-                            case 'company_master_fields': setCompanyMasterFields(setting.value); break;
                             case 'lead_master_fields': setLeadMasterFields(setting.value); break;
                             case 'scoring_attributes': setScoringAttributes(setting.value); break;
                             case 'scoring_config': setScoringConfig(setting.value); break;
@@ -70,9 +69,20 @@ export const PropertyConfigProvider = ({ children }) => {
                             case 'deal_scoring_rules': setDealScoringRules(setting.value); break;
                             case 'score_bands': setScoreBands(setting.value); break;
                             case 'activity_master_fields': setActivityMasterFields(setting.value); break;
+                            default: break;
                         }
                     });
                 }
+
+                // FETCH COMPANY LOOKUPS
+                const [cTypes, inds] = await Promise.all([
+                    lookupsAPI.getByCategory('CompanyType'),
+                    lookupsAPI.getByCategory('Industry')
+                ]);
+                setCompanyMasterFields({
+                    companyTypes: (cTypes && Array.isArray(cTypes.data)) ? cTypes.data : (Array.isArray(cTypes) ? cTypes : []),
+                    industries: (inds && Array.isArray(inds.data)) ? inds.data : (Array.isArray(inds) ? inds : [])
+                });
 
                 // FETCH REAL SIZES FROM LOOKUPS
                 await refreshSizes();
@@ -428,70 +438,50 @@ export const PropertyConfigProvider = ({ children }) => {
         });
     }, [setProjectAmenities]);
 
-    // Company Master Fields
-    const [companyMasterFields, setCompanyMasterFields] = useLocalStorage('companyMasterFields', {
-        companyTypes: [
-            'Private Limited', 'Public Limited', 'LLP', 'Sole Proprietorship', 'Partnership', 'One Person Company'
-        ],
-        industries: [
-            'Real Estate', 'Construction', 'Architecture', 'Interior Design', 'Legal', 'Finance', 'Consultancy'
-        ]
+    // Company Master Fields - Stores full Lookup objects
+    const [companyMasterFields, setCompanyMasterFields] = useState({
+        companyTypes: [],
+        industries: []
     });
 
-    const updateCompanyMasterFields = useCallback(async (field, newValues) => {
-        setCompanyMasterFields(prevFields => {
-            const oldValues = prevFields[field] || [];
-            const updated = { ...prevFields, [field]: newValues };
+    const updateCompanyMasterFields = useCallback(async (field, newItemValue) => {
+        const lookupTypeMap = {
+            companyTypes: 'CompanyType',
+            industries: 'Industry'
+        };
+        const lookupType = lookupTypeMap[field];
+        if (!lookupType) return;
 
-            // 1. Save to system_settings blob
-            systemSettingsAPI.upsert('company_master_fields', {
-                category: 'general',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save company master fields:', e));
-
-            // 2. Sync individual Lookups
-            // Only sync if field is companyTypes or industries
-            const lookupTypeMap = {
-                companyTypes: 'CompanyType',
-                industries: 'Industry'
-            };
-
-            const lookupType = lookupTypeMap[field];
-            if (lookupType) {
-                // Find added values
-                const added = newValues.filter(v => !oldValues.includes(v));
-                // Find removed values
-                const removed = oldValues.filter(v => !newValues.includes(v));
-
-                // Create added lookups
-                added.forEach(val => {
-                    lookupsAPI.create({
-                        lookup_type: lookupType,
-                        lookup_value: val,
-                        is_active: true
-                    }).catch(err => console.error(`Failed to create lookup for ${val}:`, err));
-                });
-
-                // Delete removed lookups (Note: This assumes lookup_value is unique for the type)
-                // In a production app, we'd fetch by value first or have a delete-by-value endpoint.
-                // Since our lookupsAPI.delete requires ID, we'll fetch first.
-                removed.forEach(async (val) => {
-                    try {
-                        const existing = await lookupsAPI.getByCategory(lookupType);
-                        const match = existing.find(l => l.lookup_value === val);
-                        if (match && match._id) {
-                            await lookupsAPI.delete(match._id);
-                        }
-                    } catch (err) {
-                        console.error(`Failed to delete lookup for ${val}:`, err);
-                    }
-                });
+        try {
+            const res = await lookupsAPI.create({
+                lookup_type: lookupType,
+                lookup_value: newItemValue,
+                is_active: true
+            });
+            if (res && res.data) {
+                setCompanyMasterFields(prev => ({
+                    ...prev,
+                    [field]: [...prev[field], res.data]
+                }));
             }
+        } catch (error) {
+            console.error(`Failed to add ${field} lookup:`, error);
+            throw error;
+        }
+    }, []);
 
-            return updated;
-        });
-    }, [setCompanyMasterFields]);
+    const deleteCompanyMasterField = useCallback(async (field, lookupId) => {
+        try {
+            await lookupsAPI.delete(lookupId);
+            setCompanyMasterFields(prev => ({
+                ...prev,
+                [field]: prev[field].filter(item => item._id !== lookupId)
+            }));
+        } catch (error) {
+            console.error(`Failed to delete ${field} lookup:`, error);
+            throw error;
+        }
+    }, []);
 
     // Lead & Campaign Master Fields
     const [leadMasterFields, setLeadMasterFields] = useLocalStorage('leadMasterFields', {
@@ -1033,6 +1023,35 @@ export const PropertyConfigProvider = ({ children }) => {
         updateProjectAmenities,
         companyMasterFields,
         updateCompanyMasterFields,
+        leadMasterFields,
+        updateLeadMasterFields,
+        scoringAttributes,
+        updateScoringAttributes,
+        scoringConfig,
+        updateScoringConfig,
+        behaviouralSignals,
+        updateBehaviouralSignals,
+        dealFitSignals,
+        updateDealFitSignals,
+        financialSignals,
+        updateFinancialSignals,
+        decayRules,
+        updateDecayRules,
+        aiSignals,
+        updateAiSignals,
+        sourceQualityScores,
+        updateSourceQualityScores,
+        inventoryFitScores,
+        updateInventoryFitScores,
+        stageMultipliers,
+        updateStageMultipliers,
+        dealScoringRules,
+        updateDealScoringRules,
+        scoreBands,
+        updateScoreBands,
+        companyMasterFields,
+        updateCompanyMasterFields,
+        deleteCompanyMasterField,
         leadMasterFields,
         updateLeadMasterFields,
         scoringAttributes,

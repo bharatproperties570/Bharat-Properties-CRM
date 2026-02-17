@@ -90,7 +90,7 @@ const ADDRESS_LABELS = {
 };
 
 function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
-    const { leadMasterFields } = usePropertyConfig();
+    const { leadMasterFields, companyMasterFields } = usePropertyConfig();
     const { users, teams } = useUserContext();
     const isEdit = !!initialData;
     const [currentTab, setCurrentTab] = useState('basic');
@@ -101,13 +101,15 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
     const [activeSiteIndex, setActiveSiteIndex] = useState(0);
 
     // Lookup States
+    // Note: companyTypes and industries are now pulled from companyMasterFields (Settings)
     const [lookupData, setLookupData] = useState({
-        companyTypes: [],
-        industries: [],
         sources: [],
         subSources: [],
+        categories: [],
         subCategories: [],
-        designations: []
+        designations: [],
+        companyTypes: [],
+        industries: []
     });
 
     // Employee Search States
@@ -157,9 +159,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 }
             };
 
-            const [types, industries, src, subSrc, subCats, desigs, profCats] = await Promise.all([
-                fetchLookup('CompanyType'),
-                fetchLookup('Industry'),
+            const [src, subSrc, subCats, desigs, profCats] = await Promise.all([
                 fetchLookup('Source'),
                 fetchLookup('SubSource'),
                 fetchLookup('ProfessionalSubCategory'),
@@ -167,15 +167,14 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 fetchLookup('ProfessionalCategory')
             ]);
 
-            setLookupData({
-                companyTypes: types,
-                industries: industries,
+            setLookupData(prev => ({
+                ...prev,
                 sources: src,
                 subSources: subSrc,
                 categories: profCats,
                 subCategories: subCats,
                 designations: desigs
-            });
+            }));
         };
 
         if (isOpen) loadLookups();
@@ -194,14 +193,18 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
         if (Object.keys(addr).length === 0) return { ...initialAddress };
 
         return {
-            ...initialAddress,
-            ...addr,
+            branchName: addr.branchName || '',
+            hNo: addr.hNo || '',
+            street: addr.street || '',
+            pinCode: addr.pinCode || '',
+            area: addr.area || '',
             city: getId(addr.city),
             state: getId(addr.state),
             tehsil: getId(addr.tehsil),
             postOffice: getId(addr.postOffice),
             location: getId(addr.location),
-            country: getId(addr.country)
+            country: getId(addr.country),
+            _id: addr._id // Preserve _id if exists
         };
     };
 
@@ -210,8 +213,8 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
         if (isEdit && isOpen && initialData) {
             setFormData({
                 name: initialData.name || '',
-                phones: initialData.phones?.length ? initialData.phones.map((p, i) => ({ ...p, id: p._id || i })) : [{ id: Date.now(), phoneCode: '+91', phoneNumber: '', type: 'Work' }],
-                emails: initialData.emails?.length ? initialData.emails.map((e, i) => ({ ...e, id: e._id || i })) : [{ id: Date.now() + 1, address: '', type: 'Work' }],
+                phones: Array.isArray(initialData.phones) && initialData.phones.length ? initialData.phones.map((p, i) => ({ ...p, id: p?._id || i })) : [{ id: Date.now(), phoneCode: '+91', phoneNumber: '', type: 'Work' }],
+                emails: Array.isArray(initialData.emails) && initialData.emails.length ? initialData.emails.map((e, i) => ({ ...e, id: e?._id || i })) : [{ id: Date.now() + 1, address: '', type: 'Work' }],
                 companyType: getId(initialData.companyType),
                 industry: getId(initialData.industry),
                 description: initialData.description || '',
@@ -305,7 +308,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
     };
 
     const handlePhoneChange = (index, field, value) => {
-        const newPhones = [...formData.phones];
+        const newPhones = [...(Array.isArray(formData?.phones) ? formData.phones : [])];
         newPhones[index][field] = value;
         setFormData({ ...formData, phones: newPhones });
     };
@@ -318,12 +321,12 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
     };
 
     const removePhone = (id) => {
-        const newPhones = formData.phones.filter(phone => phone.id !== id);
+        const newPhones = (Array.isArray(formData?.phones) ? formData.phones : []).filter(phone => phone?.id !== id);
         setFormData({ ...formData, phones: newPhones });
     };
 
     const handleEmailChange = (index, field, value) => {
-        const newEmails = [...formData.emails];
+        const newEmails = [...(Array.isArray(formData?.emails) ? formData.emails : [])];
         newEmails[index][field] = value;
         setFormData({ ...formData, emails: newEmails });
     };
@@ -336,7 +339,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
     };
 
     const removeEmail = (id) => {
-        const newEmails = formData.emails.filter(email => email.id !== id);
+        const newEmails = (Array.isArray(formData?.emails) ? formData.emails : []).filter(email => email?.id !== id);
         setFormData({ ...formData, emails: newEmails });
     };
 
@@ -472,23 +475,32 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
             // Prepare data for backend
             const payload = {
                 ...formData,
-                // Only send non-empty phones/emails and strip helper IDs
-                phones: formData.phones
-                    .filter(p => p.phoneNumber && p.phoneNumber.trim())
-                    .map(({ id, ...rest }) => rest),
-                emails: formData.emails
-                    .filter(e => e.address && e.address.trim())
-                    .map(({ id, ...rest }) => rest),
+                phones: (Array.isArray(formData?.phones) ? formData.phones : [])
+                    .filter(p => p?.phoneNumber && p.phoneNumber.trim())
+                    .map(p => ({
+                        _id: p?._id, // Preserve _id if exists in the object (not the 'id' helper)
+                        phoneCode: p?.phoneCode,
+                        phoneNumber: p?.phoneNumber,
+                        type: p?.type
+                    })),
+                emails: (Array.isArray(formData?.emails) ? formData.emails : [])
+                    .filter(e => e?.address && e.address.trim())
+                    .map(e => ({
+                        _id: e?._id,
+                        address: e?.address,
+                        type: e?.type
+                    })),
                 // Map employees to IDs safely
-                employees: formData.employees.map(emp => {
+                employees: (Array.isArray(formData?.employees) ? formData.employees : []).map(emp => {
                     if (typeof emp === 'string') return emp;
-                    return emp._id || emp.id;
+                    return emp?._id || emp?.id;
                 }).filter(Boolean)
             };
 
             let response;
-            if (isEdit && initialData._id) {
-                response = await api.put(`/companies/${initialData._id}`, payload);
+            const companyId = initialData?._id || initialData?.id;
+            if (isEdit && companyId) {
+                response = await api.put(`/companies/${companyId}`, payload);
             } else {
                 response = await api.post('/companies', payload);
             }
@@ -502,7 +514,8 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
             }
         } catch (error) {
             console.error("Save Error:", error);
-            toast.error(error.message || "Failed to save company", { id: toastId });
+            const errorMsg = error.response?.data?.error || error.message || "Failed to save company";
+            toast.error(errorMsg, { id: toastId });
         }
     };
 
@@ -566,7 +579,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
 
                 {!showOnlyRequired && (
                     <>
-                        {formData.phones.map((phone, idx) => (
+                        {(Array.isArray(formData.phones) ? formData.phones : []).map((phone, idx) => (
                             <div key={phone.id || idx} style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 1fr) 2fr 1fr 42px', gap: '12px', marginBottom: '16px', alignItems: 'end' }}>
                                 <div>
                                     {idx === 0 && <label style={labelStyle}>Country</label>}
@@ -601,7 +614,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                             </div>
                         ))}
 
-                        {formData.emails.map((email, idx) => (
+                        {(Array.isArray(formData.emails) ? formData.emails : []).map((email, idx) => (
                             <div key={email.id || idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 42px', gap: '12px', marginBottom: '16px', alignItems: 'end' }}>
                                 <div>
                                     {idx === 0 && <label style={labelStyle}>Email Address</label>}
@@ -634,14 +647,18 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                                 <label style={labelStyle}>Company Type</label>
                                 <select style={customSelectStyle} value={formData.companyType} onChange={(e) => handleInputChange('companyType', e.target.value)}>
                                     <option value="">---Select Type---</option>
-                                    {lookupData.companyTypes.map(t => <option key={t._id} value={t._id}>{t.lookup_value}</option>)}
+                                    {(Array.isArray(companyMasterFields?.companyTypes) ? companyMasterFields.companyTypes : []).map(t => (
+                                        <option key={t._id} value={t._id}>{t.lookup_value}</option>
+                                    ))}
                                 </select>
                             </div>
                             <div>
                                 <label style={labelStyle}>Industry</label>
                                 <select style={customSelectStyle} value={formData.industry} onChange={(e) => handleInputChange('industry', e.target.value)}>
                                     <option value="">---Choose Industry---</option>
-                                    {lookupData.industries.map(i => <option key={i._id} value={i._id}>{i.lookup_value}</option>)}
+                                    {(Array.isArray(companyMasterFields?.industries) ? companyMasterFields.industries : []).map(i => (
+                                        <option key={i._id} value={i._id}>{i.lookup_value}</option>
+                                    ))}
                                 </select>
                             </div>
                         </div>
@@ -677,7 +694,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                             onChange={(e) => handleInputChange('source', e.target.value)}
                         >
                             <option value="">Select Source</option>
-                            {lookupData.sources.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
+                            {(lookupData?.sources || []).map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
                         </select>
                     </div>
 
@@ -689,7 +706,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                             onChange={(e) => handleInputChange('subSource', e.target.value)}
                         >
                             <option value="">Select Sub Source</option>
-                            {lookupData.subSources.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
+                            {(lookupData?.subSources || []).map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
                         </select>
                     </div>
                 </div>
@@ -702,12 +719,23 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
                     <div>
                         <label style={labelStyle}>Team</label>
-                        <select style={customSelectStyle} value={formData.team} onChange={(e) => handleInputChange('team', e.target.value)}>
+                        <select
+                            style={customSelectStyle}
+                            value={formData.team}
+                            onChange={(e) => {
+                                const newTeam = e.target.value;
+                                setFormData(prev => ({
+                                    ...prev,
+                                    team: newTeam,
+                                    owner: '' // Reset owner when team changes
+                                }));
+                            }}
+                        >
                             <option value="">Select Team</option>
-                            {teams && teams.length > 0 ? (
-                                teams.map(t => <option key={t._id || t.id} value={t.name}>{t.name}</option>)
+                            {Array.isArray(teams) && teams.length > 0 ? (
+                                teams.map(t => <option key={t._id || t.id} value={t._id || t.id}>{t.name}</option>)
                             ) : (
-                                TEAMS.map(t => <option key={t} value={t}>{t}</option>)
+                                (Array.isArray(TEAMS) ? TEAMS : []).map(t => <option key={t} value={t}>{t}</option>)
                             )}
                         </select>
                     </div>
@@ -716,9 +744,12 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                         <label style={labelStyle}>Assign</label>
                         <select style={customSelectStyle} value={formData.owner} onChange={(e) => handleInputChange('owner', e.target.value)}>
                             <option value="">Select Owner</option>
-                            {users.map(user => (
-                                <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
-                            ))}
+                            {(users || [])
+                                .filter(user => !formData.team || (user.team && user.team === formData.team) || (user.team?._id === formData.team))
+                                .map(user => (
+                                    <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
+                                ))
+                            }
                         </select>
                     </div>
 
@@ -762,7 +793,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
 
             {(currentAddressType === 'branchOffice' || currentAddressType === 'siteOffice') && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', padding: '12px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                    {formData.addresses[currentAddressType].map((item, idx) => {
+                    {(Array.isArray(formData?.addresses?.[currentAddressType]) ? formData.addresses[currentAddressType] : []).map((item, idx) => {
                         const isActive = (currentAddressType === 'branchOffice' ? activeBranchIndex : activeSiteIndex) === idx;
                         return (
                             <div key={idx} style={{ display: 'flex', alignItems: 'center' }}>
@@ -909,7 +940,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
 
                     {showSearchResults && filteredContacts.length > 0 && (
                         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', marginTop: '8px', zIndex: 100, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', maxHeight: '300px', overflowY: 'auto' }}>
-                            {filteredContacts.map(contact => (
+                            {(Array.isArray(filteredContacts) ? filteredContacts : []).map(contact => (
                                 <div
                                     key={contact.mobile}
                                     onClick={() => {
@@ -965,7 +996,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                                     onChange={(e) => setLinkData(prev => ({ ...prev, category: e.target.value }))}
                                 >
                                     <option value="">Select Category</option>
-                                    {lookupData.categories.map(cat => <option key={cat._id} value={cat.lookup_value}>{cat.lookup_value}</option>)}
+                                    {(Array.isArray(lookupData.categories) ? lookupData.categories : []).map(cat => <option key={cat._id} value={cat.lookup_value}>{cat.lookup_value}</option>)}
                                 </select>
                             </div>
                             <div>
@@ -976,7 +1007,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                                     onChange={(e) => setLinkData(prev => ({ ...prev, subCategory: e.target.value }))}
                                 >
                                     <option value="">Select Sub-Category</option>
-                                    {lookupData.subCategories.map(cat => <option key={cat._id} value={cat.lookup_value}>{cat.lookup_value}</option>)}
+                                    {(Array.isArray(lookupData.subCategories) ? lookupData.subCategories : []).map(cat => <option key={cat._id} value={cat.lookup_value}>{cat.lookup_value}</option>)}
                                 </select>
                             </div>
                             <div>
@@ -987,7 +1018,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                                     onChange={(e) => setLinkData(prev => ({ ...prev, designation: e.target.value }))}
                                 >
                                     <option value="">Select Designation</option>
-                                    {lookupData.designations.map(des => <option key={des._id} value={des.lookup_value}>{des.lookup_value}</option>)}
+                                    {(Array.isArray(lookupData.designations) ? lookupData.designations : []).map(des => <option key={des._id} value={des.lookup_value}>{des.lookup_value}</option>)}
                                 </select>
                             </div>
                         </div>
@@ -1035,7 +1066,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                     </div>
                 ) : (
                     <div style={{ padding: '12px' }}>
-                        {formData.employees.map(emp => (
+                        {(Array.isArray(formData.employees) ? formData.employees : []).map(emp => (
                             <div key={emp.mobile} style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '16px', borderRadius: '14px', border: '1px solid #f1f5f9', marginBottom: '12px', transition: 'all 0.2s' }} className="hover-shadow-sm">
                                 <div style={{ width: '44px', height: '44px', background: '#ecfdf5', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#059669' }}>
                                     {emp.name.charAt(4)}

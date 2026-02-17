@@ -28,7 +28,7 @@ const getYouTubeThumbnail = (url) => {
 const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = null, property = null }) => {
     // 1. Get projects from PropertyConfigContext
     const { projects: allProjects, masterFields = {}, propertyConfig, sizes } = usePropertyConfig();
-    const { users } = useUserContext();
+    const { users, teams } = useUserContext();
     const { profileConfig = {} } = useContactConfig();
     const { validateAsync } = useFieldRules();
     const { fireEvent } = useTriggers();
@@ -152,7 +152,7 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                 try {
                     const response = await api.post('duplication-rules/check', {
                         entityType: 'Inventory',
-                        data: formData
+                        data: { ...formData, project: formData.projectName } // Ensure 'project' matches rule field
                     });
                     if (response.data && response.data.success) {
                         setDuplicateWarning(response.data.data.length > 0);
@@ -1203,11 +1203,19 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                         <select
                             style={customSelectStyle}
                             value={formData.team}
-                            onChange={e => handleInputChange('team', e.target.value)}
+                            onChange={e => {
+                                const newTeam = e.target.value;
+                                setFormData(prev => ({
+                                    ...prev,
+                                    team: newTeam,
+                                    assignedTo: '' // Reset assigned user when team changes
+                                }));
+                            }}
                         >
                             <option value="">Select Team</option>
-                            <option value="Sales">Sales</option>
-                            <option value="Marketing">Marketing</option>
+                            {teams?.map(team => (
+                                <option key={team._id} value={team._id}>{team.name}</option>
+                            ))}
                         </select>
                     </div>
                     <div>
@@ -1218,9 +1226,12 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                             onChange={e => handleInputChange('assignedTo', e.target.value)}
                         >
                             <option value="">Select Salesperson</option>
-                            {users.map(user => (
-                                <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
-                            ))}
+                            {users
+                                .filter(user => !formData.team || (user.team && user.team === formData.team) || (user.team?._id === formData.team))
+                                .map(user => (
+                                    <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
+                                ))
+                            }
                         </select>
                     </div>
                     <div>

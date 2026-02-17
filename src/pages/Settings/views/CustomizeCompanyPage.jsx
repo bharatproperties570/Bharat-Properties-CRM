@@ -3,7 +3,7 @@ import Toast from '../../../components/Toast';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 
 const CustomizeCompanyPage = () => {
-    const { companyMasterFields, updateCompanyMasterFields } = usePropertyConfig();
+    const { companyMasterFields, updateCompanyMasterFields, deleteCompanyMasterField } = usePropertyConfig();
 
     const [activeTab, setActiveTab] = useState('Configuration');
     // Default to 'companyTypes' if available, otherwise first key
@@ -12,9 +12,14 @@ const CustomizeCompanyPage = () => {
     // Ensure activeDetailField is valid on init if companyTypes is missing (unlikely given context)
     React.useEffect(() => {
         if (companyMasterFields && !companyMasterFields[activeDetailField]) {
-            setActiveDetailField(Object.keys(companyMasterFields)[0] || '');
+            const keys = Object.keys(companyMasterFields);
+            if (keys.length > 0 && keys.includes('companyTypes')) {
+                setActiveDetailField('companyTypes');
+            } else if (keys.length > 0) {
+                setActiveDetailField(keys[0]);
+            }
         }
-    }, [companyMasterFields]);
+    }, [companyMasterFields, activeDetailField]);
 
     const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
 
@@ -30,9 +35,13 @@ const CustomizeCompanyPage = () => {
     const handleSaveNewItem = () => {
         if (!newItemValue.trim()) return;
 
-        const currentList = companyMasterFields[activeDetailField] || [];
-        if (!currentList.includes(newItemValue.trim())) {
-            updateCompanyMasterFields(activeDetailField, [...currentList, newItemValue.trim()]);
+        const currentList = Array.isArray(companyMasterFields[activeDetailField]) ? companyMasterFields[activeDetailField] : [];
+        const exists = currentList.some(item =>
+            (typeof item === 'object' ? item.lookup_value : item).toLowerCase() === newItemValue.trim().toLowerCase()
+        );
+
+        if (!exists) {
+            updateCompanyMasterFields(activeDetailField, newItemValue.trim());
             showToast(`'${newItemValue}' added to ${activeDetailField}`);
             setNewItemValue('');
             setShowAddItemForm(false);
@@ -42,10 +51,14 @@ const CustomizeCompanyPage = () => {
     };
 
     const handleDeleteItem = (item) => {
-        if (confirm(`Remove '${item}'?`)) {
-            const currentList = companyMasterFields[activeDetailField];
-            updateCompanyMasterFields(activeDetailField, currentList.filter(i => i !== item));
-            showToast(`'${item}' removed`);
+        const displayValue = typeof item === 'object' ? item.lookup_value : item;
+        if (confirm(`Remove '${displayValue}'?`)) {
+            if (typeof item === 'object' && item._id) {
+                deleteCompanyMasterField(activeDetailField, item._id);
+            } else {
+                console.warn("Attempting to delete legacy string field:", item);
+            }
+            showToast(`'${displayValue}' removed`);
         }
     };
 
@@ -155,18 +168,22 @@ const CustomizeCompanyPage = () => {
                                     )}
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
-                                    {(companyMasterFields[activeDetailField] || []).map(item => (
-                                        <div key={item} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem', color: '#334155' }}>
-                                            <span>{item}</span>
-                                            <button
-                                                onClick={() => handleDeleteItem(item)}
-                                                style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
-                                            >
-                                                <i className="fas fa-times"></i>
-                                            </button>
-                                        </div>
-                                    ))}
-                                    {(!companyMasterFields[activeDetailField] || companyMasterFields[activeDetailField].length === 0) && (
+                                    {(Array.isArray(companyMasterFields[activeDetailField]) ? companyMasterFields[activeDetailField] : []).map((item, idx) => {
+                                        const displayValue = typeof item === 'object' ? item.lookup_value : item;
+                                        const key = typeof item === 'object' ? item._id : `${displayValue}-${idx}`;
+                                        return (
+                                            <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem', color: '#334155' }}>
+                                                <span>{displayValue}</span>
+                                                <button
+                                                    onClick={() => handleDeleteItem(item)}
+                                                    style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
+                                                >
+                                                    <i className="fas fa-times"></i>
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                    {(!Array.isArray(companyMasterFields[activeDetailField]) || companyMasterFields[activeDetailField].length === 0) && (
                                         <div style={{ gridColumn: '1/-1', padding: '32px', textAlign: 'center', color: '#94a3b8', border: '2px dashed #e2e8f0', borderRadius: '8px' }}>
                                             No items found. Add one to get started.
                                         </div>

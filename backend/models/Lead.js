@@ -45,6 +45,7 @@ const LeadSchema = new mongoose.Schema({
     searchLocation: { type: String },
 
     documents: [{
+        documentCategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' }, // Added for hierarchy
         documentName: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         documentType: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         documentNo: String,

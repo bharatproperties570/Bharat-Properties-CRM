@@ -112,12 +112,15 @@ const DealSettingsPage = () => {
             }
 
             // 2. Fetch Collector Rates
+            console.log("Fetching Collector Rates...");
             const rateParams = new URLSearchParams({
                 page: collectorPagination.page,
                 limit: collectorPagination.limit,
                 search: collectorSearch
             });
             const ratesRes = await api.get(`/collector-rates?${rateParams.toString()}`);
+            console.log("Collector Rates Response:", ratesRes);
+
             if (ratesRes.data?.status === 'success') {
                 const result = ratesRes.data.data;
                 setCollectorRates(result.docs || []);
@@ -126,11 +129,15 @@ const DealSettingsPage = () => {
                     totalPages: result.totalPages || 1,
                     totalDocs: result.totalDocs || 0
                 }));
+            } else {
+                console.error("Collector Rates API failed:", ratesRes);
+                toast.error("Failed to load Collector Rates: " + (ratesRes.data?.message || "Unknown error"));
             }
 
         } catch (error) {
-            console.error(error);
-            toast.error("Failed to load settings");
+            console.error("DealSettingsPage Error:", error);
+            console.error("Error Details:", error.response || error.message);
+            toast.error("Failed to load settings: " + (error.response?.data?.message || error.message));
         } finally {
             setLoading(false);
         }

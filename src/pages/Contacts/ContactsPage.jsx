@@ -1999,6 +1999,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
           ownerId={documentModalData?.ownerId}
           ownerType={documentModalData?.ownerType}
           ownerName={documentModalData?.ownerName}
+          onUpdate={() => setRefreshTrigger(prev => prev + 1)}
         />
       )}
     </section >

@@ -521,6 +521,11 @@ function CompanyPage({ onEdit, onNavigate }) {
                                     {/* Category / Industry */}
                                     <div style={{ fontSize: '0.75rem', color: '#64748b', lineHeight: 1.3 }}>
                                         {renderLookup(company.industry)}
+                                        {company.companyType && (
+                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '1px' }}>
+                                                {renderLookup(company.companyType)}
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Source */}
