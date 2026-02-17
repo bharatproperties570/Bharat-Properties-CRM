@@ -1,7 +1,7 @@
 // API Configuration
 import axios from 'axios';
 
-export const API_BASE_URL = '/api';
+export const API_BASE_URL = 'https://api.bharatproperties.co/api/';
 
 // Create and export axios instance
 export const api = axios.create({
