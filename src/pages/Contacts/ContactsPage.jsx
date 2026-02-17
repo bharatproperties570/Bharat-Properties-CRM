@@ -64,7 +64,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const [isSendMailOpen, setIsSendMailOpen] = useState(false);
   const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
   const [contactForLead, setContactForLead] = useState(null);
-  const { teams } = useUserContext();
+  const { teams, users } = useUserContext();
 
   // Debounce search term
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
@@ -122,6 +122,15 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
     const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
     return found ? (found.name || found.lookup_value) : teamValue;
   }, [teams]);
+
+  const getUserName = useCallback((userValue) => {
+    if (!userValue) return "Admin";
+    if (typeof userValue === 'object') {
+      return userValue.name || userValue.lookup_value || "Admin";
+    }
+    const found = users.find(u => (u._id === userValue) || (u.id === userValue));
+    return found ? (found.name || found.displayName || found.username) : userValue;
+  }, [users]);
   console.log(contacts);
 
   // ==============delete contact======================
@@ -1179,11 +1188,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 color: "#64748b",
                               }}
                             >
-                              {getInitials(
-                                typeof (item?.owner || item?.ownership) === 'object'
-                                  ? (item?.owner?.name || item?.ownership?.lookup_value || "Admin")
-                                  : (item?.owner || item?.ownership || "Admin")
-                              )}
+                              {getInitials(getUserName(item?.owner || item?.ownership))}
                             </div>
                             <div style={{ lineHeight: 1.2 }}>
                               <div
@@ -1193,9 +1198,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                   color: "#0f172a",
                                 }}
                               >
-                                {typeof (item?.owner || item?.ownership) === 'object'
-                                  ? (item?.owner?.name || item?.ownership?.lookup_value || "Admin")
-                                  : (item?.owner || item?.ownership || "Admin")}
+                                {getUserName(item?.owner || item?.ownership)}
                               </div>
                               <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
                                 {getTeamName(item?.team || item?.assignment?.team)}
@@ -1771,7 +1774,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                               flexShrink: 0,
                             }}
                           >
-                            {(item?.ownership || "Admin").charAt(0)}
+                            {getInitials(getUserName(item?.owner || item?.ownership))}
                           </div>
                           <div style={{ minWidth: 0 }}>
                             <div
@@ -1784,7 +1787,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 whiteSpace: "nowrap",
                               }}
                             >
-                              {item?.ownership || "Admin"}
+                              {getUserName(item?.owner || item?.ownership)}
+                            </div>
+                            <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
+                              {getTeamName(item?.team || item?.assignment?.team)}
                             </div>
                             <div
                               style={{
