@@ -126,7 +126,18 @@ export const importLookups = async (req, res) => {
                 message: `Imported ${realSuccessCount} lookups. ${error.writeErrors.length} failed.`,
                 successCount: realSuccessCount,
                 errorCount: error.writeErrors.length,
-                errors: error.writeErrors.map(e => ({ item: e.errmsg, error: "Duplicate or Validation Error" }))
+                errors: [
+                    ...results.errors.map(e => ({
+                        row: 'Pre-process',
+                        name: e.item,
+                        reason: e.error
+                    })),
+                    ...error.writeErrors.map(e => ({
+                        row: e.index + 1,
+                        name: req.body.data[e.index]?.label || req.body.data[e.index]?.lookup_value || 'Unknown',
+                        reason: e.errmsg?.includes('duplicate key') ? 'Duplicate Value' : e.errmsg
+                    }))
+                ]
             });
         }
         res.status(500).json({ success: false, error: error.message });

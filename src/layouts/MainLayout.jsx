@@ -149,6 +149,7 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                     isOpen={showAddContactModal}
                     onClose={() => setShowAddContactModal(false)}
                     initialData={editingContact}
+                    mode={editingContact ? "edit" : "add"}
                     entityType={modalEntityType}
                     onAdd={() => setShowAddContactModal(false)}
                 />

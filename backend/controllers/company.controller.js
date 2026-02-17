@@ -138,6 +138,23 @@ export const deleteCompany = async (req, res, next) => {
     }
 };
 
+export const bulkDeleteCompanies = async (req, res, next) => {
+    try {
+        const { ids } = req.body;
+        if (!ids || !Array.isArray(ids)) {
+            return res.status(400).json({ success: false, message: "Invalid IDs provided" });
+        }
+
+        const result = await Company.deleteMany({ _id: { $in: ids } });
+        res.status(200).json({
+            success: true,
+            message: `Successfully deleted ${result.deletedCount} companies.`
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 /**
  * @desc    Bulk import companies
  * @route   POST /companies/import
@@ -150,56 +167,108 @@ export const importCompanies = async (req, res, next) => {
             return res.status(400).json({ success: false, message: "Invalid data provided" });
         }
 
-        const restructuredData = data.map(item => {
-            if (!item.name) {
-                throw new Error("Company Name is required");
-            }
+        const restructuredData = [];
+        const errorDetails = [];
 
-            return {
-                name: item.name,
-                phones: item.phone ? [{ phoneNumber: item.phone, type: 'Work' }] : [],
-                emails: item.email ? [{ address: item.email, type: 'Work' }] : [],
-                companyType: item.type,
-                industry: item.industry,
-                description: item.description,
-                gstNumber: item.gstNumber,
-                campaign: item.campaign,
-                source: item.source,
-                subSource: item.subSource,
-                team: item.team || 'Sales',
-                owner: item.owner,
-                visibleTo: item.visibleTo || 'Everyone',
-                addresses: {
-                    registeredOffice: {
-                        hNo: item.reg_hNo,
-                        street: item.reg_street,
-                        city: item.reg_city,
-                        state: item.reg_state,
-                        country: item.reg_country,
-                        pinCode: item.reg_pinCode
-                    }
+        data.forEach((item, index) => {
+            try {
+                if (!item.name || !item.name.trim()) {
+                    errorDetails.push({
+                        row: index + 1,
+                        name: 'N/A',
+                        reason: "Company Name is required"
+                    });
+                    return;
                 }
-            };
+
+                const rawCompany = {
+                    name: item.name.trim(),
+                    phones: item.phone ? [{ phoneNumber: item.phone, type: 'Work' }] : [],
+                    emails: item.email ? [{ address: item.email, type: 'Work' }] : [],
+                    companyType: item.type,
+                    industry: item.industry,
+                    description: item.description,
+                    gstNumber: item.gstNumber,
+                    campaign: item.campaign,
+                    source: item.source,
+                    subSource: item.subSource,
+                    team: item.team || 'Sales',
+                    owner: item.owner,
+                    visibleTo: item.visibleTo || 'Everyone',
+                    addresses: {
+                        registeredOffice: {
+                            hNo: item.reg_hNo,
+                            street: item.reg_street,
+                            city: item.reg_city,
+                            state: item.reg_state,
+                            country: item.reg_country,
+                            pinCode: item.reg_pinCode
+                        }
+                    }
+                };
+
+                restructuredData.push(sanitizeData(rawCompany));
+            } catch (err) {
+                errorDetails.push({
+                    row: index + 1,
+                    name: item.name || 'Unknown',
+                    reason: err.message || "Data processing error"
+                });
+            }
         });
 
-        await Company.insertMany(restructuredData, { ordered: false });
+        let successCount = 0;
+        let failedCount = errorDetails.length;
+
+        if (restructuredData.length > 0) {
+            try {
+                const result = await Company.insertMany(restructuredData, { ordered: false, rawResult: true });
+                successCount = result.insertedCount || 0;
+            } catch (error) {
+                if (error.writeErrors) {
+                    successCount = (restructuredData.length) - error.writeErrors.length;
+                    failedCount += error.writeErrors.length;
+                    error.writeErrors.forEach(e => {
+                        errorDetails.push({
+                            row: (e.index !== undefined) ? e.index + 1 : 'N/A',
+                            name: (restructuredData[e.index]?.name || 'Unknown'),
+                            reason: e.errmsg?.includes('duplicate key') ? 'Duplicate company name' : (e.errmsg || 'Check data formats')
+                        });
+                    });
+                } else if (error.name === 'ValidationError') {
+                    failedCount += Object.keys(error.errors).length;
+                    Object.values(error.errors).forEach(err => {
+                        errorDetails.push({
+                            row: 'Validation',
+                            name: 'Bulk Validation',
+                            reason: err.message
+                        });
+                    });
+                } else {
+                    throw error;
+                }
+            }
+        }
 
         res.status(200).json({
             success: true,
-            message: `Successfully imported ${restructuredData.length} companies.`
+            message: `Processed import. Success: ${successCount}, Failed: ${failedCount}`,
+            successCount,
+            errorCount: failedCount,
+            errors: errorDetails
         });
     } catch (error) {
-        if (error.writeErrors) {
-            const realSuccessCount = req.body.data.length - error.writeErrors.length;
-            return res.status(200).json({
-                success: true,
-                message: `Imported ${realSuccessCount} companies. ${error.writeErrors.length} failed.`,
-                successCount: realSuccessCount,
-                errorCount: error.writeErrors.length,
-                errors: error.writeErrors.map(e => ({ item: e.errmsg, error: "Duplicate or Validation Error" }))
-            });
-        }
-        next(error);
+        console.error("Critical Import error (Companies):", error);
+        res.status(500).json({
+            success: false,
+            message: "An internal server error occurred during company import.",
+            errorCount: 1,
+            errors: [{
+                row: 'System',
+                name: 'Critical Error',
+                reason: error.message || "Something went wrong while processing the CSV data."
+            }]
+        });
     }
 };
 

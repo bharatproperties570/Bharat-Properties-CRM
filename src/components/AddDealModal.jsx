@@ -12,7 +12,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
     const { validateAsync } = useFieldRules();
     const { fireEvent } = useTriggers();
     const { executeDistribution } = useDistribution();
-    const { users } = useUserContext();
+    const { users, teams } = useUserContext();
     const evaluateAndEnroll = useSequences()?.evaluateAndEnroll || (() => { });
 
 
@@ -582,6 +582,38 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
                             </div>
                         </div>
 
+                        {/* Unit Owner Information Strip */}
+                        {formData.unitNo && units.find(u => (u.unitNo === formData.unitNo || u.unitNumber === formData.unitNo)) && (
+                            <div style={{ background: '#f0fdf4', borderLeft: '4px solid #10b981', padding: '16px 20px', borderRadius: '8px', marginTop: '20px', display: 'flex', gap: '32px', animation: 'fadeIn 0.3s ease-in-out', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                                {(() => {
+                                    const unit = units.find(u => (u.unitNo === formData.unitNo || u.unitNumber === formData.unitNo));
+                                    const owner = unit.owners?.[0];
+                                    if (!owner) return <div style={{ color: '#64748b', fontSize: '0.85rem' }}>No owner information found in inventory.</div>;
+
+                                    const name = owner.name || 'N/A';
+                                    const fatherName = owner.fatherName || owner.guardian || 'N/A';
+                                    const address = owner.personalAddress || owner.address?.locality || owner.address?.city || 'N/A';
+
+                                    return (
+                                        <>
+                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#10b981', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>Current Owner</span>
+                                                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>{name}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#10b981', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>Father's Name</span>
+                                                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>{fatherName}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                                                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#10b981', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>Full Address</span>
+                                                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569', lineHeight: 1.4 }}>{address}</span>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
+                            </div>
+                        )}
+
                         {/* Owner & Associate Details (Read-only with Selection) */}
                         {formData.unitNo && (
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #f1f5f9' }}>
@@ -894,49 +926,63 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
                     </div>
 
                     <div style={sectionStyle}>
-                        <h4 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 700 }}>System Assignment & Visibility</h4>
+                        <h4 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 700 }}>System Assignment</h4>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
                             <div>
-                                <label style={labelStyle}>Assigned Agent (Auto)</label>
-                                <label style={labelStyle}>Assigned Agent</label>
+                                <label style={labelStyle}>Team</label>
+                                <select
+                                    style={selectStyle}
+                                    value={formData.team}
+                                    onChange={e => {
+                                        const newTeam = e.target.value;
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            team: newTeam,
+                                            assignedTo: '' // Reset assigned agent when team changes
+                                        }));
+                                    }}
+                                >
+                                    <option value="">Select Team</option>
+                                    {teams?.map(team => (
+                                        <option key={team._id} value={team._id}>{team.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Assign</label>
                                 <select
                                     style={selectStyle}
                                     value={formData.assignedTo}
                                     onChange={e => handleInputChange('assignedTo', e.target.value)}
                                 >
                                     <option value="">Select Agent</option>
-                                    {users.map(user => (
-                                        <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
-                                    ))}
+                                    {users
+                                        .filter(user => !formData.team || (user.team && user.team === formData.team) || (user.team?._id === formData.team))
+                                        .map(user => (
+                                            <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
+                                        ))
+                                    }
                                 </select>
-                            </div>
-                            <div>
-                                <label style={labelStyle}>Team (Auto)</label>
-                                <div style={{ ...inputStyle, background: '#f8fafc', fontWeight: 600, color: formData.team ? '#0f172a' : '#94a3b8' }}>
-                                    {formData.team || 'Select Project to Assign'}
-                                </div>
                             </div>
                             <div>
                                 <label style={labelStyle}>Visibility</label>
                                 <select style={selectStyle} value={formData.visibleTo} onChange={e => handleInputChange('visibleTo', e.target.value)}>
-                                    <option value="Public">Public</option>
-                                    <option value="Team">Team</option>
                                     <option value="Private">Private</option>
+                                    <option value="Team">Team</option>
+                                    <option value="Everyone">Everyone</option>
                                 </select>
                             </div>
                         </div>
-                    </div>
 
-
-
-                    <div style={sectionStyle}>
-                        <label style={labelStyle}>Notes / Remarks</label>
-                        <textarea
-                            style={{ ...inputStyle, minHeight: '100px', resize: 'vertical' }}
-                            value={formData.remarks}
-                            onChange={e => handleInputChange('remarks', e.target.value)}
-                            placeholder="Any additional information..."
-                        />
+                        <div style={sectionStyle}>
+                            <label style={labelStyle}>Notes / Remarks</label>
+                            <textarea
+                                style={{ ...inputStyle, minHeight: '100px', resize: 'vertical' }}
+                                value={formData.remarks}
+                                onChange={e => handleInputChange('remarks', e.target.value)}
+                                placeholder="Any additional information..."
+                            />
+                        </div>
                     </div>
                 </div>
 

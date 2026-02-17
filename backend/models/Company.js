@@ -16,7 +16,7 @@ const AddressSchema = new mongoose.Schema({
 }, { _id: false });
 
 const CompanySchema = new mongoose.Schema({
-    name: { type: String, required: true },
+    name: { type: String, required: true, unique: true },
     phones: [{
         phoneCode: { type: String, default: "+91" },
         phoneNumber: String,

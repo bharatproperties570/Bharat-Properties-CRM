@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { useUserContext } from '../context/UserContext';
 
 const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) => {
     const isEdit = isEditProp !== undefined ? isEditProp : !!userData;
+    const { users, roles, teams, addUser, updateUser } = useUserContext();
     const [formData, setFormData] = useState({
         fullName: '',
         email: '',
@@ -10,6 +11,7 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) 
         username: '',
         password: '',
         department: 'sales',
+        team: '',
         role: '',
         reportingTo: '',
         dataScope: 'assigned',
@@ -32,6 +34,7 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) 
                 username: userData.username || '',
                 password: '●●●●●●●●', // Placeholder for edit mode
                 department: userData.department || 'sales',
+                team: userData.team?._id || userData.team || '',
                 role: userData.role?._id || userData.role || '',
                 reportingTo: userData.reportingTo?._id || userData.reportingTo || '',
                 dataScope: userData.dataScope || 'assigned',
@@ -52,6 +55,7 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) 
                 username: '',
                 password: '',
                 department: 'sales',
+                team: '',
                 role: '',
                 reportingTo: '',
                 dataScope: 'assigned',
@@ -67,8 +71,18 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) 
         }
     }, [isEdit, userData, isOpen]);
 
-    const [roles, setRoles] = useState([]);
-    const [users, setUsers] = useState([]);
+    // Derived state for dropdowns
+    const availableRoles = roles.filter(r => r.department === formData.department && (r.isActive !== false));
+    const availableTeams = teams.filter(t => t.department === formData.department && (t.isActive !== false));
+    const availableManagers = users.filter(u => u.department === formData.department && u.status !== 'inactive' && u._id !== userData?._id);
+
+    // Auto-select first role if none selected and available
+    useEffect(() => {
+        if (isOpen && availableRoles.length > 0 && !formData.role && !isEdit) {
+            setFormData(prev => ({ ...prev, role: availableRoles[0]._id }));
+        }
+    }, [isOpen, formData.department, availableRoles.length, isEdit]);
+
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [passwordError, setPasswordError] = useState('');
@@ -88,40 +102,6 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) 
         { value: 'department', label: 'Department', description: 'Can see all department data' },
         { value: 'all', label: 'All Data', description: 'Can see all data across departments' }
     ];
-
-    // Fetch roles and users when modal opens or department changes
-    useEffect(() => {
-        if (isOpen) {
-            fetchRoles();
-            fetchUsers();
-        }
-    }, [isOpen, formData.department]);
-
-
-
-    const fetchRoles = async () => {
-        try {
-            const response = await axios.get(`/api/roles?department=${formData.department}`);
-            setRoles(response.data.data || []);
-
-            // Auto-select first role if available
-            if (response.data.data && response.data.data.length > 0 && !formData.role) {
-                setFormData(prev => ({ ...prev, role: response.data.data[0]._id }));
-            }
-        } catch (error) {
-            console.error('Failed to fetch roles:', error);
-            setError('Failed to load roles');
-        }
-    };
-
-    const fetchUsers = async () => {
-        try {
-            const response = await axios.get('/api/users');
-            setUsers(response.data.data || []);
-        } catch (error) {
-            console.error('Failed to fetch users:', error);
-        }
-    };
 
     const validatePassword = (password) => {
         const errors = [];
@@ -177,17 +157,26 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) 
                 setError('Password does not meet requirements');
                 return;
             }
+        } else {
+            if (formData.password && formData.password !== '●●●●●●●●') {
+                const passwordErrors = validatePassword(formData.password);
+                if (passwordErrors.length > 0) {
+                    setError('Password does not meet requirements');
+                    return;
+                }
+            }
         }
 
         setLoading(true);
 
         try {
-            let response;
+            let result;
             const payload = { ...formData };
 
             // Sanitize Payload
             payload.department = payload.department.toLowerCase();
             if (payload.reportingTo === '') payload.reportingTo = null;
+            if (payload.team === '') payload.team = null;
             if (payload.role === '') payload.role = null;
             if (payload.username === '') payload.username = null;
             if (payload.mobile === '') payload.mobile = null;
@@ -196,43 +185,26 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) 
                 if (payload.password === '●●●●●●●●') {
                     delete payload.password;
                 }
-                response = await axios.put(`/api/users/${userData._id}`, payload);
+                result = await updateUser(userData._id, payload);
             } else {
-                response = await axios.post('/api/users', payload);
+                result = await addUser(payload);
             }
 
-            if (response.data.success) {
-                // Call parent's onAdd callback
+            if (result.success) {
+                // Call parent's callback if provided
                 if (onAdd) {
-                    onAdd(response.data.data);
+                    onAdd(result.data);
                 }
 
-                // Reset form
-                setFormData({
-                    fullName: '',
-                    email: '',
-                    mobile: '',
-                    username: '',
-                    password: '',
-                    department: 'sales',
-                    role: '',
-                    reportingTo: '',
-                    dataScope: 'assigned',
-                    financialPermissions: {
-                        canViewMargin: false,
-                        canEditCommission: false,
-                        canOverrideCommission: false,
-                        canApproveDeal: false,
-                        canApprovePayment: false,
-                        canApprovePayout: false
-                    }
-                });
-
+                // Reset is handled by useEffect on isOpen change or component unmount usually, 
+                // but we can clear if we stay mounted.
                 onClose();
+            } else {
+                setError(result.error || `Failed to ${isEdit ? 'update' : 'create'} user.`);
             }
         } catch (error) {
             console.error(`Failed to ${isEdit ? 'update' : 'create'} user:`, error);
-            setError(error.response?.data?.message || `Failed to ${isEdit ? 'update' : 'create'} user. Please try again.`);
+            setError(error.message || `Failed to ${isEdit ? 'update' : 'create'} user. Please try again.`);
         } finally {
             setLoading(false);
         }
@@ -407,6 +379,26 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) 
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                        {/* Team Selection */}
+                        <div style={sectionStyle}>
+                            <label style={labelStyle}>Team</label>
+                            <div style={{ position: 'relative', marginTop: '6px' }}>
+                                <select
+                                    style={{ ...inputStyle, appearance: 'none', background: '#fff', marginTop: 0 }}
+                                    value={formData.team}
+                                    onChange={(e) => setFormData({ ...formData, team: e.target.value })}
+                                >
+                                    <option value="">Select Team</option>
+                                    {availableTeams.map(team => (
+                                        <option key={team._id} value={team._id}>
+                                            {team.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <i className="fas fa-chevron-down" style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8', fontSize: '0.8rem' }}></i>
+                            </div>
+                        </div>
+
                         {/* Role Selection */}
                         <div style={sectionStyle}>
                             <label style={labelStyle}>Role <span style={{ color: '#ef4444' }}>*</span></label>
@@ -417,7 +409,7 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) 
                                     onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                                 >
                                     <option value="">Select Role</option>
-                                    {roles.map(role => (
+                                    {availableRoles.map(role => (
                                         <option key={role._id} value={role._id}>
                                             {role.name}
                                         </option>
@@ -437,7 +429,7 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) 
                                     onChange={(e) => setFormData({ ...formData, reportingTo: e.target.value })}
                                 >
                                     <option value="">No Manager</option>
-                                    {users.filter(u => u.department === formData.department).map(user => (
+                                    {availableManagers.map(user => (
                                         <option key={user._id} value={user._id}>
                                             {user.fullName}
                                         </option>

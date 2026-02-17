@@ -19,11 +19,14 @@ import { useTriggers } from '../../context/TriggersContext';
 import { useCall } from '../../context/CallContext';
 import { useDistribution } from '../../context/DistributionContext';
 import EnrollSequenceModal from '../../components/EnrollSequenceModal';
+import DocumentUploadModal from '../../components/DocumentUploadModal';
 
 import LeadFilterPanel from './components/LeadFilterPanel';
 import { applyLeadFilters } from '../../utils/leadFilterLogic';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 import { parseBudget, parseSizeSqYard, calculateMatch } from '../../utils/matchingLogic';
+import { useUserContext } from '../../context/UserContext';
+import { useCallback } from 'react';
 
 function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const {
@@ -39,6 +42,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const { fireEvent } = useTriggers();
     const { startCall } = useCall();
     const { executeDistribution } = useDistribution();
+    const { teams } = useUserContext();
 
     // Bundle config for scoring engine
     const scoringConfig = {
@@ -75,6 +79,15 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         setFilters({});
     };
 
+    const getTeamName = useCallback((teamValue) => {
+        if (!teamValue) return "General Team";
+        if (typeof teamValue === 'object') {
+            return teamValue.name || teamValue.lookup_value || "General Team";
+        }
+        const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
+        return found ? (found.name || found.lookup_value) : teamValue;
+    }, [teams]);
+
     // Modals State
     const [isSendMessageOpen, setIsSendMessageOpen] = useState(false);
     const [selectedLeadsForMessage, setSelectedLeadsForMessage] = useState([]);
@@ -102,6 +115,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
     const [selectedLeadForSequence, setSelectedLeadForSequence] = useState(null);
     const [toast, setToast] = useState(null);
+
+    const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
+    const [documentModalData, setDocumentModalData] = useState(null);
 
     const showToast = (msg) => {
         setToast(msg);
@@ -166,20 +182,20 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                         // ===== REQUIREMENT =====
                         reqDisplay: {
-                            type: (lead.requirement?.lookup_value || lead.requirement || "").toString(),
+                            type: lead.requirement?.lookup_value || (typeof lead.requirement === 'string' ? lead.requirement : ""),
                             subType: Array.isArray(lead.subRequirement)
-                                ? lead.subRequirement.map(s => s.lookup_value || s).join(", ")
-                                : (lead.subRequirement?.lookup_value || lead.subRequirement || ""),
+                                ? lead.subRequirement.map(s => s.lookup_value || (typeof s === 'string' ? s : "")).filter(Boolean).join(", ")
+                                : (lead.subRequirement?.lookup_value || (typeof lead.subRequirement === 'string' ? lead.subRequirement : "")),
                             size: `${lead.areaMin || ""}${lead.areaMin && lead.areaMax ? "-" : ""}${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
                         },
 
                         // ===== BUDGET =====
-                        budget: lead.budget?.lookup_value || lead.budget || (lead.budgetMin || lead.budgetMax
+                        budget: lead.budget?.lookup_value || (typeof lead.budget === 'string' ? lead.budget : "") || (lead.budgetMin || lead.budgetMax
                             ? `₹${Number(lead.budgetMin || 0).toLocaleString()} - ₹${Number(lead.budgetMax || 0).toLocaleString()}`
                             : "—"),
 
                         // ===== LOCATION =====
-                        location: lead.location?.lookup_value || lead.location || [
+                        location: lead.location?.lookup_value || (typeof lead.location === 'string' ? lead.location : "") || [
                             lead.project?.name || lead.projectName,
                             Array.isArray(lead.locBlock) ? lead.locBlock.join(", ") : lead.locBlock,
                             lead.locArea,
@@ -187,8 +203,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         ].filter(Boolean).map(s => s?.toString().trim()).filter(s => s && s.length > 0).join(", "),
 
                         // ===== SOURCE & ASSIGNMENT =====
-                        source: lead.source?.lookup_value || lead.source || contact.source || "Direct",
-                        owner: lead.owner || contact.owner || (lead.assignment?.assignedTo) || "Unassigned",
+                        source: lead.source?.lookup_value || (typeof lead.source === 'string' ? lead.source : "") || contact.source || "Direct",
+                        owner: lead.owner?.fullName || lead.owner?.email || lead.owner || contact.owner || (lead.assignment?.assignedTo) || "Unassigned",
                         team: contact.team || lead.assignment?.team || "",
 
                         // ===== STATUS =====
@@ -433,6 +449,23 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             }}
                                         >
                                             <i className="fas fa-calendar-check"></i> Activities
+                                        </button>
+                                        <button
+                                            className="action-btn"
+                                            title="Documents"
+                                            onClick={() => {
+                                                const selectedLead = leads.find(l => l._id === selectedIds[0]);
+                                                if (selectedLead) {
+                                                    setDocumentModalData({
+                                                        ownerId: selectedLead._id,
+                                                        ownerType: 'Lead',
+                                                        ownerName: selectedLead.name
+                                                    });
+                                                    setIsDocumentModalOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-file-alt"></i> Documents
                                         </button>
                                         <button
                                             className="action-btn"
@@ -923,11 +956,17 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         </div>
 
                                         <div className="col-assignment">
-                                            <div style={{ lineHeight: 1.4 }}>
-                                                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0f172a' }}>{c.owner}</div>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', fontSize: '0.65rem', color: '#94a3b8' }}>
-                                                    <i className="far fa-clock"></i>
-                                                    <span dangerouslySetInnerHTML={{ __html: c.addOn }}></span>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
+                                                    {getInitials(c.owner || 'Admin')}
+                                                </div>
+                                                <div style={{ lineHeight: 1.2 }}>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{c.owner || 'Admin'}</div>
+                                                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{getTeamName(c.team || c.assignment?.team)}</div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px', fontSize: '0.6rem', color: '#94a3b8' }}>
+                                                        <i className="far fa-clock" style={{ fontSize: '0.6rem' }}></i>
+                                                        <span dangerouslySetInnerHTML={{ __html: (c.addOn || '').replace('Added ', '') }}></span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -1153,6 +1192,16 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 entityId={selectedLeadForSequence?.id}
                 entityName={selectedLeadForSequence?.name}
             />
+
+            {isDocumentModalOpen && (
+                <DocumentUploadModal
+                    isOpen={isDocumentModalOpen}
+                    onClose={() => setIsDocumentModalOpen(false)}
+                    ownerId={documentModalData?.ownerId}
+                    ownerType={documentModalData?.ownerType}
+                    ownerName={documentModalData?.ownerName}
+                />
+            )}
 
             {/* Toast Notification */}
             {

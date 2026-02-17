@@ -46,9 +46,10 @@ export const PropertyConfigProvider = ({ children }) => {
                 const response = await systemSettingsAPI.getAll();
                 if (response && response.data) {
                     const settings = response.data;
+                    const settingsList = Array.isArray(settings) ? settings : (settings.docs || []);
 
                     // Map settings to state
-                    settings.forEach(setting => {
+                    settingsList.forEach(setting => {
                         switch (setting.key) {
                             case 'property_config': setPropertyConfig(setting.value); break;
                             case 'master_fields': setMasterFields(setting.value); break;
@@ -77,15 +78,23 @@ export const PropertyConfigProvider = ({ children }) => {
                 await refreshSizes();
 
                 // FETCH REAL PROJECTS FROM BACKEND
+                console.log("[PropertyConfigContext] Fetching projects...");
                 const projectsRes = await api.get('/projects');
-                if (projectsRes.data && projectsRes.data.success) {
+                console.log("[PropertyConfigContext] Projects response:", projectsRes.data);
+
+                if (projectsRes.data && projectsRes.data.success && Array.isArray(projectsRes.data.data)) {
                     setProjects(projectsRes.data.data);
                 } else if (Array.isArray(projectsRes.data)) {
+                    // Handle case where API might return array directly (less likely but possible based on controller)
                     setProjects(projectsRes.data);
+                } else {
+                    console.warn("[PropertyConfigContext] Unexpected projects data format:", projectsRes.data);
+                    setProjects([]);
                 }
             } catch (error) {
                 console.error('Failed to load configs from backend:', error);
                 // Fallback for projects if backend is down - use static list if needed
+                console.warn("[PropertyConfigContext] Using fallback static projects due to error.");
                 setProjects(PROJECTS_LIST);
 
                 // Keep backward compatibility for propertyConfig if needed

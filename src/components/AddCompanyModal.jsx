@@ -91,7 +91,7 @@ const ADDRESS_LABELS = {
 
 function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
     const { leadMasterFields } = usePropertyConfig();
-    const { users } = useUserContext();
+    const { users, teams } = useUserContext();
     const isEdit = !!initialData;
     const [currentTab, setCurrentTab] = useState('basic');
     const [currentAddressType, setCurrentAddressType] = useState('registeredOffice');
@@ -188,9 +188,11 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
         return field;
     };
 
-    // Helper to map address with lookups to ID-based address
     const mapAddress = (addr) => {
         if (!addr) return { ...initialAddress };
+        // If it's literally just an empty object or has no meaningful data, return default
+        if (Object.keys(addr).length === 0) return { ...initialAddress };
+
         return {
             ...initialAddress,
             ...addr,
@@ -477,8 +479,11 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 emails: formData.emails
                     .filter(e => e.address && e.address.trim())
                     .map(({ id, ...rest }) => rest),
-                // Map employees to IDs
-                employees: formData.employees.map(emp => emp._id || emp.id)
+                // Map employees to IDs safely
+                employees: formData.employees.map(emp => {
+                    if (typeof emp === 'string') return emp;
+                    return emp._id || emp.id;
+                }).filter(Boolean)
             };
 
             let response;
@@ -659,9 +664,9 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 )}
             </div>
 
-            <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+            <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
                 <h4 style={{ ...labelStyle, fontSize: '1rem', color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <i className="fas fa-cogs" style={{ color: '#10b981' }}></i> System Details
+                    <i className="fas fa-bullhorn" style={{ color: '#10b981' }}></i> Source Details
                 </h4>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
                     <div>
@@ -687,6 +692,25 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                             {lookupData.subSources.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
                         </select>
                     </div>
+                </div>
+            </div>
+
+            <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+                <h4 style={{ ...labelStyle, fontSize: '1rem', color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <i className="fas fa-cogs" style={{ color: '#10b981' }}></i> System Assignment
+                </h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
+                    <div>
+                        <label style={labelStyle}>Team</label>
+                        <select style={customSelectStyle} value={formData.team} onChange={(e) => handleInputChange('team', e.target.value)}>
+                            <option value="">Select Team</option>
+                            {teams && teams.length > 0 ? (
+                                teams.map(t => <option key={t._id || t.id} value={t.name}>{t.name}</option>)
+                            ) : (
+                                TEAMS.map(t => <option key={t} value={t}>{t}</option>)
+                            )}
+                        </select>
+                    </div>
 
                     <div>
                         <label style={labelStyle}>Assign</label>
@@ -699,18 +723,12 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                     </div>
 
                     <div>
-                        <label style={labelStyle}>Team</label>
-                        <select style={customSelectStyle} value={formData.team} onChange={(e) => handleInputChange('team', e.target.value)}>
-                            {TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label style={labelStyle}>Visible to</label>
+                        <label style={labelStyle}>Visibility</label>
                         <select style={customSelectStyle} value={formData.visibleTo} onChange={(e) => handleInputChange('visibleTo', e.target.value)}>
-                            <option value="My Team">My Team</option>
-                            <option value="Everyone">Everyone</option>
+                            <option value="">Select Visibility</option>
                             <option value="Private">Private</option>
+                            <option value="Team">Team</option>
+                            <option value="Everyone">Everyone</option>
                         </select>
                     </div>
                 </div>

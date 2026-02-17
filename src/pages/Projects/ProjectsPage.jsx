@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useUserContext } from '../../context/UserContext';
 import { PROJECTS_LIST } from '../../data/projectData';
 import AddProjectModal from '../../components/AddProjectModal';
 import AddProjectPriceModal from '../../components/AddProjectPriceModal';
 import { api } from '../../utils/api';
+import { getInitials } from '../../utils/helpers';
 
 import UploadModal from '../../components/UploadModal';
 import AddDocumentModal from '../../components/AddDocumentModal';
@@ -11,6 +13,7 @@ import { applyProjectFilters } from '../../utils/projectFilterLogic';
 import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
 
 function ProjectsPage({ onNavigate, onAddProject }) {
+    const { teams } = useUserContext();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
 
@@ -30,7 +33,16 @@ function ProjectsPage({ onNavigate, onAddProject }) {
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
 
-    React.useEffect(() => {
+    const getTeamName = useCallback((teamValue) => {
+        if (!teamValue) return "General Team";
+        if (typeof teamValue === 'object') {
+            return teamValue.name || teamValue.lookup_value || "General Team";
+        }
+        const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
+        return found ? (found.name || found.lookup_value) : teamValue;
+    }, [teams]);
+
+    useEffect(() => {
         fetchProjects();
     }, []);
 
@@ -541,7 +553,7 @@ function ProjectsPage({ onNavigate, onAddProject }) {
                             <div>Blocks & Phases</div>
                             <div>Property Type</div>
                             <div>Launch Status</div>
-                            <div>Management</div>
+                            <div>Assignment</div>
                         </div>
 
                         <div className="list-content">
@@ -625,12 +637,20 @@ function ProjectsPage({ onNavigate, onAddProject }) {
                                                 </div>
                                             </div>
 
-                                            {/* Col 7: Management */}
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                <div className="profile-circle" style={{ width: '28px', height: '28px', fontSize: '0.65rem', background: '#f1f5f9', color: '#64748b' }}>AD</div>
-                                                <div>
-                                                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>Admin</div>
-                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Updated {project.updatedAt ? new Date(project.updatedAt).toLocaleDateString() : project.date || 'N/A'}</div>
+                                            {/* Col 7: Assignment */}
+                                            <div className="col-assignment">
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                    <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
+                                                        {getInitials(project.owner?.name || project.owner || 'Admin')}
+                                                    </div>
+                                                    <div style={{ lineHeight: 1.2 }}>
+                                                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{project.owner?.name || project.owner || 'Admin'}</div>
+                                                        <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{getTeamName(project.team || project.assignment?.team)}</div>
+                                                        <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginTop: '2px' }}>
+                                                            <i className="far fa-clock" style={{ fontSize: '0.6rem', marginRight: '4px' }}></i>
+                                                            {project.createdAt ? new Date(project.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : (project.date || 'N/A')}
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>

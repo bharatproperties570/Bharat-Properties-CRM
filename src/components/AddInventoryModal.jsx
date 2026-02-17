@@ -11,7 +11,8 @@ import { useSequences } from '../context/SequenceContext';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 
-// import { contactData } from '../data/mockData';
+import AddSizeModal from './modals/AddSizeModal';
+import { contactData } from '../data/mockData';
 
 // Helper: Get YouTube Thumbnail
 const getYouTubeThumbnail = (url) => {
@@ -38,6 +39,7 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
     const [isLoading, setIsLoading] = useState(true);
     const [currentTime, setCurrentTime] = useState(new Date());
     const [isSaving, setIsSaving] = useState(false);
+    const [isAddSizeModalOpen, setIsAddSizeModalOpen] = useState(false);
 
     const [formData, setFormData] = useState({
         // Unit Details
@@ -139,22 +141,22 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
         }
     }, [property, isOpen]);
     const [duplicateWarning, setDuplicateWarning] = useState(false);
+    const [isBlocked, setIsBlocked] = useState(false);
     const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
 
     // Real-time Duplicate Check
     useEffect(() => {
         const checkDuplicate = async () => {
-            if (formData.projectName && formData.block && formData.unitNo && !property) {
+            if (formData.projectName && formData.unitNo && !property) {
                 setIsCheckingDuplicate(true);
                 try {
-                    const response = await api.get(`/inventory?project=${formData.projectId}&search=${formData.unitNo}`);
+                    const response = await api.post('duplication-rules/check', {
+                        entityType: 'Inventory',
+                        data: formData
+                    });
                     if (response.data && response.data.success) {
-                        const exists = (response.data.records || []).some(item =>
-                            item.projectName === formData.projectName &&
-                            item.block === formData.block &&
-                            (item.unitNo === formData.unitNo || item.unitNumber === formData.unitNo)
-                        );
-                        setDuplicateWarning(exists);
+                        setDuplicateWarning(response.data.data.length > 0);
+                        setIsBlocked(response.data.blockAction === true && response.data.data.length > 0);
                     }
                 } catch (err) {
                     console.error("Duplicate check error:", err);
@@ -163,6 +165,7 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                 }
             } else {
                 setDuplicateWarning(false);
+                setIsBlocked(false);
             }
         };
 
@@ -657,9 +660,26 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                             placeholder="Enter Unit No."
                         />
                         {duplicateWarning && (
-                            <p style={{ fontSize: '0.7rem', color: '#ef4444', marginTop: '6px', fontWeight: 600 }}>
-                                <i className="fas fa-exclamation-circle"></i> Unit already exists in this project/block!
-                            </p>
+                            <div style={{
+                                marginTop: '8px',
+                                padding: '8px',
+                                background: isBlocked ? '#fef2f2' : '#fff7ed',
+                                border: `1px solid ${isBlocked ? '#fca5a5' : '#fed7aa'}`,
+                                borderRadius: '6px',
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: '8px'
+                            }}>
+                                <i className={`fas ${isBlocked ? 'fa-ban' : 'fa-exclamation-triangle'}`} style={{ color: isBlocked ? '#dc2626' : '#ea580c', marginTop: '3px' }}></i>
+                                <div>
+                                    <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 600, color: isBlocked ? '#b91c1c' : '#9a3412' }}>
+                                        {isBlocked ? 'Action Blocked: Duplicate Found' : 'Warning: Duplicate Found'}
+                                    </p>
+                                    <p style={{ margin: '2px 0 0 0', fontSize: '0.7rem', color: isBlocked ? '#ef4444' : '#c2410c' }}>
+                                        Unit {formData.unitNo} already exists in {formData.block}.
+                                    </p>
+                                </div>
+                            </div>
                         )}
                         {isCheckingDuplicate && <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '6px' }}>Checking for duplicates...</p>}
                     </div>
@@ -717,21 +737,42 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                     </div>
                     <div>
                         <label style={labelStyle}>Size</label>
-                        <select
-                            style={(!formData.projectName || !formData.block) ? customSelectStyleDisabled : customSelectStyle}
-                            value={formData.size}
-                            disabled={!formData.projectName || !formData.block}
-                            onChange={e => setFormData({ ...formData, size: e.target.value })}
-                        >
-                            <option value="">
-                                {(!formData.projectName || !formData.block) ? "Select Project & Block first" : "Select Size"}
-                            </option>
-                            {(() => {
-                                if (!formData.projectName || !formData.block) return null;
-                                const filteredSizes = sizes.filter(s => s.project === formData.projectName && s.block === formData.block);
-                                return filteredSizes.map(sz => <option key={sz.id} value={sz.name}>{sz.name}</option>);
-                            })()}
-                        </select>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <select
+                                style={{ ...((!formData.projectName || !formData.block) ? customSelectStyleDisabled : customSelectStyle), flex: 1 }}
+                                value={formData.size}
+                                disabled={!formData.projectName || !formData.block}
+                                onChange={e => setFormData({ ...formData, size: e.target.value })}
+                            >
+                                <option value="">
+                                    {(!formData.projectName || !formData.block) ? "Select Project & Block first" : "Select Size"}
+                                </option>
+                                {(() => {
+                                    if (!formData.projectName || !formData.block) return null;
+                                    const filteredSizes = sizes.filter(s => s.project === formData.projectName && s.block === formData.block);
+                                    return filteredSizes.map(sz => <option key={sz.id} value={sz.name}>{sz.name}</option>);
+                                })()}
+                            </select>
+                            <button
+                                onClick={() => setIsAddSizeModalOpen(true)}
+                                disabled={!formData.projectName || !formData.block}
+                                style={{
+                                    padding: '0 12px',
+                                    borderRadius: '8px',
+                                    border: '1px solid #3b82f6',
+                                    background: '#eff6ff',
+                                    color: '#3b82f6',
+                                    cursor: (!formData.projectName || !formData.block) ? 'not-allowed' : 'pointer',
+                                    opacity: (!formData.projectName || !formData.block) ? 0.5 : 1,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}
+                                title="Add New Size"
+                            >
+                                <i className="fas fa-plus"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1154,11 +1195,11 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
             {/* System Assignment & Visibility */}
             <div style={{ ...sectionStyle, marginTop: '32px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
                 <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <i className="fas fa-user-check" style={{ color: '#6366f1' }}></i> System Assignment & Visibility
+                    <i className="fas fa-layer-group" style={{ color: '#6366f1' }}></i> System Assignment
                 </h4>
                 <div className="grid-3-col">
                     <div>
-                        <label style={labelStyle}>Assign Team</label>
+                        <label style={labelStyle}>Team</label>
                         <select
                             style={customSelectStyle}
                             value={formData.team}
@@ -1170,7 +1211,7 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                         </select>
                     </div>
                     <div>
-                        <label style={labelStyle}>Assigned To</label>
+                        <label style={labelStyle}>Assign</label>
                         <select
                             style={customSelectStyle}
                             value={formData.assignedTo}
@@ -1183,15 +1224,15 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                         </select>
                     </div>
                     <div>
-                        <label style={labelStyle}>Inventory Visibility</label>
+                        <label style={labelStyle}>Visibility</label>
                         <select
                             style={customSelectStyle}
                             value={formData.visibleTo}
                             onChange={e => handleInputChange('visibleTo', e.target.value)}
                         >
-                            <option value="Public">Public (Global)</option>
-                            <option value="Team">Team Only</option>
-                            <option value="Private">Private (Self Only)</option>
+                            <option value="Private">Private</option>
+                            <option value="Team">Team</option>
+                            <option value="Everyone">Everyone</option>
                         </select>
                     </div>
                 </div>
@@ -1401,12 +1442,32 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                         {activeTab !== 'Owner' ? (
                             <button onClick={handleNext} style={buttonStyle.primary}>Next</button>
                         ) : (
-                            <button onClick={handleSave} disabled={isSaving} style={{ ...buttonStyle.success, opacity: isSaving ? 0.7 : 1 }}>
+                            <button
+                                onClick={handleSave}
+                                disabled={isSaving || isBlocked}
+                                style={{
+                                    ...buttonStyle.success,
+                                    opacity: (isSaving || isBlocked) ? 0.7 : 1,
+                                    cursor: (isSaving || isBlocked) ? 'not-allowed' : 'pointer',
+                                    background: isBlocked ? '#94a3b8' : '#22c55e'
+                                }}
+                            >
                                 {isSaving ? 'Saving...' : (property ? 'Update Inventory' : 'Save Inventory')}
                             </button>
                         )}
                     </div>
                 </div>
+                <AddSizeModal
+                    isOpen={isAddSizeModalOpen}
+                    projectName={formData.projectName}
+                    block={formData.block}
+                    category={formData.category}
+                    subCategory={formData.subCategory}
+                    onClose={() => setIsAddSizeModalOpen(false)}
+                    onSave={(sizeName) => {
+                        setFormData(prev => ({ ...prev, size: sizeName }));
+                    }}
+                />
                 <style>{`
                  .grid-2-col { display: grid; grid-template-columns: repeat(2, 1fr); gap: 32px; }
                 .grid-3-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; }

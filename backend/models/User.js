@@ -53,6 +53,11 @@ const UserSchema = new mongoose.Schema({
         ref: 'User',
         default: null
     },
+    team: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Team',
+        default: null
+    },
 
     // ========== Data Visibility ==========
     dataScope: {
@@ -134,6 +139,17 @@ const UserSchema = new mongoose.Schema({
         default: 'active',
         index: true
     },
+    inactivationReason: {
+        type: String,
+        trim: true
+    },
+    inactiveUntil: {
+        type: Date
+    },
+    inactivatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
 
     // ========== Legacy Support (for backward compatibility) ==========
     // Keep old 'name' field for backward compatibility
@@ -151,7 +167,9 @@ const UserSchema = new mongoose.Schema({
 
 // ========== Indexes ==========
 UserSchema.index({ department: 1, status: 1 });
+UserSchema.index({ department: 1, status: 1 });
 UserSchema.index({ reportingTo: 1 });
+UserSchema.index({ team: 1 });
 UserSchema.index({ email: 1 }, { unique: true });
 
 // ========== Virtual Fields ==========

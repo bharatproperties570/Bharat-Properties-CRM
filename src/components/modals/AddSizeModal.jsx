@@ -8,7 +8,7 @@ const AddSizeModal = ({ isOpen, onClose, onSave, projectName, block, category, s
     const [area, setArea] = useState('');
     const [unit, setUnit] = useState('Sq Ft');
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!sizeName.trim()) return toast.error('Size Name is required');
 
         const newSize = {
@@ -22,7 +22,7 @@ const AddSizeModal = ({ isOpen, onClose, onSave, projectName, block, category, s
             description: `Auto-created Size`
         };
 
-        addSize(newSize);
+        await addSize(newSize);
         if (onSave) onSave(newSize.name); // Return the display string
 
         toast.success(`Size added!`);

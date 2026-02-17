@@ -274,6 +274,24 @@ export const updateUser = async (req, res) => {
             });
         }
 
+        // Handle password update
+        if (updates.password) {
+            const passwordValidation = validatePassword(updates.password);
+            if (!passwordValidation.valid) {
+                await session.abortTransaction();
+                return res.status(400).json({
+                    success: false,
+                    message: 'Password does not meet policy requirements',
+                    errors: passwordValidation.errors
+                });
+            }
+            updates.password = await bcrypt.hash(updates.password, 10);
+            updates.passwordHistory = [...user.passwordHistory, { hash: updates.password, changedAt: new Date() }];
+        } else {
+            // Prevent clearing password if sent as empty string/null
+            delete updates.password;
+        }
+
         // Store original values for audit
         const originalValues = {
             department: user.department,
@@ -377,6 +395,65 @@ export const deleteUser = async (req, res) => {
 
         res.status(200).json({ success: true, data: user });
     } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/**
+ * Toggle user status (activate/inactivate)
+ */
+export const toggleUserStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, reason, duration } = req.body;
+
+        const user = await User.findById(id);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        // Check permissions (Only Admin or Senior Role)
+        // detailed permission check should be middleware, but adding basic check here
+        // Assuming req.user is populated by auth middleware
+        // For now, we trust the caller has permission or UI handles visibility
+
+        if (status === 'inactive') {
+            if (!reason) {
+                return res.status(400).json({ success: false, message: 'Reason is required for inactivation' });
+            }
+            user.status = 'inactive';
+            user.isActive = false;
+            user.inactivationReason = reason;
+            user.inactivatedBy = req.user?._id;
+
+            if (duration && duration !== 'indefinite') {
+                const now = new Date();
+                if (duration === '1_day') now.setDate(now.getDate() + 1);
+                else if (duration === '1_week') now.setDate(now.getDate() + 7);
+                else if (duration === '1_month') now.setMonth(now.getMonth() + 1);
+                else if (duration === 'custom' && req.body.customDate) now.setTime(new Date(req.body.customDate).getTime());
+
+                user.inactiveUntil = now;
+            } else {
+                user.inactiveUntil = null;
+            }
+        } else {
+            // Reactivating
+            user.status = 'active';
+            user.isActive = true;
+            user.inactivationReason = null;
+            user.inactiveUntil = null;
+            user.inactivatedBy = null;
+        }
+
+        await user.save();
+
+        // Invalidate caches
+        await invalidateAllUserCaches(user._id, user.department, user.reportingTo);
+
+        res.status(200).json({ success: true, data: user });
+    } catch (error) {
+        console.error('Toggle status error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -553,7 +630,7 @@ export const getUserHierarchy = async (req, res) => {
     try {
         const { department } = req.query;
 
-        const query = department ? { department } : {};
+        const query = department ? { department, isActive: true } : { isActive: true };
 
         const users = await User.find(query)
             .populate('role', 'name')
@@ -596,7 +673,7 @@ export const getTeamMembers = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const teamMembers = await User.find({ reportingTo: id })
+        const teamMembers = await User.find({ reportingTo: id, status: 'active' })
             .populate('role', 'name department')
             .select('fullName email department role dataScope isActive');
 
@@ -766,5 +843,6 @@ export default {
     getUserSessions,
     getUserAuditTrail,
     importUsers,
-    checkDuplicatesImport
+    checkDuplicatesImport,
+    toggleUserStatus
 };

@@ -1,6 +1,7 @@
 import Joi from "joi";
 
 const addressSchema = Joi.object({
+    _id: Joi.string().optional(),
     branchName: Joi.string().optional().allow("", null),
     hNo: Joi.string().optional().allow("", null),
     street: Joi.string().optional().allow("", null),
@@ -21,6 +22,7 @@ export const createCompanySchema = Joi.object({
     }),
     phones: Joi.array().items(
         Joi.object({
+            _id: Joi.string().optional(),
             phoneCode: Joi.string().default("+91"),
             phoneNumber: Joi.string().pattern(/^[0-9+\-\s()]+$/).allow("", null),
             type: Joi.string().default("Work")
@@ -28,6 +30,7 @@ export const createCompanySchema = Joi.object({
     ).optional(),
     emails: Joi.array().items(
         Joi.object({
+            _id: Joi.string().optional(),
             address: Joi.string().email().allow("", null),
             type: Joi.string().default("Work")
         })

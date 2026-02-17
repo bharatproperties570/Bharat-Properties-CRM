@@ -2,7 +2,7 @@ export const PROPERTY_CATEGORIES = {
     "Residential": {
         subCategories: [
             {
-                name: "Plot / Independent House",
+                name: "Plot",
                 types: [
                     { name: "1 Kanal", builtupTypes: [] },
                     { name: "2 Kanal", builtupTypes: [] },
@@ -17,7 +17,17 @@ export const PROPERTY_CATEGORIES = {
                 ]
             },
             {
-                name: "Flat/Apartment / Builder Floor",
+                name: "Independent House",
+                types: [
+                    { name: "1 Kanal", builtupTypes: [] },
+                    { name: "2 Kanal", builtupTypes: [] },
+                    { name: "10 Marla", builtupTypes: [] },
+                    { name: "8 Marla", builtupTypes: [] },
+                    { name: "6 Marla", builtupTypes: [] }
+                ]
+            },
+            {
+                name: "Flat/Apartment",
                 types: [
                     { name: "1 BHK", builtupTypes: ["Store", "Servant Room"] },
                     { name: "2 BHK", builtupTypes: ["Store", "Servant Room", "Study"] },
@@ -25,6 +35,15 @@ export const PROPERTY_CATEGORIES = {
                     { name: "4 BHK", builtupTypes: ["Store", "Servant Room", "Pooja Room"] },
                     { name: "5 BHK", builtupTypes: ["Store", "Servant Room", "Pooja Room"] },
                     { name: "Studio", builtupTypes: [] }
+                ]
+            },
+            {
+                name: "Builder Floor",
+                types: [
+                    { name: "1 BHK", builtupTypes: ["Store", "Servant Room"] },
+                    { name: "2 BHK", builtupTypes: ["Store", "Servant Room", "Study"] },
+                    { name: "3 BHK", builtupTypes: ["Store", "Servant Room", "Pooja Room"] },
+                    { name: "4 BHK", builtupTypes: ["Store", "Servant Room", "Pooja Room"] }
                 ]
             }
         ]

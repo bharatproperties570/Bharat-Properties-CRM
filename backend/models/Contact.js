@@ -1,11 +1,11 @@
 import mongoose from "mongoose";
 
 const ContactSchema = new mongoose.Schema({
-    title: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+    title: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     name: { type: String, required: true },
     surname: { type: String },
     fatherName: { type: String },
-    countryCode: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+    countryCode: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     phones: [{
         number: String,
         type: { type: String, default: "Personal" }
@@ -19,18 +19,18 @@ const ContactSchema = new mongoose.Schema({
     description: { type: String },
 
     // Professional Details
-    professionCategory: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-    professionSubCategory: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-    designation: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+    professionCategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    professionSubCategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    designation: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     company: { type: String },
     workOffice: { type: String },
 
     // System Details
-    source: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-    subSource: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-    campaign: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-    team: { type: String },
-    owner: { type: mongoose.Schema.Types.Mixed, ref: 'User' },
+    source: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    subSource: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    campaign: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    team: { type: mongoose.Schema.Types.Mixed },
+    owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     visibleTo: { type: String },
 
 
@@ -38,13 +38,13 @@ const ContactSchema = new mongoose.Schema({
     personalAddress: {
         hNo: String,
         street: String,
-        country: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        state: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        city: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        tehsil: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        postOffice: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        country: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+        state: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+        city: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+        tehsil: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+        postOffice: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         pinCode: String,
-        location: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        location: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         area: String
     },
 
@@ -52,20 +52,20 @@ const ContactSchema = new mongoose.Schema({
     correspondenceAddress: {
         hNo: String,
         street: String,
-        country: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        state: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        city: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        tehsil: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        postOffice: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        country: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+        state: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+        city: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+        tehsil: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+        postOffice: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         pinCode: String,
-        location: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        location: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         area: String
     },
 
     // Standard CRM fields
-    requirement: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-    budget: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-    location: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+    requirement: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    budget: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    location: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
 
     // Other Details
     gender: { type: String },
@@ -75,30 +75,30 @@ const ContactSchema = new mongoose.Schema({
 
     // Array fields
     educations: [{
-        education: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        degree: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        education: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+        degree: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         school: String
     }],
 
     loans: [{
-        loanType: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        bank: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        loanType: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+        bank: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         loanAmount: String
     }],
 
     socialMedia: [{
-        platform: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        platform: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         url: String
     }],
 
     incomes: [{
-        incomeType: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        incomeType: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         amount: String
     }],
 
     documents: [{
-        documentName: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        documentType: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        documentName: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+        documentType: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         documentNo: String,
         projectName: String,
         block: String,

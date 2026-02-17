@@ -13,7 +13,7 @@ const test = async () => {
 
     for (const type of types) {
         try {
-            const res = await axios.get(`http://localhost:5002/lookups?lookup_type=${type}`);
+            const res = await axios.get(`http://localhost:4000/lookups?lookup_type=${type}`);
             const data = res.data.data;
             const distinctTypesInResponse = [...new Set(data.map(item => item.lookup_type))];
 

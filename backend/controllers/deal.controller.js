@@ -19,7 +19,7 @@ const syncInventoryStatus = async (deal) => {
 export const getDeals = async (req, res) => {
     try {
         const { page = 1, limit = 25, search = "", projectId, inventoryId } = req.query;
-        let query = {};
+        let query = { isVisible: { $ne: false } };
 
         if (search) {
             query = {
@@ -57,9 +57,17 @@ export const getDeals = async (req, res) => {
             });
         }
 
-        // Attach last activity to each deal
-        const enrichedRecords = results.records.map(deal => {
+        // Attach last activity and live owner to each deal
+        const enrichedRecords = await Promise.all(results.records.map(async (deal) => {
             const dealObj = deal.toObject ? deal.toObject() : deal;
+
+            // Live Owner Sync: If NOT closed, fetch current owner from inventory
+            if (!dealObj.closingDetails?.isClosed && dealObj.inventoryId) {
+                const inventory = await Inventory.findById(dealObj.inventoryId).populate('owners');
+                if (inventory && inventory.owners && inventory.owners.length > 0) {
+                    dealObj.owner = inventory.owners[0];
+                }
+            }
 
             // Pick the latest between owner and associate activity
             const ownerId = deal.owner && typeof deal.owner === 'object' ? deal.owner._id : deal.owner;
@@ -73,7 +81,7 @@ export const getDeals = async (req, res) => {
                 .sort((a, b) => new Date(b.performedAt) - new Date(a.performedAt))[0] || null;
 
             return dealObj;
-        });
+        }));
 
         res.json({
             success: true,
@@ -277,6 +285,39 @@ export const importDeals = async (req, res) => {
 
         await Deal.insertMany(restructuredData, { ordered: false });
         res.status(200).json({ success: true, message: `Successfully imported ${restructuredData.length} deals.` });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const closeDeal = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { checklist, closingDate, remarks } = req.body;
+
+        const deal = await Deal.findById(id).populate('inventoryId owner associatedContact partyStructure.buyer');
+        if (!deal) return res.status(404).json({ success: false, error: "Deal not found" });
+
+        // Update Deal
+        deal.stage = 'Closed';
+        deal.closingDetails = {
+            isClosed: true,
+            closingDate: closingDate || new Date(),
+            checklist: checklist,
+            remarks: remarks,
+            feedbackStatus: { buyerContacted: false, sellerContacted: false }
+        };
+        await deal.save();
+
+        // Update Inventory Status
+        if (deal.inventoryId) {
+            await Inventory.findByIdAndUpdate(deal.inventoryId, { status: 'Sold Out' });
+        }
+
+        // TODO: Notification trigger
+        console.log(`[Notification] Triggering feedback for Deal ${id}`);
+
+        res.json({ success: true, message: "Deal closed successfully", data: deal });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

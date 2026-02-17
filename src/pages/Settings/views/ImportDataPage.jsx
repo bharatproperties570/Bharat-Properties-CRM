@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { MODULE_CONFIG, parseCSV } from '../../../utils/dataManagementUtils';
+import { MODULE_CONFIG, parseCSV, generateErrorReportCSV, downloadFile } from '../../../utils/dataManagementUtils';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
@@ -13,6 +13,8 @@ const ImportDataPage = () => {
     const [mapping, setMapping] = useState({});
     const [importing, setImporting] = useState(false);
     const [progress, setProgress] = useState(0);
+    const [importErrors, setImportErrors] = useState([]);
+    const [importStats, setImportStats] = useState({ success: 0, failed: 0 });
 
     const fileInputRef = useRef(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -198,7 +200,6 @@ const ImportDataPage = () => {
 
             if (response.data.success) {
                 const { successCount, errorCount } = response.data;
-                toast.success(`Import completed: ${successCount} success, ${errorCount} failed`);
 
                 // Refresh context data if needed
                 if (module === 'sizes') {
@@ -206,6 +207,8 @@ const ImportDataPage = () => {
                 }
 
                 setProgress(100);
+                setImportStats({ success: successCount, failed: errorCount });
+                setImportErrors(response.data.errors || []);
                 setStep(5);
             } else {
                 toast.error(response.data.message || 'Import failed');
@@ -514,27 +517,91 @@ const ImportDataPage = () => {
                     </div>
                 )}
 
-                {/* Step 5: Success */}
+                {/* Step 5: Success & Errors */}
                 {step === 5 && (
-                    <div style={{ maxWidth: '500px', margin: '0 auto', textAlign: 'center', padding: '40px 0' }}>
-                        <div style={{ width: '80px', height: '80px', background: '#dcfce7', color: '#16a34a', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', margin: '0 auto 24px' }}>
-                            <i className="fas fa-check"></i>
+                    <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: 'center', padding: '20px 0' }}>
+                        <div style={{
+                            width: '80px', height: '80px',
+                            background: importStats.failed > 0 ? '#fff7ed' : '#dcfce7',
+                            color: importStats.failed > 0 ? '#ea580c' : '#16a34a',
+                            borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '2.5rem', margin: '0 auto 24px'
+                        }}>
+                            <i className={`fas ${importStats.failed > 0 ? 'fa-exclamation-circle' : 'fa-check'}`}></i>
                         </div>
-                        <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b', marginBottom: '12px' }}>Import Successful!</h2>
-                        <p style={{ color: '#64748b', marginBottom: '32px' }}>{fileData.data.length} records have been successfully imported into the {MODULE_CONFIG[module].label} module.</p>
-                        <button
-                            onClick={() => {
-                                setStep(1);
-                                setFile(null);
-                                setFileData({ headers: [], data: [] });
-                                setMapping({});
-                                setDuplicates([]);
-                            }}
-                            className="btn-outline"
-                            style={{ padding: '12px 32px', borderRadius: '6px', fontWeight: 600 }}
-                        >
-                            Import More Data
-                        </button>
+
+                        <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b', marginBottom: '12px' }}>
+                            {importStats.failed > 0 ? 'Import Completed with Issues' : 'Import Successful!'}
+                        </h2>
+
+                        <p style={{ color: '#64748b', marginBottom: '32px' }}>
+                            Successfully imported <strong>{importStats.success}</strong> records.
+                            {importStats.failed > 0 && <span> <strong>{importStats.failed}</strong> records could not be imported.</span>}
+                        </p>
+
+                        {importErrors.length > 0 && (
+                            <div style={{ marginBottom: '32px', textAlign: 'left' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                    <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>Error Report</h3>
+                                    <button
+                                        onClick={() => {
+                                            const csv = generateErrorReportCSV(importErrors);
+                                            downloadFile(csv, `import_errors_${module}_${Date.now()}.csv`);
+                                        }}
+                                        style={{
+                                            background: '#fff', border: '1px solid #e2e8f0', color: '#dc2626',
+                                            padding: '6px 12px', borderRadius: '6px', fontSize: '0.8rem',
+                                            fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                        }}
+                                    >
+                                        <i className="fas fa-download"></i> Download Error CSV
+                                    </button>
+                                </div>
+                                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                                    <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                                            <thead style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
+                                                <tr>
+                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Row</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Item/Name</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Reason</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {importErrors.map((err, idx) => (
+                                                    <tr key={idx} style={{ borderBottom: idx === importErrors.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
+                                                        <td style={{ padding: '12px', color: '#64748b', fontWeight: 500 }}>{err.row}</td>
+                                                        <td style={{ padding: '12px', color: '#1e293b', fontWeight: 600 }}>{err.name}</td>
+                                                        <td style={{ padding: '12px', color: '#dc2626' }}>{err.reason}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <p style={{ marginTop: '12px', fontSize: '0.8rem', color: '#64748b', textAlign: 'center' }}>
+                                    Tip: Fix these rows in your CSV file and try uploading them again.
+                                </p>
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: '16px' }}>
+                            <button
+                                onClick={() => {
+                                    setStep(1);
+                                    setFile(null);
+                                    setFileData({ headers: [], data: [] });
+                                    setMapping({});
+                                    setDuplicates([]);
+                                    setImportErrors([]);
+                                    setImportStats({ success: 0, failed: 0 });
+                                }}
+                                className="btn-outline"
+                                style={{ padding: '12px 32px', borderRadius: '6px', fontWeight: 600 }}
+                            >
+                                Import More Data
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>

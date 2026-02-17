@@ -414,3 +414,23 @@ export const downloadFile = (content, fileName, mimeType = 'text/csv;charset=utf
         document.body.removeChild(link);
     }
 };
+
+// --- Error Report Generation ---
+
+export const generateErrorReportCSV = (errors) => {
+    if (!errors || !errors.length) return '';
+
+    const headers = ['Row', 'Item/Name', 'Reason'];
+    const csvRows = [headers.join(',')];
+
+    errors.forEach(err => {
+        const values = [
+            err.row || 'N/A',
+            `"${(err.name || 'Unknown').replace(/"/g, '""')}"`,
+            `"${(err.reason || 'Unknown Error').replace(/"/g, '""')}"`
+        ];
+        csvRows.push(values.join(','));
+    });
+
+    return csvRows.join('\n');
+};

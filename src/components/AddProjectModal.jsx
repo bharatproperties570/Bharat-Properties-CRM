@@ -197,6 +197,12 @@ const DEFAULT_FORM_DATA = {
 function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projectToEdit = null }) {
     const { projectMasterFields: masterFieldsFromContext, projectAmenities, sizes } = usePropertyConfig();
     const { users: contextUsers } = useUserContext();
+    const [duplicateWarning, setDuplicateWarning] = useState(false);
+    const [isBlocked, setIsBlocked] = useState(false);
+    const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+
+    // Real-time Duplicate Check
+
 
     if (!companyData) {
         console.error('companyData is undefined!');
@@ -277,6 +283,35 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
 
     // Comprehensive State
     const [formData, setFormData] = useState(DEFAULT_FORM_DATA);
+
+    // Real-time Duplicate Check
+    useEffect(() => {
+        const checkDuplicate = async () => {
+            if (formData.name && !projectToEdit) {
+                setIsCheckingDuplicate(true);
+                try {
+                    const response = await api.post('duplication-rules/check', {
+                        entityType: 'Project',
+                        data: formData
+                    });
+                    if (response.data && response.data.success) {
+                        setDuplicateWarning(response.data.data.length > 0);
+                        setIsBlocked(response.data.blockAction === true && response.data.data.length > 0);
+                    }
+                } catch (err) {
+                    console.error("Duplicate check error:", err);
+                } finally {
+                    setIsCheckingDuplicate(false);
+                }
+            } else {
+                setDuplicateWarning(false);
+                setIsBlocked(false);
+            }
+        };
+
+        const timer = setTimeout(checkDuplicate, 800);
+        return () => clearTimeout(timer);
+    }, [formData.name, formData.reraNumber, projectToEdit]);
 
     const [showBlockForm, setShowBlockForm] = useState(false);
     const [editingBlockIndex, setEditingBlockIndex] = useState(null);
@@ -596,7 +631,35 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                 <div className="grid-2-col gap-24">
                     <div>
                         <label style={labelStyle}>Project Name <span style={{ color: '#ef4444' }}>*</span></label>
-                        <input style={inputStyle} placeholder="e.g. Green Valley Heights" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
+                        <input
+                            style={{ ...inputStyle, borderColor: duplicateWarning ? '#ef4444' : '#e2e8f0' }}
+                            placeholder="e.g. Green Valley Heights"
+                            value={formData.name}
+                            onChange={e => setFormData({ ...formData, name: e.target.value })}
+                        />
+                        {duplicateWarning && (
+                            <div style={{
+                                marginTop: '8px',
+                                padding: '8px',
+                                background: isBlocked ? '#fef2f2' : '#fff7ed',
+                                border: `1px solid ${isBlocked ? '#fca5a5' : '#fed7aa'}`,
+                                borderRadius: '6px',
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: '8px'
+                            }}>
+                                <i className={`fas ${isBlocked ? 'fa-ban' : 'fa-exclamation-triangle'}`} style={{ color: isBlocked ? '#dc2626' : '#ea580c', marginTop: '3px' }}></i>
+                                <div>
+                                    <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 600, color: isBlocked ? '#b91c1c' : '#9a3412' }}>
+                                        {isBlocked ? 'Action Blocked: Duplicate Found' : 'Warning: Duplicate Found'}
+                                    </p>
+                                    <p style={{ margin: '2px 0 0 0', fontSize: '0.7rem', color: isBlocked ? '#ef4444' : '#c2410c' }}>
+                                        A project with this name or RERA number already exists!
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                        {isCheckingDuplicate && <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '6px' }}>Checking for duplicates...</p>}
                     </div>
                     <div>
                         <label style={labelStyle}>RERA Number</label>
@@ -740,18 +803,9 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
             {/* System Details (Updated with MultiSelect & Assign) */}
             <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
                 <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <i className="fas fa-cogs" style={{ color: '#10b981' }}></i> System Details
+                    <i className="fas fa-layer-group" style={{ color: '#10b981' }}></i> System Assignment
                 </h4>
                 <div className="grid-3-col gap-24">
-                    <div>
-                        <label style={labelStyle}>Assign</label>
-                        <MultiSelect
-                            options={userOptions}
-                            selected={formData.assign}
-                            onChange={(val) => setFormData({ ...formData, assign: val })}
-                            placeholder="Assign User(s)"
-                        />
-                    </div>
                     <div>
                         <label style={labelStyle}>Team</label>
                         <MultiSelect
@@ -762,10 +816,20 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                         />
                     </div>
                     <div>
-                        <label style={labelStyle}>Visible to</label>
+                        <label style={labelStyle}>Assign</label>
+                        <MultiSelect
+                            options={userOptions}
+                            selected={formData.assign}
+                            onChange={(val) => setFormData({ ...formData, assign: val })}
+                            placeholder="Assign User(s)"
+                        />
+                    </div>
+                    <div>
+                        <label style={labelStyle}>Visibility</label>
                         <select style={customSelectStyle} value={formData.visibleTo} onChange={e => setFormData({ ...formData, visibleTo: e.target.value })}>
-                            <option>All Users</option>
-                            <option>Only Me</option>
+                            <option value="Private">Private</option>
+                            <option value="Team">Team</option>
+                            <option value="Everyone">Everyone</option>
                         </select>
                     </div>
                 </div>
@@ -1306,17 +1370,29 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                     )}
                 </div>
 
-                {/* Footer */}
+                {/* Footer fixed at bottom */}
                 <div style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <button onClick={onClose} style={buttonStyle.cancel}>Cancel</button>
+
                     <div style={{ display: 'flex', gap: '12px' }}>
                         {activeTab !== 'Basic' && (
-                            <button onClick={handlePrev} style={buttonStyle.secondary}>Previous</button>
+                            <button onClick={handlePrev} style={buttonStyle.secondary}>Back</button>
                         )}
-                        {activeTab !== TABS[TABS.length - 1] ? (
+                        {activeTab !== 'Amenities' ? (
                             <button onClick={handleNext} style={buttonStyle.primary}>Next</button>
                         ) : (
-                            <button onClick={handleSave} disabled={isLoading || !hasPermission} style={buttonStyle.success}>{projectToEdit ? 'Update Project' : 'Save Project'}</button>
+                            <button
+                                onClick={handleSave}
+                                disabled={isBlocked}
+                                style={{
+                                    ...buttonStyle.success,
+                                    opacity: isBlocked ? 0.7 : 1,
+                                    cursor: isBlocked ? 'not-allowed' : 'pointer',
+                                    background: isBlocked ? '#94a3b8' : '#22c55e'
+                                }}
+                            >
+                                {projectToEdit ? 'Update Project' : 'Create Project'}
+                            </button>
                         )}
                     </div>
                 </div>

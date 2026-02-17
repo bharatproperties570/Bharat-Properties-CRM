@@ -3,27 +3,32 @@ import CollectorRate from '../models/CollectorRate.js';
 // Create a new rate
 export const createCollectorRate = async (req, res) => {
     try {
-        const { state, district, tehsil, category, rate, unit } = req.body;
+        const {
+            state, district, tehsil, location,
+            category, subCategory, rate, rateApplyOn, rateUnit,
+            roadMultipliers, floorMultipliers,
+            effectiveFrom, effectiveTo, versionNo,
+            configName, constructionRateSqFt, constructionRateSqYard
+        } = req.body;
 
         // Basic validation
-        if (!state || !district || !category || !rate) {
-            return res.status(400).json({ status: 'error', message: 'Please provide all required fields' });
+        if (!state || !district || !category || !subCategory || !rate || !configName || !effectiveFrom) {
+            return res.status(400).json({ status: 'error', message: 'Please provide all required fields (State, District, Category, Sub-category, Rate, effectiveFrom, and Configuration)' });
         }
 
         const newRate = await CollectorRate.create({
-            state,
-            district,
-            tehsil,
-            category,
-            rate,
-            unit,
+            state, district, tehsil, location,
+            category, subCategory, rate, rateApplyOn, rateUnit,
+            roadMultipliers, floorMultipliers,
+            effectiveFrom, effectiveTo, versionNo,
+            configName, constructionRateSqFt, constructionRateSqYard,
             createdBy: req.user?._id
         });
 
         res.status(201).json({ status: 'success', data: newRate });
     } catch (error) {
         if (error.code === 11000) {
-            return res.status(400).json({ status: 'error', message: 'A rate for this location and category already exists.' });
+            return res.status(400).json({ status: 'error', message: 'A rate with these specific parameters already exists.' });
         }
         res.status(500).json({ status: 'error', message: error.message });
     }
@@ -32,32 +37,27 @@ export const createCollectorRate = async (req, res) => {
 // Get all rates with filters and pagination
 export const getAllCollectorRates = async (req, res) => {
     try {
-        const { page = 1, limit = 10, state, district, category } = req.query;
+        const { page = 1, limit = 10, state, district, category, subCategory, search } = req.query;
         const query = {};
 
         if (state) query.state = state;
         if (district) query.district = district;
         if (category) query.category = category;
+        if (subCategory) query.subCategory = subCategory;
+
+        if (search) {
+            query.$or = [
+                { category: { $regex: search, $options: 'i' } },
+                { subCategory: { $regex: search, $options: 'i' } },
+                { configName: { $regex: search, $options: 'i' } }
+            ];
+        }
 
         const options = {
             page: parseInt(page),
             limit: parseInt(limit),
-            populate: [
-                { path: 'state', select: 'lookup_value' },
-                { path: 'district', select: 'lookup_value' },
-                { path: 'tehsil', select: 'lookup_value' }
-            ],
-            sort: { createdAt: -1 }
+            sort: { effectiveFrom: -1, createdAt: -1 }
         };
-
-        // Use mongoose-paginate-v2 if available, else manual
-        // Assuming paginate plugin is used or manual implementation
-        // Check if model has paginate method (usually added via plugin)
-        // If not, use standard find
-
-        // For now, let's assume standard find/skip/limit for simplicity or add plugin if needed. 
-        // But the user's codebase uses paginate in other controllers. Let's check a previous controller... 
-        // Deal controller likely uses it. Let's risk using standard find first to be safe or just standard pagination.
 
         const skip = (options.page - 1) * options.limit;
 
@@ -66,9 +66,9 @@ export const getAllCollectorRates = async (req, res) => {
             .populate('state', 'lookup_value')
             .populate('district', 'lookup_value')
             .populate('tehsil', 'lookup_value')
+            .populate('location', 'lookup_value')
             .sort(options.sort)
-            .skip(skip)
-            .limit(options.limit);
+            .skip(skip);
 
         res.json({
             status: 'success',
@@ -96,7 +96,8 @@ export const updateCollectorRate = async (req, res) => {
         const rate = await CollectorRate.findByIdAndUpdate(id, updates, { new: true, runValidators: true })
             .populate('state', 'lookup_value')
             .populate('district', 'lookup_value')
-            .populate('tehsil', 'lookup_value');
+            .populate('tehsil', 'lookup_value')
+            .populate('location', 'lookup_value');
 
         if (!rate) {
             return res.status(404).json({ status: 'error', message: 'Rate not found' });

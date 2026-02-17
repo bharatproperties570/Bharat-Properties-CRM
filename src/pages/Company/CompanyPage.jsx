@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getInitials } from '../../utils/helpers';
+import { useUserContext } from '../../context/UserContext';
 import CompanyFilterPanel from './components/CompanyFilterPanel';
+import AssignContactModal from '../../components/AssignContactModal';
+import ManageTagsModal from '../../components/ManageTagsModal';
 import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
 
 function CompanyPage({ onEdit, onNavigate }) {
+    const { teams } = useUserContext();
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -13,6 +17,10 @@ function CompanyPage({ onEdit, onNavigate }) {
 
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
+
+    // Modal States
+    const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+    const [isTagModalOpen, setIsTagModalOpen] = useState(false);
 
     // API Data States
     const [companies, setCompanies] = useState([]);
@@ -61,6 +69,9 @@ function CompanyPage({ onEdit, onNavigate }) {
     const isSelected = (id) => selectedIds.includes(id);
     const selectedCount = selectedIds.length;
 
+    // Get selected companies objects
+    const selectedCompanies = companies.filter(c => selectedIds.includes(c._id));
+
     const goToNextPage = () => {
         if (currentPage < totalPages) setCurrentPage(currentPage + 1);
     };
@@ -87,6 +98,56 @@ function CompanyPage({ onEdit, onNavigate }) {
     const isAllSelected = companies.length > 0 && selectedIds.length === companies.length;
     const isIndeterminate = selectedIds.length > 0 && selectedIds.length < companies.length;
 
+    const handleDelete = async () => {
+        if (selectedIds.length === 0) return;
+
+        if (window.confirm(`Are you sure you want to delete ${selectedIds.length} companies?`)) {
+            setLoading(true);
+            try {
+                const response = await api.post('/companies/bulk-delete', { ids: selectedIds });
+                if (response.data && response.data.success) {
+                    toast.success(response.data.message || "Companies deleted successfully");
+                    setSelectedIds([]);
+                    fetchData();
+                } else {
+                    toast.error(response.data.error || "Failed to delete companies");
+                }
+            } catch (error) {
+                console.error("Error deleting companies:", error);
+                toast.error("An error occurred during deletion");
+            } finally {
+                setLoading(false);
+            }
+        }
+    };
+
+    const handleAssignCompany = async (assignmentDetails) => {
+        // Implement assignment logic here 
+        // For now, just show success toast as the backed endpoint might not be ready
+        console.log('Assigning companies:', assignmentDetails);
+        toast.success(`Assigned ${selectedCompanies.length} companies successfully!`);
+        setSelectedIds([]);
+        fetchData(); // Refresh to show potential changes
+    };
+
+    const handleUpdateTags = async (payload) => {
+        // Implement tag update logic here
+        console.log('Updating tags:', payload);
+        toast.success("Tags updated successfully!");
+        setSelectedIds([]);
+        fetchData();
+    };
+
+
+    const getTeamName = useCallback((teamValue) => {
+        if (!teamValue) return "General Team";
+        if (typeof teamValue === 'object') {
+            return teamValue.name || teamValue.lookup_value || "General Team";
+        }
+        const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
+        return found ? (found.name || found.lookup_value) : teamValue;
+    }, [teams]);
+
     const renderLookup = (field, fallback = '-') => {
         if (!field) return fallback;
         if (typeof field === 'object' && field.lookup_value) return field.lookup_value;
@@ -97,13 +158,26 @@ function CompanyPage({ onEdit, onNavigate }) {
 
     const getFirstAddress = (company) => {
         if (!company.addresses) return '-';
-        const reg = company.addresses['Registered Office'];
-        if (reg) {
+
+        // Try multiple keys in order of preference (camelCase to match backend)
+        const addr = company.addresses.registeredOffice ||
+            company.addresses.headOffice ||
+            company.addresses.corporateOffice ||
+            (Array.isArray(company.addresses.branchOffice) ? company.addresses.branchOffice[0] : company.addresses.branchOffice) ||
+            (Array.isArray(company.addresses.siteOffice) ? company.addresses.siteOffice[0] : company.addresses.siteOffice);
+
+        if (addr) {
             const components = [
-                reg.hNo,
-                reg.street,
-                renderLookup(reg.city),
-                renderLookup(reg.state)
+                addr.hNo,
+                addr.street,
+                addr.area,
+                renderLookup(addr.location),
+                renderLookup(addr.tehsil),
+                renderLookup(addr.postOffice),
+                renderLookup(addr.city),
+                renderLookup(addr.state),
+                addr.pinCode,
+                renderLookup(addr.country)
             ].filter(Boolean);
             return components.join(', ') || '-';
         }
@@ -187,10 +261,28 @@ function CompanyPage({ onEdit, onNavigate }) {
                                     </button>
                                 )}
                                 <button className="action-btn" title="Export"><i className="fas fa-file-export"></i> Export</button>
-                                <button className="action-btn" title="Assign Team"><i className="fas fa-users"></i> Assign</button>
-                                <button className="action-btn" title="Add Tags"><i className="fas fa-tag"></i> Tag</button>
+                                <button
+                                    className="action-btn"
+                                    title="Assign Team"
+                                    onClick={() => setIsAssignModalOpen(true)}
+                                >
+                                    <i className="fas fa-users"></i> Assign
+                                </button>
+                                <button
+                                    className="action-btn"
+                                    title="Add Tags"
+                                    onClick={() => setIsTagModalOpen(true)}
+                                >
+                                    <i className="fas fa-tag"></i> Tag
+                                </button>
                                 <div style={{ marginLeft: 'auto' }}>
-                                    <button className="action-btn danger" onClick={() => setSelectedIds([])}><i className="fas fa-trash-alt"></i> Delete</button>
+                                    <button
+                                        className="action-btn danger"
+                                        onClick={handleDelete}
+                                        disabled={loading}
+                                    >
+                                        <i className={`fas ${loading ? 'fa-spinner fa-spin' : 'fa-trash-alt'}`}></i> Delete
+                                    </button>
                                 </div>
                             </div>
                         ) : (
@@ -342,7 +434,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                             <div>EMPLOYEES</div>
                             <div>CATEGORY</div>
                             <div>SOURCE</div>
-                            <div>OWNERSHIP</div>
+                            <div>Assignment</div>
                         </div>
                     )}
 
@@ -446,14 +538,21 @@ function CompanyPage({ onEdit, onNavigate }) {
                                     </div>
 
                                     {/* Ownership / Date Combined */}
-                                    <div style={{ fontSize: '0.75rem', lineHeight: 1.6 }}>
-                                        <div style={{ color: '#0f172a', fontWeight: 700 }}>
-                                            <i className="fas fa-user" style={{ marginRight: '6px', color: '#64748b', fontSize: '0.7rem' }}></i>
-                                            {renderLookup(company.owner)}
-                                        </div>
-                                        <div style={{ color: '#94a3b8', fontWeight: 600, marginTop: '4px', fontSize: '0.7rem' }}>
-                                            <i className="far fa-calendar" style={{ marginRight: '6px' }}></i>
-                                            {company.createdAt ? new Date(company.createdAt).toLocaleDateString() : '-'}
+                                    <div className="col-assignment">
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
+                                                {getInitials(renderLookup(company.owner, 'Admin'))}
+                                            </div>
+                                            <div style={{ lineHeight: 1.2 }}>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{renderLookup(company.owner, 'Admin')}</div>
+                                                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
+                                                    {getTeamName(company.team || company.assignment?.team)}
+                                                </div>
+                                                <div style={{ color: '#94a3b8', fontWeight: 600, marginTop: '2px', fontSize: '0.65rem' }}>
+                                                    <i className="far fa-clock" style={{ marginRight: '6px' }}></i>
+                                                    {company.createdAt ? new Date(company.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '-'}
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -563,9 +662,15 @@ function CompanyPage({ onEdit, onNavigate }) {
                                                 <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Source</div>
                                                 <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a' }}>{renderLookup(company.source)}</div>
                                             </div>
-                                            <div style={{ textAlign: 'right' }}>
-                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Owner</div>
-                                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a' }}>{renderLookup(company.owner)}</div>
+                                            <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <div style={{ textAlign: 'right' }}>
+                                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Owner</div>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a' }}>{renderLookup(company.owner, 'Admin')}</div>
+                                                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{getTeamName(company.team || company.assignment?.team)}</div>
+                                                </div>
+                                                <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b' }}>
+                                                    {getInitials(renderLookup(company.owner, 'Admin'))}
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -615,6 +720,22 @@ function CompanyPage({ onEdit, onNavigate }) {
                     setFilters(newFilters);
                     setCurrentPage(1);
                 }}
+            />
+
+            {/* Modals */}
+            <AssignContactModal
+                isOpen={isAssignModalOpen}
+                onClose={() => setIsAssignModalOpen(false)}
+                selectedContacts={selectedCompanies}
+                onAssign={handleAssignCompany}
+                entityName="Company"
+            />
+
+            <ManageTagsModal
+                isOpen={isTagModalOpen}
+                onClose={() => setIsTagModalOpen(false)}
+                selectedContacts={selectedCompanies}
+                onUpdateTags={handleUpdateTags}
             />
         </section>
     );

@@ -17,6 +17,8 @@ import EnrollSequenceModal from "../../components/EnrollSequenceModal";
 import ContactFilterPanel from "./components/ContactFilterPanel";
 import { applyContactFilters } from "../../utils/contactFilterLogic";
 import ActiveFiltersChips from "../../components/ActiveFiltersChips";
+import { useUserContext } from "../../context/UserContext";
+import DocumentUploadModal from "../../components/DocumentUploadModal";
 
 // Debounce Utility
 const useDebounce = (value, delay) => {
@@ -62,6 +64,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const [isSendMailOpen, setIsSendMailOpen] = useState(false);
   const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
   const [contactForLead, setContactForLead] = useState(null);
+  const { teams } = useUserContext();
 
   // Debounce search term
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
@@ -99,9 +102,26 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
     }
   }, [currentPage, recordsPerPage, debouncedSearchTerm, refreshTrigger]);
 
+  // Refresh Listener
+  useEffect(() => {
+    const handleRefresh = () => setRefreshTrigger(prev => prev + 1);
+    window.addEventListener('contact-updated', handleRefresh);
+    return () => window.removeEventListener('contact-updated', handleRefresh);
+  }, []);
+
   useEffect(() => {
     fetchContacts();
   }, [fetchContacts]);
+
+  const getTeamName = useCallback((teamValue) => {
+    if (!teamValue) return "General Team";
+    if (typeof teamValue === 'object') {
+      return teamValue.name || teamValue.lookup_value || "General Team";
+    }
+    // If it's a string, try to find it in lookup/teams
+    const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
+    return found ? (found.name || found.lookup_value) : teamValue;
+  }, [teams]);
   console.log(contacts);
 
   // ==============delete contact======================
@@ -171,6 +191,9 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   // Sequence Enrollment State
   const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
   const [selectedContactForSequence, setSelectedContactForSequence] = useState(null);
+
+  const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
+  const [documentModalData, setDocumentModalData] = useState(null);
 
   const handleAssignClick = () => {
     const selected = getSelectedContacts();
@@ -483,6 +506,23 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                 </button>
                 <button
                   className="action-btn"
+                  title="Documents"
+                  onClick={() => {
+                    const selected = getSelectedContacts();
+                    if (selected.length === 1) {
+                      setDocumentModalData({
+                        ownerId: selected[0]._id,
+                        ownerType: 'Contact',
+                        ownerName: selected[0].name
+                      });
+                      setIsDocumentModalOpen(true);
+                    }
+                  }}
+                >
+                  <i className="fas fa-file-alt"></i> Documents
+                </button>
+                <button
+                  className="action-btn"
                   title="Assign"
                   onClick={handleAssignClick}
                 >
@@ -759,7 +799,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                 <div>Source & Tags</div>
                 <div>CRM Linkage</div>
                 <div>Last Interaction</div>
-                <div style={{ paddingLeft: "10px" }}>Assign</div>
+                <div style={{ paddingLeft: "10px" }}>Assignment</div>
               </div>
 
               <div id="contactListContent">
@@ -911,7 +951,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                     {`${item.personalAddress?.area || ""}, ${item.personalAddress?.city?.lookup_value || item.personalAddress?.city || ""}, ${item.personalAddress?.state?.lookup_value || item.personalAddress?.state || ""} ${item.personalAddress?.pinCode || ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}
                                   </div>
                                 </div>
-                              ) : item?.address || "Address not listed"}
+                              ) : (typeof item?.address === 'string' ? item.address : "Address not listed")}
                             </div>
                           </div>
                         </div>
@@ -1139,9 +1179,13 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 color: "#64748b",
                               }}
                             >
-                              {getInitials(item?.owner?.name || item?.ownership || "Admin")}
+                              {getInitials(
+                                typeof (item?.owner || item?.ownership) === 'object'
+                                  ? (item?.owner?.name || item?.ownership?.lookup_value || "Admin")
+                                  : (item?.owner || item?.ownership || "Admin")
+                              )}
                             </div>
-                            <div>
+                            <div style={{ lineHeight: 1.2 }}>
                               <div
                                 style={{
                                   fontSize: "0.8rem",
@@ -1149,7 +1193,16 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                   color: "#0f172a",
                                 }}
                               >
-                                {item?.owner?.name || item?.ownership || "Admin"}
+                                {typeof (item?.owner || item?.ownership) === 'object'
+                                  ? (item?.owner?.name || item?.ownership?.lookup_value || "Admin")
+                                  : (item?.owner || item?.ownership || "Admin")}
+                              </div>
+                              <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
+                                {getTeamName(item?.team || item?.assignment?.team)}
+                              </div>
+                              <div style={{ fontSize: '0.6rem', color: '#94a3b8', marginTop: '2px' }}>
+                                <i className="far fa-clock" style={{ marginRight: '4px' }}></i>
+                                {item.createdAt ? new Date(item.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'N/A'}
                               </div>
                             </div>
                           </div>
@@ -1938,6 +1991,16 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
           // Optimally we would reset page to 1 and refetch with filters here if API supported it
         }}
       />
+
+      {isDocumentModalOpen && (
+        <DocumentUploadModal
+          isOpen={isDocumentModalOpen}
+          onClose={() => setIsDocumentModalOpen(false)}
+          ownerId={documentModalData?.ownerId}
+          ownerType={documentModalData?.ownerType}
+          ownerName={documentModalData?.ownerName}
+        />
+      )}
     </section >
   );
 }

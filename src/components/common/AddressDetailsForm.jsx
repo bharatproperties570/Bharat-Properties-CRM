@@ -12,6 +12,8 @@ const getDropdownStyle = (disabled) => ({
   color: "#1e293b",
   backgroundColor: disabled ? "#f1f5f9" : "#fff",
   cursor: disabled ? "not-allowed" : "pointer",
+  height: "42px",
+  boxSizing: "border-box",
 });
 const labelStyle = {
   fontSize: "0.9rem",

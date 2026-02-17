@@ -8,6 +8,9 @@ import { renderValue } from '../../utils/renderUtils';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
 import UploadModal from '../../components/UploadModal';
 import AddOwnerModal from '../../components/AddOwnerModal';
+import SendMailModal from '../Contacts/components/SendMailModal';
+import SendMessageModal from '../../components/SendMessageModal';
+import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
 
 export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, onAddActivity, onAddDeal, onEditInventory }) {
     const { masterFields } = usePropertyConfig();
@@ -28,6 +31,10 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
     const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false);
+    const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+    const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
+    const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+    const [modalData, setModalData] = useState([]);
 
     const fetchInventoryDetails = useCallback(async () => {
         setLoading(true);
@@ -130,6 +137,109 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
             isOwnerSelected: !!inventory.owners?.[0],
             isAssociateSelected: !!inventory.associates?.[0]
         });
+    };
+
+    const getTargetContacts = () => {
+        const targets = [];
+        if (inventory) {
+            if (inventory.ownerName) targets.push({ name: inventory.ownerName, mobile: inventory.ownerPhone, email: inventory.ownerEmail || 'owner@example.com' });
+            if (inventory.associatedContact) targets.push({ name: inventory.associatedContact, mobile: inventory.associatedPhone, email: inventory.associatedEmail || 'associate@example.com' });
+
+            // Also check owners array if it exists
+            if (inventory.owners && inventory.owners.length > 0) {
+                inventory.owners.forEach(o => {
+                    if (o.name && !targets.find(t => t.mobile === o.mobile)) {
+                        targets.push({ name: o.name, mobile: o.mobile, email: o.email || 'owner@example.com' });
+                    }
+                });
+            }
+        }
+        return targets;
+    };
+
+    const handleEmailClick = () => {
+        const targets = getTargetContacts();
+        if (targets.length > 0) {
+            setModalData(targets);
+            setIsEmailModalOpen(true);
+        } else {
+            toast.error("No contact information available for this property");
+        }
+    };
+
+    const handleMessageClick = () => {
+        const targets = getTargetContacts().map(t => ({ name: t.name, phone: t.mobile }));
+        if (targets.length > 0) {
+            setModalData(targets);
+            setIsMessageModalOpen(true);
+        } else {
+            toast.error("No contact information available for this property");
+        }
+    };
+
+    const handleFeedbackClick = () => {
+        setIsFeedbackModalOpen(true);
+    };
+
+    const handleSaveFeedback = async (data) => {
+        try {
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+            const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+            let newRemark = `${data.result}`;
+            if (data.reason) newRemark += ` (${data.reason})`;
+            if (data.feedback) newRemark += `: ${data.feedback}`;
+            if (data.nextActionDate) {
+                newRemark += ` | Next: ${data.nextActionType} on ${data.nextActionDate} @ ${data.nextActionTime}`;
+            }
+
+            let newStatus = inventory.status;
+            if (data.markAsSold && data.reason) {
+                if (String(data.reason).includes('Sold Out')) {
+                    newStatus = 'Sold Out';
+                } else if (String(data.reason).includes('Rented Out')) {
+                    newStatus = 'Rented Out';
+                } else {
+                    newStatus = 'Inactive';
+                }
+            }
+
+            const newInteraction = {
+                id: Date.now(),
+                date: dateStr,
+                time: timeStr,
+                user: 'You',
+                action: data.nextActionType || 'Call',
+                result: data.result,
+                reason: data.reason,
+                note: newRemark
+            };
+
+            const currentHistory = inventory.history || [];
+
+            const updates = {
+                lastContactDate: dateStr,
+                lastContactTime: timeStr,
+                lastContactUser: 'You',
+                remarks: newRemark,
+                status: newStatus,
+                history: [newInteraction, ...currentHistory]
+            };
+
+            const response = await api.put(`inventory/${inventoryId}`, updates);
+
+            if (response.data && response.data.success) {
+                toast.success("Feedback recorded successfully");
+                fetchInventoryDetails();
+                fetchActivities();
+            } else {
+                toast.error("Failed to save feedback");
+            }
+        } catch (error) {
+            console.error("Error saving feedback:", error);
+            toast.error("Error saving feedback");
+        }
     };
 
 
@@ -241,21 +351,35 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                     {/* Action Buttons */}
                     <button
                         className="toolbar-btn"
-                        onClick={() => window.location.href = `tel:${inventory.owners?.[0]?.phone || inventory.ownerPhone || ''}`} // Placeholder action
+                        onClick={() => {
+                            const targets = getTargetContacts();
+                            if (targets.length > 0) {
+                                startCall({
+                                    name: targets[0].name || 'Unknown Owner',
+                                    mobile: targets[0].mobile
+                                }, {
+                                    purpose: 'Owner Update',
+                                    entityId: inventory._id,
+                                    entityType: 'inventory'
+                                });
+                            } else {
+                                toast.error("No contact information available");
+                            }
+                        }}
                         style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', padding: '8px 16px', borderRadius: '10px', fontWeight: 600, transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
                         <i className="fas fa-phone-alt" style={{ color: '#2563eb' }}></i> Call
                     </button>
                     <button
                         className="toolbar-btn"
-                        onClick={() => window.open(`mailto:${inventory.owners?.[0]?.email || ''}`)} // Placeholder action
+                        onClick={handleEmailClick}
                         style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', padding: '8px 16px', borderRadius: '10px', fontWeight: 600, transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
                         <i className="fas fa-envelope" style={{ color: '#ea580c' }}></i> Email
                     </button>
                     <button
                         className="toolbar-btn"
-                        onClick={() => { /* Placeholder for Message Modal */ toast('Message Feature Coming Soon'); }}
+                        onClick={handleMessageClick}
                         style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', padding: '8px 16px', borderRadius: '10px', fontWeight: 600, transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
                         <i className="fas fa-comment-alt" style={{ color: '#8b5cf6' }}></i> Message
@@ -263,7 +387,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
 
                     <button
                         className="toolbar-btn"
-                        onClick={() => { /* Placeholder for Feedback Modal */ toast('Feedback Feature Coming Soon'); }}
+                        onClick={handleFeedbackClick}
                         style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', padding: '8px 16px', borderRadius: '10px', fontWeight: 600, transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
                         <i className="fas fa-comment-dots" style={{ color: '#f59e0b' }}></i> Feedback
@@ -985,6 +1109,26 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                     }
                 }}
             />
+
+            <SendMailModal
+                isOpen={isEmailModalOpen}
+                onClose={() => setIsEmailModalOpen(false)}
+                recipients={modalData}
+            />
+
+            <SendMessageModal
+                isOpen={isMessageModalOpen}
+                onClose={() => setIsMessageModalOpen(false)}
+                initialRecipients={modalData}
+            />
+
+            <InventoryFeedbackModal
+                isOpen={isFeedbackModalOpen}
+                onClose={() => setIsFeedbackModalOpen(false)}
+                inventory={inventory}
+                onSave={handleSaveFeedback}
+            />
+
         </div >
     );
 }

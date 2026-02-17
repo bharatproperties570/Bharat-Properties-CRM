@@ -62,7 +62,6 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
   <div
     style={{
       minWidth: "280px",
-      minWidth: "280px",
       // width: "33%", // REMOVED fixed width
       borderRight: "1px solid #e2e8f0",
       display: "flex",

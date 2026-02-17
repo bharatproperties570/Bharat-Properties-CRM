@@ -9,7 +9,6 @@ import { useTriggers } from '../context/TriggersContext';
 import { useUserContext } from '../context/UserContext';
 
 // 3.4 MB Unused data removed for performance
-import { PROJECT_DATA, CITIES } from '../data/projectData';
 import { LOCATION_DATA } from '../data/locationData';
 import { PROPERTY_CATEGORIES, DIRECTION_OPTIONS } from '../data/propertyData';
 
@@ -153,7 +152,7 @@ const SOURCE_OPTIONS = [
 ];
 
 // Duplicate Popup Component (Restyled for Side Panel)
-const DuplicateResults = ({ contacts, onUpdate }) => {
+const DuplicateResults = ({ contacts, onUpdate, isBlocked }) => {
     if (!contacts || contacts.length === 0) {
         return (
             <div style={{
@@ -187,21 +186,45 @@ const DuplicateResults = ({ contacts, onUpdate }) => {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px' }}>
+            {isBlocked && (
+                <div style={{
+                    padding: '12px',
+                    background: '#fef2f2',
+                    borderRadius: '8px',
+                    border: '1px solid #fca5a5',
+                    color: '#b91c1c',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '10px'
+                }}>
+                    <i className="fas fa-ban" style={{ marginTop: '3px' }}></i>
+                    <div>
+                        <div>Action Blocked</div>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 400, marginTop: '2px' }}>
+                            A critical duplicate rule prevents saving this record.
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div style={{
                 padding: '8px 12px',
-                background: '#e0f2fe',
+                background: isBlocked ? '#fff1f2' : '#e0f2fe',
                 borderRadius: '6px',
-                border: '1px solid #bae6fd',
+                border: isBlocked ? '1px solid #fecaca' : '1px solid #bae6fd',
                 fontSize: '0.8rem',
                 fontWeight: 600,
-                color: '#0369a1',
+                color: isBlocked ? '#991b1b' : '#0369a1',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px'
             }}>
-                <i className="fas fa-exclamation-circle"></i>
-                {contacts.length} Similar Contact{contacts.length > 1 ? 's' : ''} Found
+                <i className={`fas ${isBlocked ? 'fa-times-circle' : 'fa-exclamation-circle'}`}></i>
+                {contacts.length} Similar Record{contacts.length > 1 ? 's' : ''} Found
             </div>
+
             {contacts.map((contact, index) => (
                 <div key={index} style={{
                     background: '#fff',
@@ -212,63 +235,86 @@ const DuplicateResults = ({ contacts, onUpdate }) => {
                     transition: 'transform 0.2s',
                     ':hover': { transform: 'translateY(-2px)' }
                 }}>
-                    <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.95rem', marginBottom: '4px' }}>
-                        {contact.title} {contact.name} {contact.surname}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                        <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.95rem' }}>
+                            {contact.title} {contact.firstName || contact.name} {contact.lastName || contact.surname}
+                        </div>
+                        {contact.matchedEntityType && (
+                            <span style={{
+                                fontSize: '0.65rem',
+                                fontWeight: 800,
+                                textTransform: 'uppercase',
+                                background: contact.matchedEntityType === 'Lead' ? '#fdf4ff' : '#eff6ff',
+                                color: contact.matchedEntityType === 'Lead' ? '#d946ef' : '#3b82f6',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                border: `1px solid ${contact.matchedEntityType === 'Lead' ? '#f0abfc' : '#bfdbfe'}`
+                            }}>
+                                {contact.matchedEntityType}
+                            </span>
+                        )}
                     </div>
+
                     {contact.company && (
                         <div style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '8px' }}>
                             <i className="fas fa-building" style={{ width: '16px' }}></i> {contact.company}
                         </div>
                     )}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' }}>
-                        {contact.phones?.[0] && (
+                        {(contact.phones?.[0] || contact.mobile) && (
                             <div style={{ fontSize: '0.8rem', color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <i className="fas fa-phone" style={{ fontSize: '0.7rem', color: '#94a3b8' }}></i>
-                                {contact.phones[0].phoneNumber}
+                                {contact.mobile || contact.phones?.[0]?.phoneNumber || contact.phones?.[0]?.number}
                             </div>
                         )}
-                        {contact.emails?.[0] && (
+                        {(contact.emails?.[0] || contact.email) && (
                             <div style={{ fontSize: '0.8rem', color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <i className="fas fa-envelope" style={{ fontSize: '0.7rem', color: '#94a3b8' }}></i>
-                                {typeof contact.emails[0] === 'string' ? contact.emails[0] : contact.emails[0]?.address}
+                                {contact.email || (typeof contact.emails?.[0] === 'string' ? contact.emails[0] : contact.emails?.[0]?.address)}
                             </div>
                         )}
                     </div>
-                    <button
-                        type="button"
-                        onClick={(e) => { e.preventDefault(); onUpdate(contact); }}
-                        style={{
-                            width: '100%',
-                            padding: '8px',
-                            background: '#eff6ff',
-                            border: '1px solid #3b82f6',
-                            color: '#2563eb',
-                            borderRadius: '6px',
-                            fontSize: '0.8rem',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '6px',
-                            transition: 'all 0.2s'
-                        }}
-                        onMouseEnter={(e) => {
-                            e.target.style.background = '#3b82f6';
-                            e.target.style.color = '#fff';
-                        }}
-                        onMouseLeave={(e) => {
-                            e.target.style.background = '#eff6ff';
-                            e.target.style.color = '#2563eb';
-                        }}
-                    >
-                        <i className="fas fa-sync-alt"></i> Update Form with this
-                    </button>
+
+                    {!isBlocked && (
+                        <button
+                            type="button"
+                            onClick={(e) => { e.preventDefault(); onUpdate(contact); }}
+                            style={{
+                                width: '100%',
+                                padding: '8px',
+                                background: '#eff6ff',
+                                border: '1px solid #3b82f6',
+                                color: '#2563eb',
+                                borderRadius: '6px',
+                                fontSize: '0.8rem',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px',
+                                transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.target.style.background = '#3b82f6';
+                                e.target.style.color = '#fff';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.target.style.background = '#eff6ff';
+                                e.target.style.color = '#2563eb';
+                            }}
+                        >
+                            <i className="fas fa-sync-alt"></i> Update Form with this
+                        </button>
+                    )}
                 </div>
             ))}
         </div>
     );
 };
+
+// ... (Rest of the file) ...
+
 
 // --- Animated UI Components ---
 
@@ -431,6 +477,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     const [showSpecificUnit, setShowSpecificUnit] = useState(false);
     const [currentTime, setCurrentTime] = useState(new Date());
     const [similarContacts, setSimilarContacts] = useState([]);
+    const [isBlocked, setIsBlocked] = useState(false);
 
     // Contact Search State
     const [contactSearchQuery, setContactSearchQuery] = useState('');
@@ -501,6 +548,40 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             setCurrentTime(new Date());
         }, 1000);
         return () => clearInterval(timer);
+    }, []);
+
+    const [projectData, setProjectData] = useState({});
+    const [cities, setCities] = useState([]);
+
+    useEffect(() => {
+        const fetchProjects = async () => {
+            try {
+                const response = await api.get('/projects');
+                if (response.data?.success && response.data.data) {
+                    const fetchedProjects = response.data.data;
+
+                    // Group by city matching the address.city field
+                    const grouped = fetchedProjects.reduce((acc, project) => {
+                        const city = project.address?.city || 'Other';
+                        if (!acc[city]) acc[city] = [];
+                        acc[city].push({
+                            ...project,
+                            towers: project.blocks || [] // Backend uses 'blocks', UI uses 'towers'
+                        });
+                        return acc;
+                    }, {});
+
+                    // Merge with existing hardcoded data if we want to preserve it, 
+                    // or replace it. User says "data backend se nhi aa rha hai", 
+                    // so replacement is cleaner.
+                    setProjectData(grouped);
+                    setCities(Object.keys(grouped));
+                }
+            } catch (err) {
+                console.error("Error fetching projects from backend:", err);
+            }
+        };
+        fetchProjects();
     }, []);
 
     const [formData, setFormData] = useState({
@@ -699,14 +780,14 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     };
 
     // Derived Data for Dropdowns
-    const availableProjects = formData.projectCity && PROJECT_DATA[formData.projectCity]
-        ? PROJECT_DATA[formData.projectCity].map(p => p.name)
+    const availableProjects = formData.projectCity && projectData[formData.projectCity]
+        ? projectData[formData.projectCity].map(p => p.name)
         : [];
 
     const availableTowers = formData.projectName.length > 0 && formData.projectCity
-        ? PROJECT_DATA[formData.projectCity]
-            .filter(p => formData.projectName.includes(p.name))
-            .flatMap(p => p.towers)
+        ? projectData[formData.projectCity]
+            ?.filter(p => formData.projectName.includes(p.name))
+            .flatMap(p => p.towers || [])
         : [];
 
     const handleSave = async () => {
@@ -929,25 +1010,19 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             }
 
             try {
-                const queryParams = new URLSearchParams();
-                if (formData.name && formData.name.length > 2) {
-                    queryParams.append("name", formData.name);
-                }
-                if (formData.phones[0].number && formData.phones[0].number.length > 3) {
-                    queryParams.append("phone", formData.phones[0].number);
-                }
-                if (formData.emails[0].address && formData.emails[0].address.length > 3) {
-                    queryParams.append("email", formData.emails[0].address);
-                }
-
-                if (queryParams.toString() === "") {
+                if (!formData.name && !formData.phones[0].number && !formData.emails[0].address) {
                     setSimilarContacts([]);
                     return;
                 }
 
-                const response = await api.get(`contacts/search/duplicates?${queryParams.toString()}`);
+                const response = await api.post('duplication-rules/check', {
+                    entityType: 'Lead',
+                    data: formData
+                });
+
                 if (response.data && response.data.success) {
                     setSimilarContacts(response.data.data);
+                    setIsBlocked(response.data.blockAction === true);
                 }
             } catch (error) {
                 console.error("Error searching duplicates:", error);
@@ -1385,15 +1460,23 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                     </h3>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
                                         <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Assign Team</label>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Team</label>
                                             <select
                                                 value={formData.team}
-                                                onChange={(e) => handleInputChange('team', e.target.value)}
+                                                onChange={(e) => {
+                                                    const newTeam = e.target.value;
+                                                    setFormData(prev => ({
+                                                        ...prev,
+                                                        team: newTeam,
+                                                        owner: '' // Reset owner when team changes
+                                                    }));
+                                                }}
                                                 style={customSelectStyle}
                                             >
                                                 <option value="">Select Team</option>
-                                                <option value="Sales">Sales</option>
-                                                <option value="Marketing">Marketing</option>
+                                                {teams?.map(team => (
+                                                    <option key={team._id} value={team._id}>{team.name}</option>
+                                                ))}
                                             </select>
                                         </div>
                                         <div>
@@ -1404,9 +1487,13 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                 style={customSelectStyle}
                                             >
                                                 <option value="">Select Owner</option>
-                                                {users.map(user => (
-                                                    <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
-                                                ))}
+                                                {/* Filter users based on selected team */}
+                                                {users
+                                                    .filter(user => !formData.team || (user.team && user.team === formData.team) || (user.team?._id === formData.team))
+                                                    .map(user => (
+                                                        <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
+                                                    ))
+                                                }
                                             </select>
                                         </div>
                                         <div>
@@ -1417,9 +1504,9 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                 style={customSelectStyle}
                                             >
                                                 <option value="">Select Visibility</option>
-                                                <option value="Public">Public</option>
                                                 <option value="Private">Private</option>
-                                                <option value="Team">Team Only</option>
+                                                <option value="Team">Team</option>
+                                                <option value="Everyone">Everyone</option>
                                             </select>
                                         </div>
                                     </div>
@@ -1765,7 +1852,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                 </h3>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Assign Team</label>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Team</label>
                                         <select
                                             value={formData.team}
                                             onChange={(e) => handleInputChange('team', e.target.value)}
@@ -1796,9 +1883,9 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             style={customSelectStyle}
                                         >
                                             <option value="">Select Visibility</option>
-                                            <option value="Public">Public</option>
                                             <option value="Private">Private</option>
-                                            <option value="Team">Team Only</option>
+                                            <option value="Team">Team</option>
+                                            <option value="Everyone">Everyone</option>
                                         </select>
                                     </div>
                                 </div>
@@ -2273,7 +2360,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                     style={customSelectStyle}
                                                 >
                                                     <option value="">Select City</option>
-                                                    {CITIES.map(city => (
+                                                    {cities.map(city => (
                                                         <option key={city} value={city}>{city}</option>
                                                     ))}
                                                 </select>
@@ -2357,7 +2444,6 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         </div>
                                     )}
 
-                                    {/* Orientation Section (Common) */}
                                     <div style={sectionCardStyle}>
                                         <h4 style={labelStyle}>Orientation & Placement</h4>
                                         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '20px' }}>
@@ -2484,7 +2570,13 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                             {((entityType === 'lead' && currentTab !== 'basic') || (entityType !== 'lead' && currentTab !== 'other')) && !showOnlyRequired ? (
                                 <button onClick={handleNext} style={buttonStyle.primary}>Next</button>
                             ) : (
-                                <button onClick={handleSave} style={buttonStyle.success}>{saveLabel}</button>
+                                <button
+                                    onClick={handleSave}
+                                    style={isBlocked ? { ...buttonStyle.success, opacity: 0.5, cursor: 'not-allowed', background: '#94a3b8' } : buttonStyle.success}
+                                    disabled={isBlocked || isSaving}
+                                >
+                                    {saveLabel}
+                                </button>
                             )}
                         </div>
                     </div >
@@ -2498,7 +2590,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                 <h3>Suggestions</h3>
                             </div>
                             <div style={{ flex: 1, padding: '20px' }}>
-                                <DuplicateResults contacts={similarContacts} onUpdate={handlePopulateForm} />
+                                <DuplicateResults contacts={similarContacts} onUpdate={handlePopulateForm} isBlocked={isBlocked} />
                             </div>
                         </div>
                     )

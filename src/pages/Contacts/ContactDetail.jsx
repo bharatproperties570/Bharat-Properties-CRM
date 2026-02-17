@@ -39,8 +39,8 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
     const renderLookup = (field, fallback = '-') => {
         if (!field) return fallback;
         if (typeof field === 'object' && field.lookup_value) return field.lookup_value;
-        if (typeof field === 'object') return fallback;
-        return field || fallback;
+        if (typeof field === 'object' && Object.keys(field).length > 0 && !field.lookup_value) return fallback;
+        return typeof field === 'string' ? field : fallback;
     };
 
     const addTask = () => {

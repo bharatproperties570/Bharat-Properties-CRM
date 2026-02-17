@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useUserContext } from '../../context/UserContext';
+import { getInitials } from '../../utils/helpers';
 import AddDealModal from '../../components/AddDealModal';
+import AddBookingModal from '../../components/AddBookingModal';
 import DealsFilterPanel from './components/DealsFilterPanel';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 import { useCall } from '../../context/CallContext';
@@ -16,6 +19,7 @@ import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
 import { formatIndianCurrency, numberToIndianWords } from '../../utils/numberToWords';
 
 function DealsPage({ onNavigate, onAddActivity }) {
+    const { teams } = useUserContext();
     const { startCall } = useCall();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
@@ -59,6 +63,15 @@ function DealsPage({ onNavigate, onAddActivity }) {
         }
     }, [currentPage, recordsPerPage, searchTerm, refreshTrigger]);
 
+    const getTeamName = useCallback((teamValue) => {
+        if (!teamValue) return "General Team";
+        if (typeof teamValue === 'object') {
+            return teamValue.name || teamValue.lookup_value || "General Team";
+        }
+        const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
+        return found ? (found.name || found.lookup_value) : teamValue;
+    }, [teams]);
+
     useEffect(() => {
         fetchDeals();
     }, [fetchDeals]);
@@ -77,6 +90,8 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const [isManageTagsOpen, setIsManageTagsOpen] = useState(false);
     const [selectedDealsForTags, setSelectedDealsForTags] = useState([]);
 
+    const [isAddBookingOpen, setIsAddBookingOpen] = useState(false);
+
     // Filter Removal Handlers
     const handleRemoveFilter = (key) => {
         const newFilters = { ...filters };
@@ -90,6 +105,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
 
     const filteredDeals = deals.filter(deal => {
+        if (deal.isVisible === false) return false;
         const search = searchTerm.toLowerCase();
 
         const dealId = deal.id || deal._id;
@@ -358,6 +374,14 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                         </button>
                                         <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
                                         <button className="action-btn" title="View Quote"><i className="fas fa-file-invoice-dollar"></i> Quote</button>
+                                        <button
+                                            className="action-btn"
+                                            title="Book Deal"
+                                            style={{ background: '#ecfdf5', color: '#059669', borderColor: '#d1fae5' }}
+                                            onClick={() => setIsAddBookingOpen(true)}
+                                        >
+                                            <i className="fas fa-bookmark"></i> Book
+                                        </button>
                                     </>
                                 )}
 
@@ -677,23 +701,22 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                     </div>
 
                                     {/* Col 10: Assignment (Assigned To + Time) */}
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                            <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', color: '#4338ca', fontWeight: 800 }}>
-                                                {(deal.assignedTo?.name || deal.assigned || 'U')[0].toUpperCase()}
+                                    <div className="col-assignment" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
+                                                {getInitials(deal.assignedTo?.name || deal.assigned || 'Admin')}
                                             </div>
-                                            <div style={{ fontSize: '0.8rem', color: '#0f172a', fontWeight: 700 }}>
-                                                {deal.assignedTo?.name || deal.assigned || 'Unassigned'}
-                                            </div>
-                                        </div>
-                                        <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600, paddingLeft: '26px' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                <i className="far fa-calendar-alt" style={{ fontSize: '0.6rem' }}></i>
-                                                {new Date(deal.createdAt || deal.date).toLocaleDateString()}
-                                            </div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '1px' }}>
-                                                <i className="far fa-clock" style={{ fontSize: '0.6rem' }}></i>
-                                                {new Date(deal.createdAt || deal.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            <div style={{ lineHeight: 1.2 }}>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>
+                                                    {deal.assignedTo?.name || deal.assigned || 'Admin'}
+                                                </div>
+                                                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
+                                                    {getTeamName(deal.team || deal.assignment?.team)}
+                                                </div>
+                                                <div style={{ fontSize: '0.62rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                                                    <i className="far fa-clock" style={{ fontSize: '0.6rem' }}></i>
+                                                    {new Date(deal.createdAt || deal.date || Date.now()).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -946,6 +969,18 @@ function DealsPage({ onNavigate, onAddActivity }) {
                 onSave={handleSaveDocuments}
                 project={selectedDealState}
             />
+
+            {isAddBookingOpen && (
+                <AddBookingModal
+                    isOpen={isAddBookingOpen}
+                    onClose={() => setIsAddBookingOpen(false)}
+                    dealId={selectedIds[0]}
+                    onSave={() => {
+                        fetchDeals();
+                        setSelectedIds([]);
+                    }}
+                />
+            )}
         </section >
     );
 }

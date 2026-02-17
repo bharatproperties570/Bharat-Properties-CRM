@@ -1,8 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { users } from '../data/mockData';
+import { useUserContext } from '../context/UserContext';
+// import { users } from '../data/mockData'; // Removed mock data
 
 const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, entityName = 'Contact' }) => {
+    const { users, teams } = useUserContext();
     const isBulk = selectedContacts.length > 1;
+
+    // Filter users based on team selection if team is selected
+    const [selectedTeam, setSelectedTeam] = useState('');
+
     const [formData, setFormData] = useState({
         assignedTo: '',
         assignmentType: 'Primary Owner', // Primary Owner, Secondary Owner, Support
@@ -29,6 +35,7 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
                 sendWhatsApp: false,
                 transferHistory: true
             });
+            setSelectedTeam('');
         }
     }, [isOpen]);
 
@@ -46,7 +53,8 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
         // Mock processing
         const assignmentDetails = {
             ...formData,
-            contacts: selectedContacts.map(c => c.id || c.name),
+            team: selectedTeam, // Include selected team
+            contacts: selectedContacts.map(c => c.id || c._id || c.name), // Handle both id formats and fallback
             timestamp: new Date().toISOString()
         };
 
@@ -54,12 +62,21 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
         onClose();
 
         // Simple success feedback (could be a toast in real app)
-        alert(isBulk
-            ? `${selectedContacts.length} contacts assigned successfully!`
-            : 'Contact assigned successfully!');
+        // alert(isBulk
+        //     ? `${selectedContacts.length} ${entityName}s assigned successfully!`
+        //     : `${entityName} assigned successfully!`);
     };
 
     if (!isOpen) return null;
+
+    // Filter users list based on selected team
+    // Assuming user objects have a 'team' property or similar, or we just filter by team name if available
+    // If no team property on user, we show all users or try to match by team name
+    // For now, let's assume we just show all users if no team logic exists on user object, 
+    // or filter if user.team matches selectedTeam.
+    const filteredUsers = selectedTeam
+        ? users.filter(u => u.team === selectedTeam || u.teamId === selectedTeam || !u.team) // simplistic filter, adjust based on real user model
+        : users;
 
     // --- Styles ---
     const overlayStyle = {
@@ -129,7 +146,7 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
                             Assign {entityName}
                         </h2>
                         <p style={{ fontSize: '0.85rem', color: '#64748b', margin: '4px 0 0 0' }}>
-                            {isBulk ? `Assign ${selectedContacts.length} selected contacts in bulk` : 'Assign this contact to a team member'}
+                            {isBulk ? `Assign ${selectedContacts.length} selected items in bulk` : `Assign this ${entityName.toLowerCase()} to a team member`}
                         </p>
                     </div>
                     <button onClick={onClose} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8' }}>
@@ -148,21 +165,38 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
                                     {selectedContacts.length}
                                 </div>
                                 <div>
-                                    <div style={{ fontWeight: 600, color: '#1e293b' }}>{selectedContacts.length} Contacts Selected</div>
+                                    <div style={{ fontWeight: 600, color: '#1e293b' }}>{selectedContacts.length} Items Selected</div>
                                     <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Bulk Action</div>
                                 </div>
                             </div>
                         ) : (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#dbeafe', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
-                                    {selectedContacts[0]?.name?.charAt(0) || 'C'}
+                                    {selectedContacts[0]?.name?.charAt(0) || 'I'}
                                 </div>
                                 <div>
                                     <div style={{ fontWeight: 600, color: '#1e293b' }}>{selectedContacts[0]?.name || 'Unknown'}</div>
-                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{selectedContacts[0]?.mobile || 'No Mobile'}</div>
+                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{selectedContacts[0]?.mobile || selectedContacts[0]?.email || 'No Details'}</div>
                                 </div>
                             </div>
                         )}
+                    </div>
+
+                    {/* Team Selection */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={labelStyle}>Select Team (Optional)</label>
+                        <select
+                            value={selectedTeam}
+                            onChange={(e) => setSelectedTeam(e.target.value)}
+                            style={inputStyle}
+                        >
+                            <option value="">All Teams</option>
+                            {teams && teams.map(team => (
+                                <option key={team._id || team.id} value={team.name}>
+                                    {team.name}
+                                </option>
+                            ))}
+                        </select>
                     </div>
 
                     {/* 1. Assign To */}
@@ -175,9 +209,9 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
                             style={inputStyle}
                         >
                             <option value="">Select Team Member</option>
-                            {users && users.map(user => (
-                                <option key={user.id} value={user.id}>
-                                    {user.name} ({user.role}) - {user.availability}
+                            {filteredUsers.map(user => (
+                                <option key={user._id || user.id} value={user._id || user.id}>
+                                    {user.name} ({user.role?.name || user.role || 'Member'})
                                 </option>
                             ))}
                         </select>

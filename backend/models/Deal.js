@@ -137,7 +137,23 @@ const DealSchema = new mongoose.Schema({
     visibleTo: { type: String, default: "Public" },
 
     remarks: String,
-    date: { type: Date, default: Date.now }
+    date: { type: Date, default: Date.now },
+    isVisible: { type: Boolean, default: true },
+    closingDetails: {
+        isClosed: { type: Boolean, default: false },
+        closingDate: Date,
+        checklist: {
+            noc: { type: Boolean, default: false },
+            originalDocuments: { type: Boolean, default: false },
+            keysHandedOver: { type: Boolean, default: false },
+            finalPaymentReceived: { type: Boolean, default: false }
+        },
+        feedbackStatus: {
+            buyerContacted: { type: Boolean, default: false },
+            sellerContacted: { type: Boolean, default: false }
+        },
+        remarks: String
+    }
 }, { timestamps: true, strict: false });
 
 export default mongoose.model("Deal", DealSchema);

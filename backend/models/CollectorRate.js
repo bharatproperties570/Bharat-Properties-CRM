@@ -15,18 +15,61 @@ const collectorRateSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Lookup'
     },
+    location: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Lookup'
+    },
     category: {
         type: String,
-        enum: ['Residential', 'Commercial', 'Industrial', 'Institutional', 'Agriculture'],
-        required: true
+        required: true,
+        index: true
+    },
+    subCategory: {
+        type: String,
+        required: true,
+        index: true
     },
     rate: {
         type: Number,
         required: true
     },
-    unit: {
+    rateApplyOn: {
         type: String,
-        default: 'sqft' // Future proofing for acres/hectares etc
+        enum: ['Land Area', 'Built-up Area', 'Land + Built-up'],
+        required: true
+    },
+    rateUnit: {
+        type: String,
+        enum: ['Sq Yard', 'Sq Meter', 'Sq Ft', 'Acre', 'Kanal'],
+        required: true
+    },
+    roadMultipliers: [{
+        roadType: String,
+        multiplier: Number
+    }],
+    floorMultipliers: [{
+        floorType: String,
+        multiplier: Number
+    }],
+    effectiveFrom: {
+        type: Date,
+        required: true
+    },
+    effectiveTo: {
+        type: Date
+    },
+    versionNo: {
+        type: String
+    },
+    constructionRateSqFt: {
+        type: Number
+    },
+    constructionRateSqYard: {
+        type: Number
+    },
+    configName: {
+        type: String,
+        required: true
     },
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
@@ -38,7 +81,7 @@ const collectorRateSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
-// Compound index to prevent duplicates for the same location + category
-collectorRateSchema.index({ state: 1, district: 1, tehsil: 1, category: 1 }, { unique: true });
+// Create a compound unique index to prevent duplicate entries for the same location, category, subCategory, and configuration
+collectorRateSchema.index({ state: 1, district: 1, tehsil: 1, location: 1, category: 1, subCategory: 1, configName: 1, effectiveFrom: 1 }, { unique: true });
 
 export default mongoose.model('CollectorRate', collectorRateSchema);

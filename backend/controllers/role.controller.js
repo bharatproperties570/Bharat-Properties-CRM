@@ -287,8 +287,8 @@ export const deleteRole = async (req, res) => {
             });
         }
 
-        // Check if any users have this role
-        const userCount = await User.countDocuments({ role: id });
+        // Check if any active users have this role
+        const userCount = await User.countDocuments({ role: id, status: 'active' });
         const { force } = req.query;
 
         if (userCount > 0 && force !== 'true') {

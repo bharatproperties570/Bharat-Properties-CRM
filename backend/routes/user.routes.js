@@ -12,7 +12,8 @@ import {
     getUserSessions,
     getUserAuditTrail,
     importUsers,
-    checkDuplicatesImport
+    checkDuplicatesImport,
+    toggleUserStatus
 } from '../controllers/user.controller.js';
 
 const router = express.Router();
@@ -37,6 +38,7 @@ router.route('/:id')
 // User actions
 router.post('/:id/deactivate', deactivateUser);
 router.post('/:id/force-logout', forceLogoutUser);
+router.post('/:id/status', toggleUserStatus);
 
 // User relationships
 router.get('/:id/team', getTeamMembers);

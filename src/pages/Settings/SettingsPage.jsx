@@ -3,6 +3,8 @@ import Toast from '../../components/Toast';
 import AddUserModal from '../../components/AddUserModal';
 import CreateRoleModal from '../../components/CreateRoleModal';
 import AssignReportingModal from '../../components/AssignReportingModal';
+import CreateTeamModal from '../../components/CreateTeamModal';
+import InactivateUserModal from '../../components/InactivateUserModal';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { useUserContext } from '../../context/UserContext';
 import { getInitials } from '../../utils/helpers';
@@ -32,7 +34,7 @@ import ImportDataPage from './views/ImportDataPage';
 import BulkUpdatePage from './views/BulkUpdatePage';
 import ExportDataPage from './views/ExportDataPage';
 import ParsingRulesPage from './views/ParsingRulesPage';
-
+import DuplicationSettingsPage from './views/DuplicationSettingsPage';
 
 
 // --- Sub-Components (Defined Outside to prevent re-creation crashes) ---
@@ -186,7 +188,7 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
                     <UserCard
                         initials={getInitials(user.fullName || user.name || 'U')}
                         name={user.fullName || user.name}
-                        team={`${user.department || 'N/A'} - ${user.role?.name || 'No Role'}`}
+                        team={user.team?.name ? `${user.team.name} (${user.department || 'N/A'})` : `${user.department || 'N/A'} - ${user.role?.name || 'No Role'}`}
                         count={children.length}
                         isHighlighted={showPermissions}
                     />
@@ -314,7 +316,7 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
     );
 };
 
-const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, onEditUser, onResetPassword }) => {
+const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, onEditUser, onResetPassword, onToggleStatus }) => {
     const [openActionId, setOpenActionId] = useState(null);
     const [filterStatus, setFilterStatus] = useState('Active');
 
@@ -372,62 +374,96 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                         </tr>
                     </thead>
                     <tbody>
-                        {filteredUsers.map(user => (
-                            <tr key={user._id || user.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td style={{ padding: '16px', fontWeight: 700 }}>{user.fullName || user.name}</td>
-                                <td style={{ padding: '16px' }}>{user.email}<br />{user.mobile || user.phone}</td>
-                                <td style={{ padding: '16px', fontWeight: 700 }}>{user.department}</td>
-                                <td style={{ padding: '16px', fontWeight: 700 }}>{user.designation || user.role?.name || '-'}</td>
-                                <td style={{ padding: '16px', color: 'var(--primary-color)', fontWeight: 600 }}>{user.username}</td>
-                                {/* <td style={{ padding: '16px' }}>{user.callSync} ({user.lastSync})</td> */}
-                                <td style={{ padding: '16px' }}>{user.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Never'}</td>
-                                <td style={{ padding: '16px' }}>
-                                    <span style={{
-                                        background: user.status === 'Active' || user.isActive ? '#22c55e' : '#ef4444',
-                                        color: '#fff',
-                                        padding: '2px 8px',
-                                        borderRadius: '4px',
-                                        fontSize: '0.65rem'
-                                    }}>{user.status || (user.isActive ? 'Active' : 'Inactive')}</span>
-                                </td>
-                                <td style={{ padding: '16px', position: 'relative' }}>
-                                    <button
-                                        onClick={() => setOpenActionId(openActionId === (user._id || user.id) ? null : (user._id || user.id))}
-                                        style={{ background: 'var(--primary-color)', color: '#fff', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
-                                    >
-                                        <i className="fas fa-caret-down"></i>
-                                    </button>
-                                    {openActionId === (user._id || user.id) && (
-                                        <div style={{ position: 'absolute', top: '100%', right: 0, width: '160px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', zIndex: 100 }}>
-                                            <div
-                                                style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
-                                                onMouseOver={e => e.target.style.background = '#f8fafc'}
-                                                onMouseOut={e => e.target.style.background = 'transparent'}
-                                                onClick={() => { onEditUser(user); setOpenActionId(null); }}
-                                            >
-                                                Edit User
+                        {filteredUsers.map((user, index) => {
+                            const isLastItems = index >= filteredUsers.length - 2 && filteredUsers.length > 2;
+                            return (
+                                <tr key={user._id || user.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ padding: '16px', fontWeight: 700 }}>{user.fullName || user.name}</td>
+                                    <td style={{ padding: '16px' }}>{user.email}<br />{user.mobile || user.phone}</td>
+                                    <td style={{ padding: '16px', fontWeight: 700 }}>{user.department}</td>
+                                    <td style={{ padding: '16px', fontWeight: 700 }}>{user.designation || user.role?.name || '-'}</td>
+                                    <td style={{ padding: '16px', color: 'var(--primary-color)', fontWeight: 600 }}>{user.username}</td>
+                                    {/* <td style={{ padding: '16px' }}>{user.callSync} ({user.lastSync})</td> */}
+                                    <td style={{ padding: '16px' }}>{user.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Never'}</td>
+                                    <td style={{ padding: '16px' }}>
+                                        <span style={{
+                                            background: user.status === 'Active' || user.isActive ? '#22c55e' : '#ef4444',
+                                            color: '#fff',
+                                            padding: '2px 8px',
+                                            borderRadius: '4px',
+                                            fontSize: '0.65rem'
+                                        }}>{user.status || (user.isActive ? 'Active' : 'Inactive')}</span>
+                                    </td>
+                                    <td style={{ padding: '16px', position: 'relative' }}>
+                                        <button
+                                            onClick={() => setOpenActionId(openActionId === (user._id || user.id) ? null : (user._id || user.id))}
+                                            style={{ background: 'var(--primary-color)', color: '#fff', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
+                                        >
+                                            <i className="fas fa-caret-down"></i>
+                                        </button>
+                                        {openActionId === (user._id || user.id) && (
+                                            <div style={{
+                                                position: 'absolute',
+                                                [isLastItems ? 'bottom' : 'top']: '100%',
+                                                [isLastItems ? 'marginBottom' : 'marginTop']: '4px',
+                                                right: 0,
+                                                width: '160px',
+                                                background: '#fff',
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: '4px',
+                                                boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                                                zIndex: 100
+                                            }}>
+                                                <div
+                                                    style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                                                    onMouseOver={e => e.target.style.background = '#f8fafc'}
+                                                    onMouseOut={e => e.target.style.background = 'transparent'}
+                                                    onClick={() => { onEditUser(user); setOpenActionId(null); }}
+                                                >
+                                                    Edit User
+                                                </div>
+                                                <div
+                                                    style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                                                    onMouseOver={e => e.target.style.background = '#f8fafc'}
+                                                    onMouseOut={e => e.target.style.background = 'transparent'}
+                                                    onClick={() => { onResetPassword(user); setOpenActionId(null); }}
+                                                >
+                                                    Reset Password
+                                                </div>
+                                                <div
+                                                    style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#ef4444' }}
+                                                    onMouseOver={e => e.target.style.background = '#fef2f2'}
+                                                    onMouseOut={e => e.target.style.background = 'transparent'}
+                                                    onClick={() => { onDeleteUser(user._id || user.id); setOpenActionId(null); }}
+                                                >
+                                                    Delete User
+                                                </div>
+                                                {(user.status === 'inactive' || user.isActive === false) && (
+                                                    <div
+                                                        style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#22c55e', borderTop: '1px solid #f1f5f9' }}
+                                                        onMouseOver={e => e.target.style.background = '#f0fdf4'}
+                                                        onMouseOut={e => e.target.style.background = 'transparent'}
+                                                        onClick={() => { onToggleStatus(user, 'active'); setOpenActionId(null); }}
+                                                    >
+                                                        Activate User
+                                                    </div>
+                                                )}
+                                                {(user.status !== 'inactive' && user.isActive !== false) && (
+                                                    <div
+                                                        style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#f59e0b', borderTop: '1px solid #f1f5f9' }}
+                                                        onMouseOver={e => e.target.style.background = '#fffbeb'}
+                                                        onMouseOut={e => e.target.style.background = 'transparent'}
+                                                        onClick={() => { onToggleStatus(user, 'inactive'); setOpenActionId(null); }}
+                                                    >
+                                                        Deactivate User
+                                                    </div>
+                                                )}
                                             </div>
-                                            <div
-                                                style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
-                                                onMouseOver={e => e.target.style.background = '#f8fafc'}
-                                                onMouseOut={e => e.target.style.background = 'transparent'}
-                                                onClick={() => { onResetPassword(user); setOpenActionId(null); }}
-                                            >
-                                                Reset Password
-                                            </div>
-                                            <div
-                                                style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#ef4444' }}
-                                                onMouseOver={e => e.target.style.background = '#fef2f2'}
-                                                onMouseOut={e => e.target.style.background = 'transparent'}
-                                                onClick={() => { onDeleteUser(user._id || user.id); setOpenActionId(null); }}
-                                            >
-                                                Delete User
-                                            </div>
-                                        </div>
-                                    )}
-                                </td>
-                            </tr>
-                        ))}
+                                        )}
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
@@ -494,6 +530,74 @@ const RolesList = ({ onNewRole, roles, onDeleteRole }) => {
     );
 };
 
+const TeamsList = ({ teams, onNewTeam, onEditTeam, onDeleteTeam }) => {
+    return (
+        <div style={{ flex: 1, background: '#fff', padding: '32px 40px', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div style={{ position: 'relative' }}>
+                    <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '0.8rem' }}></i>
+                    <input type="text" placeholder="Search teams..." style={{ width: '240px', padding: '8px 12px 8px 32px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '0.8rem' }} />
+                </div>
+                <button className="btn-primary" onClick={() => onNewTeam()} style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700 }}>+ New Team</button>
+            </div>
+            <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                    <thead>
+                        <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
+                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Team Name</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Department</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Manager</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Members</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {teams.map(team => (
+                            <tr key={team._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '16px', fontWeight: 700, color: '#1e293b' }}>{team.name}</td>
+                                <td style={{ padding: '16px', color: '#64748b', textTransform: 'capitalize' }}>{team.department}</td>
+                                <td style={{ padding: '16px', color: '#1e293b' }}>
+                                    {team.manager ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#e2e8f0', fontSize: '0.65rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#64748b' }}>
+                                                {getInitials(team.manager.fullName)}
+                                            </div>
+                                            {team.manager.fullName}
+                                        </div>
+                                    ) : (
+                                        <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Unassigned</span>
+                                    )}
+                                </td>
+                                <td style={{ padding: '16px' }}>
+                                    <span style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 600, color: '#64748b' }}>
+                                        {team.memberCount || 0} Members
+                                    </span>
+                                </td>
+                                <td style={{ padding: '16px', textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                                    <button
+                                        onClick={() => onEditTeam(team)}
+                                        style={{ border: 'none', background: 'transparent', color: 'var(--primary-color)', cursor: 'pointer', padding: '4px' }}
+                                        title="Edit Team"
+                                    >
+                                        <i className="fas fa-edit"></i>
+                                    </button>
+                                    <button
+                                        onClick={() => onDeleteTeam(team._id)}
+                                        style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
+                                        title="Delete Team"
+                                    >
+                                        <i className="fas fa-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
 const EmptyState = ({ title }) => (
     <div style={{ flex: 1, padding: '32px 64px', background: '#fff', textAlign: 'center' }}>
         <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '20px' }}>{title}</h1>
@@ -508,16 +612,21 @@ const EmptyState = ({ title }) => (
 // --- Main Settings Hub Component ---
 
 const SettingsHubPage = () => {
-    const { users, roles, loading, error, addUser, addRole, deleteUser, deleteRole } = useUserContext();
+    const { users, roles, teams, loading, error, deleteUser, deleteRole, deleteTeam, refreshData, toggleUserStatus } = useUserContext();
     const [activeTab, setActiveTab] = useState('users');
     const [subTab, setSubTab] = useState('user-list');
     const [searchTerm, setSearchTerm] = useState('');
     const [showPermissions, setShowPermissions] = useState(false);
+
     const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
     const [isAssignReportingModalOpen, setIsAssignReportingModalOpen] = useState(false);
     const [isCreateRoleModalOpen, setIsCreateRoleModalOpen] = useState(false);
+    const [isCreateTeamModalOpen, setIsCreateTeamModalOpen] = useState(false);
+    const [isInactivateUserModalOpen, setIsInactivateUserModalOpen] = useState(false);
+    const [userToInactivate, setUserToInactivate] = useState(null);
     const [managerContext, setManagerContext] = useState({ name: '', id: '' });
     const [editingUser, setEditingUser] = useState(null);
+    const [editingTeam, setEditingTeam] = useState(null);
     const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
     const [isSyncing, setIsSyncing] = useState(false);
 
@@ -549,6 +658,24 @@ const SettingsHubPage = () => {
         refreshData();
         showToast('Role saved successfully');
         setIsCreateRoleModalOpen(false);
+    };
+
+    const handleSaveTeam = (teamData) => {
+        refreshData();
+        showToast(editingTeam ? 'Team updated successfully' : 'Team created successfully');
+        setIsCreateTeamModalOpen(false);
+        setEditingTeam(null);
+    };
+
+    const handleDeleteTeam = async (id) => {
+        if (window.confirm('Are you sure you want to delete this team?')) {
+            const result = await deleteTeam(id);
+            if (result.success) {
+                showToast('Team deleted successfully');
+            } else {
+                showToast(result.error || 'Failed to delete team', 'error');
+            }
+        }
     };
 
     const handleDeleteRole = async (id) => {
@@ -594,6 +721,34 @@ const SettingsHubPage = () => {
         }
     };
 
+    const handleToggleStatus = async (user, status) => {
+        if (status === 'inactive') {
+            setUserToInactivate(user);
+            setIsInactivateUserModalOpen(true);
+        } else {
+            // Activating
+            if (window.confirm(`Are you sure you want to activate ${user.fullName}?`)) {
+                const result = await toggleUserStatus(user._id, 'active');
+                if (result.success) {
+                    showToast('User activated successfully');
+                } else {
+                    showToast(result.error || 'Failed to activate user', 'error');
+                }
+            }
+        }
+    };
+
+    const confirmInactivation = async (data) => {
+        if (!userToInactivate) return;
+        const result = await toggleUserStatus(userToInactivate._id, 'inactive', data.reason, data.duration, data.customDate);
+        if (result.success) {
+            showToast('User deactivated successfully');
+        } else {
+            showToast(result.error || 'Failed to deactivate user', 'error');
+        }
+        setUserToInactivate(null);
+    };
+
     const handleCloudSync = async () => {
         setIsSyncing(true);
         // Simulate sync for now
@@ -605,7 +760,7 @@ const SettingsHubPage = () => {
 
     const sidebarSections = [
         { title: 'Manage', items: [{ id: 'users', label: 'Users' }, { id: 'notifications', label: 'Notifications' }, { id: 'sales-goals', label: 'Sales goals' }] },
-        { title: 'Data', items: [{ id: 'import', label: 'Import' }, { id: 'bulk-update', label: 'Bulk update' }, { id: 'export', label: 'Export' }, { id: 'lead-capture', label: 'Lead capture' }, { id: 'duplicate-mgt', label: 'Duplicate management' }, { id: 'enrichment', label: 'Prospecting and enrichment' }] },
+        { title: 'Data', items: [{ id: 'import', label: 'Import' }, { id: 'bulk-update', label: 'Bulk update' }, { id: 'export', label: 'Export' }, { id: 'lead-capture', label: 'Lead capture' }, { id: 'enrichment', label: 'Prospecting and enrichment' }, { id: 'duplicate-mgt', label: 'Duplicate Management' }] },
         { title: 'Communication channels', items: [{ id: 'email', label: 'Email' }, { id: 'calls', label: 'Calls' }, { id: 'messaging', label: 'Messaging' }, { id: 'feedback-templates', label: 'Message Templates' }] },
         { title: 'Customize', items: [{ id: 'company-c', label: 'Company' }, { id: 'project-c', label: 'Project' }, { id: 'leads-c', label: 'Leads' }, { id: 'contacts-c', label: 'Contacts' }, { id: 'properties-c', label: 'Properties' }, { id: 'parsing-rules', label: 'Parsing Rules' }, { id: 'deals-c', label: 'Deals' }, { id: 'task-c', label: 'Activities' }] },
         { title: 'Notes', items: [{ id: 'post-sales', label: 'Post Sales' }, { id: 'layouts', label: 'Layouts' }] },
@@ -681,7 +836,7 @@ const SettingsHubPage = () => {
                 {/* Sub Tabs (Only for Users) */}
                 {activeTab === 'users' && (
                     <div style={{ display: 'flex', gap: '24px', padding: '0 40px', borderBottom: '1px solid #e2e8f0', marginTop: '20px' }}>
-                        {[{ id: 'user-list', label: 'User List' }, { id: 'user-hierarchy', label: 'User Hierarchy' }, { id: 'roles', label: 'Roles' }].map(tab => (
+                        {[{ id: 'user-list', label: 'User List' }, { id: 'user-hierarchy', label: 'User Hierarchy' }, { id: 'teams', label: 'Teams' }, { id: 'roles', label: 'Roles' }].map(tab => (
                             <div key={tab.id} onClick={() => setSubTab(tab.id)} style={{ padding: '12px 4px', fontSize: '0.85rem', fontWeight: 700, color: subTab === tab.id ? 'var(--primary-color)' : '#94a3b8', borderBottom: subTab === tab.id ? '2px solid var(--primary-color)' : '2px solid transparent', cursor: 'pointer', marginBottom: '-1px' }}>{tab.label}</div>
                         ))}
                     </div>
@@ -699,12 +854,19 @@ const SettingsHubPage = () => {
                                 onEditUser={handleEditUser}
                                 onResetPassword={handleResetPassword}
                                 onNewUser={() => { setEditingUser(null); setIsAddUserModalOpen(true); }}
+                                onToggleStatus={handleToggleStatus}
                             />}
                             {subTab === 'user-hierarchy' && <UserHierarchy
                                 showPermissions={showPermissions}
                                 setShowPermissions={setShowPermissions}
                                 users={users}
                                 onAssignUser={handleAssignMember}
+                            />}
+                            {subTab === 'teams' && <TeamsList
+                                teams={teams}
+                                onNewTeam={() => { setEditingTeam(null); setIsCreateTeamModalOpen(true); }}
+                                onEditTeam={(team) => { setEditingTeam(team); setIsCreateTeamModalOpen(true); }}
+                                onDeleteTeam={handleDeleteTeam}
                             />}
                             {subTab === 'roles' && <RolesList onNewRole={() => setIsCreateRoleModalOpen(true)} roles={roles} onDeleteRole={handleDeleteRole} />}
                         </>
@@ -752,6 +914,8 @@ const SettingsHubPage = () => {
                         <BulkUpdatePage />
                     ) : activeTab === 'parsing-rules' ? (
                         <ParsingRulesPage />
+                    ) : activeTab === 'duplicate-mgt' ? (
+                        <DuplicationSettingsPage />
                     ) : activeTab === 'deals-c' ? (
                         <DealSettingsPage />
                     ) : activeTab === 'export' ? (
@@ -800,6 +964,23 @@ const SettingsHubPage = () => {
                 onClose={() => setIsCreateRoleModalOpen(false)}
                 onSave={handleSaveRole}
             />
+
+            <CreateTeamModal
+                isOpen={isCreateTeamModalOpen}
+                onClose={() => { setIsCreateTeamModalOpen(false); setEditingTeam(null); }}
+                onSave={handleSaveTeam}
+                isEdit={!!editingTeam}
+                teamData={editingTeam}
+            />
+
+            {isInactivateUserModalOpen && (
+                <InactivateUserModal
+                    isOpen={isInactivateUserModalOpen}
+                    onClose={() => { setIsInactivateUserModalOpen(false); setUserToInactivate(null); }}
+                    onConfirm={confirmInactivation}
+                    user={userToInactivate}
+                />
+            )}
         </section>
     );
 };

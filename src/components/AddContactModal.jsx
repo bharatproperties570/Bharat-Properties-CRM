@@ -239,7 +239,7 @@ const companyList = [
 ];
 
 // Duplicate Popup Component (Restyled for Side Panel)
-const DuplicateResults = ({ contacts, onUpdate }) => {
+const DuplicateResults = ({ contacts, onUpdate, isBlocked }) => {
   if (!contacts || contacts.length === 0) {
     return (
       <div
@@ -294,22 +294,45 @@ const DuplicateResults = ({ contacts, onUpdate }) => {
         padding: "16px",
       }}
     >
+      {isBlocked && (
+        <div style={{
+          padding: '12px',
+          background: '#fef2f2',
+          borderRadius: '8px',
+          border: '1px solid #fca5a5',
+          color: '#b91c1c',
+          fontSize: '0.85rem',
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '10px'
+        }}>
+          <i className="fas fa-ban" style={{ marginTop: '3px' }}></i>
+          <div>
+            <div>Action Blocked</div>
+            <div style={{ fontSize: '0.8rem', fontWeight: 400, marginTop: '2px' }}>
+              A critical duplicate rule prevents saving this record.
+            </div>
+          </div>
+        </div>
+      )}
+
       <div
         style={{
           padding: "8px 12px",
-          background: "#e0f2fe",
+          background: isBlocked ? "#fff1f2" : "#e0f2fe",
           borderRadius: "6px",
-          border: "1px solid #bae6fd",
+          border: isBlocked ? "1px solid #fecaca" : "1px solid #bae6fd",
           fontSize: "0.8rem",
           fontWeight: 600,
-          color: "#0369a1",
+          color: isBlocked ? "#991b1b" : "#0369a1",
           display: "flex",
           alignItems: "center",
           gap: "8px",
         }}
       >
-        <i className="fas fa-exclamation-circle"></i>
-        {contacts.length} Similar Contact{contacts.length > 1 ? "s" : ""} Found
+        <i className={`fas ${isBlocked ? "fa-times-circle" : "fa-exclamation-circle"}`}></i>
+        {contacts.length} Similar Record{contacts.length > 1 ? "s" : ""} Found
       </div>
       {contacts.map((contact, index) => (
         <div
@@ -326,13 +349,29 @@ const DuplicateResults = ({ contacts, onUpdate }) => {
         >
           <div
             style={{
-              fontWeight: 700,
-              color: "#0f172a",
-              fontSize: "0.95rem",
-              marginBottom: "4px",
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              marginBottom: '4px'
             }}
           >
-            {contact.title?.lookup_value || contact.title} {contact.name} {contact.surname}
+            <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.95rem' }}>
+              {contact.title?.lookup_value || contact.title} {contact.firstName || contact.name} {contact.lastName || contact.surname}
+            </div>
+            {contact.matchedEntityType && (
+              <span style={{
+                fontSize: '0.65rem',
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                background: contact.matchedEntityType === 'Lead' ? '#fdf4ff' : '#eff6ff',
+                color: contact.matchedEntityType === 'Lead' ? '#d946ef' : '#3b82f6',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                border: `1px solid ${contact.matchedEntityType === 'Lead' ? '#f0abfc' : '#bfdbfe'}`
+              }}>
+                {contact.matchedEntityType}
+              </span>
+            )}
           </div>
           {contact.company && (
             <div
@@ -389,39 +428,41 @@ const DuplicateResults = ({ contacts, onUpdate }) => {
               </div>
             )}
           </div>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              onUpdate(contact);
-            }}
-            style={{
-              width: "100%",
-              padding: "8px",
-              background: "#eff6ff",
-              border: "1px solid #3b82f6",
-              color: "#2563eb",
-              borderRadius: "6px",
-              fontSize: "0.8rem",
-              fontWeight: 600,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "6px",
-              transition: "all 0.2s",
-            }}
-            onMouseEnter={(e) => {
-              e.target.style.background = "#3b82f6";
-              e.target.style.color = "#fff";
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = "#eff6ff";
-              e.target.style.color = "#2563eb";
-            }}
-          >
-            <i className="fas fa-sync-alt"></i> Update Form with this
-          </button>
+          {!isBlocked && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                onUpdate(contact);
+              }}
+              style={{
+                width: "100%",
+                padding: "8px",
+                background: "#eff6ff",
+                border: "1px solid #3b82f6",
+                color: "#2563eb",
+                borderRadius: "6px",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "6px",
+                transition: "all 0.2s",
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = "#3b82f6";
+                e.target.style.color = "#fff";
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = "#eff6ff";
+                e.target.style.color = "#2563eb";
+              }}
+            >
+              <i className="fas fa-sync-alt"></i> Update Form with this
+            </button>
+          )}
         </div>
       ))}
     </div>
@@ -547,6 +588,7 @@ const AddContactModal = ({
   isOpen,
   onClose,
   onAdd,
+  onEdit,
   initialData,
   mode = "add",
   entityType = "contact",
@@ -559,7 +601,7 @@ const AddContactModal = ({
     profileConfig = {},
   } = useContactConfig();
 
-  const { users } = useUserContext();
+  const { users, teams } = useUserContext();
 
   // --- Profile Config Helpers ---
   const getProfileDetails = (section, category) => {
@@ -591,12 +633,7 @@ const AddContactModal = ({
     return cat?.types || [];
   };
 
-  // Documents Helper
-  const docCategories = profileConfig?.Documents?.subCategories || [];
-  const getDocTypes = (catName) => {
-    const cat = docCategories.find((c) => c.name === catName);
-    return cat?.types || [];
-  };
+
 
   // Master Fields Options
   const facingOptions = masterFields?.facings || [];
@@ -618,18 +655,11 @@ const AddContactModal = ({
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
   const [companySearch, setCompanySearch] = useState("");
 
-  // Document Name Logic
-  const [documentNameList, setDocumentNameList] = useState([
-    "ID Proof",
-    "Address Proof",
-    "Other",
-  ]);
-  const [activeDocumentSearchIndex, setActiveDocumentSearchIndex] =
-    useState(null);
-  const [documentSearchTerm, setDocumentSearchTerm] = useState("");
+
 
   const [currentTime, setCurrentTime] = useState(new Date());
   const [similarContacts, setSimilarContacts] = useState([]);
+
 
   // Input Style
   const inputStyle = {
@@ -783,10 +813,27 @@ const AddContactModal = ({
     ],
   });
 
+  const showSuggestions = React.useMemo(() => {
+    if (similarContacts.length === 0) return false;
+    if (mode !== "edit") return true;
+
+    // For edit mode, only show if a field that was initially blank has been typed into
+    const nameWasBlank = !initialData?.name;
+    const phoneWasBlank = !initialData?.phones?.[0]?.number;
+    const emailWasBlank = !initialData?.emails?.[0]?.address;
+
+    const nameIsTyped = nameWasBlank && formData.name?.trim().length > 0;
+    const phoneIsTyped = phoneWasBlank && formData.phones?.[0]?.number?.trim().length > 0;
+    const emailIsTyped = emailWasBlank && formData.emails?.[0]?.address?.trim().length > 0;
+
+    return nameIsTyped || phoneIsTyped || emailIsTyped;
+  }, [similarContacts, mode, formData.name, formData.phones, formData.emails, initialData]);
+
+
 
   const [title, setTitle] = useState([]);
   const [countrycode, setCountrycode] = useState([]);
-  const [team, setteam] = useState([]);
+  // const [team, setteam] = useState([]); // Removed local state
   const [visible, setvisible] = useState([]);
   const [doc_category, setdoc_category] = useState([]);
   const [doc_type, setdoc_type] = useState([]);
@@ -986,7 +1033,12 @@ const AddContactModal = ({
       }
 
       // --- GOOGLE DRIVE UPLOAD ---
-      const finalFormData = { ...formData };
+      let finalFormData = { ...formData };
+
+      // Clean up internal fields that backend Joi might reject
+      const fieldsToStrip = ["_id", "id", "__v", "createdAt", "updatedAt", "fullName"];
+      fieldsToStrip.forEach(field => delete finalFormData[field]);
+
       if (finalFormData.documents && finalFormData.documents.length > 0) {
         finalFormData.documents = await Promise.all(finalFormData.documents.map(async (doc) => {
           if (doc.documentPicture && (doc.documentPicture instanceof File)) {
@@ -1016,7 +1068,12 @@ const AddContactModal = ({
 
       if (response.data && response.data.success) {
         toast.success(mode === "edit" ? "Contact updated successfully!" : "Contact added successfully!", { id: toastId });
-        if (onAdd) onAdd(response.data.data); // Pass the created contact back
+        if (mode === "edit") {
+          if (onEdit) onEdit(response.data.data);
+        } else {
+          if (onAdd) onAdd(response.data.data);
+        }
+        window.dispatchEvent(new CustomEvent('contact-updated'));
         onClose();
       } else {
         // Handle case where success is false but no error thrown
@@ -1036,13 +1093,11 @@ const AddContactModal = ({
   const handleNext = () => {
     // Contact Flow
     if (currentTab === "basic") setCurrentTab("personal");
-    else if (currentTab === "personal") setCurrentTab("other");
   };
 
   const handlePrev = () => {
     // Contact Flow
     if (currentTab === "personal") setCurrentTab("basic");
-    else if (currentTab === "other") setCurrentTab("personal");
   };
 
   // Placeholder for Populate
@@ -1147,45 +1202,38 @@ const AddContactModal = ({
     },
   };
 
+  const [isBlocked, setIsBlocked] = useState(false);
+
   // Duplication Check Effect
   useEffect(() => {
     const searchDuplicates = async () => {
+      // Reset state if fields are empty
       if (
         !formData.name &&
-        formData.phones[0].number === "" &&
-        formData.emails[0].address === ""
+        (!formData.phones || !formData.phones[0]?.number) &&
+        (!formData.emails || !formData.emails[0]?.address)
       ) {
         setSimilarContacts([]);
+        setIsBlocked(false);
         return;
       }
 
       try {
-        const queryParams = new URLSearchParams();
-        if (formData.name && formData.name.length > 2) {
-          queryParams.append("name", formData.name);
-        }
-        if (formData.phones[0].number && formData.phones[0].number.length > 3) {
-          queryParams.append("phone", formData.phones[0].number);
-        }
-        if (formData.emails[0].address && formData.emails[0].address.length > 3) {
-          queryParams.append("email", formData.emails[0].address);
-        }
+        const response = await api.post('duplication-rules/check', {
+          entityType: 'Contact',
+          data: formData
+        });
 
-        if (queryParams.toString() === "") {
-          setSimilarContacts([]);
-          return;
-        }
-
-        const response = await api.get(
-          `contacts/search/duplicates?${queryParams.toString()}`,
-        );
         if (response.data && response.data.success) {
           setSimilarContacts(response.data.data);
+          setIsBlocked(response.data.blockAction === true);
         }
       } catch (error) {
         console.error("Error searching duplicates:", error);
       }
     };
+
+
 
     const timer = setTimeout(() => {
       searchDuplicates();
@@ -1284,12 +1332,7 @@ const AddContactModal = ({
                 >
                   <i className="fas fa-user"></i> Personal
                 </button>
-                <button
-                  onClick={() => setCurrentTab("other")}
-                  style={tabStyle(currentTab === "other")}
-                >
-                  <i className="fas fa-file-alt"></i> Other
-                </button>
+
               </div>
             </div>
           )}
@@ -1480,40 +1523,9 @@ const AddContactModal = ({
                       </div>
                     )}
                   </div>
-                </div>
 
-                {/* Contact Card */}
-                <div
-                  style={{
-                    background: "#fff",
-                    padding: "24px",
-                    borderRadius: "12px",
-                    border: "1px solid #e2e8f0",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-                  }}
-                >
-                  <h3
-                    style={{
-                      margin: "0 0 20px 0",
-                      fontSize: "1rem",
-                      fontWeight: 600,
-                      color: "#0f172a",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      paddingBottom: "12px",
-                      borderBottom: "1px solid #f1f5f9",
-                    }}
-                  >
-                    <i
-                      className="fas fa-address-book"
-                      style={{ color: "#10b981" }}
-                    ></i>{" "}
-                    Contact Methods
-                  </h3>
-
-                  {/* Phones */}
-                  <div style={{ marginBottom: "24px" }}>
+                  {/* Mobile Numbers */}
+                  <div style={{ marginTop: "24px" }}>
                     <label
                       style={{
                         display: "block",
@@ -1738,9 +1750,159 @@ const AddContactModal = ({
                   </div>
                 </div>
 
+
+
+                {/* Address Details Card (Unified) */}
+                {!showOnlyRequired && (
+                  <div
+                    style={{
+                      background: "#fff",
+                      padding: "24px",
+                      borderRadius: "12px",
+                      border: "1px solid #e2e8f0",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginBottom: "20px",
+                        paddingBottom: "12px",
+                        borderBottom: "1px solid #f1f5f9",
+                      }}
+                    >
+                      <h3
+                        style={{
+                          margin: 0,
+                          fontSize: "1rem",
+                          fontWeight: 600,
+                          color: "#0f172a",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                        }}
+                      >
+                        <i
+                          className="fas fa-map-marker-alt"
+                          style={{ color: "#6366f1" }}
+                        ></i>{" "}
+                        Address Details
+                      </h3>
+                      <div
+                        style={{
+                          display: "flex",
+                          background: "#f1f5f9",
+                          borderRadius: "6px",
+                          padding: "4px",
+                        }}
+                      >
+                        <button
+                          onClick={() => setCurrentAddressType("permanent")}
+                          style={{
+                            padding: "6px 12px",
+                            borderRadius: "4px",
+                            border: "none",
+                            background:
+                              currentAddressType === "permanent"
+                                ? "#fff"
+                                : "transparent",
+                            color:
+                              currentAddressType === "permanent"
+                                ? "#0f172a"
+                                : "#64748b",
+                            fontSize: "0.8rem",
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            boxShadow:
+                              currentAddressType === "permanent"
+                                ? "0 1px 2px rgba(0,0,0,0.1)"
+                                : "none",
+                          }}
+                        >
+                          Permanent
+                        </button>
+                        <button
+                          onClick={() =>
+                            setCurrentAddressType("correspondence")
+                          }
+                          style={{
+                            padding: "6px 12px",
+                            borderRadius: "4px",
+                            border: "none",
+                            background:
+                              currentAddressType === "correspondence"
+                                ? "#fff"
+                                : "transparent",
+                            color:
+                              currentAddressType === "correspondence"
+                                ? "#0f172a"
+                                : "#64748b",
+                            fontSize: "0.8rem",
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            boxShadow:
+                              currentAddressType === "correspondence"
+                                ? "0 1px 2px rgba(0,0,0,0.1)"
+                                : "none",
+                          }}
+                        >
+                          Correspondence
+                        </button>
+                      </div>
+                    </div>
+
+                    {(() => {
+                      const addrKey =
+                        currentAddressType === "permanent"
+                          ? "personalAddress"
+                          : "correspondenceAddress";
+                      const addr = formData[addrKey];
+
+                      // Data Resolution from Config (Deep Hierarchy: Country -> State -> City -> Location -> Tehsil -> PO)
+                      // 1. Country (Roots)
+                      const countries = Object.keys(addressConfig);
+
+                      // 2. State
+                      const countryNode = addressConfig[addr.country];
+                      const states =
+                        countryNode?.subCategories?.map((s) => s.name) || [];
+
+                      // 3. City
+                      const stateNode = countryNode?.subCategories?.find(
+                        (s) => s.name === addr.state,
+                      );
+                      const cities =
+                        stateNode?.subCategories?.map((s) => s.name) || [];
+
+                      // 4. Location (Sector/Area)
+                      const cityNode = stateNode?.subCategories?.find(
+                        (s) => s.name === addr.city,
+                      );
+                      const locations =
+                        cityNode?.subCategories?.map((s) => s.name) || [];
+
+                      return (
+                        <AddressDetailsForm
+                          title={
+                            addrKey === "personalAddress"
+                              ? "Personal Address"
+                              : "Correspondence Address"
+                          }
+                          address={addr}
+                          onChange={(newAddr) =>
+                            handleInputChange(addrKey, newAddr)
+                          }
+                        />
+                      );
+                    })()}
+                  </div>
+                )}
+
                 {!showOnlyRequired && (
                   <>
-                    {/* Campaign & Source Card */}
+                    {/* Source Details Card */}
                     <div
                       style={{
                         background: "#fff",
@@ -1767,139 +1929,11 @@ const AddContactModal = ({
                           className="fas fa-bullhorn"
                           style={{ color: "#f59e0b" }}
                         ></i>{" "}
-                        Campaign & Source
+                        Source Details
                       </h3>
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns:
-                            "repeat(auto-fit, minmax(200px, 1fr))",
-                          gap: "20px",
-                          marginBottom: "20px",
-                        }}
-                      >
-                        {/* Campaign */}
-                        {!hiddenFields.includes("campaign") && (
-                          <div>
-                            <label
-                              style={{
-                                display: "block",
-                                fontSize: "0.85rem",
-                                fontWeight: 500,
-                                color: "#64748b",
-                                marginBottom: "8px",
-                              }}
-                            >
-                              Campaign
-                            </label>
-                            <select
-                              value={formData.campaign}
-                              onChange={(e) => {
-                                handleInputChange("campaign", e.target.value);
-                                handleInputChange("source", ""); // Reset source
-                                handleInputChange("subSource", ""); // Reset subSource
-                              }}
-                              style={customSelectStyle}
-                            >
-                              <option value="">Select Campaign</option>
-                              {(leadMasterFields?.campaigns || []).map((c) => (
-                                <option key={c.name} value={c.name}>
-                                  {c.name}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
 
-                        {/* Source */}
-                        {!hiddenFields.includes("source") && (
-                          <div>
-                            <label
-                              style={{
-                                display: "block",
-                                fontSize: "0.85rem",
-                                fontWeight: 500,
-                                color: "#64748b",
-                                marginBottom: "8px",
-                              }}
-                            >
-                              Source
-                            </label>
-                            <select
-                              value={formData.source}
-                              onChange={(e) => {
-                                handleInputChange("source", e.target.value);
-                                handleInputChange("subSource", ""); // Reset subSource
-                              }}
-                              style={
-                                !formData.campaign
-                                  ? customSelectStyleDisabled
-                                  : customSelectStyle
-                              }
-                              disabled={!formData.campaign}
-                            >
-                              <option value="">Select Source</option>
-                              {(() => {
-                                const selectedCamp = (
-                                  leadMasterFields?.campaigns || []
-                                ).find((c) => c.name === formData.campaign);
-                                return (selectedCamp?.sources || []).map(
-                                  (s) => (
-                                    <option key={s.name} value={s.name}>
-                                      {s.name}
-                                    </option>
-                                  ),
-                                );
-                              })()}
-                            </select>
-                          </div>
-                        )}
-
-                        {/* Sub-Source */}
-                        {!hiddenFields.includes("subSource") && (
-                          <div>
-                            <label
-                              style={{
-                                display: "block",
-                                fontSize: "0.85rem",
-                                fontWeight: 500,
-                                color: "#64748b",
-                                marginBottom: "8px",
-                              }}
-                            >
-                              Sub-Source
-                            </label>
-                            <select
-                              value={formData.subSource}
-                              onChange={(e) =>
-                                handleInputChange("subSource", e.target.value)
-                              }
-                              style={
-                                !formData.source
-                                  ? customSelectStyleDisabled
-                                  : customSelectStyle
-                              }
-                              disabled={!formData.source}
-                            >
-                              <option value="">Select Sub-Source</option>
-                              {(() => {
-                                const selectedCamp = (
-                                  leadMasterFields?.campaigns || []
-                                ).find((c) => c.name === formData.campaign);
-                                const selectedSrc = (
-                                  selectedCamp?.sources || []
-                                ).find((s) => s.name === formData.source);
-                                return (selectedSrc?.mediums || []).map((m) => (
-                                  <option key={m} value={m}>
-                                    {m}
-                                  </option>
-                                ));
-                              })()}
-                            </select>
-                          </div>
-                        )}
-                      </div>
-                      <div>
+                      {/* Tags (Moved to Top) */}
+                      <div style={{ marginBottom: "20px" }}>
                         <label
                           style={{
                             display: "block",
@@ -1999,9 +2033,529 @@ const AddContactModal = ({
                           />
                         </div>
                       </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns:
+                            "repeat(auto-fit, minmax(200px, 1fr))",
+                          gap: "20px",
+                          marginBottom: "20px",
+                        }}
+                      >
+                        {/* Source */}
+                        {!hiddenFields.includes("source") && (
+                          <div>
+                            <label
+                              style={{
+                                display: "block",
+                                fontSize: "0.85rem",
+                                fontWeight: 500,
+                                color: "#64748b",
+                                marginBottom: "8px",
+                              }}
+                            >
+                              Source
+                            </label>
+                            <select
+                              value={formData.source}
+                              onChange={(e) => {
+                                const selectedSourceName = e.target.value;
+                                handleInputChange("source", selectedSourceName);
+                                handleInputChange("subSource", ""); // Reset subSource
+
+                                // Auto-set campaign based on source
+                                const allCampaigns = leadMasterFields?.campaigns || [];
+                                let foundCampaign = null;
+                                for (const camp of allCampaigns) {
+                                  if (camp.sources?.some(s => s.name === selectedSourceName)) {
+                                    foundCampaign = camp.name;
+                                    break;
+                                  }
+                                }
+                                if (foundCampaign) {
+                                  handleInputChange("campaign", foundCampaign);
+                                }
+                              }}
+                              style={customSelectStyle}
+                            >
+                              <option value="">Select Source</option>
+                              {(() => {
+                                const allCampaigns = leadMasterFields?.campaigns || [];
+                                const allSources = [];
+                                allCampaigns.forEach(camp => {
+                                  if (camp.sources && camp.sources.length > 0) {
+                                    camp.sources.forEach(src => {
+                                      // Avoid duplicates if any
+                                      if (!allSources.some(s => s.name === src.name)) {
+                                        allSources.push(src);
+                                      }
+                                    });
+                                  }
+                                });
+
+                                return allSources.map((s) => (
+                                  <option key={s.name} value={s.name}>
+                                    {s.name}
+                                  </option>
+                                )
+                                );
+                              })()}
+                            </select>
+                          </div>
+                        )}
+
+                        {/* Sub-Source */}
+                        {!hiddenFields.includes("subSource") && (
+                          <div>
+                            <label
+                              style={{
+                                display: "block",
+                                fontSize: "0.85rem",
+                                fontWeight: 500,
+                                color: "#64748b",
+                                marginBottom: "8px",
+                              }}
+                            >
+                              Sub-Source
+                            </label>
+                            <select
+                              value={formData.subSource}
+                              onChange={(e) =>
+                                handleInputChange("subSource", e.target.value)
+                              }
+                              style={
+                                !formData.source
+                                  ? customSelectStyleDisabled
+                                  : customSelectStyle
+                              }
+                              disabled={!formData.source}
+                            >
+                              <option value="">Select Sub-Source</option>
+                              {(() => {
+                                // Find the source object within ALL campaigns
+                                const allCampaigns = leadMasterFields?.campaigns || [];
+                                let selectedSrc = null;
+
+                                for (const camp of allCampaigns) {
+                                  const src = camp.sources?.find(s => s.name === formData.source);
+                                  if (src) {
+                                    selectedSrc = src;
+                                    break;
+                                  }
+                                }
+
+                                return (selectedSrc?.mediums || []).map((m) => (
+                                  <option key={m} value={m}>
+                                    {m}
+                                  </option>
+                                ));
+                              })()}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+
+
                     </div>
                   </>
                 )}
+
+                {/* System Assignment Card */}
+                <div
+                  style={{
+                    background: "#fff",
+                    padding: "24px",
+                    borderRadius: "12px",
+                    border: "1px solid #e2e8f0",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                  }}
+                >
+                  <h3
+                    style={{
+                      margin: "0 0 20px 0",
+                      fontSize: "1rem",
+                      fontWeight: 600,
+                      color: "#0f172a",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      paddingBottom: "12px",
+                      borderBottom: "1px solid #f1f5f9",
+                    }}
+                  >
+                    <i
+                      className="fas fa-sliders-h"
+                      style={{ color: "#64748b" }}
+                    ></i>{" "}
+                    System Assignment
+                  </h3>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(200px, 1fr))",
+                      gap: "20px",
+                    }}
+                  >
+
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: "0.85rem",
+                          fontWeight: 500,
+                          color: "#64748b",
+                          marginBottom: "8px",
+                        }}
+                      >
+                        Team
+                      </label>
+                      <select
+                        value={formData.team}
+                        onChange={(e) => {
+                          const newTeam = e.target.value;
+                          setFormData((prev) => ({
+                            ...prev,
+                            team: newTeam,
+                            owner: "", // Reset owner when team changes
+                          }));
+                        }}
+                        style={customSelectStyle}
+                      >
+                        <option value="">Select Team</option>
+                        {teams.map((c) => (
+                          <option key={c._id} value={c._id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: "0.85rem",
+                          fontWeight: 500,
+                          color: "#64748b",
+                          marginBottom: "8px",
+                        }}
+                      >
+                        Assign
+                      </label>
+                      <select
+                        value={formData.owner}
+                        onChange={(e) =>
+                          handleInputChange("owner", e.target.value)
+                        }
+                        style={customSelectStyle}
+                      >
+                        <option value="">Select Owner</option>
+                        {users
+                          .filter(
+                            (user) =>
+                              !formData.team ||
+                              (user.team && user.team === formData.team) ||
+                              (user.team?._id === formData.team)
+                          )
+                          .map((user) => (
+                            <option key={user._id || user.id} value={user._id || user.id}>
+                              {user.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: "0.85rem",
+                          fontWeight: 500,
+                          color: "#64748b",
+                          marginBottom: "8px",
+                        }}
+                      >
+                        Visibility
+                      </label>
+                      <select
+                        value={formData.visibleTo}
+                        onChange={(e) =>
+                          handleInputChange("visibleTo", e.target.value)
+                        }
+                        style={customSelectStyle}
+                      >
+                        <option value="">Select Visibility</option>
+                        <option value="Private">Private</option>
+                        <option value="Team">Team</option>
+                        <option value="Everyone">Everyone</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Description Card */}
+
+              </div>
+            ) : currentTab === "personal" ? (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "20px",
+                }}
+              >
+                {/* Personal Basic Info */}
+                <div
+                  style={{
+                    background: "#fff",
+                    padding: "24px",
+                    borderRadius: "12px",
+                    border: "1px solid #e2e8f0",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                  }}
+                >
+                  <h3
+                    style={{
+                      margin: "0 0 20px 0",
+                      fontSize: "1rem",
+                      fontWeight: 600,
+                      color: "#0f172a",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      paddingBottom: "12px",
+                      borderBottom: "1px solid #f1f5f9",
+                    }}
+                  >
+                    <i
+                      className="fas fa-user-clock"
+                      style={{ color: "#ec4899" }}
+                    ></i>{" "}
+                    Bio Details
+                  </h3>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(200px, 1fr))",
+                      gap: "20px",
+                    }}
+                  >
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: "0.85rem",
+                          fontWeight: 500,
+                          color: "#64748b",
+                          marginBottom: "8px",
+                        }}
+                      >
+                        Gender
+                      </label>
+                      <select
+                        value={formData.gender}
+                        onChange={(e) =>
+                          handleInputChange("gender", e.target.value)
+                        }
+                        style={customSelectStyle}
+                      >
+                        <option value="">Select Gender</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: "0.85rem",
+                          fontWeight: 500,
+                          color: "#64748b",
+                          marginBottom: "8px",
+                        }}
+                      >
+                        Marital Status
+                      </label>
+                      <select
+                        value={formData.maritalStatus}
+                        onChange={(e) =>
+                          handleInputChange("maritalStatus", e.target.value)
+                        }
+                        style={customSelectStyle}
+                      >
+                        <option value="">Select Status</option>
+                        <option value="Single">Single</option>
+                        <option value="Married">Married</option>
+                        <option value="Divorced">Divorced</option>
+                        <option value="Widowed">Widowed</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: "0.85rem",
+                          fontWeight: 500,
+                          color: "#64748b",
+                          marginBottom: "8px",
+                        }}
+                      >
+                        Date of Birth
+                      </label>
+                      <input
+                        type="date"
+                        value={formData.birthDate}
+                        onChange={(e) =>
+                          handleInputChange("birthDate", e.target.value)
+                        }
+                        style={{
+                          width: "100%",
+                          padding: "10px 12px",
+                          borderRadius: "6px",
+                          border: "1px solid #cbd5e1",
+                          fontSize: "0.9rem",
+                          outline: "none",
+                          color: "#1e293b",
+                        }}
+                      />
+                    </div>
+                    {formData.maritalStatus === "Married" && (
+                      <div>
+                        <label
+                          style={{
+                            display: "block",
+                            fontSize: "0.85rem",
+                            fontWeight: 500,
+                            color: "#64748b",
+                            marginBottom: "8px",
+                          }}
+                        >
+                          Anniversary Date
+                        </label>
+                        <input
+                          type="date"
+                          value={formData.anniversaryDate}
+                          onChange={(e) =>
+                            handleInputChange("anniversaryDate", e.target.value)
+                          }
+                          style={{
+                            width: "100%",
+                            padding: "10px 12px",
+                            borderRadius: "6px",
+                            border: "1px solid #cbd5e1",
+                            fontSize: "0.9rem",
+                            outline: "none",
+                            color: "#1e293b",
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Social Presence (Moved from separate card) */}
+                  <h3
+                    style={{
+                      margin: "20px 0 20px 0",
+                      fontSize: "1rem",
+                      fontWeight: 600,
+                      color: "#0f172a",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      paddingTop: "16px",
+                      borderTop: "1px dashed #e2e8f0",
+                    }}
+                  >
+                    <i
+                      className="fas fa-hashtag"
+                      style={{ color: "#ec4899" }}
+                    ></i>{" "}
+                    Social Presence
+                  </h3>
+                  {formData.socialMedia.map((social, index) => (
+                    <div
+                      key={index}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "minmax(140px, 160px) 1fr 40px",
+                        gap: "12px",
+                        marginBottom: "12px",
+                      }}
+                    >
+                      <select
+                        value={social.platform}
+                        onFocus={async () => {
+                          if (social_plateform.length === 0) {
+                            setLoading("social-plateform");
+
+                            const data = await fetchLookup("Social Plateform");
+
+                            setsocial_plateform(data);
+                            setLoading("");
+                          }
+                        }}
+                        onChange={(e) => {
+                          const newSocial = [...formData.socialMedia];
+                          newSocial[index].platform = e.target.value;
+                          handleInputChange("socialMedia", newSocial);
+                        }}
+                        style={customSelectStyle}
+                      >
+                        <option value="">Select Platform</option>
+                        {social_plateform.map((p) => (
+                          <option key={p._id} value={p._id}>
+                            {p.lookup_value}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        placeholder="Profile URL / Handle"
+                        value={social.url}
+                        onChange={(e) => {
+                          const newSocial = [...formData.socialMedia];
+                          newSocial[index].url = e.target.value;
+                          handleInputChange("socialMedia", newSocial);
+                        }}
+                        style={{
+                          padding: "10px",
+                          borderRadius: "6px",
+                          border: "1px solid #cbd5e1",
+                          fontSize: "0.9rem",
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (index === 0)
+                            handleInputChange("socialMedia", [
+                              ...formData.socialMedia,
+                              { platform: null, url: "" },
+                            ]);
+                          else {
+                            const newSocial = formData.socialMedia.filter(
+                              (_, i) => i !== index,
+                            );
+                            handleInputChange("socialMedia", newSocial);
+                          }
+                        }}
+                        style={{
+                          borderRadius: "6px",
+                          border: "none",
+                          background: index === 0 ? "#eff6ff" : "#fef2f2",
+                          color: index === 0 ? "#3b82f6" : "#ef4444",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <i
+                          className={`fas ${index === 0 ? "fa-plus" : "fa-trash"}`}
+                        ></i>
+                      </button>
+                    </div>
+                  ))}
+                </div>
 
                 {/* Professional Details Card */}
                 {!showOnlyRequired && (
@@ -2456,7 +3010,7 @@ const AddContactModal = ({
                   </div>
                 )}
 
-                {/* System Assignment Card */}
+                {/* Education & Financial Details Card */}
                 <div
                   style={{
                     background: "#fff",
@@ -2480,909 +3034,22 @@ const AddContactModal = ({
                     }}
                   >
                     <i
-                      className="fas fa-sliders-h"
-                      style={{ color: "#64748b" }}
+                      className="fas fa-coins"
+                      style={{ color: "#eab308" }}
                     ></i>{" "}
-                    System Assignment
+                    Education & Financial Details
                   </h3>
-                  <div
+
+                  {/* Education History (Moved from separate card) */}
+                  <h4
                     style={{
-                      display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(200px, 1fr))",
-                      gap: "20px",
+                      fontSize: "0.9rem",
+                      color: "#475569",
+                      marginBottom: "12px",
                     }}
                   >
-
-                    <div>
-                      <label
-                        style={{
-                          display: "block",
-                          fontSize: "0.85rem",
-                          fontWeight: 500,
-                          color: "#64748b",
-                          marginBottom: "8px",
-                        }}
-                      >
-                        Assign Team
-                      </label>
-                      <select
-                        value={formData.team}
-                        onFocus={async () => {
-                          if (team.length === 0) {
-                            setLoading("team");
-
-                            const data = await fetchLookup("Team");
-
-                            setteam(data);
-                            setLoading("");
-                          }
-                        }}
-                        onChange={(e) =>
-                          handleInputChange("team", e.target.value)
-                        }
-                        style={customSelectStyle}
-                      >
-                        <option value="">Select Team</option>
-                        {
-                          team?.map((c) =>
-                          (
-                            <option key={c._id} value={c._id}>
-                              {c.lookup_value}
-                            </option>
-                          ))
-                        }
-                      </select>
-                    </div>
-                    <div>
-                      <label
-                        style={{
-                          display: "block",
-                          fontSize: "0.85rem",
-                          fontWeight: 500,
-                          color: "#64748b",
-                          marginBottom: "8px",
-                        }}
-                      >
-                        Assign
-                      </label>
-                      <select
-                        value={formData.owner}
-                        onChange={(e) =>
-                          handleInputChange("owner", e.target.value)
-                        }
-                        style={customSelectStyle}
-                      >
-                        <option value="">Select Owner</option>
-                        {users.map(user => (
-                          <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label
-                        style={{
-                          display: "block",
-                          fontSize: "0.85rem",
-                          fontWeight: 500,
-                          color: "#64748b",
-                          marginBottom: "8px",
-                        }}
-                      >
-                        Visibility
-                      </label>
-                      <select
-                        value={formData.visibleTo}
-                        onFocus={async () => {
-                          if (visible.length === 0) {
-                            setLoading("visible");
-
-                            const data = await fetchLookup("Visibility");
-
-                            setvisible(data);
-                            setLoading("");
-                          }
-                        }}
-                        onChange={(e) =>
-                          handleInputChange("visibleTo", e.target.value)
-                        }
-                        style={customSelectStyle}
-                      >
-                        <option value="">Select Visibility</option>
-                        {
-                          visible?.map((c) =>
-                          (
-                            <option key={c._id} value={c._id}>
-                              {c.lookup_value}
-                            </option>
-                          ))
-                        }
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Description Card */}
-                {!showOnlyRequired && (
-                  <div
-                    style={{
-                      background: "#fff",
-                      padding: "24px",
-                      borderRadius: "12px",
-                      border: "1px solid #e2e8f0",
-                      boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-                    }}
-                  >
-                    <h3
-                      style={{
-                        margin: "0 0 20px 0",
-                        fontSize: "1rem",
-                        fontWeight: 600,
-                        color: "#0f172a",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        paddingBottom: "12px",
-                        borderBottom: "1px solid #f1f5f9",
-                      }}
-                    >
-                      <i
-                        className="fas fa-sticky-note"
-                        style={{ color: "#8b5cf6" }}
-                      ></i>{" "}
-                      Notes & Description
-                    </h3>
-                    <textarea
-                      value={formData.description}
-                      onChange={(e) =>
-                        handleInputChange("description", e.target.value)
-                      }
-                      placeholder="Enter any additional notes or comments about this contact..."
-                      style={{
-                        width: "100%",
-                        minHeight: "100px",
-                        padding: "12px",
-                        borderRadius: "8px",
-                        border: "1px solid #cbd5e1",
-                        fontSize: "0.9rem",
-                        outline: "none",
-                        color: "#1e293b",
-                        resize: "vertical",
-                        fontFamily: "inherit",
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-            ) : currentTab === "personal" ? (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "20px",
-                }}
-              >
-                {/* Personal Basic Info */}
-                <div
-                  style={{
-                    background: "#fff",
-                    padding: "24px",
-                    borderRadius: "12px",
-                    border: "1px solid #e2e8f0",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-                  }}
-                >
-                  <h3
-                    style={{
-                      margin: "0 0 20px 0",
-                      fontSize: "1rem",
-                      fontWeight: 600,
-                      color: "#0f172a",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      paddingBottom: "12px",
-                      borderBottom: "1px solid #f1f5f9",
-                    }}
-                  >
-                    <i
-                      className="fas fa-user-clock"
-                      style={{ color: "#ec4899" }}
-                    ></i>{" "}
-                    Bio Details
-                  </h3>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(200px, 1fr))",
-                      gap: "20px",
-                    }}
-                  >
-                    <div>
-                      <label
-                        style={{
-                          display: "block",
-                          fontSize: "0.85rem",
-                          fontWeight: 500,
-                          color: "#64748b",
-                          marginBottom: "8px",
-                        }}
-                      >
-                        Gender
-                      </label>
-                      <select
-                        value={formData.gender}
-                        onChange={(e) =>
-                          handleInputChange("gender", e.target.value)
-                        }
-                        style={customSelectStyle}
-                      >
-                        <option value="">Select Gender</option>
-                        <option value="Male">Male</option>
-                        <option value="Female">Female</option>
-                        <option value="Other">Other</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label
-                        style={{
-                          display: "block",
-                          fontSize: "0.85rem",
-                          fontWeight: 500,
-                          color: "#64748b",
-                          marginBottom: "8px",
-                        }}
-                      >
-                        Marital Status
-                      </label>
-                      <select
-                        value={formData.maritalStatus}
-                        onChange={(e) =>
-                          handleInputChange("maritalStatus", e.target.value)
-                        }
-                        style={customSelectStyle}
-                      >
-                        <option value="">Select Status</option>
-                        <option value="Single">Single</option>
-                        <option value="Married">Married</option>
-                        <option value="Divorced">Divorced</option>
-                        <option value="Widowed">Widowed</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label
-                        style={{
-                          display: "block",
-                          fontSize: "0.85rem",
-                          fontWeight: 500,
-                          color: "#64748b",
-                          marginBottom: "8px",
-                        }}
-                      >
-                        Date of Birth
-                      </label>
-                      <input
-                        type="date"
-                        value={formData.birthDate}
-                        onChange={(e) =>
-                          handleInputChange("birthDate", e.target.value)
-                        }
-                        style={{
-                          width: "100%",
-                          padding: "10px 12px",
-                          borderRadius: "6px",
-                          border: "1px solid #cbd5e1",
-                          fontSize: "0.9rem",
-                          outline: "none",
-                          color: "#1e293b",
-                        }}
-                      />
-                    </div>
-                    {formData.maritalStatus === "Married" && (
-                      <div>
-                        <label
-                          style={{
-                            display: "block",
-                            fontSize: "0.85rem",
-                            fontWeight: 500,
-                            color: "#64748b",
-                            marginBottom: "8px",
-                          }}
-                        >
-                          Anniversary Date
-                        </label>
-                        <input
-                          type="date"
-                          value={formData.anniversaryDate}
-                          onChange={(e) =>
-                            handleInputChange("anniversaryDate", e.target.value)
-                          }
-                          style={{
-                            width: "100%",
-                            padding: "10px 12px",
-                            borderRadius: "6px",
-                            border: "1px solid #cbd5e1",
-                            fontSize: "0.9rem",
-                            outline: "none",
-                            color: "#1e293b",
-                          }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Address Details Card (Unified) */}
-                {!showOnlyRequired && (
-                  <div
-                    style={{
-                      background: "#fff",
-                      padding: "24px",
-                      borderRadius: "12px",
-                      border: "1px solid #e2e8f0",
-                      boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        marginBottom: "20px",
-                        paddingBottom: "12px",
-                        borderBottom: "1px solid #f1f5f9",
-                      }}
-                    >
-                      <h3
-                        style={{
-                          margin: 0,
-                          fontSize: "1rem",
-                          fontWeight: 600,
-                          color: "#0f172a",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                        }}
-                      >
-                        <i
-                          className="fas fa-map-marker-alt"
-                          style={{ color: "#6366f1" }}
-                        ></i>{" "}
-                        Address Details
-                      </h3>
-                      <div
-                        style={{
-                          display: "flex",
-                          background: "#f1f5f9",
-                          borderRadius: "6px",
-                          padding: "4px",
-                        }}
-                      >
-                        <button
-                          onClick={() => setCurrentAddressType("permanent")}
-                          style={{
-                            padding: "6px 12px",
-                            borderRadius: "4px",
-                            border: "none",
-                            background:
-                              currentAddressType === "permanent"
-                                ? "#fff"
-                                : "transparent",
-                            color:
-                              currentAddressType === "permanent"
-                                ? "#0f172a"
-                                : "#64748b",
-                            fontSize: "0.8rem",
-                            fontWeight: 600,
-                            cursor: "pointer",
-                            boxShadow:
-                              currentAddressType === "permanent"
-                                ? "0 1px 2px rgba(0,0,0,0.1)"
-                                : "none",
-                          }}
-                        >
-                          Permanent
-                        </button>
-                        <button
-                          onClick={() =>
-                            setCurrentAddressType("correspondence")
-                          }
-                          style={{
-                            padding: "6px 12px",
-                            borderRadius: "4px",
-                            border: "none",
-                            background:
-                              currentAddressType === "correspondence"
-                                ? "#fff"
-                                : "transparent",
-                            color:
-                              currentAddressType === "correspondence"
-                                ? "#0f172a"
-                                : "#64748b",
-                            fontSize: "0.8rem",
-                            fontWeight: 600,
-                            cursor: "pointer",
-                            boxShadow:
-                              currentAddressType === "correspondence"
-                                ? "0 1px 2px rgba(0,0,0,0.1)"
-                                : "none",
-                          }}
-                        >
-                          Correspondence
-                        </button>
-                      </div>
-                    </div>
-
-                    {(() => {
-                      const addrKey =
-                        currentAddressType === "permanent"
-                          ? "personalAddress"
-                          : "correspondenceAddress";
-                      const addr = formData[addrKey];
-
-                      // Data Resolution from Config (Deep Hierarchy: Country -> State -> City -> Location -> Tehsil -> PO)
-                      // 1. Country (Roots)
-                      const countries = Object.keys(addressConfig);
-
-                      // 2. State
-                      const countryNode = addressConfig[addr.country];
-                      const states =
-                        countryNode?.subCategories?.map((s) => s.name) || [];
-
-                      // 3. City
-                      const stateNode = countryNode?.subCategories?.find(
-                        (s) => s.name === addr.state,
-                      );
-                      const cities =
-                        stateNode?.subCategories?.map((s) => s.name) || [];
-
-                      // 4. Location (Sector/Area)
-                      const cityNode = stateNode?.subCategories?.find(
-                        (s) => s.name === addr.city,
-                      );
-                      const locations =
-                        cityNode?.subCategories?.map((s) => s.name) || [];
-
-                      return (
-                        <AddressDetailsForm
-                          title={
-                            addrKey === "personalAddress"
-                              ? "Personal Address"
-                              : "Correspondence Address"
-                          }
-                          address={addr}
-                          onChange={(newAddr) =>
-                            handleInputChange(addrKey, newAddr)
-                          }
-                        />
-                      );
-                    })()}
-                  </div>
-                )}
-
-                {/* Documents Card */}
-                <div
-                  style={{
-                    background: "#fff",
-                    padding: "24px",
-                    borderRadius: "12px",
-                    border: "1px solid #e2e8f0",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-                  }}
-                >
-                  <h3
-                    style={{
-                      margin: "0 0 20px 0",
-                      fontSize: "1rem",
-                      fontWeight: 600,
-                      color: "#0f172a",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      paddingBottom: "12px",
-                      borderBottom: "1px solid #f1f5f9",
-                    }}
-                  >
-                    <i
-                      className="fas fa-file-alt"
-                      style={{ color: "#64748b" }}
-                    ></i>{" "}
-                    Documents
-                  </h3>
-                  {formData.documents.map((doc, index) => {
-                    const availableDocTypes = getDocTypes(doc.documentName);
-
-                    return (
-                      <div
-                        key={index}
-                        style={{
-                          background: "#fff",
-                          border: "1px solid #e2e8f0",
-                          borderRadius: "8px",
-                          padding: "12px",
-                          marginBottom: "12px",
-                          boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
-                        }}
-                      >
-                        {/* Row 1: Identity */}
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "1fr 1fr 32px",
-                            gap: "8px",
-                            marginBottom: "12px",
-                          }}
-                        >
-                          <div>
-                            <label style={labelStyle}>Category</label>
-                            <select
-                              value={doc.documentName}
-                              onFocus={async () => {
-                                if (doc_category.length === 0) {
-                                  setLoading("doc_category");
-
-                                  const data = await fetchLookup("Document-Category");
-
-                                  setdoc_category(data);
-                                  setLoading("");
-                                }
-                              }}
-                              onChange={(e) => {
-                                const newDocs = [...formData.documents];
-                                newDocs[index].documentName = e.target.value;
-                                newDocs[index].documentType = "";
-                                handleInputChange("documents", newDocs);
-                              }}
-                              style={{
-                                ...customSelectStyle,
-                                fontSize: "0.85rem",
-                                padding: "8px",
-                              }}
-                            >
-                              <option value="">Select Category</option>
-                              {doc_category.map((c) => (
-                                <option key={c._id} value={c._id}>
-                                  {c.lookup_value}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div>
-                            <label style={labelStyle}>Document Type</label>
-                            <select
-                              value={doc.documentType}
-                              onFocus={async () => {
-                                if (doc_type.length === 0) {
-                                  setLoading("doc_type");
-
-                                  const data = await fetchLookup("Document-Type");
-
-                                  setdoc_type(data);
-                                  setLoading("");
-                                }
-                              }}
-                              onChange={(e) => {
-                                const newDocs = [...formData.documents];
-                                newDocs[index].documentType = e.target.value;
-                                handleInputChange("documents", newDocs);
-                              }}
-                              disabled={!doc.documentName}
-                              style={{
-                                ...(!doc.documentName
-                                  ? customSelectStyleDisabled
-                                  : customSelectStyle),
-                                fontSize: "0.85rem",
-                                padding: "8px",
-                              }}
-                            >
-                              <option value="">Select Type</option>
-                              {doc_type.map((t) => (
-                                <option key={t._id} value={t._id}>
-                                  {t.lookup_value}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div style={{ display: "flex", alignItems: "end" }}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (index === 0)
-                                  handleInputChange("documents", [
-                                    ...formData.documents,
-                                    {
-                                      documentName: null,
-                                      documentType: null,
-                                      documentNo: "",
-                                      projectName: "",
-                                      block: "",
-                                      unitNumber: "",
-                                      documentPicture: null,
-                                    },
-                                  ]);
-                                else {
-                                  const newDocs = formData.documents.filter(
-                                    (_, i) => i !== index,
-                                  );
-                                  handleInputChange("documents", newDocs);
-                                }
-                              }}
-                              style={{
-                                height: "36px",
-                                width: "100%",
-                                borderRadius: "6px",
-                                border: "none",
-                                background: index === 0 ? "#eff6ff" : "#fef2f2",
-                                color: index === 0 ? "#3b82f6" : "#ef4444",
-                                cursor: "pointer",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                              }}
-                            >
-                              <i
-                                className={`fas ${index === 0 ? "fa-plus" : "fa-trash"}`}
-                              ></i>
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Row 2: Property Context */}
-                        <div
-                          style={{
-                            background: "#f8fafc",
-                            padding: "10px 12px",
-                            borderRadius: "6px",
-                            border: "1px solid #f1f5f9",
-                            marginBottom: "12px",
-                          }}
-                        >
-                          <label
-                            style={{
-                              fontSize: "0.7rem",
-                              fontWeight: 700,
-                              color: "#64748b",
-                              textTransform: "uppercase",
-                              marginBottom: "6px",
-                              display: "block",
-                            }}
-                          >
-                            Link to Property (Optional)
-                          </label>
-                          <div
-                            style={{
-                              display: "grid",
-                              gridTemplateColumns: "1fr 1fr 1fr",
-                              gap: "8px",
-                            }}
-                          >
-                            <select
-                              value={doc.projectName}
-                              onChange={(e) => {
-                                const newDocs = [...formData.documents];
-                                newDocs[index].projectName = e.target.value;
-                                newDocs[index].block = "";
-                                newDocs[index].unitNumber = "";
-                                handleInputChange("documents", newDocs);
-                              }}
-                              style={{
-                                ...customSelectStyle,
-                                background: "#fff",
-                                fontSize: "0.85rem",
-                                padding: "8px",
-                              }}
-                            >
-                              <option value="">Select Project</option>
-                              {PROJECTS_LIST.map((p) => (
-                                <option key={p.id} value={p.name}>
-                                  {p.name}
-                                </option>
-                              ))}
-                            </select>
-                            <select
-                              value={doc.block}
-                              disabled={!doc.projectName}
-                              onChange={(e) => {
-                                const newDocs = [...formData.documents];
-                                newDocs[index].block = e.target.value;
-                                handleInputChange("documents", newDocs);
-                              }}
-                              style={{
-                                ...(!doc.projectName
-                                  ? customSelectStyleDisabled
-                                  : customSelectStyle),
-                                background: doc.projectName
-                                  ? "#fff"
-                                  : "#f1f5f9",
-                                fontSize: "0.85rem",
-                                padding: "8px",
-                              }}
-                            >
-                              <option value="">Block</option>
-                              {(() => {
-                                const proj = PROJECTS_LIST.find(
-                                  (p) => p.name === doc.projectName,
-                                );
-                                return (
-                                  proj?.blocks?.map((b) => (
-                                    <option key={b} value={b}>
-                                      {b}
-                                    </option>
-                                  )) || []
-                                );
-                              })()}
-                            </select>
-                            <select
-                              value={doc.unitNumber}
-                              disabled={!doc.projectName}
-                              onChange={(e) => {
-                                const newDocs = [...formData.documents];
-                                newDocs[index].unitNumber = e.target.value;
-                                handleInputChange("documents", newDocs);
-                              }}
-                              style={{
-                                ...(!doc.projectName
-                                  ? customSelectStyleDisabled
-                                  : customSelectStyle),
-                                background: doc.projectName
-                                  ? "#fff"
-                                  : "#f1f5f9",
-                                fontSize: "0.85rem",
-                                padding: "8px",
-                              }}
-                            >
-                              <option value="">Unit No</option>
-                              {(() => {
-                                const proj = PROJECTS_LIST.find(
-                                  (p) => p.name === doc.projectName,
-                                );
-                                return (
-                                  proj?.units?.map((u) => (
-                                    <option key={u} value={u}>
-                                      {u}
-                                    </option>
-                                  )) || []
-                                );
-                              })()}
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* Row 3: Evidence */}
-                        <label
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "10px",
-                            padding: "10px 12px",
-                            background: "#fff",
-                            border: "1px dashed #cbd5e1",
-                            borderRadius: "6px",
-                            cursor: "pointer",
-                            color: "#64748b",
-                            fontSize: "0.85rem",
-                            transition: "all 0.2s",
-                            ":hover": {
-                              borderColor: "#3b82f6",
-                              background: "#eff6ff",
-                            },
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: "28px",
-                              height: "28px",
-                              background: "#ecfdf5",
-                              borderRadius: "50%",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            <i
-                              className="fas fa-file-upload"
-                              style={{ color: "#10b981", fontSize: "0.9rem" }}
-                            ></i>
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <span style={{ fontWeight: 600, color: "#334155" }}>
-                              {doc.documentPicture
-                                ? doc.documentPicture.name
-                                : "Upload Document File"}
-                            </span>
-                            {!doc.documentPicture && (
-                              <span
-                                style={{
-                                  fontSize: "0.75rem",
-                                  color: "#94a3b8",
-                                  marginLeft: "6px",
-                                }}
-                              >
-                                PDF or Image
-                              </span>
-                            )}
-                          </div>
-                          <input
-                            type="file"
-                            accept="image/*,application/pdf"
-                            style={{ display: "none" }}
-                            onChange={(e) => {
-                              const file = e.target.files[0];
-                              if (file) {
-                                const newDocs = [...formData.documents];
-                                newDocs[index].documentPicture = file;
-                                handleInputChange("documents", newDocs);
-                              }
-                            }}
-                          />
-                          {doc.documentPicture ? (
-                            <span
-                              style={{
-                                fontSize: "0.75rem",
-                                color: "#10b981",
-                                fontWeight: 600,
-                              }}
-                            >
-                              File Selected
-                            </span>
-                          ) : (
-                            <span
-                              style={{
-                                padding: "4px 10px",
-                                background: "#f1f5f9",
-                                borderRadius: "4px",
-                                fontSize: "0.75rem",
-                                fontWeight: 600,
-                                color: "#64748b",
-                              }}
-                            >
-                              Browse
-                            </span>
-                          )}
-                        </label>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : currentTab === "other" ? (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "20px",
-                }}
-              >
-                {/* Education Card (Moved from Personal) */}
-                <div
-                  style={{
-                    background: "#fff",
-                    padding: "24px",
-                    borderRadius: "12px",
-                    border: "1px solid #e2e8f0",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-                  }}
-                >
-                  <h3
-                    style={{
-                      margin: "0 0 20px 0",
-                      fontSize: "1rem",
-                      fontWeight: 600,
-                      color: "#0f172a",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      paddingBottom: "12px",
-                      borderBottom: "1px solid #f1f5f9",
-                    }}
-                  >
-                    <i
-                      className="fas fa-graduation-cap"
-                      style={{ color: "#f59e0b" }}
-                    ></i>{" "}
                     Education History
-                  </h3>
+                  </h4>
                   {formData.educations.map((edu, index) => {
                     const availableDegrees = getDegrees(edu.education);
 
@@ -3540,43 +3207,15 @@ const AddContactModal = ({
                       </div>
                     );
                   })}
-                </div>
-                {/* Financials Card */}
-                <div
-                  style={{
-                    background: "#fff",
-                    padding: "24px",
-                    borderRadius: "12px",
-                    border: "1px solid #e2e8f0",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-                  }}
-                >
-                  <h3
-                    style={{
-                      margin: "0 0 20px 0",
-                      fontSize: "1rem",
-                      fontWeight: 600,
-                      color: "#0f172a",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      paddingBottom: "12px",
-                      borderBottom: "1px solid #f1f5f9",
-                    }}
-                  >
-                    <i
-                      className="fas fa-coins"
-                      style={{ color: "#eab308" }}
-                    ></i>{" "}
-                    Financial Details
-                  </h3>
 
-                  {/* Income */}
+                  {/* Annual Income Source (Moved down) */}
                   <h4
                     style={{
                       fontSize: "0.9rem",
                       color: "#475569",
-                      marginBottom: "12px",
+                      margin: "20px 0 12px 0",
+                      paddingTop: "16px",
+                      borderTop: "1px dashed #e2e8f0",
                     }}
                   >
                     Annual Income Source
@@ -3784,7 +3423,8 @@ const AddContactModal = ({
                   ))}
                 </div>
 
-                {/* Social Media Card */}
+
+                {/* Remarks (Moved from Source Details) */}
                 <div
                   style={{
                     background: "#fff",
@@ -3808,93 +3448,35 @@ const AddContactModal = ({
                     }}
                   >
                     <i
-                      className="fas fa-hashtag"
-                      style={{ color: "#ec4899" }}
+                      className="fas fa-sticky-note"
+                      style={{ color: "#64748b" }}
                     ></i>{" "}
-                    Social Presence
+                    Remarks
                   </h3>
-                  {formData.socialMedia.map((social, index) => (
-                    <div
-                      key={index}
+                  <div>
+                    <textarea
+                      value={formData.description}
+                      onChange={(e) =>
+                        handleInputChange("description", e.target.value)
+                      }
+                      placeholder="Enter any additional remarks about this contact..."
                       style={{
-                        display: "grid",
-                        gridTemplateColumns: "minmax(140px, 160px) 1fr 40px",
-                        gap: "12px",
-                        marginBottom: "12px",
+                        width: "100%",
+                        minHeight: "80px",
+                        padding: "10px 12px",
+                        borderRadius: "6px",
+                        border: "1px solid #cbd5e1",
+                        fontSize: "0.9rem",
+                        outline: "none",
+                        color: "#1e293b",
+                        resize: "vertical",
+                        fontFamily: "inherit",
+                        boxSizing: "border-box",
                       }}
-                    >
-                      <select
-                        value={social.platform}
-                        onFocus={async () => {
-                          if (social_plateform.length === 0) {
-                            setLoading("social-plateform");
-
-                            const data = await fetchLookup("Social Plateform");
-
-                            setsocial_plateform(data);
-                            setLoading("");
-                          }
-                        }}
-                        onChange={(e) => {
-                          const newSocial = [...formData.socialMedia];
-                          newSocial[index].platform = e.target.value;
-                          handleInputChange("socialMedia", newSocial);
-                        }}
-                        style={customSelectStyle}
-                      >
-                        <option value="">Select Platform</option>
-                        {social_plateform.map((p) => (
-                          <option key={p._id} value={p._id}>
-                            {p.lookup_value}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="text"
-                        placeholder="Profile URL / Handle"
-                        value={social.url}
-                        onChange={(e) => {
-                          const newSocial = [...formData.socialMedia];
-                          newSocial[index].url = e.target.value;
-                          handleInputChange("socialMedia", newSocial);
-                        }}
-                        style={{
-                          padding: "10px",
-                          borderRadius: "6px",
-                          border: "1px solid #cbd5e1",
-                          fontSize: "0.9rem",
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (index === 0)
-                            handleInputChange("socialMedia", [
-                              ...formData.socialMedia,
-                              { platform: null, url: "" },
-                            ]);
-                          else {
-                            const newSocial = formData.socialMedia.filter(
-                              (_, i) => i !== index,
-                            );
-                            handleInputChange("socialMedia", newSocial);
-                          }
-                        }}
-                        style={{
-                          borderRadius: "6px",
-                          border: "none",
-                          background: index === 0 ? "#eff6ff" : "#fef2f2",
-                          color: index === 0 ? "#3b82f6" : "#ef4444",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <i
-                          className={`fas ${index === 0 ? "fa-plus" : "fa-trash"}`}
-                        ></i>
-                      </button>
-                    </div>
-                  ))}
+                    />
+                  </div>
                 </div>
+
               </div>
             ) : null}
           </div>
@@ -3922,12 +3504,16 @@ const AddContactModal = ({
               )}
 
               {/* Next/Save Button */}
-              {currentTab !== "other" && !showOnlyRequired ? (
+              {currentTab !== "personal" && !showOnlyRequired ? (
                 <button onClick={handleNext} style={buttonStyle.primary}>
                   Next
                 </button>
               ) : (
-                <button onClick={handleSave} style={buttonStyle.success}>
+                <button
+                  onClick={handleSave}
+                  style={isBlocked ? { ...buttonStyle.success, opacity: 0.5, cursor: 'not-allowed', background: '#94a3b8' } : buttonStyle.success}
+                  disabled={isBlocked || isSaving}
+                >
                   Save
                 </button>
               )}
@@ -3936,20 +3522,23 @@ const AddContactModal = ({
         </div>
 
         {/* Right Pane */}
-        {similarContacts.length > 0 && (
-          <div style={rightPaneStyle}>
-            <div style={{ padding: "20px", borderBottom: "1px solid #e2e8f0" }}>
-              <h3>Suggestions</h3>
+        {
+          showSuggestions && (
+            <div style={rightPaneStyle}>
+              <div style={{ padding: "20px", borderBottom: "1px solid #e2e8f0" }}>
+                <h3>Suggestions</h3>
+              </div>
+              <div style={{ flex: 1, padding: "20px" }}>
+                <DuplicateResults
+                  contacts={similarContacts}
+                  onUpdate={handlePopulateForm}
+                  isBlocked={isBlocked}
+                />
+              </div>
             </div>
-            <div style={{ flex: 1, padding: "20px" }}>
-              <DuplicateResults
-                contacts={similarContacts}
-                onUpdate={handlePopulateForm}
-              />
-            </div>
-          </div>
-        )}
-      </div>
+          )
+        }
+      </div >
     </div >
   );
 };

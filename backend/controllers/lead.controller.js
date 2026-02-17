@@ -1,6 +1,34 @@
 import Lead from "../models/Lead.js";
+import Lookup from "../models/Lookup.js";
+import User from "../models/User.js";
+import mongoose from "mongoose";
 import { paginate } from "../utils/pagination.js";
 import mockStore from "../utils/mockStore.js";
+
+// Helper to resolve lookup (Find or Create)
+const resolveLookup = async (type, value) => {
+    if (!value) return null;
+    if (mongoose.Types.ObjectId.isValid(value)) return value;
+    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${value}$`, 'i') } });
+    if (!lookup) {
+        lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
+    }
+    return lookup._id;
+};
+
+// Helper to resolve User (By Name or Email)
+const resolveUser = async (identifier) => {
+    if (!identifier) return null;
+    if (mongoose.Types.ObjectId.isValid(identifier)) return identifier;
+
+    const user = await User.findOne({
+        $or: [
+            { fullName: { $regex: new RegExp(`^${identifier}$`, 'i') } },
+            { email: identifier.toLowerCase() }
+        ]
+    });
+    return user ? user._id : null;
+};
 
 /**
  * @desc    Get all leads with pagination and search
@@ -31,8 +59,9 @@ export const getLeads = async (req, res, next) => {
             }
             : {};
 
-        // Disable population entirely to ensure 200 OK
-        const results = await paginate(Lead, query, Number(page), Number(limit), { createdAt: -1 }, []);
+        // Enable population for key fields
+        const populate = "requirement budget location source status owner";
+        const results = await paginate(Lead, query, Number(page), Number(limit), { createdAt: -1 }, populate);
 
         res.status(200).json({
             success: true,
@@ -112,50 +141,114 @@ export const importLeads = async (req, res, next) => {
             return res.status(400).json({ success: false, message: "Invalid data format" });
         }
 
-        const restructuredData = data.map(item => {
+        const restructuredData = [];
+
+        for (const item of data) {
             const firstName = item.name || item.firstName || '';
             const lastName = item.surname || item.lastName || '';
 
-            return {
-                salutation: item.title || 'Mr.',
+            const leadEntry = {
+                salutation: item.title || item.salutation || 'Mr.',
                 firstName: firstName,
                 lastName: lastName,
                 mobile: item.mobile,
                 email: item.email,
                 description: item.description,
-                campaign: item.campaign,
-                source: item.source,
-                subSource: item.subSource,
-                team: item.team ? item.team.split(',').map(t => t.trim()) : [],
-                owner: item.owner,
+                projectName: item.projectName ? (Array.isArray(item.projectName) ? item.projectName : [item.projectName]) : [],
+
+                // Location Fields
+                locCity: item.locCity || item.city,
+                locArea: item.locArea || item.area,
+                locBlock: item.locBlock ? (Array.isArray(item.locBlock) ? item.locBlock : [item.locBlock]) : [],
+                locPinCode: item.locPinCode || item.pinCode,
+                locState: item.locState || item.state,
+                locCountry: item.locCountry || item.country,
+                searchLocation: item.searchLocation,
+
+                // Property/Requirement Fields
+                budgetMin: Number(item.budgetMin) || undefined,
+                budgetMax: Number(item.budgetMax) || undefined,
+                areaMin: Number(item.areaMin) || undefined,
+                areaMax: Number(item.areaMax) || undefined,
+                areaMetric: item.areaMetric || 'Sq Yard',
+                propertyType: item.propertyType ? (Array.isArray(item.propertyType) ? item.propertyType : item.propertyType.split(',').map(t => t.trim())) : [],
+                subType: item.subType ? (Array.isArray(item.subType) ? item.subType : item.subType.split(',').map(t => t.trim())) : [],
+                unitType: item.unitType ? (Array.isArray(item.unitType) ? item.unitType : item.unitType.split(',').map(t => t.trim())) : [],
+                facing: item.facing ? (Array.isArray(item.facing) ? item.facing : item.facing.split(',').map(t => t.trim())) : [],
+                roadWidth: item.roadWidth ? (Array.isArray(item.roadWidth) ? item.roadWidth : item.roadWidth.split(',').map(t => t.trim())) : [],
+                direction: item.direction ? (Array.isArray(item.direction) ? item.direction : item.direction.split(',').map(t => t.trim())) : [],
+
+                purpose: item.purpose,
+                nri: item.nri === 'Yes' || item.nri === true,
+                funding: item.funding,
+                timeline: item.timeline,
+                furnishing: item.furnishing,
+                transactionType: item.transactionType,
+
+                team: item.team ? (Array.isArray(item.team) ? item.team : item.team.split(',').map(t => t.trim())) : [],
                 visibleTo: item.visibleTo || 'Everyone',
-                requirement: item.requirement,
-                propertyType: item.propertyType ? item.propertyType.split(',').map(t => t.trim()) : [],
-                customFields: {
-                    purpose: item.purpose,
-                    nri: item.nri === 'Yes' || item.nri === true,
-                    subType: item.subType ? item.subType.split(',').map(t => t.trim()) : [],
-                    unitType: item.unitType ? item.unitType.split(',').map(t => t.trim()) : [],
-                    budgetMin: item.budgetMin,
-                    budgetMax: item.budgetMax,
-                    areaMin: item.areaMin,
-                    areaMax: item.areaMax,
-                    areaMetric: item.areaMetric,
-                    facing: item.facing ? item.facing.split(',').map(t => t.trim()) : [],
-                    roadWidth: item.roadWidth ? item.roadWidth.split(',').map(t => t.trim()) : [],
-                    direction: item.direction ? item.direction.split(',').map(t => t.trim()) : [],
-                    funding: item.funding,
-                    timeline: item.timeline,
-                    furnishing: item.furnishing,
-                    transactionType: item.transactionType,
-                    transactionFlexiblePercentage: item.transactionFlexiblePercentage
-                }
+                notes: item.notes || item.remarks,
+                tags: item.tags ? (Array.isArray(item.tags) ? item.tags : item.tags.split(',').map(t => t.trim())) : [],
             };
-        });
+
+            // Inject "Import" tag
+            if (!leadEntry.tags.includes('Import')) {
+                leadEntry.tags.push('Import');
+            }
+
+            // Resolve Lookups
+            leadEntry.requirement = await resolveLookup('Requirement', item.requirement || 'Buy');
+            leadEntry.source = await resolveLookup('Source', item.source || 'Direct');
+            leadEntry.status = await resolveLookup('Status', item.status || 'Active');
+            leadEntry.location = await resolveLookup('Location', item.location || leadEntry.locArea);
+            leadEntry.budget = await resolveLookup('Budget', item.budget);
+
+            // Resolve Owner
+            leadEntry.owner = await resolveUser(item.owner);
+
+            restructuredData.push(leadEntry);
+        }
 
         await Lead.insertMany(restructuredData, { ordered: false });
-        res.status(200).json({ success: true, message: `Successfully imported ${restructuredData.length} leads.` });
+        res.status(200).json({
+            success: true,
+            message: `Successfully imported ${restructuredData.length} leads.`,
+            successCount: restructuredData.length,
+            errorCount: 0,
+            errors: []
+        });
     } catch (error) {
+        if (error.writeErrors) {
+            const successCount = (req.body.data?.length || 0) - error.writeErrors.length;
+            const errorDetails = error.writeErrors.map(e => ({
+                row: e.index + 1,
+                name: (restructuredData[e.index]?.firstName || 'Unknown') + " " + (restructuredData[e.index]?.lastName || ""),
+                reason: e.errmsg?.includes('duplicate key') ? 'Duplicate mobile or email' : e.errmsg
+            }));
+
+            return res.status(200).json({
+                success: true,
+                message: `Imported ${successCount} leads. ${errorDetails.length} failed.`,
+                successCount,
+                errorCount: errorDetails.length,
+                errors: errorDetails
+            });
+        }
+        if (error.name === 'ValidationError') {
+            const errorDetails = Object.values(error.errors).map(err => ({
+                row: 'N/A',
+                name: 'Validation Error',
+                reason: err.message
+            }));
+            return res.status(200).json({
+                success: true,
+                message: `Import failed: ${error.message}`,
+                successCount: 0,
+                errorCount: errorDetails.length,
+                errors: errorDetails
+            });
+        }
+        console.error("[ERROR] importLeads failed:", error);
         next(error);
     }
 };

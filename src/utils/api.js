@@ -1,14 +1,14 @@
 // API Configuration
 import axios from 'axios';
 
-export const API_BASE_URL = 'https://api.bharatproperties.co/api/';
+export const API_BASE_URL = 'https://api.bharatproperties.co/api';
 
 // Create and export axios instance
 export const api = axios.create({
     baseURL: API_BASE_URL,
     headers: {
-        'Content-Type': 'application/json'
-    }
+        "Content-Type": "application/json",
+    },
 });
 
 // Generic API request handler
@@ -70,6 +70,9 @@ const apiRequest = async (endpoint, options = {}) => {
 export const lookupsAPI = {
     getAll: () => apiRequest('/lookups'),
     getByCategory: (category) => apiRequest(`/lookups?lookup_type=${category}`),
+    getStates: () => apiRequest('/lookups?lookup_type=State'),
+    getCities: (stateId) => apiRequest(`/lookups?lookup_type=City&parent_lookup_id=${stateId}`),
+    getLocations: (cityId) => apiRequest(`/lookups?parent_lookup_id=${cityId}`),
     create: (data) => apiRequest('/lookups', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => apiRequest(`/lookups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => apiRequest(`/lookups/${id}`, { method: 'DELETE' }),
@@ -141,6 +144,7 @@ export const usersAPI = {
     create: (data) => apiRequest('/users', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => apiRequest(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => apiRequest(`/users/${id}`, { method: 'DELETE' }),
+    toggleStatus: (id, data) => apiRequest(`/users/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
 };
 
 // Roles API
@@ -197,6 +201,15 @@ export const activitiesAPI = {
     delete: (id) => apiRequest(`/activities/${id}`, { method: 'DELETE' }),
 };
 
+// Teams API
+export const teamsAPI = {
+    getAll: (params) => apiRequest('/teams', { params }),
+    getById: (id) => apiRequest(`/teams/${id}`),
+    create: (data) => apiRequest('/teams', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id, data) => apiRequest(`/teams/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id) => apiRequest(`/teams/${id}`, { method: 'DELETE' }),
+};
+
 export default {
     activities: activitiesAPI,
     lookups: lookupsAPI,
@@ -210,5 +223,7 @@ export default {
     projects: projectsAPI,
     deals: dealsAPI,
     leads: leadsAPI,
+    leads: leadsAPI,
     contacts: contactsAPI,
+    teams: teamsAPI,
 };

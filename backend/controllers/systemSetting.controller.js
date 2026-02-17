@@ -14,15 +14,36 @@ export const getSystemSettings = async (req, res) => {
             return res.json({ status: "success", data: Object.values(mockSettingsStore) });
         }
 
-        const { category, isPublic } = req.query;
+        const { category, isPublic, page = 1, limit = 10, search } = req.query;
         const query = {};
         if (category) query.category = category;
         if (isPublic === 'true') query.isPublic = true;
 
-        const settings = await SystemSetting.find(query).lean();
-        // Convert array to object map for easier frontend consumption if needed, 
-        // but for now return list and let frontend handle mapping
-        res.json({ status: "success", data: settings });
+        if (search) {
+            query.$or = [
+                { key: { $regex: search, $options: 'i' } },
+                { description: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const totalDocs = await SystemSetting.countDocuments(query);
+        const settings = await SystemSetting.find(query)
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(parseInt(limit))
+            .lean();
+
+        res.json({
+            status: "success",
+            data: {
+                docs: settings,
+                totalDocs,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                totalPages: Math.ceil(totalDocs / parseInt(limit))
+            }
+        });
     } catch (error) {
         res.status(500).json({ status: "error", message: error.message });
     }

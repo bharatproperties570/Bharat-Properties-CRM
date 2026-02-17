@@ -301,7 +301,25 @@ export const importInventory = async (req, res) => {
                 message: `Imported ${realSuccessCount} inventory items. ${error.writeErrors.length} failed.`,
                 successCount: realSuccessCount,
                 errorCount: error.writeErrors.length,
-                errors: error.writeErrors.map(e => ({ item: e.errmsg, error: "Duplicate or Validation Error" }))
+                errors: error.writeErrors.map(e => ({
+                    row: e.index + 1,
+                    name: `Unit ${req.body.data[e.index]?.unitNo || 'Unknown'}`,
+                    reason: e.errmsg?.includes('duplicate key') ? 'Duplicate Unit Number in this Project' : e.errmsg
+                }))
+            });
+        }
+        if (error.name === 'ValidationError') {
+            const errorDetails = Object.values(error.errors).map(err => ({
+                row: 'N/A',
+                name: 'Validation Error',
+                reason: err.message
+            }));
+            return res.status(200).json({
+                success: true,
+                message: `Import failed: ${error.message}`,
+                successCount: 0,
+                errorCount: errorDetails.length,
+                errors: errorDetails
             });
         }
         res.status(500).json({ success: false, error: error.message });

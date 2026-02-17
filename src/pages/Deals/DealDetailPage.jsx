@@ -11,21 +11,28 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('activity');
     const [matchingLeads, setMatchingLeads] = useState([]);
+    const [allLeads, setAllLeads] = useState([]);
     const [auditLogs, setAuditLogs] = useState([]);
     const [auditLoading, setAuditLoading] = useState(false);
     const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
+    const [valuationData, setValuationData] = useState(null);
+    const [valuationLoading, setValuationLoading] = useState(false);
+    const [valuationError, setValuationError] = useState(null);
 
     // State for calculator inputs
     const [govtCharges, setGovtCharges] = useState({
         collectorRate: '',
         unitArea: '',
-        stampDutyPercent: 7, // Default Male
-        registrationPercent: 1, // Default
+        unitType: 'Sq Ft', // Added to handle conversion
+        roadMultiplier: 0, // Added
+        floorMultiplier: 0, // Added
+        stampDutyPercent: 7,
+        registrationPercent: 1,
         miscCharges: 0,
-        legalCharges: 15000, // Legal/Advocate default
+        legalCharges: 15000,
         brokeragePercent: 1,
         useCollectorRate: true,
-        buyerGender: 'male' // male, female, joint
+        buyerGender: 'male'
     });
 
     // Store config for gender switching logic
@@ -83,61 +90,81 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         }
     }, [deal]);
 
-    // 🧮 Calculation Logic
+    // 🚀 Backend Valuation Logic Integration
+    useEffect(() => {
+        if (!deal?._id) return;
+
+        const timer = setTimeout(async () => {
+            setValuationLoading(true);
+            try {
+                const response = await api.post('/valuation/calculate', {
+                    dealId: deal._id,
+                    buyerGender: govtCharges.buyerGender,
+                    customMarketPrice: parseFloat(deal.price) || 0
+                });
+                console.log("Valuation Response:", response.data);
+                if (response.data.status === 'success') {
+                    setValuationData(response.data.data);
+                    setValuationError(null);
+                }
+            } catch (error) {
+                console.error("Valuation calculation failed:", error);
+                setValuationData(null);
+                setValuationError(error.response?.data?.message || "Valuation calculation failed");
+            } finally {
+                setValuationLoading(false);
+            }
+        }, 500); // Debounce
+
+        return () => clearTimeout(timer);
+    }, [deal?._id, deal?.price, govtCharges.buyerGender]);
+
+    // 🧮 Calculation Logic (Enhanced with Backend Data)
     const financials = useMemo(() => {
         if (!deal) return {};
 
-        const dealValue = deal.price || 0;
-        // collectorRate here comes from state, set by the new Card component effectively via setGovtCharges
-        const collectorValue = (govtCharges.collectorRate * govtCharges.unitArea) || 0;
-
-        // Applicable Value for Stamp Duty
-        // Logic: specific rate selected in card -> updates govtCharges.collectorRate -> triggers this recalc
-        const applicableValue = govtCharges.useCollectorRate
-            ? Math.max(dealValue, collectorValue)
-            : dealValue;
-
-        // Dynamic Stamp Duty based on Gender
-        let effectiveStampDutyPercent = govtCharges.stampDutyPercent;
-        // Note: Gender logic is now handled in the effect that sets stampDutyPercent, 
-        // but if we want to be safe or valid, we use the value in state directly.
-        // The effect at line 64 updates proper percent based on gender.
-
-        const stampDutyAmount = applicableValue * (effectiveStampDutyPercent / 100);
-
-        // Registration Fee: Slab vs Percent
-        let registrationAmount = 0;
-        const regMode = govtChargesConfig?.registrationMode || 'percent'; // Config from state
-
-        if (regMode === 'slab' && govtChargesConfig?.registrationSlabs?.length > 0) {
-            const slab = govtChargesConfig.registrationSlabs.find(s =>
-                applicableValue >= s.min && (s.max === null || s.max === undefined || applicableValue <= s.max)
-            );
-            if (slab) {
-                registrationAmount = slab.type === 'fixed' ? slab.value : (applicableValue * slab.value / 100);
-            }
-        } else {
-            const regPercent = govtChargesConfig?.registrationPercent || govtCharges.registrationPercent || 1;
-            registrationAmount = applicableValue * (regPercent / 100);
+        // Use backend valuation data if available, otherwise fallback to local basic calculation
+        if (valuationData) {
+            return {
+                dealValue: valuationData.marketPrice,
+                collectorValue: valuationData.collectorValue,
+                effectiveRate: valuationData.breakdown.baseRate,
+                applicableValue: valuationData.stampDutyBase,
+                effectiveStampDutyPercent: (valuationData.stampDutyAmount / valuationData.stampDutyBase) * 100,
+                stampDutyAmount: valuationData.stampDutyAmount,
+                registrationAmount: valuationData.registrationAmount,
+                brokerageAmount: (deal.price || 0) * (govtCharges.brokeragePercent / 100),
+                totalGovtCharges: valuationData.totalCharges,
+                grandTotal: (deal.price || 0) + valuationData.totalCharges + ((deal.price || 0) * (govtCharges.brokeragePercent / 100)),
+                valuationData // Store full object for UI
+            };
         }
 
+        // Fallback (for offline or initial load)
+        const dealValue = deal.price || 0;
+        const baseRate = parseFloat(govtCharges.collectorRate) || 0;
+        const roadMult = parseFloat(govtCharges.roadMultiplier) || 0;
+        const floorMult = parseFloat(govtCharges.floorMultiplier) || 0;
+        const effectiveRate = baseRate * (1 + (roadMult / 100) + (floorMult / 100));
+        const collectorValue = (effectiveRate * govtCharges.unitArea) || 0;
+        const applicableValue = govtCharges.useCollectorRate ? Math.max(dealValue, collectorValue) : dealValue;
+        const stampDutyAmount = applicableValue * (govtCharges.stampDutyPercent / 100);
+        const registrationAmount = applicableValue * (govtCharges.registrationPercent / 100);
         const brokerageAmount = dealValue * (govtCharges.brokeragePercent / 100);
-
-        const totalGovtCharges = stampDutyAmount + registrationAmount + govtCharges.miscCharges + govtCharges.legalCharges;
-        const grandTotal = dealValue + totalGovtCharges + brokerageAmount;
+        const totalGovtCharges = stampDutyAmount + registrationAmount + govtCharges.miscCharges + (parseFloat(govtCharges.legalCharges) || 0);
 
         return {
             dealValue,
             collectorValue,
+            effectiveRate,
             applicableValue,
-            effectiveStampDutyPercent,
             stampDutyAmount,
             registrationAmount,
             brokerageAmount,
             totalGovtCharges,
-            grandTotal
+            grandTotal: dealValue + totalGovtCharges + brokerageAmount
         };
-    }, [deal, govtCharges, govtChargesConfig]);
+    }, [deal, govtCharges, valuationData]);
 
     const handleAddOffer = (newOffer) => {
         // Optimistic update for demo purposes
@@ -186,6 +213,22 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         }
     }, []);
 
+    const fetchAllLeads = useCallback(async () => {
+        try {
+            const response = await api.get('leads', { params: { limit: 200 } });
+            if (response.data && response.data.success) {
+                const mappedLeads = (response.data.records || []).map(l => ({
+                    _id: l._id,
+                    name: l.firstName ? `${l.salutation || ""} ${l.firstName} ${l.lastName || ""}`.trim() : (l.name || "Unknown"),
+                    phone: l.mobile || (l.contactDetails?.phones?.[0]?.number) || ""
+                }));
+                setAllLeads(mappedLeads);
+            }
+        } catch (error) {
+            console.error("Error fetching all leads:", error);
+        }
+    }, []);
+
     const fetchAuditLogs = useCallback(async () => {
         setAuditLoading(true);
         try {
@@ -209,8 +252,9 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         if (deal?.inventoryId?._id || deal?.inventoryId) {
             fetchMatchingLeads(deal.inventoryId?._id || deal.inventoryId);
         }
+        fetchAllLeads();
         fetchAuditLogs();
-    }, [deal, fetchMatchingLeads, fetchAuditLogs]);
+    }, [deal, fetchMatchingLeads, fetchAllLeads, fetchAuditLogs]);
 
     // Phase 5: Inventory Sync Logic
     useEffect(() => {
@@ -462,9 +506,12 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                             </div>
                             {/* 🏛️ GOVERNMENT CHARGES & REGISTRATION BREAKDOWN (New) */}
                             <GovernmentChargesCard
+                                deal={deal}
                                 charges={govtCharges}
                                 setCharges={setGovtCharges}
                                 financials={financials}
+                                loading={valuationLoading}
+                                error={valuationError}
                             />
 
                             {/* Professional Financial Insights */}
@@ -789,8 +836,17 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 isOpen={isOfferModalOpen}
                 onClose={() => setIsOfferModalOpen(false)}
                 onSave={handleAddOffer}
-                leads={matchingLeads}
+                leads={(() => {
+                    const combined = [...matchingLeads];
+                    allLeads.forEach(al => {
+                        if (!combined.find(ml => ml._id === al._id)) {
+                            combined.push(al);
+                        }
+                    });
+                    return combined;
+                })()}
             />
+
         </div>
     );
 };
@@ -1246,9 +1302,12 @@ const sectionTitleStyle = {
 
 // ---------------- GOVERNMENT CHARGES CARD ----------------
 const GovernmentChargesCard = ({
+    deal,
     charges,
     setCharges,
     financials,
+    loading,
+    error
 }) => {
     // We receive calculated financials from parent
     const [selectedRate, setSelectedRate] = useState(null);
@@ -1256,29 +1315,90 @@ const GovernmentChargesCard = ({
     const [loadingRates, setLoadingRates] = useState(false);
     const [showRateSelector, setShowRateSelector] = useState(false);
 
-    // Fetch Rates on mount
+    // Fetch Rates on mount or when deal changes
     useEffect(() => {
+        if (!deal) return;
+
         const fetchRates = async () => {
             setLoadingRates(true);
             try {
-                const res = await api.get('/collector-rates');
-                if (res.data.status === 'success') setCollectorRates(res.data.data.docs);
-            } catch (e) { console.error(e); }
+                // Construct search query based on deal properties
+                const params = new URLSearchParams({
+                    category: deal.category || '',
+                    subCategory: deal.subCategory || '',
+                    search: deal.projectId?.address?.city || deal.location || ''
+                });
+
+                const res = await api.get(`/collector-rates?${params.toString()}`);
+                if (res.data.status === 'success') {
+                    const fetchedRates = res.data.data.docs || [];
+                    setCollectorRates(fetchedRates);
+
+                    // Auto-select the best match if none selected
+                    if (fetchedRates.length > 0 && !selectedRate) {
+                        // Look for an exact category/subcategory match first
+                        const exactMatch = fetchedRates.find(r =>
+                            r.category === deal.category &&
+                            r.subCategory === deal.subCategory
+                        ) || fetchedRates[0];
+
+                        handleRateSelect(exactMatch);
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to fetch matching collector rates:", e);
+            }
             finally { setLoadingRates(false); }
         };
         fetchRates();
-    }, []);
+    }, [deal?.inventoryId, deal?.category, deal?.subCategory, deal?.projectId]);
 
     // Handle Rate Selection
     const handleRateSelect = (rate) => {
+        if (!rate) return;
         setSelectedRate(rate);
         setShowRateSelector(false);
+
+        // Map inventory attributes to multipliers
+        const inventory = deal?.inventoryId || {};
+        const roadWidth = inventory.roadWidth || '';
+        const floor = inventory.floor || '';
+
+        // Find matching multipliers by type or name
+        const matchingRoad = rate.roadMultipliers?.find(m =>
+            roadWidth.toLowerCase().includes(m.roadType.toLowerCase()) ||
+            m.roadType.toLowerCase().includes(roadWidth.toLowerCase())
+        );
+
+        const matchingFloor = rate.floorMultipliers?.find(m =>
+            floor.toString().toLowerCase() === m.floorType.toLowerCase() ||
+            m.floorType.toLowerCase().includes(floor.toString().toLowerCase())
+        );
+
+        const roadMult = matchingRoad ? matchingRoad.multiplier : 0;
+        const floorMult = matchingFloor ? matchingFloor.multiplier : 0;
+
+        // Auto-select correct Area based on Rate Type
+        // If it's Land Area, we usually take plot size
+        // If it's Built-up, we take builtUpArea
+        let area = inventory.size || 0;
+        if (rate.rateApplyOn === 'Built-up Area') {
+            area = inventory.builtUpArea || 0;
+        }
+
         // Update parent state
         setCharges(prev => ({
             ...prev,
             collectorRate: rate.rate,
-            // If the rate has a unit that differs, we might need to handle it, but assuming sqft
+            unitType: rate.rateUnit,
+            unitArea: area,
+            roadMultiplier: roadMult,
+            floorMultiplier: floorMult
         }));
+
+        if (roadMult > 0 || floorMult > 0) {
+            toast.success(`Applied ${roadMult > 0 ? 'Road' : ''}${roadMult > 0 && floorMult > 0 ? ' & ' : ''}${floorMult > 0 ? 'Floor' : ''} multipliers automatically!`);
+        }
     };
 
     const handleClearRate = () => {
@@ -1314,6 +1434,50 @@ const GovernmentChargesCard = ({
                     </select>
                 </div>
             </div>
+
+            {/* 📊 Backend Valuation Breakdown */}
+            {loading && (
+                <div style={{ padding: '0 20px 20px 20px', color: '#64748b', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <i className="fas fa-spinner fa-spin"></i> Calculating accurate valuation...
+                </div>
+            )}
+
+            {error && (
+                <div style={{ padding: '0 20px 20px 20px' }}>
+                    <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px', padding: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <i className="fas fa-exclamation-circle text-red-500"></i>
+                        <span style={{ fontSize: '0.8rem', color: '#b91c1c' }}>{error}</span>
+                    </div>
+                </div>
+            )}
+
+            {financials.valuationData && (
+                <div style={{ padding: '0 20px 20px 20px' }}>
+                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                            <i className="fas fa-calculator text-green-600"></i>
+                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#166534' }}>Valuation Breakdown</span>
+                        </div>
+
+                        <div style={{ display: 'grid', gap: '8px', fontSize: '0.8rem', color: '#166534' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span>Formula:</span>
+                                <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{financials.valuationData.breakdown?.formula}</span>
+                            </div>
+                            {financials.valuationData.breakdown?.multipliers?.map((m, i) => (
+                                <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span>{m.type} Multiplier ({m.name}):</span>
+                                    <span style={{ fontWeight: 600 }}>+{m.percent}%</span>
+                                </div>
+                            ))}
+                            <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #86efac', display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+                                <span>Collector Value:</span>
+                                <span>{formatIndianCurrency(financials.valuationData.collectorValue)}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div style={{ padding: '20px' }}>
 
@@ -1359,30 +1523,76 @@ const GovernmentChargesCard = ({
                                 </button>
                             ) : (
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', padding: '12px', borderRadius: '8px', border: '1px solid #e0e7ff', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                                    <div>
-                                        <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e293b' }}>₹{selectedRate.rate}/sqft</div>
-                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{selectedRate.district?.lookup_value} • {selectedRate.category}</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <div style={{ padding: '8px', background: '#eff6ff', borderRadius: '8px', color: '#2563eb' }}>
+                                            <i className="fas fa-check-double"></i>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                {selectedRate.category} - {selectedRate.subCategory}
+                                                <span style={{ fontSize: '0.65rem', background: '#dcfce7', color: '#166534', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase' }}>Auto Linked</span>
+                                            </div>
+                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                                {selectedRate.location?.lookup_value && `${selectedRate.location.lookup_value}, `}
+                                                {selectedRate.district?.lookup_value} • {selectedRate.rateApplyOn}
+                                            </div>
+                                        </div>
                                     </div>
-                                    <button onClick={handleClearRate} style={{ width: '28px', height: '28px', border: 'none', background: '#fee2e2', color: '#ef4444', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                        <i className="fas fa-times"></i>
-                                    </button>
+                                    <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <div>
+                                            <span style={{ display: 'block', fontSize: '1rem', fontWeight: 800, color: '#2563eb' }}>₹{selectedRate.rate?.toLocaleString()}</span>
+                                            <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>per {selectedRate.rateUnit}</span>
+                                        </div>
+                                        <button onClick={handleClearRate} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '1rem' }}>
+                                            <i className="fas fa-times-circle"></i>
+                                        </button>
+                                    </div>
                                 </div>
                             )}
 
                             {/* Rate Selector Dropdown */}
                             {showRateSelector && (
-                                <div style={{ marginTop: '12px', maxHeight: '240px', overflowY: 'auto', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', zIndex: 10 }}>
+                                <div style={{ marginTop: '12px', maxHeight: '300px', overflowY: 'auto', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', zIndex: 10 }}>
                                     {loadingRates ? <div style={{ padding: '12px', textAlign: 'center', fontSize: '0.8rem', color: '#64748b' }}>Loading rates...</div> :
-                                        collectorRates.length > 0 ? collectorRates.map(rate => (
-                                            <div
-                                                key={rate._id}
-                                                onClick={() => handleRateSelect(rate)}
-                                                style={{ padding: '10px 16px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', fontSize: '0.85rem', color: '#334155' }}
-                                                className="hover:bg-slate-50"
-                                            >
-                                                <b>{rate.district?.lookup_value}</b> <span style={{ color: '#94a3b8' }}>|</span> {rate.category} <span style={{ float: 'right', fontWeight: 700, color: '#4338ca' }}>₹{rate.rate}</span>
-                                            </div>
-                                        )) : <div style={{ padding: '12px', textAlign: 'center', fontSize: '0.8rem', color: '#64748b' }}>No rates found. Add in settings.</div>
+                                        collectorRates.length > 0 ? collectorRates.map(rate => {
+                                            const isMatch = rate.category === (deal.inventoryId?.category || deal.category);
+                                            return (
+                                                <div
+                                                    key={rate._id}
+                                                    onClick={() => handleRateSelect(rate)}
+                                                    style={{
+                                                        padding: '12px 16px',
+                                                        borderBottom: '1px solid #f1f5f9',
+                                                        cursor: 'pointer',
+                                                        fontSize: '0.85rem',
+                                                        color: '#334155',
+                                                        background: isMatch ? '#f0fdf4' : 'transparent',
+                                                        position: 'relative'
+                                                    }}
+                                                    className="hover:bg-slate-50"
+                                                >
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                                        <div>
+                                                            <div style={{ fontWeight: 700 }}>
+                                                                {rate.district?.lookup_value} {rate.location?.lookup_value && `• ${rate.location.lookup_value}`}
+                                                            </div>
+                                                            <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '2px' }}>
+                                                                {rate.category} / {rate.subCategory} • Basis: {rate.rateApplyOn}
+                                                            </div>
+                                                            {isMatch && (
+                                                                <div style={{ fontSize: '0.65rem', color: '#059669', fontWeight: 800, marginTop: '2px' }}>
+                                                                    <i className="fas fa-check-circle"></i> CATEGORY MATCH
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <div style={{ textAlign: 'right' }}>
+                                                            <div style={{ fontWeight: 800, color: '#2563eb', fontSize: '1rem' }}>₹{rate.rate}</div>
+                                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>per {rate.rateUnit}</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }) : <div style={{ padding: '12px', textAlign: 'center', fontSize: '0.8rem', color: '#64748b' }}>No rates found. Add in settings.</div>
                                     }
                                 </div>
                             )}
@@ -1408,9 +1618,24 @@ const GovernmentChargesCard = ({
                                 </div>
                             </div>
 
-                            <div style={{ marginTop: '12px', padding: '8px 12px', background: '#fff', borderRadius: '6px', border: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Effective Value Base</span>
-                                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>{formatCurrency(financials.applicableValue)}</span>
+                            <div style={{ marginTop: '12px', padding: '8px 12px', background: '#fff', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Effective Rate Base</span>
+                                    <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#2563eb' }}>
+                                        ₹{financials.effectiveRate?.toFixed(2)} / {charges.unitType}
+                                    </span>
+                                </div>
+                                {financials.effectiveRate !== parseFloat(charges.collectorRate) && (
+                                    <div style={{ fontSize: '0.65rem', color: '#059669', display: 'flex', gap: '8px', borderTop: '1px dashed #e2e8f0', paddingTop: '4px' }}>
+                                        <span>Base: ₹{charges.collectorRate}</span>
+                                        {financials.roadMult > 0 && <span>• Road: +{financials.roadMult}%</span>}
+                                        {financials.floorMult > 0 && <span>• Floor: +{financials.floorMult}%</span>}
+                                    </div>
+                                )}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', borderTop: '1px solid #f1f5f9', paddingTop: '8px' }}>
+                                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Total Collector Value</span>
+                                    <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>{formatCurrency(financials.collectorValue)}</span>
+                                </div>
                             </div>
                         </div>
                     )}

@@ -1,4 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { useUserContext } from '../../context/UserContext';
+import { getInitials } from '../../utils/helpers';
 import toast from 'react-hot-toast';
 import { useTriggers } from '../../context/TriggersContext';
 import { useCall } from '../../context/CallContext';
@@ -19,8 +21,10 @@ import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
 import InventoryFilterPanel from './components/InventoryFilterPanel';
 import { applyInventoryFilters } from '../../utils/inventoryFilterLogic';
 import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
+import AddDealModal from '../../components/AddDealModal';
 
 export default function InventoryPage({ onNavigate, onAddActivity }) {
+    const { teams } = useUserContext();
     const { fireEvent } = useTriggers();
     const { startCall } = useCall();
     const { masterFields } = usePropertyConfig();
@@ -49,7 +53,18 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
     const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
     const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+    const [isAddDealModalOpen, setIsAddDealModalOpen] = useState(false);
+    const [selectedDealData, setSelectedDealData] = useState(null);
     const [modalData, setModalData] = useState([]);
+
+    const getTeamName = useCallback((teamValue) => {
+        if (!teamValue) return "General Team";
+        if (typeof teamValue === 'object') {
+            return teamValue.name || teamValue.lookup_value || "General Team";
+        }
+        const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
+        return found ? (found.name || found.lookup_value) : teamValue;
+    }, [teams]);
 
     const fetchInventory = useCallback(async () => {
         setLoading(true);
@@ -311,6 +326,26 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
         }
     };
 
+    const handleCreateDeal = () => {
+        const property = getSelectedProperty();
+        if (property) {
+            setSelectedDealData({
+                projectName: property.projectName || property.area || '',
+                block: property.block || (String(property.location || '').split(' ')[0]) || '',
+                unitNo: property.unitNo || property.unitNumber || '',
+                propertyType: property.category || property.type || '',
+                subCategory: property.subCategory || '',
+                size: property.size || property.plotArea || '',
+                owner: {
+                    name: property.owners?.[0]?.name || property.ownerName || '',
+                    phone: property.owners?.[0]?.phone || property.ownerPhone || '',
+                    email: property.owners?.[0]?.email || property.ownerEmail || ''
+                }
+            });
+            setIsAddDealModalOpen(true);
+        }
+    };
+
     const handleDelete = async () => {
         if (selectedIds.length === 0) return;
 
@@ -374,9 +409,14 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
             {viewMode === 'list' ? (
                 <div className="view-scroll-wrapper">
                     <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                        <div>
-                            <h1 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1e293b', marginBottom: '4px' }}>Inventory</h1>
-                            <p style={{ fontSize: '0.9rem', color: '#64748b' }}>Manage your property listings</p>
+                        <div className="page-title-group" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ width: '40px', height: '40px', background: '#f0fdf4', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fas fa-warehouse" style={{ color: '#16a34a', fontSize: '1.2rem' }}></i>
+                            </div>
+                            <div>
+                                <h1 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1e293b', marginBottom: '4px' }}>Inventory</h1>
+                                <p style={{ fontSize: '0.9rem', color: '#64748b' }}>Manage your property listings</p>
+                            </div>
                         </div>
                         <div style={{ display: 'flex', gap: '10px' }}>
                             <div className="view-toggle-group" style={{ marginRight: '10px' }}>
@@ -477,7 +517,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                             >
                                                 <i className="fas fa-calendar-plus"></i> Activity
                                             </button>
-                                            <button className="action-btn" title="Create Deal" style={{ flexShrink: 0 }}><i className="fas fa-plus-circle"></i> Deal</button>
+                                            <button className="action-btn" title="Create Deal" style={{ flexShrink: 0 }} onClick={handleCreateDeal}><i className="fas fa-plus-circle"></i> Deal</button>
                                             <button
                                                 className="action-btn"
                                                 title="Match Lead"
@@ -657,7 +697,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                             <div>Owner Profile</div>
                             <div>Associate Contact</div>
                             <div>Status</div>
-                            <div style={{ textAlign: 'right' }}>Last History</div>
+                            <div style={{ textAlign: 'right' }}>Assignment</div>
                         </div>
 
                         <div className="list-content">
@@ -823,42 +863,24 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                             )}
                                         </div>
 
-                                        <div className="super-cell" style={{ alignItems: 'flex-end', textAlign: 'right' }}>
-                                            {renderValue(item.lastContactDate) !== '-' ? (
-                                                <>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', justifyContent: 'flex-end' }}>
-                                                        <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#334155' }}>
-                                                            {renderValue(item.lastContactUser) || renderValue(item.createdBy) || 'System'}
-                                                        </div>
-                                                        <div className="avatar-circle" style={{ width: '24px', height: '24px', fontSize: '0.65rem', background: '#f1f5f9', color: '#64748b' }}>
-                                                            {String(renderValue(item.lastContactUser) || renderValue(item.createdBy) || 'S').charAt(0).toUpperCase()}
-                                                        </div>
+                                        <div className="super-cell col-assignment" style={{ alignItems: 'flex-end', textAlign: 'right' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'flex-end' }}>
+                                                <div style={{ lineHeight: 1.2, textAlign: 'right' }}>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>
+                                                        {renderValue(item.lastContactUser) || renderValue(item.createdBy) || 'Admin'}
                                                     </div>
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                                        <div style={{ fontSize: '0.7rem', color: 'var(--primary-color)', fontWeight: 800 }}>
-                                                            {/* Format createdAt date if available, or lastContactDate */}
-                                                            {(() => {
-                                                                try {
-                                                                    if (item.createdAt) return new Date(renderValue(item.createdAt)).toLocaleDateString();
-                                                                    return renderValue(item.lastContactDate) || '-';
-                                                                } catch (e) {
-                                                                    return renderValue(item.lastContactDate) || '-';
-                                                                }
-                                                            })()} <i className="fas fa-calendar-alt" style={{ marginLeft: '6px' }}></i>
-                                                        </div>
-                                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, marginLeft: '2px' }}>
-                                                            {(() => {
-                                                                try {
-                                                                    if (item.createdAt) return new Date(renderValue(item.createdAt)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                                                    return renderValue(item.lastContactTime) || '';
-                                                                } catch (e) {
-                                                                    return renderValue(item.lastContactTime) || '';
-                                                                }
-                                                            })()} <i className="fas fa-clock" style={{ marginLeft: '6px', fontSize: '0.6rem' }}></i>
-                                                        </div>
+                                                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
+                                                        {getTeamName(item.team || item.assignment?.team)}
                                                     </div>
-                                                </>
-                                            ) : <div style={{ color: '#cbd5e1', fontStyle: 'italic', fontSize: '0.75rem' }}>No record</div>}
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px', fontSize: '0.62rem', color: '#94a3b8', justifyContent: 'flex-end' }}>
+                                                        <i className="far fa-clock" style={{ fontSize: '0.6rem' }}></i>
+                                                        {item.createdAt ? new Date(item.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : (renderValue(item.lastContactDate) || '-')}
+                                                    </div>
+                                                </div>
+                                                <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
+                                                    {getInitials(renderValue(item.lastContactUser) || renderValue(item.createdBy) || 'Admin')}
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 ))
@@ -1115,6 +1137,20 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                 onClose={() => setIsFeedbackModalOpen(false)}
                 inventory={selectedProperty}
                 onSave={handleSaveFeedback}
+            />
+
+            <AddDealModal
+                isOpen={isAddDealModalOpen}
+                onClose={() => {
+                    setIsAddDealModalOpen(false);
+                    setSelectedDealData(null);
+                }}
+                onSave={() => {
+                    setIsAddDealModalOpen(false);
+                    setSelectedDealData(null);
+                    fetchInventory();
+                }}
+                deal={selectedDealData}
             />
         </section >
     );

@@ -18,6 +18,54 @@
 </head>
 
 <body>
+    <script>
+        window.onerror = function (message, source, lineno, colno, error) {
+            const errorDiv = document.createElement('div');
+            errorDiv.style.position = 'fixed';
+            errorDiv.style.top = '0';
+            errorDiv.style.left = '0';
+            errorDiv.style.width = '100%';
+            errorDiv.style.background = '#fee2e2';
+            errorDiv.style.color = '#991b1b';
+            errorDiv.style.padding = '20px';
+            errorDiv.style.zIndex = '9999';
+            errorDiv.style.fontFamily = 'monospace';
+            errorDiv.style.borderBottom = '2px solid #b91c1c';
+            errorDiv.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+
+            errorDiv.innerHTML = `
+          <h3 style="margin:0 0 10px 0">Global Error Caught</h3>
+          <p><strong>Message:</strong> ${message}</p>
+          <p><strong>Source:</strong> ${source}:${lineno}:${colno}</p>
+          <pre style="background:#fff; padding:10px; overflow:auto; border-radius:4px">${error ? error.stack : ''}</pre>
+          <button onclick="this.parentElement.remove()" style="margin-top:10px; padding:5px 10px; background:#b91c1c; color:white; border:none; border-radius:4px; cursor:pointer">Close</button>
+        `;
+            document.body.appendChild(errorDiv);
+            console.error('Global error caught:', message, error);
+        };
+
+        window.addEventListener('unhandledrejection', function (event) {
+            const errorDiv = document.createElement('div');
+            errorDiv.style.position = 'fixed';
+            errorDiv.style.bottom = '0';
+            errorDiv.style.left = '0';
+            errorDiv.style.width = '100%';
+            errorDiv.style.background = '#fffbeb';
+            errorDiv.style.color = '#92400e';
+            errorDiv.style.padding = '20px';
+            errorDiv.style.zIndex = '9999';
+            errorDiv.style.fontFamily = 'monospace';
+            errorDiv.style.borderTop = '2px solid #b45309';
+
+            errorDiv.innerHTML = `
+          <h3 style="margin:0 0 10px 0">Unhandled Promise Rejection</h3>
+          <p><strong>Reason:</strong> ${event.reason}</p>
+          <button onclick="this.parentElement.remove()" style="margin-top:10px; padding:5px 10px; background:#92400e; color:white; border:none; border-radius:4px; cursor:pointer">Close</button>
+        `;
+            document.body.appendChild(errorDiv);
+            console.error('Unhandled rejection:', event.reason);
+        });
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
 </body>

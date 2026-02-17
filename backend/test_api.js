@@ -3,7 +3,7 @@ import util from 'util';
 
 const test = async () => {
     try {
-        const res = await axios.get('http://localhost:5002/lookups', {
+        const res = await axios.get('http://localhost:4000/lookups', {
             params: { lookup_type: 'CompanyType', limit: 1000 }
         });
         console.log('Success:', util.inspect(res.data, { depth: null }));
