@@ -17,25 +17,31 @@ export const paginate = async (model, query, page, limit, sort = {}, populate = 
             records,
             totalCount: total,
             totalPages: Math.ceil(total / limit),
-            currentPage: page
+            currentPage: Number(page)
         };
     } catch (error) {
-        // If it's a CastError during population, retry without population
-        if (error.name === 'CastError' && populate) {
-            console.warn(`[PAGINATION] CastError during population for model ${model.modelName}. Retrying without population.`, error.message);
+        console.error(`[PAGINATION ERROR] Model: ${model.modelName}, Query: ${JSON.stringify(query)}, Error: ${error.message}`);
 
-            const [records, total] = await Promise.all([
-                model.find(query).sort(sort).skip(skip).limit(limit).lean(),
-                model.countDocuments(query)
-            ]);
+        // If population fails, try fetching without population
+        if (populate) {
+            console.warn(`[PAGINATION] Retrying without population for ${model.modelName}...`);
+            try {
+                const [records, total] = await Promise.all([
+                    model.find(query).sort(sort).skip(skip).limit(limit).lean(),
+                    model.countDocuments(query)
+                ]);
 
-            return {
-                records,
-                totalCount: total,
-                totalPages: Math.ceil(total / limit),
-                currentPage: page,
-                warning: "Data returned without population due to schema casting errors."
-            };
+                return {
+                    records,
+                    totalCount: total,
+                    totalPages: Math.ceil(total / limit),
+                    currentPage: Number(page),
+                    error: `Data partially loaded. Population failed: ${error.message}`
+                };
+            } catch (retryError) {
+                console.error(`[PAGINATION FATAL] Retry failed: ${retryError.message}`);
+                throw retryError;
+            }
         }
         throw error;
     }
