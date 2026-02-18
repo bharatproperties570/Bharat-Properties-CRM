@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import Toast from '../../../components/Toast';
 import CustomizeFeedbackPage from './CustomizeFeedbackPage';
+import { generateCSV, downloadFile } from "../../../utils/dataManagementUtils";
 
 const SizeItem = ({ size, onEdit, onDelete }) => (
     <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -388,6 +389,55 @@ const PropertySettingsPage = () => {
         setTimeout(() => setNotification({ ...notification, show: false }), 3000);
     };
 
+    // ---------------- EXPORT HANDLERS ----------------
+    const handleExportSizes = () => {
+        if (!sizes || sizes.length === 0) {
+            showToast("No sizes to export", "warning");
+            return;
+        }
+        const dataToExport = sizes.map(s => ({
+            ID: s.id || s.name || 'N/A',
+            Project: s.project || 'Global',
+            Block: s.block || 'N/A',
+            Category: s.category || 'N/A',
+            SubCategory: s.subCategory || 'N/A',
+            Name: s.name || 'N/A',
+            Description: s.description || ''
+        }));
+        const csvContent = generateCSV(dataToExport);
+        downloadFile(csvContent, `property_sizes_${new Date().toISOString().split('T')[0]}.csv`);
+        showToast("Export successful!");
+    };
+
+    const handleExportConfigHierarchy = (items, type) => {
+        if (!items || items.length === 0) {
+            showToast("No items to export", "warning");
+            return;
+        }
+        const dataToExport = items.map(item => ({
+            ID: typeof item === 'string' ? item : (item.id || item._id || item.name || 'N/A'),
+            Name: typeof item === 'string' ? item : (item.name || item.lookup_value || 'N/A')
+        }));
+        const csvContent = generateCSV(dataToExport);
+        downloadFile(csvContent, `property_config_${type.toLowerCase()}_${new Date().toISOString().split('T')[0]}.csv`);
+        showToast("Export successful!");
+    };
+
+    const handleExportOrientation = () => {
+        const currentList = masterFields[activeOrientationField];
+        if (!currentList || currentList.length === 0) {
+            showToast("No items to export", "warning");
+            return;
+        }
+        const dataToExport = currentList.map(item => ({
+            ID: item,
+            Value: item
+        }));
+        const csvContent = generateCSV(dataToExport);
+        downloadFile(csvContent, `property_orientation_${activeOrientationField}_${new Date().toISOString().split('T')[0]}.csv`);
+        showToast("Export successful!");
+    };
+
     const handleAddMasterItem = () => {
         openInputModal(`Enter new ${activeOrientationField.slice(0, -1)}`, '', (value) => {
             if (value) {
@@ -683,9 +733,19 @@ const PropertySettingsPage = () => {
                                 <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
                                 <input type="text" placeholder="Search sizes..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ width: '100%', padding: '10px 10px 10px 36px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem', outline: 'none' }} />
                             </div>
-                            <button className="btn-primary" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsModalOpen(true); }} style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer' }}>
-                                <i className="fas fa-plus"></i> Add Size
-                            </button>
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                                <button
+                                    className="btn-outline"
+                                    onClick={handleExportSizes}
+                                    style={{ padding: '10px 16px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #10b981', color: '#10b981', background: '#fff', cursor: 'pointer' }}
+                                    title="Download as CSV"
+                                >
+                                    <i className="fas fa-download"></i> Download
+                                </button>
+                                <button className="btn-primary" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsModalOpen(true); }} style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer' }}>
+                                    <i className="fas fa-plus"></i> Add Size
+                                </button>
+                            </div>
                         </div>
                         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
@@ -718,7 +778,11 @@ const PropertySettingsPage = () => {
                         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
                             <div style={{ width: '280px', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    Category <button type="button" onClick={(e) => { e.preventDefault(); handleAddCategory(); }} style={{ border: 'none', background: '#e2e8f0', color: '#475569', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Add Category"><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                    Category
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                        <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(Object.keys(propertyConfig), 'Categories')} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer' }} title="Download Categories"></i>
+                                        <button type="button" onClick={(e) => { e.preventDefault(); handleAddCategory(); }} style={{ border: 'none', background: '#e2e8f0', color: '#475569', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Add Category"><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                    </div>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
                                     {propertyConfig && Object.keys(propertyConfig).map(cat => (
@@ -734,7 +798,11 @@ const PropertySettingsPage = () => {
                             </div>
                             <div style={{ width: '320px', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#fff' }}>
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    Sub Category <button type="button" onClick={(e) => { e.preventDefault(); handleAddSubCategory(); }} disabled={!configCategory} style={{ border: 'none', background: configCategory ? '#e2e8f0' : '#f1f5f9', color: configCategory ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                    Sub Category
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                        <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(propertyConfig[configCategory]?.subCategories || [], 'Sub_Categories')} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', opacity: configCategory ? 1 : 0.4 }} title="Download Sub Categories"></i>
+                                        <button type="button" onClick={(e) => { e.preventDefault(); handleAddSubCategory(); }} disabled={!configCategory} style={{ border: 'none', background: configCategory ? '#e2e8f0' : '#f1f5f9', color: configCategory ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                    </div>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
                                     {configCategory && propertyConfig[configCategory]?.subCategories.map(sub => (
@@ -750,7 +818,11 @@ const PropertySettingsPage = () => {
                             </div>
                             <div style={{ width: '320px', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#fff' }}>
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    Types <button type="button" onClick={(e) => { e.preventDefault(); handleAddType(); }} disabled={!configSubCategory} style={{ border: 'none', background: configSubCategory ? '#e2e8f0' : '#f1f5f9', color: configSubCategory ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                    Types
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                        <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(propertyConfig[configCategory]?.subCategories.find(s => s.name === configSubCategory)?.types || [], 'Types')} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', opacity: configSubCategory ? 1 : 0.4 }} title="Download Types"></i>
+                                        <button type="button" onClick={(e) => { e.preventDefault(); handleAddType(); }} disabled={!configSubCategory} style={{ border: 'none', background: configSubCategory ? '#e2e8f0' : '#f1f5f9', color: configSubCategory ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                    </div>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
                                     {configSubCategory && propertyConfig[configCategory]?.subCategories.find(s => s.name === configSubCategory)?.types.map(type => (
@@ -763,7 +835,11 @@ const PropertySettingsPage = () => {
                             </div>
                             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#fff' }}>
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    Builtup <button type="button" onClick={(e) => { e.preventDefault(); handleAddBuiltupType(); }} disabled={!configType} style={{ border: 'none', background: configType ? '#e2e8f0' : '#f1f5f9', color: configType ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                    Builtup
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                        <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(propertyConfig[configCategory]?.subCategories.find(s => s.name === configSubCategory)?.types.find(t => t.name === configType)?.builtupTypes || [], 'Builtup')} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', opacity: configType ? 1 : 0.4 }} title="Download Builtup Types"></i>
+                                        <button type="button" onClick={(e) => { e.preventDefault(); handleAddBuiltupType(); }} disabled={!configType} style={{ border: 'none', background: configType ? '#e2e8f0' : '#f1f5f9', color: configType ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                    </div>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1, padding: '16px' }}>
                                     {configType && (
@@ -798,17 +874,21 @@ const PropertySettingsPage = () => {
                             </div>
                             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#fff' }}>
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    Active List Items <button onClick={handleAddMasterItem} style={{ border: 'none', background: '#e2e8f0', width: '20px', height: '20px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
-                                </div>
-                                <div style={{ overflowY: 'auto', flex: 1, padding: '20px' }}>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
-                                        {masterFields && masterFields[activeOrientationField].map(item => (
-                                            <div key={item} style={{ padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="group">
-                                                <span>{item}</span>
-                                                <button onClick={() => handleDeleteMasterItem(item)} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }}><i className="fas fa-trash-alt" style={{ fontSize: '0.85rem' }}></i></button>
-                                            </div>
-                                        ))}
+                                    Value
+                                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                        <i className="fas fa-download" onClick={handleExportOrientation} style={{ fontSize: '0.9rem', color: '#10b981', cursor: 'pointer' }} title="Download Fields"></i>
+                                        <button type="button" onClick={(e) => { e.preventDefault(); handleAddMasterItem(); }} style={{ border: 'none', background: '#e2e8f0', color: '#475569', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
                                     </div>
+                                </div>
+                            </div>
+                            <div style={{ overflowY: 'auto', flex: 1, padding: '20px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
+                                    {masterFields && masterFields[activeOrientationField].map(item => (
+                                        <div key={item} style={{ padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="group">
+                                            <span>{item}</span>
+                                            <button onClick={() => handleDeleteMasterItem(item)} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }}><i className="fas fa-trash-alt" style={{ fontSize: '0.85rem' }}></i></button>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         </div>
@@ -839,7 +919,7 @@ const PropertySettingsPage = () => {
                     message={confirmModal.message}
                 />
             </div>
-        </div>
+        </div >
     );
 };
 

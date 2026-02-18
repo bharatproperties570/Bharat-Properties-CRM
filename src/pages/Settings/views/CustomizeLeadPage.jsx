@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Toast from '../../../components/Toast';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
+import { generateCSV, downloadFile } from '../../../utils/dataManagementUtils';
 
 const CustomizeLeadPage = () => {
     const { leadMasterFields, updateLeadMasterFields } = usePropertyConfig();
@@ -23,6 +24,42 @@ const CustomizeLeadPage = () => {
 
     const showToast = (message, type = 'success') => {
         setNotification({ show: true, message, type });
+    };
+
+    // --- Export Handlers ---
+    const handleExportFlat = () => {
+        const currentList = leadMasterFields[activeDetailField] || [];
+        if (currentList.length === 0) {
+            showToast("No items to export", "warning");
+            return;
+        }
+
+        const dataToExport = currentList.map(item => ({
+            ID: typeof item === 'object' ? (item._id || item.id) : item,
+            Name: typeof item === 'object' ? (item.lookup_value || item.name) : item
+        }));
+
+        const csvContent = generateCSV(dataToExport);
+        const fileName = `lead_${activeDetailField.replace(/([A-Z])/g, '_$1').toLowerCase()}_${new Date().toISOString().split('T')[0]}.csv`;
+        downloadFile(csvContent, fileName);
+        showToast("Export successful!");
+    };
+
+    const handleExportHierarchy = (type, items, title) => {
+        if (!items || items.length === 0) {
+            showToast("No items to export", "warning");
+            return;
+        }
+
+        const dataToExport = items.map(item => ({
+            ID: typeof item === 'object' ? (item._id || item.id || item.name) : item,
+            Name: typeof item === 'object' ? item.name : item
+        }));
+
+        const csvContent = generateCSV(dataToExport);
+        const fileName = `lead_${title.toLowerCase().replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+        downloadFile(csvContent, fileName);
+        showToast("Export successful!");
     };
 
     // --- CRUD for Lead Master Fields (Flat) ---
@@ -149,13 +186,24 @@ const CustomizeLeadPage = () => {
                         {activeDetailField.replace(/([A-Z])/g, ' $1').trim()} List
                     </h3>
                     {!showAddItemForm ? (
-                        <button
-                            className="btn-outline"
-                            onClick={() => { setShowAddItemForm(true); setAddItemTarget('flat'); }}
-                            style={{ padding: '6px 16px', fontSize: '0.85rem', fontWeight: 600 }}
-                        >
-                            + Add Item
-                        </button>
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                            <button
+                                className="btn-outline"
+                                onClick={handleExportFlat}
+                                style={{ padding: '6px 12px', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', borderColor: '#10b981' }}
+                                title="Download as Excel/CSV"
+                            >
+                                <i className="fas fa-download"></i>
+                                Download
+                            </button>
+                            <button
+                                className="btn-outline"
+                                onClick={() => { setShowAddItemForm(true); setAddItemTarget('flat'); }}
+                                style={{ padding: '6px 16px', fontSize: '0.85rem', fontWeight: 600 }}
+                            >
+                                + Add Item
+                            </button>
+                        </div>
                     ) : (
                         <div style={{ display: 'flex', gap: '8px' }}>
                             <input
@@ -207,13 +255,24 @@ const CustomizeLeadPage = () => {
         <div style={{ flex: 1, border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', flexDirection: 'column', background: '#fff', overflow: 'hidden' }}>
             <div style={{ padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: '#475569' }}>{title}</h4>
-                <button
-                    onClick={() => { setShowAddItemForm(true); setAddItemTarget(type); setNewItemValue(''); }}
-                    disabled={type !== 'campaign' && !items} // Disable source/medium add if parent not selected
-                    style={{ border: 'none', background: 'transparent', color: (type !== 'campaign' && !items) ? '#cbd5e1' : '#2563eb', cursor: (type !== 'campaign' && !items) ? 'not-allowed' : 'pointer' }}
-                >
-                    <i className="fas fa-plus"></i>
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    {items && items.length > 0 && (
+                        <button
+                            onClick={() => handleExportHierarchy(type, items, title)}
+                            style={{ border: 'none', background: 'transparent', color: '#10b981', cursor: 'pointer', fontSize: '0.85rem' }}
+                            title="Download this list"
+                        >
+                            <i className="fas fa-download"></i>
+                        </button>
+                    )}
+                    <button
+                        onClick={() => { setShowAddItemForm(true); setAddItemTarget(type); setNewItemValue(''); }}
+                        disabled={type !== 'campaign' && !items} // Disable source/medium add if parent not selected
+                        style={{ border: 'none', background: 'transparent', color: (type !== 'campaign' && !items) ? '#cbd5e1' : '#2563eb', cursor: (type !== 'campaign' && !items) ? 'not-allowed' : 'pointer' }}
+                    >
+                        <i className="fas fa-plus"></i>
+                    </button>
+                </div>
             </div>
 
             {showAddItemForm && addItemTarget === type && (

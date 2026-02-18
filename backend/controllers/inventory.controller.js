@@ -1,6 +1,7 @@
 import Inventory from "../models/Inventory.js";
 import Lead from "../models/Lead.js";
 import { paginate } from "../utils/pagination.js";
+import mongoose from "mongoose";
 
 export const getInventory = async (req, res) => {
     try {
@@ -71,6 +72,16 @@ export const getInventoryById = async (req, res) => {
     }
 };
 
+const sanitizeIds = (ids) => {
+    if (!ids || !Array.isArray(ids)) return ids;
+    return ids.map(id => {
+        if (typeof id === 'object' && id !== null && id.id) {
+            return id.id;
+        }
+        return id;
+    });
+};
+
 export const addInventory = async (req, res) => {
     try {
         const { projectName, block, unitNo, unitNumber } = req.body;
@@ -88,7 +99,11 @@ export const addInventory = async (req, res) => {
             }
         }
 
-        const inventory = await Inventory.create(req.body);
+        const data = { ...req.body };
+        if (data.owners) data.owners = sanitizeIds(data.owners);
+        if (data.associates) data.associates = sanitizeIds(data.associates);
+
+        const inventory = await Inventory.create(data);
         res.status(201).json({ success: true, data: inventory });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
@@ -97,7 +112,11 @@ export const addInventory = async (req, res) => {
 
 export const updateInventory = async (req, res) => {
     try {
-        const inventory = await Inventory.findByIdAndUpdate(req.params.id, req.body, {
+        const data = { ...req.body };
+        if (data.owners) data.owners = sanitizeIds(data.owners);
+        if (data.associates) data.associates = sanitizeIds(data.associates);
+
+        const inventory = await Inventory.findByIdAndUpdate(req.params.id, data, {
             new: true,
             runValidators: true,
         });
@@ -150,16 +169,35 @@ export const matchInventory = async (req, res) => {
                 return res.status(404).json({ success: false, error: "Inventory not found" });
             }
 
-            const query = {
-                $or: [
-                    { project: inventory.projectId }, // Match by Project ID
-                    { project: inventory.projectName }, // Match by Project Name string
-                    { requirement: inventory.category }, // Match by Category
-                    { subRequirement: inventory.subCategory } // Match by Sub-Category
-                ]
-            };
+            const queryConditions = [];
 
-            const leads = await Lead.find(query).limit(50).sort({ updatedAt: -1 }).lean();
+            // Safe Project match
+            if (inventory.projectId && mongoose.Types.ObjectId.isValid(inventory.projectId)) {
+                queryConditions.push({ project: inventory.projectId });
+            }
+            if (inventory.projectName) {
+                // Also search in projectName array or string fields in Lead if applicable
+                // Lead.project is an ObjectId, so we can't query it with a string name directly
+                // unless the Lead model has a projectName field (it does: Lead.projectName [String])
+                queryConditions.push({ projectName: inventory.projectName });
+            }
+
+            // Safe Category/Requirement match
+            if (inventory.category && mongoose.Types.ObjectId.isValid(inventory.category)) {
+                queryConditions.push({ requirement: inventory.category });
+            }
+            // If it's a string name, we might need to find the Lookup ID first or skip
+
+            // Safe Sub-Category match
+            if (inventory.subCategory && mongoose.Types.ObjectId.isValid(inventory.subCategory)) {
+                queryConditions.push({ subRequirement: inventory.subCategory });
+            }
+
+            if (queryConditions.length === 0) {
+                return res.status(200).json({ success: true, count: 0, data: [] });
+            }
+
+            const leads = await Lead.find({ $or: queryConditions }).limit(50).sort({ updatedAt: -1 }).lean();
             return res.status(200).json({ success: true, count: leads.length, data: leads });
         }
 

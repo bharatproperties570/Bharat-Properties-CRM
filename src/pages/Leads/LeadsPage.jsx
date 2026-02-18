@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import PipelineDashboard from '../../components/PipelineDashboard';
+import Swal from 'sweetalert2';
 import { leadData } from '../../data/mockData';
 import { api } from '../../utils/api';
 import { getInitials } from '../../utils/helpers';
@@ -297,17 +298,35 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const handleDelete = async () => {
         if (selectedIds.length === 0) return;
 
-        const confirmMsg = selectedIds.length === 1
-            ? "Are you sure you want to delete this lead?"
-            : `Are you sure you want to delete ${selectedIds.length} selected leads?`;
+        const result = await Swal.fire({
+            title: 'Delete Confirmation',
+            text: selectedIds.length === 1
+                ? "Do you want to delete this lead? Choosing 'Lead & Contact' will also delete the associated contact."
+                : `Do you want to delete ${selectedIds.length} selected leads? Choosing 'Leads & Contacts' will also delete their associated contacts.`,
+            icon: 'warning',
+            showDenyButton: true,
+            showCancelButton: true,
+            confirmButtonText: selectedIds.length === 1 ? 'Delete Lead & Contact' : 'Delete Leads & Contacts',
+            denyButtonText: selectedIds.length === 1 ? 'Delete only Lead' : 'Delete only Leads',
+            cancelButtonText: 'Cancel',
+            confirmButtonColor: '#ef4444',
+            denyButtonColor: '#f97316',
+            cancelButtonColor: '#64748b',
+        });
 
-        if (!window.confirm(confirmMsg)) return;
+        if (result.isDismissed) return;
 
+        const deleteContact = result.isConfirmed;
+
+        setLoading(true);
         try {
             if (selectedIds.length === 1) {
-                await api.delete(`leads/${selectedIds[0]}`);
+                await api.delete(`leads/${selectedIds[0]}?deleteContact=${deleteContact}`);
             } else {
-                await api.post(`leads/bulk-delete`, { ids: selectedIds });
+                await api.post(`leads/bulk-delete`, {
+                    ids: selectedIds,
+                    deleteContacts: deleteContact
+                });
             }
 
             toast.success(`${selectedIds.length} lead(s) deleted successfully`);
@@ -316,6 +335,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         } catch (error) {
             console.error("Error deleting leads:", error);
             toast.error("Failed to delete leads");
+        } finally {
+            setLoading(false);
         }
     };
 

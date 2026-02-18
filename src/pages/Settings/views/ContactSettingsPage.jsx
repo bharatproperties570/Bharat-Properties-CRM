@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import Toast from "../../../components/Toast";
 import { api } from "../../../utils/api";
 import Swal from "sweetalert2";
+import { generateCSV, downloadFile } from "../../../utils/dataManagementUtils";
 
 // ---------------- CONFIGURATION ----------------
 const TABS = [
@@ -58,7 +59,7 @@ const FLAT_CONFIG = {
 // ---------------- SUB-COMPONENTS ----------------
 
 // 1. Config Column (for Hierarchy View)
-const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onDelete, isLoading }) => (
+const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onDelete, onDownload, isLoading }) => (
   <div
     style={{
       minWidth: "280px",
@@ -86,24 +87,42 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
       }}
     >
       {title}
-      <button
-        onClick={onAdd}
-        disabled={isLoading}
-        style={{
-          border: "none",
-          background: "#e2e8f0",
-          color: "#475569",
-          borderRadius: "4px",
-          width: "24px",
-          height: "24px",
-          cursor: isLoading ? "not-allowed" : "pointer",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <i className="fas fa-plus" style={{ fontSize: "0.7rem" }}></i>
-      </button>
+      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        {items && items.length > 0 && (
+          <button
+            onClick={onDownload}
+            disabled={isLoading}
+            style={{
+              border: "none",
+              background: "transparent",
+              color: "#10b981",
+              cursor: isLoading ? "not-allowed" : "pointer",
+              fontSize: "0.9rem"
+            }}
+            title="Download this list"
+          >
+            <i className="fas fa-download"></i>
+          </button>
+        )}
+        <button
+          onClick={onAdd}
+          disabled={isLoading}
+          style={{
+            border: "none",
+            background: "#e2e8f0",
+            color: "#475569",
+            borderRadius: "4px",
+            width: "24px",
+            height: "24px",
+            cursor: isLoading ? "not-allowed" : "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <i className="fas fa-plus" style={{ fontSize: "0.7rem" }}></i>
+        </button>
+      </div>
     </div>
 
     <div style={{ overflowY: "auto", flex: 1 }}>
@@ -186,6 +205,43 @@ const ContactSettingsPage = () => {
 
   const showToast = (message, type = "success") => {
     setNotification({ show: true, message, type });
+  };
+
+  // ---------------- EXPORT HANDLERS ----------------
+  const handleExportHierarchy = (items, title) => {
+    if (!items || items.length === 0) {
+      showToast("No items to export", "warning");
+      return;
+    }
+
+    const dataToExport = items.map(item => ({
+      ID: item._id || 'N/A',
+      Name: item.lookup_value || 'N/A',
+      Code: item.code || ''
+    }));
+
+    const csvContent = generateCSV(dataToExport);
+    const fileName = `contact_${activeTab.toLowerCase()}_${title.toLowerCase().replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+    downloadFile(csvContent, fileName);
+    showToast("Export successful!");
+  };
+
+  const handleExportFlat = () => {
+    if (!flatItems || flatItems.length === 0) {
+      showToast("No items to export", "warning");
+      return;
+    }
+
+    const dataToExport = flatItems.map(item => ({
+      ID: item._id || 'N/A',
+      Name: item.lookup_value || 'N/A',
+      Code: item.code || ''
+    }));
+
+    const csvContent = generateCSV(dataToExport);
+    const fileName = `contact_${activeTab.toLowerCase()}_${flatActiveSection.title.toLowerCase().replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+    downloadFile(csvContent, fileName);
+    showToast("Export successful!");
   };
 
   // ---------------- EFFECTS ----------------
@@ -481,6 +537,7 @@ const ContactSettingsPage = () => {
               onAdd={() => handleAdd(level, parentId, (newItem) => {
                 fetchHierarchyLevel(activeTab, index, parentId);
               })}
+              onDownload={() => handleExportHierarchy(hierarchyData[index] || [], level.title)}
               onEdit={(item) => handleEdit(item, level, () => fetchHierarchyLevel(activeTab, index, parentId))}
               onDelete={(item) => handleDelete(item, () => {
                 fetchHierarchyLevel(activeTab, index, parentId);
@@ -532,13 +589,23 @@ const ContactSettingsPage = () => {
             <>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
                 <h3 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700, color: "#1e293b" }}>{flatActiveSection.title}</h3>
-                <button
-                  className="btn-outline"
-                  onClick={() => handleAdd(flatActiveSection, null, fetchFlatItems)}
-                  style={{ padding: "8px 16px", fontSize: "0.9rem", fontWeight: 600, border: "1px solid #e2e8f0", borderRadius: "6px", background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px" }}
-                >
-                  <i className="fas fa-plus"></i> Add Item
-                </button>
+                <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                  <button
+                    className="btn-outline"
+                    onClick={handleExportFlat}
+                    style={{ padding: "8px 12px", fontSize: "0.9rem", fontWeight: 600, border: "1px solid #10b981", borderRadius: "6px", background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", color: "#10b981" }}
+                    title="Download as Excel/CSV"
+                  >
+                    <i className="fas fa-download"></i> Download
+                  </button>
+                  <button
+                    className="btn-outline"
+                    onClick={() => handleAdd(flatActiveSection, null, fetchFlatItems)}
+                    style={{ padding: "8px 16px", fontSize: "0.9rem", fontWeight: 600, border: "1px solid #e2e8f0", borderRadius: "6px", background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px" }}
+                  >
+                    <i className="fas fa-plus"></i> Add Item
+                  </button>
+                </div>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "16px" }}>

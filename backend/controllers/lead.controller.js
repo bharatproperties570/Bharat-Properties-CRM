@@ -1,6 +1,7 @@
 import Lead from "../models/Lead.js";
 import Lookup from "../models/Lookup.js";
 import User from "../models/User.js";
+import Contact from "../models/Contact.js";
 import mongoose from "mongoose";
 import { paginate } from "../utils/pagination.js";
 import mockStore from "../utils/mockStore.js";
@@ -119,9 +120,7 @@ export const getLeads = async (req, res, next) => {
                     { firstName: { $regex: search, $options: "i" } },
                     { lastName: { $regex: search, $options: "i" } },
                     { mobile: { $regex: search, $options: "i" } },
-                    { email: { $regex: search, $options: "i" } },
-                    { project: { $regex: search, $options: "i" } },
-                    { location: { $regex: search, $options: "i" } }
+                    { email: { $regex: search, $options: "i" } }
                 ]
             }
             : {};
@@ -166,7 +165,19 @@ export const updateLead = async (req, res, next) => {
 
 export const deleteLead = async (req, res, next) => {
     try {
-        await Lead.findByIdAndDelete(req.params.id);
+        const { id } = req.params;
+        const { deleteContact } = req.query;
+
+        const lead = await Lead.findById(id);
+        if (!lead) {
+            return res.status(404).json({ success: false, message: "Lead not found" });
+        }
+
+        if (deleteContact === 'true' && lead.mobile) {
+            await Contact.deleteMany({ 'phones.number': lead.mobile });
+        }
+
+        await Lead.findByIdAndDelete(id);
         res.json({ success: true, message: "Lead deleted successfully" });
     } catch (error) {
         next(error);
@@ -202,7 +213,17 @@ export const getLeadById = async (req, res, next) => {
 
 export const bulkDeleteLeads = async (req, res, next) => {
     try {
-        await Lead.deleteMany({ _id: { $in: req.body.ids } });
+        const { ids, deleteContacts } = req.body;
+
+        if (deleteContacts === true) {
+            const leads = await Lead.find({ _id: { $in: ids } });
+            const mobiles = leads.map(l => l.mobile).filter(Boolean);
+            if (mobiles.length > 0) {
+                await Contact.deleteMany({ 'phones.number': { $in: mobiles } });
+            }
+        }
+
+        await Lead.deleteMany({ _id: { $in: ids } });
         res.status(200).json({ success: true, message: "Deleted" });
     } catch (error) {
         next(error);

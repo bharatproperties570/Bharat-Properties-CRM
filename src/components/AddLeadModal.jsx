@@ -556,32 +556,45 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     useEffect(() => {
         const fetchProjects = async () => {
             try {
-                const response = await api.get('/projects');
-                if (response.data?.success && response.data.data) {
-                    const fetchedProjects = response.data.data;
+                // Fetch projects and city lookups in parallel
+                const [projectRes, cityRes] = await Promise.all([
+                    api.get('/projects'),
+                    api.get('/lookups', { params: { lookup_type: 'City', limit: 1000 } })
+                ]);
+
+                if (projectRes.data?.success && projectRes.data.data) {
+                    const fetchedProjects = projectRes.data.data;
+                    const cityLookups = cityRes.data?.data || [];
+
+                    // Create a map for quick lookup: cityId -> cityValue
+                    const cityMap = cityLookups.reduce((acc, lookup) => {
+                        acc[lookup._id] = lookup.lookup_value;
+                        return acc;
+                    }, {});
 
                     // Group by city matching the address.city field
                     const grouped = fetchedProjects.reduce((acc, project) => {
-                        const city = project.address?.city || 'Other';
-                        if (!acc[city]) acc[city] = [];
+                        let cityIdOrName = project.address?.city || 'Other';
+
+                        // If it's an ID, map it to name
+                        const cityName = cityMap[cityIdOrName] || cityIdOrName;
+
+                        if (!acc[cityName]) acc[cityName] = [];
 
                         // Fix for crash: Ensure blocks are strings
                         const safeBlocks = (project.blocks || []).map(b =>
                             typeof b === 'object' ? (b.name || '') : b
                         ).filter(Boolean);
 
-                        acc[city].push({
+                        acc[cityName].push({
                             ...project,
                             towers: safeBlocks // Backend uses 'blocks', UI uses 'towers'
                         });
                         return acc;
                     }, {});
 
-                    // Merge with existing hardcoded data if we want to preserve it, 
-                    // or replace it. User says "data backend se nhi aa rha hai", 
-                    // so replacement is cleaner.
                     setProjectData(grouped);
-                    setCities(Object.keys(grouped));
+                    setCities(Object.keys(grouped).sort());
                 }
             } catch (err) {
                 console.error("Error fetching projects from backend:", err);

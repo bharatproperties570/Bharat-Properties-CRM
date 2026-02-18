@@ -1,5 +1,9 @@
 import mongoose from "mongoose";
 import Contact from "../models/Contact.js";
+import Lead from "../models/Lead.js";
+import Inventory from "../models/Inventory.js";
+import Booking from "../models/Booking.js";
+import Activity from "../models/Activity.js";
 import DuplicationRule from "../models/DuplicationRule.js";
 import { paginate } from "../utils/pagination.js";
 import { createContactSchema, updateContactSchema } from "../validations/contact.validation.js";
@@ -270,11 +274,63 @@ export const updateContact = async (req, res, next) => {
     }
 };
 
+export const getContactUsage = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const contact = await Contact.findById(id);
+        if (!contact) return res.status(404).json({ success: false, error: "Contact not found" });
+
+        const mobile = contact.phones?.[0]?.number;
+        const email = contact.emails?.[0]?.address;
+
+        const [leadsCount, inventoryCount, bookingsCount, activitiesCount] = await Promise.all([
+            Lead.countDocuments({ $or: [{ mobile }, { email }] }),
+            Inventory.countDocuments({ $or: [{ owners: id }, { associates: id }] }),
+            Booking.countDocuments({ $or: [{ lead: id }, { seller: id }, { channelPartner: id }] }),
+            Activity.countDocuments({ $or: [{ entityId: id }, { 'relatedTo.id': id }] })
+        ]);
+
+        res.json({
+            success: true,
+            usage: {
+                leads: leadsCount,
+                inventory: inventoryCount,
+                bookings: bookingsCount,
+                activities: activitiesCount
+            }
+        });
+    } catch (error) {
+        console.error("[ERROR] getContactUsage failed:", error);
+        next(error);
+    }
+};
+
 export const deleteContact = async (req, res, next) => {
     try {
-        const contact = await Contact.findByIdAndDelete(req.params.id);
+        const { id } = req.params;
+        const contact = await Contact.findById(id);
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found" });
-        res.json({ success: true, message: "Contact deleted successfully" });
+
+        const mobile = contact.phones?.[0]?.number;
+        const email = contact.emails?.[0]?.address;
+
+        // Cascading Updates/Deletions
+        await Promise.all([
+            // Delete related Leads
+            Lead.deleteMany({ $or: [{ mobile }, { email }] }),
+            // Remove from Inventory owners/associates
+            Inventory.updateMany({ owners: id }, { $pull: { owners: id } }),
+            Inventory.updateMany({ associates: id }, { $pull: { associates: id } }),
+            // Null out in Bookings
+            Booking.updateMany({ lead: id }, { $set: { lead: null } }),
+            Booking.updateMany({ seller: id }, { $set: { seller: null } }),
+            Booking.updateMany({ channelPartner: id }, { $set: { channelPartner: null } }),
+            // Delete related Activities
+            Activity.deleteMany({ $or: [{ entityId: id }, { 'relatedTo.id': id }] })
+        ]);
+
+        await Contact.findByIdAndDelete(id);
+        res.json({ success: true, message: "Contact and all associated records deleted successfully" });
     } catch (error) {
         console.error("[ERROR] deleteContact failed:", error);
         next(error);

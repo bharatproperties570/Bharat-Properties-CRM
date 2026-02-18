@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Toast from '../../../components/Toast';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
+import { generateCSV, downloadFile } from '../../../utils/dataManagementUtils';
 
 const CustomizeProjectPage = () => {
     const { projectMasterFields, updateProjectMasterFields, projectAmenities, updateProjectAmenities } = usePropertyConfig();
@@ -68,6 +69,45 @@ const CustomizeProjectPage = () => {
             updateProjectAmenities(amenityCategory, currentList.filter(a => a.id !== id));
             showToast('Amenity deleted');
         }
+    };
+
+    const handleExportDetails = () => {
+        const currentList = projectMasterFields[activeDetailField] || [];
+        if (currentList.length === 0) {
+            showToast("No items to export", "warning");
+            return;
+        }
+
+        const dataToExport = currentList.map(item => ({
+            ID: typeof item === 'object' ? (item._id || item.id) : item,
+            Name: typeof item === 'object' ? item.lookup_value : item
+        }));
+
+        const csvContent = generateCSV(dataToExport);
+        const fileName = `project_${activeDetailField.replace(/([A-Z])/g, '_$1').toLowerCase()}_options_${new Date().toISOString().split('T')[0]}.csv`;
+
+        downloadFile(csvContent, fileName);
+        showToast("Export successful!");
+    };
+
+    const handleExportAmenities = () => {
+        const currentList = projectAmenities[amenityCategory] || [];
+        if (currentList.length === 0) {
+            showToast("No items to export", "warning");
+            return;
+        }
+
+        const dataToExport = currentList.map(amenity => ({
+            ID: amenity._id || amenity.id || 'N/A',
+            Name: amenity.name,
+            Icon: amenity.icon
+        }));
+
+        const csvContent = generateCSV(dataToExport);
+        const fileName = `project_${amenityCategory.toLowerCase()}_amenities_${new Date().toISOString().split('T')[0]}.csv`;
+
+        downloadFile(csvContent, fileName);
+        showToast("Export successful!");
     };
 
     return (
@@ -143,13 +183,24 @@ const CustomizeProjectPage = () => {
                                         {activeDetailField.replace(/([A-Z])/g, ' $1').trim()} List
                                     </h3>
                                     {!showAddItemForm ? (
-                                        <button
-                                            className="btn-outline"
-                                            onClick={() => setShowAddItemForm(true)}
-                                            style={{ padding: '6px 16px', fontSize: '0.85rem', fontWeight: 600 }}
-                                        >
-                                            + Add Item
-                                        </button>
+                                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                            <button
+                                                className="btn-outline"
+                                                onClick={handleExportDetails}
+                                                style={{ padding: '6px 12px', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', borderColor: '#10b981' }}
+                                                title="Download as Excel/CSV"
+                                            >
+                                                <i className="fas fa-download"></i>
+                                                Download
+                                            </button>
+                                            <button
+                                                className="btn-outline"
+                                                onClick={() => setShowAddItemForm(true)}
+                                                style={{ padding: '6px 16px', fontSize: '0.85rem', fontWeight: 600 }}
+                                            >
+                                                + Add Item
+                                            </button>
+                                        </div>
                                     ) : (
                                         <div style={{ display: 'flex', gap: '8px' }}>
                                             <input
@@ -222,13 +273,24 @@ const CustomizeProjectPage = () => {
                                 <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1e293b' }}>
                                     Manage {amenityCategory} Amenities
                                 </h3>
-                                <button
-                                    className="btn-primary"
-                                    onClick={() => setShowAmenityForm(true)}
-                                    style={{ padding: '8px 16px', fontSize: '0.85rem' }}
-                                >
-                                    + Add New Amenity
-                                </button>
+                                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                    <button
+                                        className="btn-outline"
+                                        onClick={handleExportAmenities}
+                                        style={{ padding: '6px 12px', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', borderColor: '#10b981' }}
+                                        title="Download as Excel/CSV"
+                                    >
+                                        <i className="fas fa-download"></i>
+                                        Download
+                                    </button>
+                                    <button
+                                        className="btn-primary"
+                                        onClick={() => setShowAmenityForm(true)}
+                                        style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+                                    >
+                                        + Add New Amenity
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Amenity Grid */}

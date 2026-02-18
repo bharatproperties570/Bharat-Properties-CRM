@@ -14,7 +14,7 @@ const COUNTRY_CODES = [
 ];
 
 // Constants replaced by lookups
-const TEAMS = ['Sales', 'Marketing', 'Operations', 'Finance', 'Support'];
+// const TEAMS = ['Sales', 'Marketing', 'Operations', 'Finance', 'Support'];
 
 const AnimatedSegmentControl = ({ options, labels, value, onChange }) => {
     const [activeIndex, setActiveIndex] = useState(options.indexOf(value));
@@ -732,10 +732,8 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                             }}
                         >
                             <option value="">Select Team</option>
-                            {Array.isArray(teams) && teams.length > 0 ? (
+                            {Array.isArray(teams) && teams.length > 0 && (
                                 teams.map(t => <option key={t._id || t.id} value={t._id || t.id}>{t.name}</option>)
-                            ) : (
-                                (Array.isArray(TEAMS) ? TEAMS : []).map(t => <option key={t} value={t}>{t}</option>)
                             )}
                         </select>
                     </div>

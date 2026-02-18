@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Toast from '../../../components/Toast';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
+import { generateCSV, downloadFile } from '../../../utils/dataManagementUtils';
 
 const CustomizeCompanyPage = () => {
     const { companyMasterFields, updateCompanyMasterFields, deleteCompanyMasterField } = usePropertyConfig();
@@ -60,6 +61,25 @@ const CustomizeCompanyPage = () => {
             }
             showToast(`'${displayValue}' removed`);
         }
+    };
+
+    const handleExport = () => {
+        const currentList = companyMasterFields[activeDetailField];
+        if (currentList.length === 0) {
+            showToast("No items to export", "warning");
+            return;
+        }
+
+        const dataToExport = currentList.map(item => ({
+            ID: item._id || item.id || 'N/A',
+            Name: item.lookup_value || item.name || item
+        }));
+
+        const csvContent = generateCSV(dataToExport);
+        const fileName = `company_${activeDetailField.replace(/([A-Z])/g, '_$1').toLowerCase()}_options_${new Date().toISOString().split('T')[0]}.csv`;
+
+        downloadFile(csvContent, fileName);
+        showToast("Export successful!");
     };
 
     return (
@@ -135,13 +155,24 @@ const CustomizeCompanyPage = () => {
                                         {activeDetailField.replace(/([A-Z])/g, ' $1').trim()} List
                                     </h3>
                                     {!showAddItemForm ? (
-                                        <button
-                                            className="btn-outline"
-                                            onClick={() => setShowAddItemForm(true)}
-                                            style={{ padding: '6px 16px', fontSize: '0.85rem', fontWeight: 600 }}
-                                        >
-                                            + Add Item
-                                        </button>
+                                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                            <button
+                                                className="btn-outline"
+                                                onClick={handleExport}
+                                                style={{ padding: '6px 12px', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', borderColor: '#10b981' }}
+                                                title="Download as Excel/CSV"
+                                            >
+                                                <i className="fas fa-download"></i>
+                                                Download
+                                            </button>
+                                            <button
+                                                className="btn-outline"
+                                                onClick={() => setShowAddItemForm(true)}
+                                                style={{ padding: '6px 16px', fontSize: '0.85rem', fontWeight: 600 }}
+                                            >
+                                                + Add Item
+                                            </button>
+                                        </div>
                                     ) : (
                                         <div style={{ display: 'flex', gap: '8px' }}>
                                             <input

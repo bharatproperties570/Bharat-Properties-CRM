@@ -438,16 +438,7 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
 
     // Fetch Teams from Context
     const { teams: contextTeams } = useUserContext();
-    const teams = contextTeams.length > 0
-        ? contextTeams.map(t => ({ label: t.name, value: t._id || t.id }))
-        : [
-            { label: 'Sales', value: 'Sales' },
-            { label: 'Marketing', value: 'Marketing' },
-            { label: 'Post Sales', value: 'Post Sales' },
-            { label: 'Pre Sales', value: 'Pre Sales' },
-            { label: 'Finance', value: 'Finance' },
-            { label: 'HR', value: 'HR' }
-        ];
+    const teams = contextTeams.map(t => ({ label: t.name, value: t._id || t.id }));
 
     // usage: contextUsers comes from useUserContext
     // formData.team is an array of selected team IDs

@@ -1275,6 +1275,11 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
             // Sanitize payload: Strip File objects and empty fields
             const payload = { ...formData };
 
+            // Ensure owners/associates only send IDs to backend
+            if (payload.owners && Array.isArray(payload.owners)) {
+                payload.owners = payload.owners.map(o => (typeof o === 'object' && o !== null) ? (o.id || o._id) : o).filter(Boolean);
+            }
+
             // Clean up files which shouldn't be in JSON
             if (payload.inventoryDocuments) {
                 payload.inventoryDocuments = await Promise.all(payload.inventoryDocuments.map(async (doc) => {

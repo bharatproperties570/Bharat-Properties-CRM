@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import toast from "react-hot-toast";
 import axios from 'axios';
+import Swal from 'sweetalert2';
 
 import { api } from "../../utils/api";
 import { getInitials, getSourceBadgeClass } from "../../utils/helpers";
@@ -137,40 +138,80 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const delete_contact = async () => {
     if (!selectedIds?.length) return;
 
-    const confirmed = window.confirm(`Delete ${selectedIds.length} contact(s)? This action cannot be undone.`);
-    if (!confirmed) return;
+    const result = await Swal.fire({
+      title: 'Bulk Delete Confirmation',
+      text: `Are you sure you want to delete ${selectedIds.length} contact(s)? This will also remove them from Leads, Inventory owners/associates, Bookings, and Activities. This action cannot be undone.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: `Yes, delete ${selectedIds.length} contacts`
+    });
+
+    if (!result.isConfirmed) return;
 
     try {
+      setLoading(true);
       toast.loading("Deleting selected contacts...");
 
-      for (const id of selectedIds) {
-        await api.delete(`contacts/${id}`);
-      }
+      // Backend still only has single delete, so we keep the loop but maybe parallelize
+      await Promise.all(selectedIds.map(id => api.delete(`contacts/${id}`)));
 
       toast.dismiss();
-      toast.success("Contacts deleted successfully");
-
-      setTimeout(() => {
-        window.location.reload();
-      }, 1000);
+      toast.success("Contacts and associations deleted successfully");
+      setSelectedIds([]);
+      fetchContacts();
     } catch (error) {
       toast.dismiss();
       toast.error("Failed to delete contacts");
       console.error("Delete error:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleSingleDelete = async (e, id) => {
     e.stopPropagation();
-    if (!window.confirm("Are you sure you want to delete this contact?")) return;
 
     try {
+      setLoading(true);
+      // Fetch usage first
+      const usageRes = await api.get(`contacts/${id}/usage`);
+      const { leads, inventory, bookings, activities } = usageRes.data.usage;
+
+      let usageText = "This action cannot be undone.";
+      const associations = [];
+      if (leads > 0) associations.push(`${leads} Lead(s)`);
+      if (inventory > 0) associations.push(`${inventory} Inventory Record(s)`);
+      if (bookings > 0) associations.push(`${bookings} Booking(s)`);
+      if (activities > 0) associations.push(`${activities} Activity(s)`);
+
+      if (associations.length > 0) {
+        usageText = `This contact is used in: ${associations.join(', ')}. Deleting it will also remove/update these records. Are you sure?`;
+      }
+
+      setLoading(false);
+      const result = await Swal.fire({
+        title: 'Delete Contact?',
+        text: usageText,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        cancelButtonColor: '#64748b',
+        confirmButtonText: 'Yes, delete everything'
+      });
+
+      if (!result.isConfirmed) return;
+
+      setLoading(true);
       await api.delete(`contacts/${id}`);
-      toast.success("Contact deleted successfully");
-      fetchContacts(); // Refresh list instead of full reload
+      toast.success("Contact and associations deleted successfully");
+      fetchContacts();
     } catch (error) {
-      console.error("Delete error:", error);
-      toast.error("Failed to delete contact");
+      console.error("Usage/Delete error:", error);
+      toast.error("Failed to process deletion");
+    } finally {
+      setLoading(false);
     }
   };
 

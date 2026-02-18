@@ -100,6 +100,7 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
         updateMasterFields('feedbackReasons', updatedReasons);
     };
 
+
     return (
         <div style={{ flex: 1, padding: isEmbedded ? '0' : '32px 40px', background: isEmbedded ? 'transparent' : '#fff', overflowY: 'auto' }}>
             {!isEmbedded && (
