@@ -8,7 +8,7 @@ import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
 
 function CompanyPage({ onEdit, onNavigate }) {
-    const { teams } = useUserContext();
+    const { teams, users } = useUserContext();
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -122,12 +122,22 @@ function CompanyPage({ onEdit, onNavigate }) {
     };
 
     const handleAssignCompany = async (assignmentDetails) => {
-        // Implement assignment logic here 
-        // For now, just show success toast as the backed endpoint might not be ready
-        console.log('Assigning companies:', assignmentDetails);
-        toast.success(`Assigned ${selectedCompanies.length} companies successfully!`);
-        setSelectedIds([]);
-        fetchData(); // Refresh to show potential changes
+        try {
+            toast.loading("Assigning companies...");
+            const promises = selectedCompanies.map(company =>
+                api.put(`companies/${company._id}`, { owner: assignmentDetails.assignedTo })
+            );
+            await Promise.all(promises);
+            toast.dismiss();
+            toast.success(`${selectedCompanies.length} company(s) assigned successfully`);
+            fetchData(); // Refresh the list
+        } catch (error) {
+            toast.dismiss();
+            toast.error("Failed to assign companies");
+            console.error("Assignment error:", error);
+        }
+        setIsAssignModalOpen(false);
+        setSelectedIds([]); // Clear selection
     };
 
     const handleUpdateTags = async (payload) => {
@@ -147,6 +157,15 @@ function CompanyPage({ onEdit, onNavigate }) {
         const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
         return found ? (found.name || found.lookup_value) : teamValue;
     }, [teams]);
+
+    const getUserName = useCallback((ownerValue) => {
+        if (!ownerValue) return "Admin";
+        if (typeof ownerValue === 'object') {
+            return ownerValue.fullName || ownerValue.name || ownerValue.lookup_value || ownerValue.username || "Admin";
+        }
+        const found = users.find(u => (u._id === ownerValue) || (u.id === ownerValue));
+        return found ? (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username))) : ownerValue;
+    }, [users]);
 
     const renderLookup = (field, fallback = '-') => {
         if (!field) return fallback;
@@ -546,10 +565,10 @@ function CompanyPage({ onEdit, onNavigate }) {
                                     <div className="col-assignment">
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                             <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
-                                                {getInitials(renderLookup(company.owner, 'Admin'))}
+                                                {getInitials(getUserName(company.owner))}
                                             </div>
                                             <div style={{ lineHeight: 1.2 }}>
-                                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{renderLookup(company.owner, 'Admin')}</div>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{getUserName(company.owner)}</div>
                                                 <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
                                                     {getTeamName(company.team || company.assignment?.team)}
                                                 </div>
@@ -670,11 +689,11 @@ function CompanyPage({ onEdit, onNavigate }) {
                                             <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '10px' }}>
                                                 <div style={{ textAlign: 'right' }}>
                                                     <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Owner</div>
-                                                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a' }}>{renderLookup(company.owner, 'Admin')}</div>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a' }}>{getUserName(company.owner)}</div>
                                                     <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{getTeamName(company.team || company.assignment?.team)}</div>
                                                 </div>
                                                 <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b' }}>
-                                                    {getInitials(renderLookup(company.owner, 'Admin'))}
+                                                    {getInitials(getUserName(company.owner))}
                                                 </div>
                                             </div>
                                         </div>

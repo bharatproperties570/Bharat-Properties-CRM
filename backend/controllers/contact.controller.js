@@ -5,24 +5,39 @@ import { paginate } from "../utils/pagination.js";
 import { createContactSchema, updateContactSchema } from "../validations/contact.validation.js";
 
 const populateFields = [
-    { path: 'title', select: 'lookup_value', options: { strictPopulate: false } },
-    { path: 'designation', select: 'lookup_value', options: { strictPopulate: false } },
-    { path: 'owner', select: 'name email', options: { strictPopulate: false } },
-    { path: 'source', select: 'lookup_value', options: { strictPopulate: false } },
-    { path: 'subSource', select: 'lookup_value', options: { strictPopulate: false } }, // Added
-    { path: 'professionCategory', select: 'lookup_value', options: { strictPopulate: false } }, // Added
-    { path: 'professionSubCategory', select: 'lookup_value', options: { strictPopulate: false } }, // Added
-    { path: 'personalAddress.country', select: 'lookup_value', options: { strictPopulate: false } }, // Added
-    { path: 'personalAddress.state', select: 'lookup_value', options: { strictPopulate: false } }, // Added
-    { path: 'personalAddress.city', select: 'lookup_value', options: { strictPopulate: false } },
-    { path: 'personalAddress.location', select: 'lookup_value', options: { strictPopulate: false } }, // Added
-    { path: 'correspondenceAddress.country', select: 'lookup_value', options: { strictPopulate: false } }, // Added
-    { path: 'correspondenceAddress.state', select: 'lookup_value', options: { strictPopulate: false } }, // Added
-    { path: 'correspondenceAddress.city', select: 'lookup_value', options: { strictPopulate: false } }, // Added
-    { path: 'requirement', select: 'lookup_value', options: { strictPopulate: false } },
-    { path: 'documents.documentName', select: 'lookup_value', options: { strictPopulate: false } }, // Added
-    { path: 'documents.documentType', select: 'lookup_value', options: { strictPopulate: false } }, // Added
-    { path: 'campaign', select: 'lookup_value', options: { strictPopulate: false } }
+    { path: 'title', select: 'lookup_value' },
+    { path: 'countryCode', select: 'lookup_value' },
+    { path: 'professionCategory', select: 'lookup_value' },
+    { path: 'professionSubCategory', select: 'lookup_value' },
+    { path: 'designation', select: 'lookup_value' },
+    { path: 'source', select: 'lookup_value' },
+    { path: 'subSource', select: 'lookup_value' },
+    { path: 'campaign', select: 'lookup_value' },
+    { path: 'owner', select: 'fullName email name' },
+    { path: 'personalAddress.country', select: 'lookup_value' },
+    { path: 'personalAddress.state', select: 'lookup_value' },
+    { path: 'personalAddress.city', select: 'lookup_value' },
+    { path: 'personalAddress.tehsil', select: 'lookup_value' },
+    { path: 'personalAddress.postOffice', select: 'lookup_value' },
+    { path: 'personalAddress.location', select: 'lookup_value' },
+    { path: 'correspondenceAddress.country', select: 'lookup_value' },
+    { path: 'correspondenceAddress.state', select: 'lookup_value' },
+    { path: 'correspondenceAddress.city', select: 'lookup_value' },
+    { path: 'correspondenceAddress.tehsil', select: 'lookup_value' },
+    { path: 'correspondenceAddress.postOffice', select: 'lookup_value' },
+    { path: 'correspondenceAddress.location', select: 'lookup_value' },
+    { path: 'requirement', select: 'lookup_value' },
+    { path: 'budget', select: 'lookup_value' },
+    { path: 'location', select: 'lookup_value' },
+    { path: 'educations.education', select: 'lookup_value' },
+    { path: 'educations.degree', select: 'lookup_value' },
+    { path: 'loans.loanType', select: 'lookup_value' },
+    { path: 'loans.bank', select: 'lookup_value' },
+    { path: 'socialMedia.platform', select: 'lookup_value' },
+    { path: 'incomes.incomeType', select: 'lookup_value' },
+    { path: 'documents.documentCategory', select: 'lookup_value' },
+    { path: 'documents.documentType', select: 'lookup_value' },
+    { path: 'documents.documentName', select: 'lookup_value' }
 ];
 
 export const getContacts = async (req, res, next) => {
@@ -87,6 +102,72 @@ export const createContact = async (req, res, next) => {
         const { error } = createContactSchema.validate(data);
         if (error) return res.status(400).json({ success: false, error: error.details[0].message });
 
+        // Resolve All Reference Fields
+        const resolveAllReferenceFields = async (doc) => {
+            // Standard Lookups
+            if (doc.title) doc.title = await resolveLookup('Title', doc.title);
+            if (doc.countryCode) doc.countryCode = await resolveLookup('Country-Code', doc.countryCode);
+            if (doc.professionCategory) doc.professionCategory = await resolveLookup('ProfessionalCategory', doc.professionCategory);
+            if (doc.professionSubCategory) doc.professionSubCategory = await resolveLookup('ProfessionalSubCategory', doc.professionSubCategory);
+            if (doc.designation) doc.designation = await resolveLookup('ProfessionalDesignation', doc.designation);
+            if (doc.source) doc.source = await resolveLookup('Source', doc.source);
+            if (doc.subSource) doc.subSource = await resolveLookup('Sub-Source', doc.subSource);
+            if (doc.campaign) doc.campaign = await resolveLookup('Campaign', doc.campaign);
+            if (doc.requirement) doc.requirement = await resolveLookup('Requirement', doc.requirement);
+            if (doc.budget) doc.budget = await resolveLookup('Budget', doc.budget);
+            if (doc.location) doc.location = await resolveLookup('Location', doc.location);
+
+            // User Reference
+            if (doc.owner) doc.owner = await resolveUser(doc.owner);
+
+            // Address Resolution Helper
+            const resolveAddress = async (addr) => {
+                if (!addr) return;
+                if (addr.country) addr.country = await resolveLookup('Country', addr.country);
+                if (addr.state) addr.state = await resolveLookup('State', addr.state);
+                if (addr.city) addr.city = await resolveLookup('City', addr.city);
+                if (addr.tehsil) addr.tehsil = await resolveLookup('Tehsil', addr.tehsil);
+                if (addr.postOffice) addr.postOffice = await resolveLookup('PostOffice', addr.postOffice);
+                if (addr.location) addr.location = await resolveLookup('Location', addr.location);
+            };
+
+            await resolveAddress(doc.personalAddress);
+            await resolveAddress(doc.correspondenceAddress);
+
+            // Arrays
+            if (Array.isArray(doc.educations)) {
+                for (const edu of doc.educations) {
+                    if (edu.education) edu.education = await resolveLookup('Education', edu.education);
+                    if (edu.degree) edu.degree = await resolveLookup('Degree', edu.degree);
+                }
+            }
+            if (Array.isArray(doc.loans)) {
+                for (const loan of doc.loans) {
+                    if (loan.loanType) loan.loanType = await resolveLookup('LoanType', loan.loanType);
+                    if (loan.bank) loan.bank = await resolveLookup('Bank', loan.bank);
+                }
+            }
+            if (Array.isArray(doc.socialMedia)) {
+                for (const sm of doc.socialMedia) {
+                    if (sm.platform) sm.platform = await resolveLookup('SocialPlatform', sm.platform);
+                }
+            }
+            if (Array.isArray(doc.incomes)) {
+                for (const inc of doc.incomes) {
+                    if (inc.incomeType) inc.incomeType = await resolveLookup('IncomeType', inc.incomeType);
+                }
+            }
+            if (Array.isArray(doc.documents)) {
+                for (const docItem of doc.documents) {
+                    if (docItem.documentCategory) docItem.documentCategory = await resolveLookup('Document-Category', docItem.documentCategory);
+                    if (docItem.documentType) docItem.documentType = await resolveLookup('Document-Type', docItem.documentType);
+                    if (docItem.documentName) docItem.documentName = await resolveLookup('Document-Type', docItem.documentName);
+                }
+            }
+        };
+
+        await resolveAllReferenceFields(data);
+
         const contact = await Contact.create(data);
         res.status(201).json({ success: true, data: contact });
     } catch (error) {
@@ -113,6 +194,72 @@ export const updateContact = async (req, res, next) => {
             console.error("[updateContact] Validation Error:", JSON.stringify(error.details, null, 2));
             return res.status(400).json({ success: false, error: error.details[0].message });
         }
+
+        // Resolve All Reference Fields
+        const resolveAllReferenceFields = async (doc) => {
+            // Standard Lookups
+            if (doc.title) doc.title = await resolveLookup('Title', doc.title);
+            if (doc.countryCode) doc.countryCode = await resolveLookup('Country-Code', doc.countryCode);
+            if (doc.professionCategory) doc.professionCategory = await resolveLookup('ProfessionalCategory', doc.professionCategory);
+            if (doc.professionSubCategory) doc.professionSubCategory = await resolveLookup('ProfessionalSubCategory', doc.professionSubCategory);
+            if (doc.designation) doc.designation = await resolveLookup('ProfessionalDesignation', doc.designation);
+            if (doc.source) doc.source = await resolveLookup('Source', doc.source);
+            if (doc.subSource) doc.subSource = await resolveLookup('Sub-Source', doc.subSource);
+            if (doc.campaign) doc.campaign = await resolveLookup('Campaign', doc.campaign);
+            if (doc.requirement) doc.requirement = await resolveLookup('Requirement', doc.requirement);
+            if (doc.budget) doc.budget = await resolveLookup('Budget', doc.budget);
+            if (doc.location) doc.location = await resolveLookup('Location', doc.location);
+
+            // User Reference
+            if (doc.owner) doc.owner = await resolveUser(doc.owner);
+
+            // Address Resolution Helper
+            const resolveAddress = async (addr) => {
+                if (!addr) return;
+                if (addr.country) addr.country = await resolveLookup('Country', addr.country);
+                if (addr.state) addr.state = await resolveLookup('State', addr.state);
+                if (addr.city) addr.city = await resolveLookup('City', addr.city);
+                if (addr.tehsil) addr.tehsil = await resolveLookup('Tehsil', addr.tehsil);
+                if (addr.postOffice) addr.postOffice = await resolveLookup('PostOffice', addr.postOffice);
+                if (addr.location) addr.location = await resolveLookup('Location', addr.location);
+            };
+
+            await resolveAddress(doc.personalAddress);
+            await resolveAddress(doc.correspondenceAddress);
+
+            // Arrays
+            if (Array.isArray(doc.educations)) {
+                for (const edu of doc.educations) {
+                    if (edu.education) edu.education = await resolveLookup('Education', edu.education);
+                    if (edu.degree) edu.degree = await resolveLookup('Degree', edu.degree);
+                }
+            }
+            if (Array.isArray(doc.loans)) {
+                for (const loan of doc.loans) {
+                    if (loan.loanType) loan.loanType = await resolveLookup('LoanType', loan.loanType);
+                    if (loan.bank) loan.bank = await resolveLookup('Bank', loan.bank);
+                }
+            }
+            if (Array.isArray(doc.socialMedia)) {
+                for (const sm of doc.socialMedia) {
+                    if (sm.platform) sm.platform = await resolveLookup('SocialPlatform', sm.platform);
+                }
+            }
+            if (Array.isArray(doc.incomes)) {
+                for (const inc of doc.incomes) {
+                    if (inc.incomeType) inc.incomeType = await resolveLookup('IncomeType', inc.incomeType);
+                }
+            }
+            if (Array.isArray(doc.documents)) {
+                for (const docItem of doc.documents) {
+                    if (docItem.documentCategory) docItem.documentCategory = await resolveLookup('Document-Category', docItem.documentCategory);
+                    if (docItem.documentType) docItem.documentType = await resolveLookup('Document-Type', docItem.documentType);
+                    if (docItem.documentName) docItem.documentName = await resolveLookup('Document-Type', docItem.documentName);
+                }
+            }
+        };
+
+        await resolveAllReferenceFields(updateData);
 
         const contact = await Contact.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found" });
@@ -184,6 +331,14 @@ import Lookup from "../models/Lookup.js";
 // Helper to resolve lookup (Find or Create)
 const resolveLookup = async (type, value) => {
     if (!value) return null;
+
+    // Handle populated object case
+    if (typeof value === 'object' && value._id) {
+        if (mongoose.Types.ObjectId.isValid(value._id)) return value._id;
+    }
+
+    if (mongoose.Types.ObjectId.isValid(value)) return value;
+
     let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: value });
     if (!lookup) {
         lookup = await Lookup.create({ lookup_type: type, lookup_value: value });

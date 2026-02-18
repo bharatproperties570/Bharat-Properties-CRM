@@ -126,12 +126,11 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const getUserName = useCallback((userValue) => {
     if (!userValue) return "Admin";
     if (typeof userValue === 'object') {
-      return userValue.name || userValue.lookup_value || "Admin";
+      return userValue.fullName || userValue.name || userValue.lookup_value || userValue.username || "Admin";
     }
     const found = users.find(u => (u._id === userValue) || (u.id === userValue));
-    return found ? (found.name || found.displayName || found.username) : userValue;
+    return found ? (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username))) : userValue;
   }, [users]);
-  console.log(contacts);
 
   // ==============delete contact======================
 
@@ -955,7 +954,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             >
                               {item?.personalAddress ? (
                                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                  <div>{`${item.personalAddress?.hNo || ""}, ${item.personalAddress?.street || ""}, ${item.personalAddress?.location?.lookup_value || item.personalAddress?.location || ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}</div>
+                                  <div>{`${item.personalAddress?.hNo || ""}, ${item.personalAddress?.street || ""}, ${item.personalAddress?.location?.lookup_value || (typeof item.personalAddress?.location === 'string' ? item.personalAddress.location : "")}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}</div>
                                   <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
                                     {`${item.personalAddress?.area || ""}, ${item.personalAddress?.city?.lookup_value || item.personalAddress?.city || ""}, ${item.personalAddress?.state?.lookup_value || item.personalAddress?.state || ""} ${item.personalAddress?.pinCode || ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}
                                   </div>
@@ -1046,7 +1045,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                   fontSize: "0.6rem",
                                 }}
                               ></i>
-                              {item?.campaign?.lookup_value || item?.campaign ? `${item.campaign?.lookup_value || item.campaign} • ` : ""}{item?.source?.lookup_value || item?.source || "N/A"}
+                              {item?.campaign?.lookup_value || (typeof item?.campaign === 'string' ? item.campaign : "") ? `${item?.campaign?.lookup_value || item.campaign} • ` : ""}{item?.source?.lookup_value || (typeof item?.source === 'string' ? item.source : "N/A")}
                             </span>
                             {item?.tags && item?.tags?.length > 0 && (
                               <div
@@ -1413,8 +1412,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                         >
                           {(
                             item?.professionCategory?.lookup_value ||
-                            item?.professional?.lookup_value ||
-                            "N/A"
+                            (typeof item?.professionCategory === 'string' ? item.professionCategory :
+                              item?.professional?.lookup_value || "N/A")
                           ).toUpperCase()}
                         </span>
                         <div
@@ -1425,7 +1424,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             marginBottom: "3px",
                           }}
                         >
-                          {item?.designation?.lookup_value || item?.designation || "-"}
+                          {item?.designation?.lookup_value || (typeof item?.designation === 'string' ? item.designation : "-")}
                         </div>
                         <div
                           style={{
@@ -1501,7 +1500,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             }}
                           >
                             {item?.personalAddress?.city
-                              ? `${item.personalAddress?.city?.lookup_value || item.personalAddress?.city || ''}, ${item.personalAddress?.state?.lookup_value || item.personalAddress?.state || ''}`
+                              ? `${item.personalAddress?.city?.lookup_value || (typeof item.personalAddress?.city === 'string' ? item.personalAddress.city : '')}, ${item.personalAddress?.state?.lookup_value || (typeof item.personalAddress?.state === 'string' ? item.personalAddress.state : '')}`
                               : item?.address || "Address not listed"}
                           </div>
                         </div>
@@ -1544,7 +1543,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             className="fas fa-tag"
                             style={{ fontSize: "0.6rem" }}
                           ></i>
-                          {item?.source?.lookup_value || item?.source || "N/A"}
+                          {item?.source?.lookup_value || (typeof item?.source === 'string' ? item.source : "N/A")}
                         </span>
                       </div>
 
@@ -1923,20 +1922,24 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
         isOpen={isAssignModalOpen}
         onClose={() => setIsAssignModalOpen(false)}
         selectedContacts={selectedContactsForAssign}
-        onAssign={(assignmentDetails) => {
-          console.log("Assignment Details:", assignmentDetails);
-          // Update local state to reflect assignment
-          setContacts((prev) =>
-            prev.map((c) => {
-              const contactId = c.id || c.mobile;
-              if (assignmentDetails.contacts.includes(contactId)) {
-                return { ...c, ownership: "Assigned User" };
-              }
-              return c;
-            }),
-          );
+        onAssign={async (assignmentDetails) => {
+          try {
+            toast.loading("Assigning contacts...");
+            // Use the array of selected contact objects
+            const promises = selectedContactsForAssign.map(contact =>
+              api.put(`contacts/${contact._id}`, { owner: assignmentDetails.assignedTo })
+            );
+            await Promise.all(promises);
+            toast.dismiss();
+            toast.success(`${selectedContactsForAssign.length} contact(s) assigned successfully`);
+            fetchContacts(); // Refresh the list
+          } catch (error) {
+            toast.dismiss();
+            toast.error("Failed to assign contacts");
+            console.error("Assignment error:", error);
+          }
           setIsAssignModalOpen(false);
-          setSelectedIds([]); // Clear selection after assignment
+          setSelectedIds([]); // Clear selection
         }}
       />
 

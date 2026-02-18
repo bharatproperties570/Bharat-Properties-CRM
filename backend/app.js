@@ -30,7 +30,11 @@ app.use(express.json({ limit: "10mb" }));
 // Concise Request Logger for Performance
 app.use((req, res, next) => {
     if (process.env.NODE_ENV !== 'production') {
-        console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url.split('?')[0]}`);
+        try {
+            console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url.split('?')[0]}`);
+        } catch (err) {
+            // Silently ignore logging errors to prevent server crash (e.g. EPIPE)
+        }
     }
     next();
 });
@@ -62,10 +66,18 @@ import path from 'path';
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {
-    console.error(err.stack);
+    try {
+        console.error(err.stack);
+    } catch (logErr) {
+        // Ignore logging errors
+    }
     const logPath = path.join(process.cwd(), 'error.log');
     const logMessage = `[${new Date().toISOString()}] ${req.method} ${req.url}\n${err.stack}\n\n`;
-    fs.appendFileSync(logPath, logMessage);
+    try {
+        fs.appendFileSync(logPath, logMessage);
+    } catch (fsErr) {
+        // Ignore file system errors
+    }
     res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
 });
 

@@ -29,9 +29,9 @@ export const normalizeCandidate = (item) => ({
     ...item,
     _normalizedPrice: parsePrice(item.price),
     _normalizedSize: parseSizeSqYard(item.size),
-    _lowerLocation: (item.location?.lookup_value || item.location || '').toLowerCase(),
-    _lowerProject: (item.projectName || item.project?.name || '').toLowerCase(),
-    _lowerType: (item.propertyType?.lookup_value || item.propertyType || item.type?.lookup_value || item.type || '').toLowerCase()
+    _lowerLocation: (item.location?.lookup_value || (typeof item.location === 'string' ? item.location : "")).toLowerCase(),
+    _lowerProject: (item.projectName || item.project?.name || (typeof item.project === 'string' ? item.project : "")).toLowerCase(),
+    _lowerType: (item.propertyType?.lookup_value || (typeof item.propertyType === 'string' ? item.propertyType : "") || item.type?.lookup_value || (typeof item.type === 'string' ? item.type : "")).toLowerCase()
 });
 
 export const calculateMatch = (lead, leadContext, weights, options = { includeNearby: true, minMatchScore: 20 }, candidates = []) => {
@@ -77,8 +77,8 @@ export const calculateMatch = (lead, leadContext, weights, options = { includeNe
             details.type = 'partial';
             gaps.push(`${item.propertyType?.lookup_value || item.propertyType || item.type} (Type Flex)`);
         } else {
-            const itemTypeName = item.propertyType?.lookup_value || item.propertyType || item.type?.lookup_value || item.type;
-            const leadTypeName = lead.req?.type?.lookup_value || lead.req?.type;
+            const itemTypeName = item.propertyType?.lookup_value || (typeof item.propertyType === 'string' ? item.propertyType : "") || item.type?.lookup_value || (typeof item.type === 'string' ? item.type : "Property");
+            const leadTypeName = lead.requirement?.lookup_value || (typeof lead.requirement === 'string' ? lead.requirement : "Property") || lead.req?.type;
             gaps.push(`${itemTypeName} vs ${leadTypeName}`);
         }
 

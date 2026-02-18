@@ -30,8 +30,9 @@ const ProjectSchema = new mongoose.Schema({
     approvedBank: String,
 
     // System Details
-    assign: [String],
-    team: [String],
+    owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    assign: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    team: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
     visibleTo: String,
 
     // Location

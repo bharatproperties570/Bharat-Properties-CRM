@@ -1,8 +1,14 @@
 import Project from "../models/Project.js";
 
+const projectPopulateFields = [
+    { path: 'owner', select: 'fullName email name' },
+    { path: 'assign', select: 'fullName email name' },
+    { path: 'team', select: 'name lookup_value' }
+];
+
 export const getProjects = async (req, res) => {
     try {
-        const projects = await Project.find().lean();
+        const projects = await Project.find().populate(projectPopulateFields).lean();
         res.json({ success: true, data: projects });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -11,7 +17,7 @@ export const getProjects = async (req, res) => {
 
 export const getProjectById = async (req, res) => {
     try {
-        const project = await Project.findById(req.params.id).lean();
+        const project = await Project.findById(req.params.id).populate(projectPopulateFields).lean();
         if (!project) return res.status(404).json({ success: false, error: "Project not found" });
         res.json({ success: true, data: project });
     } catch (error) {
@@ -21,7 +27,8 @@ export const getProjectById = async (req, res) => {
 
 export const addProject = async (req, res) => {
     try {
-        const project = await Project.create(req.body);
+        let project = await Project.create(req.body);
+        project = await Project.findById(project._id).populate(projectPopulateFields);
         res.json({ success: true, data: project });
     } catch (error) {
         if (error.code === 11000) {
@@ -37,7 +44,7 @@ export const addProject = async (req, res) => {
 
 export const updateProject = async (req, res) => {
     try {
-        const project = await Project.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        const project = await Project.findByIdAndUpdate(req.params.id, req.body, { new: true }).populate(projectPopulateFields);
         if (!project) return res.status(404).json({ success: false, error: "Project not found" });
         res.json({ success: true, data: project });
     } catch (error) {

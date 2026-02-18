@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
 import Company from "../models/Company.js";
+import User from "../models/User.js";
+import Lookup from "../models/Lookup.js";
 import { paginate } from "../utils/pagination.js";
 import { createCompanySchema, updateCompanySchema } from "../validations/company.validation.js";
 
@@ -8,7 +10,7 @@ const populateFields = [
     { path: 'industry', select: 'lookup_value' },
     { path: 'source', select: 'lookup_value' },
     { path: 'subSource', select: 'lookup_value' },
-    { path: 'owner', select: 'name email' },
+    { path: 'owner', select: 'fullName email name' },
     { path: 'addresses.registeredOffice.country', select: 'lookup_value' },
     { path: 'addresses.registeredOffice.state', select: 'lookup_value' },
     { path: 'addresses.registeredOffice.city', select: 'lookup_value' },
@@ -41,6 +43,87 @@ const populateFields = [
     { path: 'addresses.siteOffice.location', select: 'lookup_value' },
     { path: 'employees', select: 'name surname phones emails' }
 ];
+
+// Helper to resolve string lookups or populated objects to ObjectIds
+const resolveLookup = async (type, value) => {
+    if (!value) return null;
+
+    // If already a valid ObjectId (as string or object)
+    if (mongoose.Types.ObjectId.isValid(value)) return value;
+    if (typeof value === 'object' && value._id && mongoose.Types.ObjectId.isValid(value._id)) return value._id;
+
+    // If it's a value/name string, find or create
+    const lookupValue = typeof value === 'object' ? (value.lookup_value || value.name) : value;
+    if (!lookupValue || lookupValue === 'N/A') return null;
+
+    let lookup = await Lookup.findOne({
+        lookup_type: type,
+        lookup_value: { $regex: new RegExp(`^${lookupValue}$`, 'i') }
+    });
+
+    if (!lookup) {
+        console.log(`[NEW LOOKUP] Creating ${type}: ${lookupValue}`);
+        lookup = await Lookup.create({
+            lookup_type: type,
+            lookup_value: lookupValue,
+            status: 'Active'
+        });
+    }
+    return lookup._id;
+};
+
+// Helper to resolve User by ID, name or email
+const resolveUser = async (idOrName) => {
+    if (!idOrName) return null;
+    if (mongoose.Types.ObjectId.isValid(idOrName)) return idOrName;
+    if (typeof idOrName === 'object' && idOrName._id && mongoose.Types.ObjectId.isValid(idOrName._id)) return idOrName._id;
+
+    const identifier = typeof idOrName === 'object' ? (idOrName.fullName || idOrName.name || idOrName.email) : idOrName;
+    if (!identifier) return null;
+
+    const user = await User.findOne({
+        $or: [
+            { fullName: identifier },
+            { name: identifier },
+            { email: identifier },
+            { username: identifier }
+        ]
+    });
+    return user ? user._id : null;
+};
+
+// Exhaustive resolution for ALL reference fields
+const resolveAllReferenceFields = async (doc) => {
+    if (!doc) return;
+
+    if (doc.companyType) doc.companyType = await resolveLookup('Company Type', doc.companyType);
+    if (doc.industry) doc.industry = await resolveLookup('Industry', doc.industry);
+    if (doc.source) doc.source = await resolveLookup('Source', doc.source);
+    if (doc.subSource) doc.subSource = await resolveLookup('SubSource', doc.subSource);
+    if (doc.owner) doc.owner = await resolveUser(doc.owner);
+
+    const resolveAddress = async (addr) => {
+        if (!addr) return;
+        if (addr.country) addr.country = await resolveLookup('Country', addr.country);
+        if (addr.state) addr.state = await resolveLookup('State', addr.state);
+        if (addr.city) addr.city = await resolveLookup('City', addr.city);
+        if (addr.tehsil) addr.tehsil = await resolveLookup('Tehsil', addr.tehsil);
+        if (addr.postOffice) addr.postOffice = await resolveLookup('Post Office', addr.postOffice);
+        if (addr.location) addr.location = await resolveLookup('Location', addr.location);
+    };
+
+    if (doc.addresses) {
+        await resolveAddress(doc.addresses.registeredOffice);
+        await resolveAddress(doc.addresses.corporateOffice);
+        await resolveAddress(doc.addresses.headOffice);
+        if (Array.isArray(doc.addresses.branchOffice)) {
+            for (const addr of doc.addresses.branchOffice) await resolveAddress(addr);
+        }
+        if (Array.isArray(doc.addresses.siteOffice)) {
+            for (const addr of doc.addresses.siteOffice) await resolveAddress(addr);
+        }
+    }
+};
 
 const sanitizeData = (data) => {
     const isValidId = (id) => id && mongoose.Types.ObjectId.isValid(id);
@@ -106,7 +189,10 @@ export const addCompany = async (req, res, next) => {
         const { error } = createCompanySchema.validate(req.body);
         if (error) return res.status(400).json({ success: false, error: error.details[0].message });
 
-        const sanitized = sanitizeData(req.body);
+        const data = { ...req.body };
+        await resolveAllReferenceFields(data);
+
+        const sanitized = sanitizeData(data);
         const company = await Company.create(sanitized);
         res.status(201).json({ success: true, data: company });
     } catch (error) {
@@ -119,7 +205,10 @@ export const updateCompany = async (req, res, next) => {
         const { error } = updateCompanySchema.validate(req.body);
         if (error) return res.status(400).json({ success: false, error: error.details[0].message });
 
-        const sanitized = sanitizeData(req.body);
+        const data = { ...req.body };
+        await resolveAllReferenceFields(data);
+
+        const sanitized = sanitizeData(data);
         const company = await Company.findByIdAndUpdate(req.params.id, sanitized, { new: true });
         if (!company) return res.status(404).json({ success: false, error: "Company not found" });
         res.json({ success: true, data: company });

@@ -35,7 +35,20 @@ export const getDeals = async (req, res) => {
         if (projectId) query.projectId = projectId;
         if (inventoryId) query.inventoryId = inventoryId;
 
-        const populateFields = "inventoryId projectId unitType propertyType location intent status dealType transactionType source owner associatedContact assignedTo partyStructure.buyer partyStructure.channelPartner partyStructure.internalRM";
+        const populateFields = [
+            { path: 'inventoryId' },
+            { path: 'projectId' },
+            { path: 'owner', select: 'name phone email' },
+            { path: 'associatedContact', select: 'name phone email' },
+            { path: 'assignedTo', select: 'fullName name email' },
+            { path: 'partyStructure.buyer', select: 'name phone email' },
+            { path: 'partyStructure.channelPartner', select: 'name phone email' },
+            { path: 'partyStructure.internalRM', select: 'fullName name email' },
+            { path: 'category', select: 'lookup_value' },
+            { path: 'subCategory', select: 'lookup_value' },
+            { path: 'intent', select: 'lookup_value' },
+            { path: 'status', select: 'lookup_value' }
+        ];
         const results = await paginate(Deal, query, Number(page), Number(limit), { createdAt: -1 }, populateFields);
 
         // Fetch latest activities for owners and associates

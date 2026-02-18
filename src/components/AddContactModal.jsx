@@ -9,7 +9,6 @@ import { useContactConfig } from "../context/ContactConfigContext";
 import { useFieldRules } from "../context/FieldRulesContext";
 import AddressDetailsForm from "./common/AddressDetailsForm";
 import { PROJECTS_LIST, PROJECT_DATA, CITIES } from "../data/projectData";
-import { companyData } from "../data/companyData";
 import { fetchLookup } from "../utils/fetchLookup";
 import { useUserContext } from '../context/UserContext';
 
@@ -649,11 +648,26 @@ const AddContactModal = ({
   const [showOnlyRequired, setShowOnlyRequired] = useState(false);
 
   // Company Logic
-  const [companyList, setCompanyList] = useState(
-    companyData.map((c) => c.name),
-  );
+  const [allCompanies, setAllCompanies] = useState([]);
+  const [companyList, setCompanyList] = useState([]);
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
   const [companySearch, setCompanySearch] = useState("");
+
+  useEffect(() => {
+    const fetchCompanies = async () => {
+      try {
+        const response = await api.get('companies?limit=1000');
+        if (response.data && response.data.success) {
+          const companies = response.data.records || [];
+          setAllCompanies(companies);
+          setCompanyList(companies.map((c) => c.name));
+        }
+      } catch (error) {
+        console.error("Error fetching companies:", error);
+      }
+    };
+    fetchCompanies();
+  }, []);
 
 
 
@@ -979,7 +993,7 @@ const AddContactModal = ({
   }, [isOpen, initialData?._id]);
 
   // Derived Data for Professional Details
-  const selectedCompanyData = companyData.find(
+  const selectedCompanyData = allCompanies.find(
     (c) => c.name === formData.company,
   );
   const hasMultipleOffices = selectedCompanyData?.offices?.length > 1;
@@ -2595,7 +2609,7 @@ const AddContactModal = ({
                       }}
                     >
                       {(() => {
-                        const selectedCompanyObj = companyData.find(
+                        const selectedCompanyObj = allCompanies.find(
                           (c) => c.name === formData.company,
                         );
                         const branchOffices =

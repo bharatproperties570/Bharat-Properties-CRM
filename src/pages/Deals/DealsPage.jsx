@@ -19,7 +19,7 @@ import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
 import { formatIndianCurrency, numberToIndianWords } from '../../utils/numberToWords';
 
 function DealsPage({ onNavigate, onAddActivity }) {
-    const { teams } = useUserContext();
+    const { teams, users } = useUserContext();
     const { startCall } = useCall();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
@@ -71,6 +71,15 @@ function DealsPage({ onNavigate, onAddActivity }) {
         const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
         return found ? (found.name || found.lookup_value) : teamValue;
     }, [teams]);
+
+    const getUserName = useCallback((ownerValue) => {
+        if (!ownerValue) return "Admin";
+        if (typeof ownerValue === 'object') {
+            return ownerValue.fullName || ownerValue.name || ownerValue.lookup_value || "Admin";
+        }
+        const found = users.find(u => (u._id === ownerValue) || (u.id === ownerValue));
+        return found ? (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username))) : ownerValue;
+    }, [users]);
 
     useEffect(() => {
         fetchDeals();
@@ -704,11 +713,11 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                     <div className="col-assignment" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                             <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
-                                                {getInitials(deal.assignedTo?.name || deal.assigned || 'Admin')}
+                                                {getInitials(getUserName(deal.assignedTo || deal.assigned))}
                                             </div>
                                             <div style={{ lineHeight: 1.2 }}>
                                                 <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>
-                                                    {deal.assignedTo?.name || deal.assigned || 'Admin'}
+                                                    {getUserName(deal.assignedTo || deal.assigned)}
                                                 </div>
                                                 <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
                                                     {getTeamName(deal.team || deal.assignment?.team)}

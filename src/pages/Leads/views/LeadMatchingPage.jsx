@@ -80,13 +80,20 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             lead.name = lead.firstName ? `${lead.salutation || ""} ${lead.firstName} ${lead.lastName || ""}`.trim() : (lead.name || "Unknown");
         }
 
-        const baseBudget = parseBudget(lead.budget);
+        const requirementVal = lead.requirement?.lookup_value || (typeof lead.requirement === 'string' ? lead.requirement : "");
+        const locationVal = lead.location?.lookup_value || (typeof lead.location === 'string' ? lead.location : "");
+        const budgetVal = lead.budget?.lookup_value || (typeof lead.budget === 'string' ? lead.budget : "") || (lead.budgetMin || lead.budgetMax ? `₹${lead.budgetMin} - ₹${lead.budgetMax}` : "");
+        const sizeVal = lead.req?.size || `${lead.areaMin || ""}-${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim();
+
+        const baseBudget = parseBudget(budgetVal);
+        const leadSize = parseSizeSqYard(sizeVal);
+
         return {
             baseBudget,
-            leadSize: lead.req?.size ? parseSizeSqYard(lead.req.size) : 0,
-            leadType: lead.req?.type ? lead.req.type.toLowerCase() : '',
-            leadLocation: lead.location ? lead.location.toLowerCase() : '',
-            leadLocationSectors: (lead.location ? lead.location.toLowerCase() : '').split(',').map(s => s.trim()).filter(Boolean)
+            leadSize,
+            leadType: requirementVal.toLowerCase(),
+            leadLocation: locationVal.toLowerCase(),
+            leadLocationSectors: locationVal.toLowerCase().split(',').map(s => s.trim()).filter(Boolean)
         };
     }, [lead]);
 

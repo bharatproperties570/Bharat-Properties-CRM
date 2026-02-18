@@ -700,6 +700,9 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     // Auto-fill from initialData (Edit Mode)
     useEffect(() => {
         if (mode === 'edit' && initialData) {
+            const normalizeId = (val) => (val && typeof val === 'object') ? (val._id || val.id) : val;
+            const normalizeArray = (arr) => Array.isArray(arr) ? arr.map(normalizeId).filter(Boolean) : (arr ? [normalizeId(arr)].filter(Boolean) : []);
+
             setFormData(prev => ({
                 ...prev,
                 ...initialData,
@@ -708,13 +711,21 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 surname: initialData.lastName || initialData.surname || '',
                 phones: initialData.phones && initialData.phones.length > 0 ? initialData.phones : prev.phones,
                 emails: initialData.emails && initialData.emails.length > 0 ? initialData.emails : prev.emails,
-                team: initialData.team ? (initialData.team._id || initialData.team.id || initialData.team) : prev.team,
-                owner: initialData.owner ? (initialData.owner._id || initialData.owner.id || initialData.owner) : prev.owner,
+                team: normalizeId(initialData.team) || prev.team,
+                owner: normalizeId(initialData.owner) || prev.owner,
                 visibleTo: initialData.visibleTo || prev.visibleTo,
-                requirement: initialData.requirement || prev.requirement,
-                propertyType: Array.isArray(initialData.propertyType) ? initialData.propertyType : (initialData.propertyType ? [initialData.propertyType] : prev.propertyType),
-                subType: Array.isArray(initialData.subType) ? initialData.subType : (initialData.subType ? [initialData.subType] : prev.subType),
-                unitType: Array.isArray(initialData.unitType) ? initialData.unitType : (initialData.unitType ? [initialData.unitType] : prev.unitType),
+                requirement: normalizeId(initialData.requirement) || prev.requirement,
+                subRequirement: normalizeId(initialData.subRequirement) || prev.subRequirement,
+                location: normalizeId(initialData.location) || prev.location,
+                source: normalizeId(initialData.source) || prev.source,
+                status: normalizeId(initialData.status) || prev.status,
+                budget: normalizeId(initialData.budget) || prev.budget,
+                propertyType: normalizeArray(initialData.propertyType),
+                subType: normalizeArray(initialData.subType),
+                unitType: normalizeArray(initialData.unitType),
+                facing: normalizeArray(initialData.facing),
+                roadWidth: normalizeArray(initialData.roadWidth),
+                direction: normalizeArray(initialData.direction),
                 budgetMin: initialData.budgetMin || '',
                 budgetMax: initialData.budgetMax || '',
                 areaMin: initialData.areaMin || '',
@@ -723,8 +734,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 locArea: initialData.locArea || '',
                 searchLocation: initialData.searchLocation || '',
                 description: initialData.description || '',
-                source: initialData.source || prev.source,
-                campaign: initialData.campaign || prev.campaign,
+                campaign: normalizeId(initialData.campaign) || prev.campaign,
             }));
 
             if (initialData.contactDetails && typeof initialData.contactDetails === 'object') {

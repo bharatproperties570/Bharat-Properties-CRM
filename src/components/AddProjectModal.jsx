@@ -535,7 +535,10 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                     ...projectToEdit,
                     blocks: normalizedBlocks,
                     category: normalizedCategory,
-                    subCategory: normalizedSubCategory
+                    subCategory: normalizedSubCategory,
+                    assign: (projectToEdit.assign || []).map(u => typeof u === 'object' ? (u._id || u.id) : u).filter(Boolean),
+                    team: (projectToEdit.team || []).map(t => typeof t === 'object' ? (t._id || t.id) : t).filter(Boolean),
+                    owner: typeof projectToEdit.owner === 'object' ? (projectToEdit.owner._id || projectToEdit.owner.id) : projectToEdit.owner
                 }));
             } else {
                 setFormData(DEFAULT_FORM_DATA);

@@ -13,7 +13,7 @@ import { applyProjectFilters } from '../../utils/projectFilterLogic';
 import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
 
 function ProjectsPage({ onNavigate, onAddProject }) {
-    const { teams } = useUserContext();
+    const { teams, users } = useUserContext();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
 
@@ -34,13 +34,24 @@ function ProjectsPage({ onNavigate, onAddProject }) {
     const [recordsPerPage, setRecordsPerPage] = useState(25);
 
     const getTeamName = useCallback((teamValue) => {
-        if (!teamValue) return "General Team";
-        if (typeof teamValue === 'object') {
-            return teamValue.name || teamValue.lookup_value || "General Team";
+        const value = Array.isArray(teamValue) ? teamValue[0] : teamValue;
+        if (!value) return "General Team";
+        if (typeof value === 'object') {
+            return value.name || value.lookup_value || "General Team";
         }
-        const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
-        return found ? (found.name || found.lookup_value) : teamValue;
+        const found = teams.find(t => (t._id === value) || (t.id === value));
+        return found ? (found.name || found.lookup_value) : value;
     }, [teams]);
+
+    const getUserName = useCallback((ownerValue) => {
+        const value = Array.isArray(ownerValue) ? ownerValue[0] : ownerValue;
+        if (!value) return "Admin";
+        if (typeof value === 'object') {
+            return value.fullName || value.name || value.lookup_value || "Admin";
+        }
+        const found = users.find(u => (u._id === value) || (u.id === value));
+        return found ? (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username))) : value;
+    }, [users]);
 
     useEffect(() => {
         fetchProjects();
@@ -641,10 +652,10 @@ function ProjectsPage({ onNavigate, onAddProject }) {
                                             <div className="col-assignment">
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                                     <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
-                                                        {getInitials(project.owner?.name || project.owner || 'Admin')}
+                                                        {getInitials(getUserName(project.owner))}
                                                     </div>
                                                     <div style={{ lineHeight: 1.2 }}>
-                                                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{project.owner?.name || project.owner || 'Admin'}</div>
+                                                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{getUserName(project.owner)}</div>
                                                         <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{getTeamName(project.team || project.assignment?.team)}</div>
                                                         <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginTop: '2px' }}>
                                                             <i className="far fa-clock" style={{ fontSize: '0.6rem', marginRight: '4px' }}></i>

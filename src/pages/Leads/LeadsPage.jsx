@@ -85,17 +85,21 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         if (typeof teamValue === 'object') {
             return teamValue.name || teamValue.lookup_value || "General Team";
         }
-        const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
+        // Check if teams is an array (it might be {success: true, data: []})
+        const teamArray = Array.isArray(teams) ? teams : (teams?.data || []);
+        const found = teamArray.find(t => (t._id === teamValue) || (t.id === teamValue));
         return found ? (found.name || found.lookup_value) : teamValue;
     }, [teams]);
 
     const getUserName = useCallback((userValue) => {
         if (!userValue) return "Admin";
         if (typeof userValue === 'object') {
-            return userValue.name || userValue.lookup_value || "Admin";
+            return userValue.fullName || userValue.name || userValue.lookup_value || userValue.username || "Admin";
         }
-        const found = users.find(u => (u._id === userValue) || (u.id === userValue));
-        return found ? (found.name || found.displayName || found.username) : userValue;
+        // Check if users is an array
+        const userArray = Array.isArray(users) ? users : (users?.data || []);
+        const found = userArray.find(u => (u._id === userValue) || (u.id === userValue));
+        return found ? (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username))) : userValue;
     }, [users]);
 
     // Modals State
@@ -192,30 +196,30 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                         // ===== REQUIREMENT =====
                         reqDisplay: {
-                            type: lead.requirement?.lookup_value || (typeof lead.requirement === 'string' ? lead.requirement : ""),
-                            subType: Array.isArray(lead.subRequirement)
-                                ? lead.subRequirement.map(s => s.lookup_value || (typeof s === 'string' ? s : "")).filter(Boolean).join(", ")
-                                : (lead.subRequirement?.lookup_value || (typeof lead.subRequirement === 'string' ? lead.subRequirement : "")),
+                            type: lead.requirement?.lookup_value || (typeof lead.requirement === 'string' && lead.requirement.length !== 24 ? lead.requirement : "Any"),
+                            subType: (lead.subRequirement?.lookup_value || (typeof lead.subRequirement === 'string' && lead.subRequirement.length !== 24 ? lead.subRequirement : "")) ||
+                                (Array.isArray(lead.subType) ? lead.subType.map(s => s.lookup_value || s).join(", ") : (lead.subType || "")) ||
+                                (Array.isArray(lead.propertyType) ? lead.propertyType.map(p => p.lookup_value || p).join(", ") : (lead.propertyType || "")),
                             size: `${lead.areaMin || ""}${lead.areaMin && lead.areaMax ? "-" : ""}${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
                         },
 
                         // ===== BUDGET =====
-                        budget: lead.budget?.lookup_value || (typeof lead.budget === 'string' ? lead.budget : "") || (lead.budgetMin || lead.budgetMax
+                        budget: lead.budget?.lookup_value || (typeof lead.budget === 'string' && lead.budget.length !== 24 ? lead.budget : "") || (lead.budgetMin || lead.budgetMax
                             ? `₹${Number(lead.budgetMin || 0).toLocaleString()} - ₹${Number(lead.budgetMax || 0).toLocaleString()}`
                             : "—"),
 
                         // ===== LOCATION =====
-                        location: lead.location?.lookup_value || (typeof lead.location === 'string' ? lead.location : "") || [
-                            lead.project?.name || lead.projectName,
+                        location: (lead.location?.lookup_value || (typeof lead.location === 'string' && lead.location.length !== 24 ? lead.location : "")) || [
+                            lead.project?.name || (Array.isArray(lead.projectName) ? lead.projectName.join(", ") : lead.projectName),
                             Array.isArray(lead.locBlock) ? lead.locBlock.join(", ") : lead.locBlock,
                             lead.locArea,
                             lead.locCity
-                        ].filter(Boolean).map(s => s?.toString().trim()).filter(s => s && s.length > 0).join(", "),
+                        ].filter(Boolean).map(s => s?.toString().trim()).filter(s => s && s.length > 0).join(", ") || (typeof lead.searchLocation === 'string' && lead.searchLocation.length !== 24 ? lead.searchLocation : "") || "—",
 
                         // ===== SOURCE & ASSIGNMENT =====
-                        source: lead.source?.lookup_value || (typeof lead.source === 'string' ? lead.source : "") || contact.source || "Direct",
-                        owner: lead.owner?.fullName || lead.owner?.email || lead.owner || contact.owner || (lead.assignment?.assignedTo) || "Unassigned",
-                        rawOwner: lead.owner?._id || lead.owner?.id || lead.owner || contact.owner || lead.assignment?.assignedTo,
+                        source: lead.source?.lookup_value || (typeof lead.source === 'string' && lead.source.length !== 24 ? lead.source : "") || contact.source || "Direct",
+                        owner: lead.assignment?.assignedTo?.fullName || lead.owner?.fullName || lead.owner?.email || lead.owner || contact.owner || "Unassigned",
+                        rawOwner: lead.assignment?.assignedTo?._id || lead.owner?._id || lead.owner?.id || lead.owner || contact.owner,
                         team: contact.team || lead.assignment?.team || "",
 
                         // ===== STATUS =====
@@ -1046,10 +1050,29 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 onClose={() => setIsAssignModalOpen(false)}
                 selectedContacts={selectedLeadsForAssign}
                 entityName="Lead"
-                onAssign={(assignmentDetails) => {
-                    console.log('Assignment Details:', assignmentDetails);
-                    setIsAssignModalOpen(false);
-                    setSelectedIds([]);
+                onAssign={async (assignmentDetails) => {
+                    if (!selectedLeadsForAssign.length) return;
+                    try {
+                        toast.loading(`Assigning ${selectedLeadsForAssign.length} lead(s)...`);
+                        const promises = selectedLeadsForAssign.map(lead =>
+                            api.put(`leads/${lead._id}`, {
+                                owner: assignmentDetails.assignedTo,
+                                assignment: {
+                                    assignedTo: assignmentDetails.assignedTo,
+                                    team: assignmentDetails.team,
+                                    method: 'Manual'
+                                }
+                            })
+                        );
+                        await Promise.all(promises);
+                        toast.success(`${selectedLeadsForAssign.length} lead(s) assigned successfully`);
+                        setRefreshTrigger(prev => prev + 1);
+                        setIsAssignModalOpen(false);
+                        setSelectedIds([]);
+                    } catch (error) {
+                        console.error("Error assigning leads:", error);
+                        toast.error("Failed to assign leads");
+                    }
                 }}
             />
 

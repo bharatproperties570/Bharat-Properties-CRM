@@ -24,11 +24,79 @@ const resolveUser = async (identifier) => {
     const user = await User.findOne({
         $or: [
             { fullName: { $regex: new RegExp(`^${identifier}$`, 'i') } },
-            { email: identifier.toLowerCase() }
+            { email: identifier.toLowerCase() },
+            { name: { $regex: new RegExp(`^${identifier}$`, 'i') } }
         ]
     });
     return user ? user._id : null;
 };
+
+// Resolve All Reference Fields for Lead
+const resolveAllReferenceFields = async (doc) => {
+    if (doc.requirement) doc.requirement = await resolveLookup('Requirement', doc.requirement);
+    if (doc.subRequirement) doc.subRequirement = await resolveLookup('Sub Requirement', doc.subRequirement);
+    if (doc.budget) doc.budget = await resolveLookup('Budget', doc.budget);
+    if (doc.location) doc.location = await resolveLookup('Location', doc.location);
+    if (doc.source) doc.source = await resolveLookup('Source', doc.source);
+    if (doc.status) doc.status = await resolveLookup('Status', doc.status);
+
+    // Handle Arrays (Lookup fields)
+    const arrayLookups = {
+        propertyType: 'Property Type',
+        subType: 'Sub Type',
+        unitType: 'Unit Type',
+        facing: 'Facing',
+        roadWidth: 'Road Width',
+        direction: 'Direction'
+    };
+
+    for (const [field, type] of Object.entries(arrayLookups)) {
+        if (Array.isArray(doc[field])) {
+            doc[field] = await Promise.all(doc[field].map(val => resolveLookup(type, val)));
+        }
+    }
+
+    if (doc.owner) doc.owner = await resolveUser(doc.owner);
+    if (doc.assignment?.assignedTo) doc.assignment.assignedTo = await resolveUser(doc.assignment.assignedTo);
+    if (doc.project) {
+        // Assume doc.project is name if not valid ID
+        if (!mongoose.Types.ObjectId.isValid(doc.project)) {
+            const Project = mongoose.model('Project');
+            const p = await Project.findOne({ name: { $regex: new RegExp(`^${doc.project}$`, 'i') } });
+            if (p) doc.project = p._id;
+        }
+    }
+
+    // Resolve Documents
+    if (Array.isArray(doc.documents)) {
+        for (const docItem of doc.documents) {
+            if (docItem.documentCategory) docItem.documentCategory = await resolveLookup('Document Category', docItem.documentCategory);
+            if (docItem.documentName) docItem.documentName = await resolveLookup('Document Name', docItem.documentName);
+            if (docItem.documentType) docItem.documentType = await resolveLookup('Document Type', docItem.documentType);
+        }
+    }
+    return doc;
+};
+
+const leadPopulateFields = [
+    { path: 'requirement', select: 'lookup_value' },
+    { path: 'subRequirement', select: 'lookup_value' },
+    { path: 'budget', select: 'lookup_value' },
+    { path: 'location', select: 'lookup_value' },
+    { path: 'source', select: 'lookup_value' },
+    { path: 'status', select: 'lookup_value' },
+    { path: 'propertyType', select: 'lookup_value' },
+    { path: 'subType', select: 'lookup_value' },
+    { path: 'unitType', select: 'lookup_value' },
+    { path: 'facing', select: 'lookup_value' },
+    { path: 'roadWidth', select: 'lookup_value' },
+    { path: 'direction', select: 'lookup_value' },
+    { path: 'owner', select: 'fullName email name' },
+    { path: 'assignment.assignedTo', select: 'fullName email name' },
+    { path: 'documents.documentCategory', select: 'lookup_value' },
+    { path: 'documents.documentName', select: 'lookup_value' },
+    { path: 'documents.documentType', select: 'lookup_value' }
+];
 
 /**
  * @desc    Get all leads with pagination and search
@@ -39,7 +107,6 @@ export const getLeads = async (req, res, next) => {
     try {
         const { page = 1, limit = 25, search = "" } = req.query;
 
-        console.log(`[DEBUG] getLeads called with page=${page}, limit=${limit}, search=${search}`);
 
         if (process.env.MOCK_MODE === 'true') {
             const results = mockStore.getLeads({}, Number(page), Number(limit));
@@ -60,8 +127,7 @@ export const getLeads = async (req, res, next) => {
             : {};
 
         // Enable population for key fields
-        const populate = "requirement budget location source status owner";
-        const results = await paginate(Lead, query, Number(page), Number(limit), { createdAt: -1 }, populate);
+        const results = await paginate(Lead, query, Number(page), Number(limit), { createdAt: -1 }, leadPopulateFields);
 
         res.status(200).json({
             success: true,
@@ -76,7 +142,10 @@ export const getLeads = async (req, res, next) => {
 // ... Rest of the file remained unchanged but simplified for logging
 export const addLead = async (req, res, next) => {
     try {
-        const lead = await Lead.create(req.body);
+        const data = { ...req.body };
+        await resolveAllReferenceFields(data);
+        const lead = await Lead.create(data);
+        await lead.populate(leadPopulateFields);
         res.status(201).json({ success: true, data: lead });
     } catch (error) {
         next(error);
@@ -85,7 +154,10 @@ export const addLead = async (req, res, next) => {
 
 export const updateLead = async (req, res, next) => {
     try {
-        const lead = await Lead.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        const updateData = { ...req.body };
+        await resolveAllReferenceFields(updateData);
+        const lead = await Lead.findByIdAndUpdate(req.params.id, updateData, { new: true });
+        if (lead) await lead.populate(leadPopulateFields);
         res.json({ success: true, data: lead });
     } catch (error) {
         next(error);
@@ -117,6 +189,9 @@ export const getLeadById = async (req, res, next) => {
         if (!lead) {
             return res.status(404).json({ success: false, message: "Lead not found" });
         }
+
+        // Populate lead before returning
+        await lead.populate(leadPopulateFields);
 
         res.json({ success: true, data: lead });
     } catch (error) {

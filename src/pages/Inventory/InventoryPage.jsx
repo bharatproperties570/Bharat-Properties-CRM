@@ -24,7 +24,7 @@ import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
 import AddDealModal from '../../components/AddDealModal';
 
 export default function InventoryPage({ onNavigate, onAddActivity }) {
-    const { teams } = useUserContext();
+    const { teams, users } = useUserContext();
     const { fireEvent } = useTriggers();
     const { startCall } = useCall();
     const { masterFields } = usePropertyConfig();
@@ -65,6 +65,15 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
         const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
         return found ? (found.name || found.lookup_value) : teamValue;
     }, [teams]);
+
+    const getUserName = useCallback((ownerValue) => {
+        if (!ownerValue) return "Admin";
+        if (typeof ownerValue === 'object') {
+            return ownerValue.name || ownerValue.lookup_value || "Admin";
+        }
+        const found = users.find(u => (u._id === ownerValue) || (u.id === ownerValue));
+        return found ? (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username)) : ownerValue;
+    }, [users]);
 
     const fetchInventory = useCallback(async () => {
         setLoading(true);
@@ -867,7 +876,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'flex-end' }}>
                                                 <div style={{ lineHeight: 1.2, textAlign: 'right' }}>
                                                     <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>
-                                                        {renderValue(item.lastContactUser) || renderValue(item.createdBy) || 'Admin'}
+                                                        {getUserName(item.assignedTo || item.lastContactUser || item.createdBy)}
                                                     </div>
                                                     <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
                                                         {getTeamName(item.team || item.assignment?.team)}
@@ -878,7 +887,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                     </div>
                                                 </div>
                                                 <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
-                                                    {getInitials(renderValue(item.lastContactUser) || renderValue(item.createdBy) || 'Admin')}
+                                                    {getInitials(getUserName(item.assignedTo || item.lastContactUser || item.createdBy))}
                                                 </div>
                                             </div>
                                         </div>

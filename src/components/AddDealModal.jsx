@@ -106,12 +106,16 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
 
     useEffect(() => {
         if (deal && isOpen) {
+            const normalizeId = (val) => (val && typeof val === 'object') ? (val._id || val.id) : val;
+
             // Merge with existing defaults to avoid undefined property crashes
             setFormData(prev => ({
                 ...prev,
                 ...deal,
                 owner: typeof deal.owner === 'object' ? { ...prev.owner, ...deal.owner } : (deal.owner ? { ...prev.owner, _id: deal.owner } : prev.owner),
-                associatedContact: typeof deal.associatedContact === 'object' ? { ...prev.associatedContact, ...deal.associatedContact } : (deal.associatedContact ? { ...prev.associatedContact, _id: deal.associatedContact } : prev.associatedContact)
+                associatedContact: typeof deal.associatedContact === 'object' ? { ...prev.associatedContact, ...deal.associatedContact } : (deal.associatedContact ? { ...prev.associatedContact, _id: deal.associatedContact } : prev.associatedContact),
+                assignedTo: normalizeId(deal.assignedTo) || prev.assignedTo,
+                team: normalizeId(deal.team) || prev.team
             }));
         }
     }, [deal, isOpen]);
