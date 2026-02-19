@@ -2,8 +2,8 @@ import mongoose from "mongoose";
 
 const InventorySchema = new mongoose.Schema({
     // Basic Info
-    category: { type: mongoose.Schema.Types.Mixed, index: true },
-    subCategory: { type: mongoose.Schema.Types.Mixed, index: true },
+    category: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup', index: true },
+    subCategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup', index: true },
     project: String,
     projectId: { type: mongoose.Schema.Types.Mixed, index: true },
 
@@ -12,8 +12,8 @@ const InventorySchema = new mongoose.Schema({
     unitNumber: { type: String },
 
     // Status & Intent
-    intent: { type: mongoose.Schema.Types.Mixed, index: true }, // For Sale, For Rent
-    status: { type: mongoose.Schema.Types.Mixed, index: true }, // Available, Sold, etc.
+    intent: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup', index: true }, // For Sale, For Rent
+    status: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup', index: true }, // Available, Sold, etc.
 
 
     // Pricing
@@ -25,7 +25,7 @@ const InventorySchema = new mongoose.Schema({
     size: mongoose.Schema.Types.Mixed,
     sizeUnit: String,
     floor: { type: mongoose.Schema.Types.Mixed },
-    facing: { type: mongoose.Schema.Types.Mixed },
+    facing: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     roadWidth: String,
 
     builtUpArea: mongoose.Schema.Types.Mixed,

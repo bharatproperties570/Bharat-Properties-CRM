@@ -89,8 +89,6 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) 
 
     // Departments configuration
     const departments = [
-        { id: 'sales', name: 'Sales', icon: '💼' },
-        { id: 'marketing', name: 'Marketing', icon: '📢' },
         { id: 'inventory', name: 'Inventory Management', icon: '🏢' },
         { id: 'accounts', name: 'Accounts', icon: '💰' }
     ];

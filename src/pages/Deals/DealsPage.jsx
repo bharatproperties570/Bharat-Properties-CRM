@@ -17,10 +17,12 @@ import toast from 'react-hot-toast';
 import { api } from "../../utils/api";
 import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
 import { formatIndianCurrency, numberToIndianWords } from '../../utils/numberToWords';
+import { usePropertyConfig } from '../../context/PropertyConfigContext';
 
 function DealsPage({ onNavigate, onAddActivity }) {
     const { teams, users } = useUserContext();
     const { startCall } = useCall();
+    const { getLookupValue } = usePropertyConfig();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
     const [currentView, setCurrentView] = useState('list'); // 'list' or 'map'
@@ -604,8 +606,8 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                         </div>
                                         <div style={{ paddingLeft: '2px' }}>
                                             <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>
-                                                {(deal.category?.lookup_value || deal.category || deal.propertyType?.lookup_value || deal.propertyType || 'N/A')}
-                                                {deal.subCategory ? ` - ${deal.subCategory?.lookup_value || deal.subCategory}` : ''}
+                                                {getLookupValue('Category', deal.category) || getLookupValue('PropertyType', deal.propertyType) || 'N/A'}
+                                                {deal.subCategory ? ` - ${getLookupValue('SubCategory', deal.subCategory)}` : ''}
                                             </div>
                                             <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>
                                                 {deal.size || 'N/A'}
@@ -617,7 +619,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                     <div className="super-cell">
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
                                             <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem' }}></i>
-                                            <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{deal.location?.lookup_value || deal.location}</span>
+                                            <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{getLookupValue('Location', deal.location)}</span>
                                         </div>
                                         {deal.projectName && (
                                             <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px' }}>
@@ -632,7 +634,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
                                     {/* Col 4: Match */}
                                     <div style={{ lineHeight: 1.4, padding: '8px', background: '#f8fafc', borderRadius: '6px' }}>
-                                        <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', marginBottom: '4px' }}>{deal.intent?.lookup_value || deal.intent}</div>
+                                        <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', marginBottom: '4px' }}>{getLookupValue('Intent', deal.intent)}</div>
                                         <div style={{ fontSize: '0.7rem' }}>
                                             <span style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(102, 126, 234, 0.3)' }}>{deal.matched} Matches</span>
                                         </div>
@@ -676,8 +678,8 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
                                     {/* Col 8: Status */}
                                     <div>
-                                        <span className={`status-badge ${(deal.status?.lookup_value || deal.status) === 'Open' ? 'hot' : (deal.status?.lookup_value || deal.status) === 'Quote' ? 'warm' : 'cold'}`} style={{ fontSize: '0.7rem', padding: '4px 10px', borderRadius: '12px', fontWeight: 700 }}>
-                                            {(deal.status?.lookup_value || deal.status || 'Unknown').toUpperCase()}
+                                        <span className={`status-badge ${getLookupValue('Status', deal.status) === 'Open' ? 'hot' : getLookupValue('Status', deal.status) === 'Quote' ? 'warm' : 'cold'}`} style={{ fontSize: '0.7rem', padding: '4px 10px', borderRadius: '12px', fontWeight: 700 }}>
+                                            {(getLookupValue('Status', deal.status) || 'Unknown').toUpperCase()}
                                         </span>
                                     </div>
 

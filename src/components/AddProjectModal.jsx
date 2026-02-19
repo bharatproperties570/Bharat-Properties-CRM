@@ -204,7 +204,13 @@ const DEFAULT_FORM_DATA = {
 };
 
 function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projectToEdit = null }) {
-    const { projectMasterFields: masterFieldsFromContext, projectAmenities, sizes } = usePropertyConfig();
+    const {
+        projectMasterFields: masterFieldsFromContext,
+        projectAmenities,
+        sizes,
+        getLookupId,
+        getLookupValue: getLookupValueFromContext
+    } = usePropertyConfig();
     const { users: contextUsers } = useUserContext();
     const [duplicateWarning, setDuplicateWarning] = useState(false);
     const [isBlocked, setIsBlocked] = useState(false);
@@ -522,11 +528,16 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                 }
 
                 setFormData(prev => ({
-                    ...prev,
                     ...projectToEdit,
+                    category: (projectToEdit.category && projectToEdit.category.length > 0)
+                        ? projectToEdit.category.map(c => getLookupValueFromContext('Category', c))
+                        : normalizedCategory,
+                    subCategory: (projectToEdit.subCategory && projectToEdit.subCategory.length > 0)
+                        ? projectToEdit.subCategory.map(s => getLookupValueFromContext('SubCategory', s))
+                        : normalizedSubCategory,
+                    status: getLookupValueFromContext('ProjectStatus', projectToEdit.status),
+                    parkingType: getLookupValueFromContext('ParkingType', projectToEdit.parkingType),
                     blocks: normalizedBlocks,
-                    category: normalizedCategory,
-                    subCategory: normalizedSubCategory,
                     assign: (projectToEdit.assign || []).map(u => typeof u === 'object' ? (u._id || u.id) : u).filter(Boolean),
                     team: (projectToEdit.team || []).map(t => typeof t === 'object' ? (t._id || t.id) : t).filter(Boolean),
                     owner: typeof projectToEdit.owner === 'object' ? (projectToEdit.owner._id || projectToEdit.owner.id) : projectToEdit.owner
@@ -664,11 +675,20 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
     const handleSave = async () => {
         const toastId = toast.loading(projectToEdit ? 'Updating project...' : 'Creating project...');
         try {
+            // Transform names to IDs for Lookup fields
+            const transformedData = {
+                ...formData,
+                category: formData.category.map(c => getLookupId('Category', c)).filter(Boolean),
+                subCategory: formData.subCategory.map(s => getLookupId('SubCategory', s)).filter(Boolean),
+                status: getLookupId('ProjectStatus', formData.status),
+                parkingType: getLookupId('ParkingType', formData.parkingType)
+            };
+
             let response;
             if (projectToEdit && projectToEdit._id) {
-                response = await api.put(`/projects/${projectToEdit._id}`, formData);
+                response = await api.put(`/projects/${projectToEdit._id}`, transformedData);
             } else {
-                response = await api.post('/projects', formData);
+                response = await api.post('/projects', transformedData);
             }
 
             if (response.data && response.data.success) {

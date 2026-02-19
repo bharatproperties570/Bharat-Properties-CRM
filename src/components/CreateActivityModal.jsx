@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import api, { leadsAPI, contactsAPI, usersAPI } from '../utils/api';
+import { PROJECT_DATA } from '../data/projectData';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useSequences } from '../context/SequenceContext';
 import { useTriggers } from '../context/TriggersContext';

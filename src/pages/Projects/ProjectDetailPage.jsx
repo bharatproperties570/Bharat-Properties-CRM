@@ -4,8 +4,10 @@ import toast from 'react-hot-toast';
 import { formatIndianCurrency } from '../../utils/numberToWords';
 import { renderValue } from '../../utils/renderUtils';
 import Chart from 'react-apexcharts';
+import { usePropertyConfig } from '../../context/PropertyConfigContext';
 
 const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => {
+    const { getLookupValue } = usePropertyConfig();
     const [project, setProject] = useState(null);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('activity');
@@ -149,7 +151,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => 
                                 fontSize: '0.7rem', fontWeight: 800,
                                 textTransform: 'uppercase', border: '1px solid #10b98133'
                             }}>
-                                {project.status || 'Active'}
+                                {getLookupValue('ProjectStatus', project.status) || 'Active'}
                             </span>
                             {project.reraNumber && (
                                 <span style={{
@@ -196,8 +198,8 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => 
                         </div>
                         <div style={{ padding: '24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                                <DetailItem label="Category" value={project.category} />
-                                <DetailItem label="Sub Category" value={project.subCategory} />
+                                <DetailItem label="Category" value={project.category} lookupType="Category" />
+                                <DetailItem label="Sub Category" value={project.subCategory} lookupType="SubCategory" />
                                 <DetailItem
                                     label="Developer"
                                     value={project.developerName}
@@ -210,7 +212,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => 
                                 <DetailItem label="Land Area" value={`${project.landArea || '--'} ${project.landAreaUnit || ''}`} />
                                 <DetailItem label="Total Blocks" value={project.totalBlocks} />
                                 <DetailItem label="Parking Type" value={project.parkingType || 'Covered'} />
-                                <DetailItem label="Current Status" value={project.status} color="#10b981" boldValue />
+                                <DetailItem label="Current Status" value={getLookupValue('ProjectStatus', project.status)} color="#10b981" boldValue />
                             </div>
                         </div>
                     </div>
@@ -229,15 +231,15 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => 
                                 height="100%"
                                 frameBorder="0"
                                 style={{ border: 0 }}
-                                src={`https://www.google.com/maps/embed/v1/place?key=PLACEHOLDER&q=${encodeURIComponent(project.address?.location || project.name)}`}
+                                src={`https://www.google.com/maps/embed/v1/place?key=AIzaSyBd2gdMJVt5C_tgYqWoRbBiatzmevYdB9U&q=${encodeURIComponent(getLookupValue('Location', project.address?.location) || project.address?.location || project.name)}`}
                                 allowFullScreen
                             ></iframe>
                         </div>
                         <div style={{ padding: '20px', background: '#f8fafc', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-                            <DetailItem label="City" value={project.address?.city} />
-                            <DetailItem label="State" value={project.address?.state} />
+                            <DetailItem label="City" value={project.address?.city} lookupType="City" />
+                            <DetailItem label="State" value={project.address?.state} lookupType="State" />
                             <DetailItem label="Pincode" value={project.address?.pincode} />
-                            <DetailItem label="Address" value={project.address?.street || project.address?.location} />
+                            <DetailItem label="Address" value={project.address?.street || project.address?.location} lookupType={!project.address?.street ? "Location" : undefined} />
                         </div>
                     </div>
 
@@ -491,7 +493,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => 
                             <h3 style={sectionTitleStyle}>System Details</h3>
                         </div>
                         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            <HealthRow label="Assigned Team" value={project.team?.join(', ') || 'Corporate Sales'} />
+                            <HealthRow label="Assigned Team" value={project.team?.map(t => t.name || t.lookup_value || (typeof t === 'string' ? t : 'Unknown')).join(', ') || 'Corporate Sales'} />
                             <HealthRow label="Visibility" value={project.visibleTo || 'Public'} />
                             <HealthRow label="Created By" value="Admin" />
                             <HealthRow label="Last Updated" value={new Date(project.updatedAt).toLocaleDateString()} />
@@ -547,20 +549,38 @@ const ActionButton = ({ icon, label, primary, full }) => (
     </button>
 );
 
-const DetailItem = ({ label, value, boldValue, color, onClick }) => (
-    <div
-        onClick={onClick}
-        style={{ cursor: onClick ? 'pointer' : 'default' }}
-    >
-        <p style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', margin: '0 0 4px 0' }}>{label}</p>
-        <p style={{
-            fontSize: '0.85rem', fontWeight: boldValue ? 800 : 700,
-            color: color || (onClick ? '#2563eb' : '#1e293b'), margin: 0,
-            textDecoration: onClick ? 'underline' : 'none',
-            textDecorationColor: '#2563eb33'
-        }}>{Array.isArray(value) ? value.join(', ') : (renderValue(value) || '--')}</p>
-    </div>
-);
+const DetailItem = ({ label, value, boldValue, color, onClick, lookupType }) => {
+    const { getLookupValue } = usePropertyConfig();
+
+    const displayValue = React.useMemo(() => {
+        if (!value) return '--';
+        if (Array.isArray(value)) {
+            if (lookupType) {
+                return value.map(v => getLookupValue(lookupType, v)).filter(Boolean).join(', ') || '--';
+            }
+            return value.join(', ');
+        }
+        if (lookupType) {
+            return getLookupValue(lookupType, value) || renderValue(value) || '--';
+        }
+        return (renderValue(value) || '--');
+    }, [value, lookupType, getLookupValue]);
+
+    return (
+        <div
+            onClick={onClick}
+            style={{ cursor: onClick ? 'pointer' : 'default' }}
+        >
+            <p style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', margin: '0 0 4px 0' }}>{label}</p>
+            <p style={{
+                fontSize: '0.85rem', fontWeight: boldValue ? 800 : 700,
+                color: color || (onClick ? '#2563eb' : '#1e293b'), margin: 0,
+                textDecoration: onClick ? 'underline' : 'none',
+                textDecorationColor: '#2563eb33'
+            }}>{displayValue}</p>
+        </div>
+    );
+};
 
 const BlockMiniCard = ({ block }) => (
     <div style={{ padding: '16px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', position: 'relative' }}>

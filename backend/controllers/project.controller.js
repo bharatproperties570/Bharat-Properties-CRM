@@ -1,9 +1,15 @@
 import Project from "../models/Project.js";
+import mongoose from "mongoose";
 
 const projectPopulateFields = [
     { path: 'owner', select: 'fullName email name' },
     { path: 'assign', select: 'fullName email name' },
-    { path: 'team', select: 'name lookup_value' }
+    { path: 'team', select: 'name lookup_value' },
+    { path: 'category' },
+    { path: 'subCategory' },
+    { path: 'status' },
+    { path: 'parkingType' },
+    { path: 'unitType' }
 ];
 
 export const getProjects = async (req, res) => {
@@ -17,6 +23,9 @@ export const getProjects = async (req, res) => {
 
 export const getProjectById = async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ success: false, error: "Invalid Project ID format" });
+        }
         const project = await Project.findById(req.params.id).populate(projectPopulateFields).lean();
         if (!project) return res.status(404).json({ success: false, error: "Project not found" });
         res.json({ success: true, data: project });
@@ -44,6 +53,9 @@ export const addProject = async (req, res) => {
 
 export const updateProject = async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ success: false, error: "Invalid Project ID format" });
+        }
         const project = await Project.findByIdAndUpdate(req.params.id, req.body, { new: true }).populate(projectPopulateFields);
         if (!project) return res.status(404).json({ success: false, error: "Project not found" });
         res.json({ success: true, data: project });
@@ -54,6 +66,9 @@ export const updateProject = async (req, res) => {
 
 export const deleteProject = async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ success: false, error: "Invalid Project ID format" });
+        }
         const project = await Project.findByIdAndDelete(req.params.id);
         if (!project) return res.status(404).json({ success: false, error: "Project not found" });
         res.json({ success: true, message: "Project deleted successfully" });

@@ -38,7 +38,12 @@ export const getInventory = async (req, res) => {
         // category, status, etc. in Inventory seem to be stored as objects or strings already
         const populateFields = [
             { path: "owners", select: "name phones" },
-            { path: "associates", select: "name phones" }
+            { path: "associates", select: "name phones" },
+            { path: "category" },
+            { path: "subCategory" },
+            { path: "status" },
+            { path: "facing" },
+            { path: "intent" }
         ];
 
         const results = await paginate(Inventory, query, Number(page), Number(limit), { createdAt: -1 }, populateFields);
@@ -57,7 +62,12 @@ export const getInventoryById = async (req, res) => {
         const populateFields = [
             { path: "owners", select: "name phones emails title personalAddress" },
             { path: "associates", select: "name phones emails title" },
-            { path: "projectId" }
+            { path: "projectId" },
+            { path: "category" },
+            { path: "subCategory" },
+            { path: "status" },
+            { path: "facing" },
+            { path: "intent" }
         ];
 
         const inventory = await Inventory.findById(req.params.id).populate(populateFields);

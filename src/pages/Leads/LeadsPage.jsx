@@ -28,6 +28,7 @@ import { applyLeadFilters } from '../../utils/leadFilterLogic';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 import { parseBudget, parseSizeSqYard, calculateMatch } from '../../utils/matchingLogic';
 import { useUserContext } from '../../context/UserContext';
+import { renderValue } from '../../utils/renderUtils';
 import { useCallback } from 'react';
 
 function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
@@ -38,7 +39,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         sourceQualityScores,
         inventoryFitScores,
         decayRules,
-        stageMultipliers
+        stageMultipliers,
+        getLookupValue
     } = usePropertyConfig();
 
     const { fireEvent } = useTriggers();
@@ -83,6 +85,12 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
     const getTeamName = useCallback((teamValue) => {
         if (!teamValue) return "General Team";
+
+        // Handle array of team names (as stored in assignment.team)
+        if (Array.isArray(teamValue)) {
+            return teamValue.length > 0 ? teamValue.join(', ') : "General Team";
+        }
+
         if (typeof teamValue === 'object') {
             return teamValue.name || teamValue.lookup_value || "General Team";
         }
@@ -197,36 +205,36 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                         // ===== REQUIREMENT =====
                         reqDisplay: {
-                            type: lead.requirement?.lookup_value || (typeof lead.requirement === 'string' && lead.requirement.length !== 24 ? lead.requirement : "Any"),
-                            subType: (lead.subRequirement?.lookup_value || (typeof lead.subRequirement === 'string' && lead.subRequirement.length !== 24 ? lead.subRequirement : "")) ||
-                                (Array.isArray(lead.subType) ? lead.subType.map(s => s.lookup_value || s).join(", ") : (lead.subType || "")) ||
-                                (Array.isArray(lead.propertyType) ? lead.propertyType.map(p => p.lookup_value || p).join(", ") : (lead.propertyType || "")),
+                            type: lead.requirement,
+                            subType: lead.subRequirement || lead.subType,
                             size: `${lead.areaMin || ""}${lead.areaMin && lead.areaMax ? "-" : ""}${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
                         },
 
                         // ===== BUDGET =====
-                        budget: lead.budget?.lookup_value || (typeof lead.budget === 'string' && lead.budget.length !== 24 ? lead.budget : "") || (lead.budgetMin || lead.budgetMax
+                        budget: lead.budget,
+                        budgetDisplay: lead.budgetMin || lead.budgetMax
                             ? `₹${Number(lead.budgetMin || 0).toLocaleString()} - ₹${Number(lead.budgetMax || 0).toLocaleString()}`
-                            : "—"),
+                            : "—",
 
                         // ===== LOCATION =====
-                        location: (lead.location?.lookup_value || (typeof lead.location === 'string' && lead.location.length !== 24 ? lead.location : "")) || [
+                        location: lead.location,
+                        locationDisplay: [
                             lead.project?.name || (Array.isArray(lead.projectName) ? lead.projectName.join(", ") : lead.projectName),
                             Array.isArray(lead.locBlock) ? lead.locBlock.join(", ") : lead.locBlock,
                             lead.locArea,
                             lead.locCity
-                        ].filter(Boolean).map(s => s?.toString().trim()).filter(s => s && s.length > 0).join(", ") || (typeof lead.searchLocation === 'string' && lead.searchLocation.length !== 24 ? lead.searchLocation : "") || "—",
+                        ].filter(Boolean).map(s => s?.toString().trim()).filter(s => s && s.length > 0).join(", ") || lead.searchLocation || "—",
 
                         // ===== SOURCE & ASSIGNMENT =====
-                        source: lead.source?.lookup_value || (typeof lead.source === 'string' && lead.source.length !== 24 ? lead.source : "") || contact.source || "Direct",
+                        source: lead.source,
+                        sourceFallback: contact.source || "Direct",
                         owner: lead.assignment?.assignedTo?.fullName || lead.owner?.fullName || lead.owner?.email || lead.owner || contact.owner || "Unassigned",
                         rawOwner: lead.assignment?.assignedTo?._id || lead.owner?._id || lead.owner?.id || lead.owner || contact.owner,
                         team: contact.team || lead.assignment?.team || "",
 
                         // ===== STATUS =====
-                        status: lead.status?.lookup_value
-                            ? { label: lead.status.lookup_value, class: lead.status.lookup_value.toLowerCase() }
-                            : (lead.status || { label: "New", class: "new" }),
+                        status: lead.status,
+                        statusFallback: lead.status || { label: "New", class: "new" },
 
                         // ===== META =====
                         lastAct: lead.lastAct || "Today",
@@ -781,12 +789,26 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         </div>
                                         {/* Simplified Card Content for brevity in fix */}
                                         <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', marginBottom: '12px' }}>
-                                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{lead.reqDisplay?.type || "Any Property"}</div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginTop: '4px', color: '#64748b' }}><span>{lead.reqDisplay?.size}</span><span style={{ fontWeight: 700, color: '#059669' }}>{lead.budget}</span></div>
+                                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>
+                                                {renderValue(getLookupValue('Requirement', lead.reqDisplay?.type), null) || "Any Property"}
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginTop: '4px', color: '#64748b' }}>
+                                                <span>{lead.reqDisplay?.size}</span>
+                                                <span style={{ fontWeight: 700, color: '#059669' }}>
+                                                    {renderValue(getLookupValue('Budget', lead.budget), null) || lead.budgetDisplay}
+                                                </span>
+                                            </div>
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                            <span className={`status-badge ${lead.status?.class || 'new'}`} style={{ fontSize: '0.75rem' }}>{lead.status?.label || lead.status}</span>
-                                            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{lead.source}</span>
+                                            <span
+                                                className={`status-badge ${(renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.class : 'new')).toLowerCase()}`}
+                                                style={{ fontSize: '0.75rem' }}
+                                            >
+                                                {renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.label : lead.statusFallback)}
+                                            </span>
+                                            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                                                {renderValue(getLookupValue('Source', lead.source), null) || lead.sourceFallback}
+                                            </span>
                                         </div>
 
                                         {/* Assigned To Section */}
@@ -820,8 +842,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             loading ? <div style={{ padding: '20px', textAlign: 'center' }}>Loading...</div> : leads.map((c, idx) => {
                                 if (!c) return null;
                                 // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
-                                const intent = c.reqDisplay?.type || 'Any';
-                                const propertyType = c.reqDisplay?.subType || '';
+                                const intent = renderValue(getLookupValue('Requirement', c.reqDisplay?.type), null) || 'Any';
+                                const propertyType = renderValue(getLookupValue('Sub Requirement', c.reqDisplay?.subType), null) || '';
 
                                 return (
                                     <div
@@ -960,7 +982,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             </div>
                                         </div>
 
-                                        <div className="col-budget">
+                                        <div className="col-budget" key={`budget-${c._id || idx}`}>
                                             <div style={{ lineHeight: 1.4 }}>
                                                 <div style={{ color: '#0f172a', fontSize: '0.75rem', fontWeight: 700, marginBottom: '2px' }}>{propertyType || 'Residential Plot'}</div>
                                                 <div
@@ -968,12 +990,12 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                     suppressContentEditableWarning
                                                     onBlur={() => showToast(`Budget updated for ${c.name}. Recalculating matches...`)}
                                                     style={{ color: 'var(--primary-color)', fontWeight: 800, fontSize: '0.85rem', outline: 'none' }}
-                                                >{(c.budget || '').replace('<br/>', ' ')}</div>
-                                                <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, marginTop: '2px' }}>{c?.req?.size || 'Std. Size'}</div>
+                                                >{(renderValue(getLookupValue('Budget', c.budget), null) || c.budgetDisplay || '').replace('<br/>', ' ')}</div>
+                                                <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, marginTop: '2px' }}>{c.reqDisplay?.size || 'Std. Size'}</div>
                                             </div>
                                         </div>
 
-                                        <div className="col-location">
+                                        <div className="col-location" key={`location-${c._id || idx}`}>
                                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                                                 <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '3px' }}></i>
                                                 <div
@@ -981,16 +1003,23 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                     suppressContentEditableWarning
                                                     onBlur={() => showToast(`Location preference updated for ${c.name}`)}
                                                     style={{ fontWeight: 600, color: '#334155', fontSize: '0.8rem', lineHeight: 1.3, outline: 'none' }}
-                                                >{c.location}</div>
+                                                >{renderValue(getLookupValue('Location', c.location), null) || c.locationDisplay}</div>
                                             </div>
                                         </div>
 
-                                        <div className="col-status">
+                                        <div className="col-status" key={`status-${c._id || idx}`}>
                                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
-                                                <div style={{ fontWeight: 800, fontSize: '0.7rem', color: '#1a1f23', textTransform: 'uppercase' }}>{c.status?.label || 'NEW'}</div>
-                                                <span className={`status-badge ${c.status?.class || 'new'}`} style={{ height: '20px', fontSize: '0.65rem', padding: '0 8px', borderRadius: '4px' }}>{(c.status?.class || 'new').toUpperCase()}</span>
+                                                <div style={{ fontWeight: 800, fontSize: '0.7rem', color: '#1a1f23', textTransform: 'uppercase' }}>
+                                                    {renderValue(getLookupValue('Status', c.status), null) || (typeof c.statusFallback === 'object' ? c.statusFallback.label : c.statusFallback)}
+                                                </div>
+                                                <span
+                                                    className={`status-badge ${(renderValue(getLookupValue('Status', c.status), null) || (typeof c.statusFallback === 'object' ? c.statusFallback.class : 'new')).toLowerCase()}`}
+                                                    style={{ height: '20px', fontSize: '0.65rem', padding: '0 8px', borderRadius: '4px' }}
+                                                >
+                                                    {(renderValue(getLookupValue('Status', c.status), null) || (typeof c.statusFallback === 'object' ? c.statusFallback.class : 'new')).toUpperCase()}
+                                                </span>
                                                 <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                    {c.source}
+                                                    {renderValue(getLookupValue('Source', c.source), null) || c.sourceFallback}
                                                     <i className="fas fa-info-circle" title="AI Insight: Facebook leads convert better when called within 30 mins" style={{ fontSize: '0.6rem', color: '#cbd5e1' }}></i>
                                                 </div>
                                             </div>
@@ -1117,7 +1146,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 contactData={editingLead} // Pass selected lead data
                 title={editingLead ? "Update Lead" : "Add New Lead"}
                 saveLabel={editingLead ? "Update" : "Save"}
-                mode="edit"
+                mode={editingLead ? "edit" : "add"}
                 onAdd={(updatedData) => {
                     console.log('Lead Updated:', updatedData);
                     setIsAddLeadModalOpen(false);

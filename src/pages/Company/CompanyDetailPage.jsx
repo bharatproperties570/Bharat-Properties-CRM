@@ -632,7 +632,7 @@ const DataList = ({ items, type, onNavigate }) => (
                     {type === 'project' ? item.name : type === 'inventory' ? `Unit ${item.unitNo || item.unitNumber}` : `Deal #${item._id.substring(item._id.length - 6).toUpperCase()}`}
                 </div>
                 <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                    {type === 'project' ? item.status : type === 'inventory' ? item.projectName : item.projectName}
+                    {type === 'project' ? renderValue(item.status) : type === 'inventory' ? renderValue(item.projectName) : renderValue(item.projectName)}
                 </div>
                 <button
                     onClick={() => onNavigate(`${type}-detail`, item._id)}

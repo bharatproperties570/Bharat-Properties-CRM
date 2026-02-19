@@ -63,6 +63,7 @@ const LeadSchema = new mongoose.Schema({
         team: [String]
     },
     owner: { type: mongoose.Schema.Types.Mixed, ref: 'User' },
+    contactDetails: { type: mongoose.Schema.Types.ObjectId, ref: 'Contact' },
     customFields: mongoose.Schema.Types.Mixed
 }, { timestamps: true });
 

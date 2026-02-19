@@ -11,9 +11,12 @@ import AddDocumentModal from '../../components/AddDocumentModal';
 import ProjectFilterPanel from './components/ProjectFilterPanel';
 import { applyProjectFilters } from '../../utils/projectFilterLogic';
 import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
+import { usePropertyConfig } from '../../context/PropertyConfigContext';
+import { renderValue } from '../../utils/renderUtils';
 
 function ProjectsPage({ onNavigate, onAddProject }) {
     const { teams, users } = useUserContext();
+    const { getLookupValue } = usePropertyConfig();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
 
@@ -632,7 +635,7 @@ function ProjectsPage({ onNavigate, onAddProject }) {
                                             {/* Col 5: Category (Separated) */}
                                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                                                 {project.category.slice(0, 2).map((cat, i) => (
-                                                    <span key={i} className="tag-outline-orange" style={{ fontSize: '0.65rem' }}>{cat}</span>
+                                                    <span key={i} className="tag-outline-orange" style={{ fontSize: '0.65rem' }}>{renderValue(cat)}</span>
                                                 ))}
                                                 {project.category.length > 2 && <span className="tag-muted" style={{ fontSize: '0.65rem' }}>+{project.category.length - 2}</span>}
                                             </div>
@@ -640,11 +643,22 @@ function ProjectsPage({ onNavigate, onAddProject }) {
                                             {/* Col 6: Status */}
                                             <div>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a' }}>UNDER CONSTRUCTION</div>
-                                                    <div className="progress-bar-bg" style={{ width: '100%', height: '4px', background: '#e2e8f0', borderRadius: '2px' }}>
-                                                        <div style={{ width: '65%', height: '100%', background: '#f59e0b', borderRadius: '2px' }}></div>
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', textTransform: 'uppercase' }}>
+                                                        {getLookupValue('ProjectStatus', project.status) || 'N/A'}
                                                     </div>
-                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>65% Complete</div>
+                                                    <div className="progress-bar-bg" style={{ width: '100%', height: '4px', background: '#e2e8f0', borderRadius: '2px' }}>
+                                                        <div style={{
+                                                            width: getLookupValue('ProjectStatus', project.status) === 'Ready to Move' ? '100%' :
+                                                                getLookupValue('ProjectStatus', project.status) === 'Under Construction' ? '65%' : '20%',
+                                                            height: '100%',
+                                                            background: getLookupValue('ProjectStatus', project.status) === 'Ready to Move' ? '#10b981' : '#f59e0b',
+                                                            borderRadius: '2px'
+                                                        }}></div>
+                                                    </div>
+                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>
+                                                        {getLookupValue('ProjectStatus', project.status) === 'Ready to Move' ? '100% Complete' :
+                                                            getLookupValue('ProjectStatus', project.status) === 'Under Construction' ? '65% Complete' : 'Planned'}
+                                                    </div>
                                                 </div>
                                             </div>
 

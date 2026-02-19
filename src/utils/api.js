@@ -16,7 +16,7 @@ const apiRequest = async (endpoint, options = {}) => {
     try {
         const cleanBaseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-        const url = `${cleanBaseUrl}${cleanEndpoint}`;
+        let url = `${cleanBaseUrl}${cleanEndpoint}`;
 
         // Handle query parameters
         if (options.params) {
@@ -71,7 +71,7 @@ const apiRequest = async (endpoint, options = {}) => {
 // Lookups API
 export const lookupsAPI = {
     getAll: () => apiRequest('/lookups'),
-    getByCategory: (category) => apiRequest(`/lookups?lookup_type=${category}`),
+    getByCategory: (category) => apiRequest(`/lookups?lookup_type=${encodeURIComponent(category)}`),
     getStates: () => apiRequest('/lookups?lookup_type=State'),
     getCities: (stateId) => apiRequest(`/lookups?lookup_type=City&parent_lookup_id=${stateId}`),
     getLocations: (cityId) => apiRequest(`/lookups?parent_lookup_id=${cityId}`),

@@ -20,6 +20,8 @@ import { applyContactFilters } from "../../utils/contactFilterLogic";
 import ActiveFiltersChips from "../../components/ActiveFiltersChips";
 import { useUserContext } from "../../context/UserContext";
 import DocumentUploadModal from "../../components/DocumentUploadModal";
+import { usePropertyConfig } from "../../context/PropertyConfigContext";
+import { renderValue } from "../../utils/renderUtils";
 
 // Debounce Utility
 const useDebounce = (value, delay) => {
@@ -66,6 +68,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
   const [contactForLead, setContactForLead] = useState(null);
   const { teams, users } = useUserContext();
+  const { getLookupValue } = usePropertyConfig();
 
   // Debounce search term
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
@@ -924,7 +927,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                   onNavigate("contact-detail", item._id)
                                 }
                               >
-                                {item.title?.lookup_value || item.title || ""} {
+                                {renderValue(getLookupValue("Title", item.title), null) || ""} {
                                   // Priority 1: firstName + surname
                                   (item.firstName && item.surname) ? `${item.firstName} ${item.surname}` :
                                     // Priority 2: name + surname (when firstName is null but surname exists)
@@ -1086,7 +1089,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                   fontSize: "0.6rem",
                                 }}
                               ></i>
-                              {item?.campaign?.lookup_value || (typeof item?.campaign === 'string' ? item.campaign : "") ? `${item?.campaign?.lookup_value || item.campaign} • ` : ""}{item?.source?.lookup_value || (typeof item?.source === 'string' ? item.source : "N/A")}
+                              {renderValue(getLookupValue("Campaign", item.campaign), null) || (typeof item?.campaign === 'string' ? item.campaign : "") ? `${renderValue(getLookupValue("Campaign", item.campaign), null) || item.campaign} • ` : ""}{renderValue(getLookupValue("Source", item.source), null) || (typeof item?.source === 'string' ? item.source : "N/A")}
                             </span>
                             {item?.tags && item?.tags?.length > 0 && (
                               <div
@@ -1097,8 +1100,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 }}
                               >
                                 {Array.isArray(item.tags)
-                                  ? item.tags.join(", ")
-                                  : item.tags}
+                                  ? item.tags.map(t => renderValue(getLookupValue("Tag", t), t)).join(", ")
+                                  : renderValue(getLookupValue("Tag", item.tags), item.tags)}
                               </div>
                             )}
                           </div>

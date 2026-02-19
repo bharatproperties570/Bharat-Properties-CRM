@@ -9,8 +9,8 @@ const ProjectSchema = new mongoose.Schema({
     secondaryDeveloper: String,
     reraNumber: String,
     description: String,
-    category: [String],
-    subCategory: [String],
+    category: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' }],
+    subCategory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' }],
 
     // Project Stats
     landArea: String,
@@ -18,15 +18,15 @@ const ProjectSchema = new mongoose.Schema({
     totalBlocks: String,
     totalFloors: String,
     totalUnits: String,
-    status: { type: String, default: 'Upcoming' },
+    status: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
 
     // Dates
     launchDate: Date,
     expectedCompletionDate: Date,
     possessionDate: Date,
 
-    // Bank & Approvals
-    parkingType: String,
+    parkingType: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    unitType: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     approvedBank: String,
 
     // System Details

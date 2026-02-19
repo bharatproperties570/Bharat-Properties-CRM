@@ -31,8 +31,6 @@ const CreateRoleModal = ({ isOpen, onClose, onSave }) => {
 
     // Departments
     const departments = [
-        { id: 'sales', name: 'Sales', icon: '💼', color: '#3b82f6' },
-        { id: 'marketing', name: 'Marketing', icon: '📢', color: '#8b5cf6' },
         { id: 'inventory', name: 'Inventory', icon: '🏢', color: '#10b981' },
         { id: 'accounts', name: 'Accounts', icon: '💰', color: '#f59e0b' }
     ];

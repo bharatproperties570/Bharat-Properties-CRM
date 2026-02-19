@@ -592,7 +592,7 @@ const AddContactModal = ({
   mode = "add",
   entityType = "contact",
 }) => {
-  const { masterFields, propertyConfig, leadMasterFields } =
+  const { masterFields, propertyConfig, leadMasterFields, getLookupId, getLookupValue } =
     usePropertyConfig();
   const {
     professionalConfig,
@@ -992,6 +992,45 @@ const AddContactModal = ({
     fetchAllLookups();
   }, [isOpen, initialData?._id]);
 
+  // Reactive Fetching for Professional  // Fetch Sub-Categories when Category changes
+  useEffect(() => {
+    const fetchSubCats = async () => {
+      // Robustly extract ID from whatever format the field is in
+      const categoryId = (formData.professionCategory && typeof formData.professionCategory === 'object')
+        ? formData.professionCategory._id
+        : formData.professionCategory;
+
+      if (!isOpen || !categoryId) {
+        setProfessionSubCategories([]);
+        return;
+      }
+      const data = await fetchLookup("ProfessionalSubCategory", categoryId);
+      setProfessionSubCategories(data || []);
+      // Reset sub-category if current one doesn't belong to new category
+      if (formData.professionSubCategory) {
+        setFormData(prev => ({ ...prev, professionSubCategory: "" }));
+      }
+    };
+    fetchSubCats();
+  }, [formData.professionCategory, isOpen]);
+
+  // Fetch Designations when Sub-Category changes
+  useEffect(() => {
+    const fetchDesigs = async () => {
+      const subCategoryId = (formData.professionSubCategory && typeof formData.professionSubCategory === 'object')
+        ? formData.professionSubCategory._id
+        : formData.professionSubCategory;
+
+      if (!isOpen || !subCategoryId) {
+        setDesignation([]);
+        return;
+      }
+      const data = await fetchLookup("ProfessionalDesignation", subCategoryId);
+      setDesignation(data || []);
+    };
+    fetchDesigs();
+  }, [formData.professionSubCategory, isOpen]);
+
   // Derived Data for Professional Details
   const selectedCompanyData = allCompanies.find(
     (c) => c.name === formData.company,
@@ -1052,6 +1091,62 @@ const AddContactModal = ({
       // Clean up internal fields that backend Joi might reject
       const fieldsToStrip = ["_id", "id", "__v", "createdAt", "updatedAt", "fullName"];
       fieldsToStrip.forEach(field => delete finalFormData[field]);
+
+      // Normalize references to IDs only to prevent 500/400 errors
+      const normalizeRefs = (obj) => {
+        if (!obj || typeof obj !== 'object') return obj;
+        const result = Array.isArray(obj) ? [...obj] : { ...obj };
+
+        if (Array.isArray(result)) {
+          return result.map(item => (item && typeof item === 'object' && item._id) ? item._id : item);
+        }
+
+        for (const key in result) {
+          if (result[key] && typeof result[key] === 'object') {
+            if (result[key]._id) {
+              result[key] = result[key]._id;
+            } else if (Array.isArray(result[key])) {
+              result[key] = result[key].map(item =>
+                (item && typeof item === 'object' && item._id) ? item._id : item
+              );
+            }
+          }
+        }
+        return result;
+      };
+
+      const topLevelRefs = [
+        "title", "countryCode", "campaign", "source", "subSource",
+        "professionCategory", "professionSubCategory", "designation",
+        "team", "owner", "visibleTo"
+      ];
+
+      const lookupMapping = {
+        title: 'Title',
+        countryCode: 'CountryCode',
+        campaign: 'Campaign',
+        source: 'Source',
+        subSource: 'SubSource',
+        professionCategory: 'ProfessionCategory',
+        professionSubCategory: 'ProfessionSubCategory',
+        designation: 'Designation'
+      };
+
+      Object.entries(lookupMapping).forEach(([field, type]) => {
+        if (finalFormData[field] && typeof finalFormData[field] === 'string') {
+          const id = getLookupId(type, finalFormData[field]);
+          if (id) finalFormData[field] = id;
+        }
+      });
+
+      topLevelRefs.forEach(ref => {
+        if (finalFormData[ref] && typeof finalFormData[ref] === 'object') {
+          finalFormData[ref] = finalFormData[ref]._id || finalFormData[ref].id;
+        }
+      });
+
+      if (finalFormData.personalAddress) finalFormData.personalAddress = normalizeRefs(finalFormData.personalAddress);
+      if (finalFormData.correspondenceAddress) finalFormData.correspondenceAddress = normalizeRefs(finalFormData.correspondenceAddress);
 
       if (finalFormData.documents && finalFormData.documents.length > 0) {
         finalFormData.documents = await Promise.all(finalFormData.documents.map(async (doc) => {
@@ -2700,16 +2795,6 @@ const AddContactModal = ({
                               </label>
                               <select
                                 value={formData.professionSubCategory}
-                                onFocus={async () => {
-                                  if (professionSubCategories.length === 0) {
-                                    setLoading("subcategory");
-
-                                    const data = await fetchLookup("ProfessionalSubCategory", formData.professionCategory);
-
-                                    setProfessionSubCategories(data);
-                                    setLoading("");
-                                  }
-                                }}
                                 onChange={(e) => {
                                   handleInputChange(
                                     "professionSubCategory",
@@ -2749,16 +2834,6 @@ const AddContactModal = ({
                               </label>
                               <select
                                 value={formData.designation}
-                                onFocus={async () => {
-                                  if (designation.length === 0) {
-                                    setLoading("designation");
-
-                                    const data = await fetchLookup("ProfessionalDesignation", formData.professionSubCategory);
-
-                                    setDesignation(data);
-                                    setLoading("");
-                                  }
-                                }}
                                 onChange={(e) =>
                                   handleInputChange(
                                     "designation",

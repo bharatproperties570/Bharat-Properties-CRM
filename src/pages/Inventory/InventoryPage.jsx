@@ -27,7 +27,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     const { teams, users } = useUserContext();
     const { fireEvent } = useTriggers();
     const { startCall } = useCall();
-    const { masterFields } = usePropertyConfig();
+    const { masterFields, getLookupValue } = usePropertyConfig();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
@@ -468,18 +468,18 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
 
                     <div className="inventory-stats-row" style={{ padding: '12px 25px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div style={{ display: 'flex', gap: '15px' }}>
-                            <div className="status-card" style={{ padding: '8px 15px', maxWidth: '180px' }}>
+                            <div className="status-card" style={{ padding: '8px 15px', maxWidth: '200px' }}>
                                 <div className="stat-icon-dot dot-active"></div>
                                 <div className="stat-card-info">
-                                    <h3 style={{ fontSize: '0.7rem' }}>Active</h3>
-                                    <div className="stat-count" style={{ fontSize: '1.2rem', color: '#388E3C' }}>1,441</div>
+                                    <h3 style={{ fontSize: '0.7rem' }}>Total Inventory</h3>
+                                    <div className="stat-count" style={{ fontSize: '1.2rem', color: '#2563eb' }}>{totalRecords.toLocaleString()}</div>
                                 </div>
                             </div>
                             <div className="status-card" style={{ padding: '8px 15px', maxWidth: '180px' }}>
-                                <div className="stat-icon-dot dot-inactive"></div>
+                                <div className="stat-icon-dot" style={{ background: '#94a3b8' }}></div>
                                 <div className="stat-card-info">
-                                    <h3 style={{ fontSize: '0.7rem' }}>Inactive</h3>
-                                    <div className="stat-count" style={{ fontSize: '1.2rem', color: '#D32F2F' }}>29,218</div>
+                                    <h3 style={{ fontSize: '0.7rem' }}>Showing</h3>
+                                    <div className="stat-count" style={{ fontSize: '1.2rem', color: '#64748b' }}>{inventoryItems.length}</div>
                                 </div>
                             </div>
                         </div>
@@ -750,7 +750,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                             </div>
                                             <div style={{ paddingLeft: '2px' }}>
                                                 <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>
-                                                    {renderValue(item.category) || renderValue(item.type) || 'N/A'} - {renderValue(item.subCategory) || ''}
+                                                    {renderValue(getLookupValue('Category', item.category)) || renderValue(getLookupValue('PropertyType', item.type)) || 'N/A'} - {renderValue(getLookupValue('SubCategory', item.subCategory)) || ''}
                                                 </div>
                                                 <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>
                                                     {renderValue(item.size) || renderValue(item.plotArea) || 'N/A'}
@@ -775,9 +775,9 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                         <div className="super-cell">
                                             <div className="cell-label" style={{ marginTop: 0, color: '#94a3b8' }}>Facing & Directions</div>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                                {(renderValue(item.direction) && renderValue(item.direction) !== '-') && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-compass" style={{ color: '#3b82f6', width: '14px' }}></i> {renderValue(item.direction)}</div>}
-                                                {(renderValue(item.facing) && renderValue(item.facing) !== '-') && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-map-signs" style={{ color: '#f59e0b', width: '14px' }}></i> {renderValue(item.facing)}</div>}
-                                                {(renderValue(item.roadWidth) || renderValue(item.road)) && <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}><i className="fas fa-road" style={{ width: '14px' }}></i> {renderValue(item.roadWidth) || renderValue(item.road)}</div>}
+                                                {(renderValue(item.direction) && renderValue(item.direction) !== '-') && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-compass" style={{ color: '#3b82f6', width: '14px' }}></i> {renderValue(getLookupValue('Direction', item.direction))}</div>}
+                                                {(renderValue(item.facing) && renderValue(item.facing) !== '-') && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-map-signs" style={{ color: '#f59e0b', width: '14px' }}></i> {renderValue(getLookupValue('Facing', item.facing))}</div>}
+                                                {(renderValue(item.roadWidth) || renderValue(item.road)) && <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}><i className="fas fa-road" style={{ width: '14px' }}></i> {renderValue(getLookupValue('RoadWidth', item.roadWidth || item.road))}</div>}
                                             </div>
                                         </div>
 

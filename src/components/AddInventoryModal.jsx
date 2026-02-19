@@ -27,7 +27,14 @@ const getYouTubeThumbnail = (url) => {
 
 const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = null, property = null }) => {
     // 1. Get projects from PropertyConfigContext
-    const { projects: allProjects, masterFields = {}, propertyConfig, sizes } = usePropertyConfig();
+    const {
+        projects: allProjects,
+        masterFields = {},
+        propertyConfig,
+        sizes,
+        getLookupId,
+        getLookupValue
+    } = usePropertyConfig();
     const { users, teams } = useUserContext();
     const { profileConfig = {} } = useContactConfig();
     const { validateAsync } = useFieldRules();
@@ -99,6 +106,7 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
         assignedTo: '',
         team: '',
         status: 'Active',
+        intent: 'Sell',
         visibleTo: 'Public',
 
         // Uploads
@@ -136,7 +144,11 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                 block: property.block || '',
                 size: property.size || '',
                 locationSearch: property.locationSearch || property.location || '',
-                status: property.status || 'Active',
+                status: getLookupValue('InventoryStatus', property.status),
+                intent: getLookupValue('Intent', property.intent || 'Sell'),
+                category: getLookupValue('Category', property.category),
+                subCategory: getLookupValue('SubCategory', property.subCategory),
+                facing: getLookupValue('Facing', property.facing),
             }));
         }
     }, [property, isOpen]);
@@ -212,7 +224,7 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
         const project = allProjects.find(p => p.name === name);
         const projectId = project?._id || project?.id || '';
 
-        setFormData(prev => ({ ...prev, projectName: name, projectId }));
+        setFormData(prev => ({ ...prev, projectName: name, projectId, block: "", size: "" }));
 
         // Auto-assign agent based on distribution rules
         const result = executeDistribution('inventory', { ...formData, projectName: name, projectId });
@@ -722,12 +734,13 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                         >
                             <option value="">{formData.projectName ? "Select Block" : "Select Project First"}</option>
                             {(() => {
-                                const selectedProj = allProjects.find(p => p.name === formData.projectName);
-                                const blocks = selectedProj?.blocks || [];
+                                const selectedProj = allProjects.find(p => p.name === formData.projectName || p._id === formData.projectId || p.id === formData.projectId);
+                                if (!selectedProj) return null;
+                                const blocks = selectedProj.blocks || [];
                                 return blocks.length > 0 ? (
-                                    blocks.map(b => {
+                                    blocks.map((b, idx) => {
                                         const blockName = typeof b === 'object' ? b.name : b;
-                                        return <option key={blockName} value={blockName}>{blockName}</option>;
+                                        return <option key={blockName || idx} value={blockName}>{blockName}</option>;
                                     })
                                 ) : (
                                     <option value="Open">Open Campus</option>
@@ -749,8 +762,12 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                                 </option>
                                 {(() => {
                                     if (!formData.projectName || !formData.block) return null;
-                                    const filteredSizes = sizes.filter(s => s.project === formData.projectName && s.block === formData.block);
-                                    return filteredSizes.map(sz => <option key={sz.id} value={sz.name}>{sz.name}</option>);
+                                    const availableSizes = sizes || [];
+                                    const filteredSizes = availableSizes.filter(s =>
+                                        (s.project === formData.projectName || s.projectId === formData.projectId) &&
+                                        (s.block === formData.block)
+                                    );
+                                    return filteredSizes.map(sz => <option key={sz.id || sz._id} value={sz.name}>{sz.name}</option>);
                                 })()}
                             </select>
                             <button
@@ -960,7 +977,7 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                     )}
                 </div>
             </div>
-        </div>
+        </div >
     );
 
     const renderLocationTab = () => (
@@ -1079,14 +1096,13 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                                             setSelectedContactToLink(contact);
                                             setShowOwnerResults(false);
                                         }}
-                                        style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '12px' }}
+                                        style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '2px' }}
+                                        className="hover:bg-slate-50"
                                     >
-                                        <div style={{ width: '36px', height: '36px', background: '#f1f5f9', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem', color: '#64748b', fontWeight: 600 }}>
-                                            {contact.name.charAt(0)}
-                                        </div>
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1e293b' }}>{contact.name}</div>
-                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{contact.mobile} • {contact.type}</div>
+                                        <div style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.9rem' }}>{contact.fullName || contact.name || `${contact.firstName} ${contact.lastName}`}</div>
+                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                            <i className="fas fa-phone-alt" style={{ marginRight: '6px' }}></i>
+                                            {contact.phones?.[0]?.number || contact.mobile || 'No mobile'}
                                         </div>
                                     </div>
                                 ))}
@@ -1336,12 +1352,22 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                 }));
             }
 
+            // Transform names to IDs for Lookup fields
+            const transformedData = {
+                ...formData,
+                category: getLookupId('Category', formData.category),
+                subCategory: getLookupId('SubCategory', formData.subCategory),
+                status: getLookupId('InventoryStatus', formData.status),
+                intent: getLookupId('Intent', formData.intent),
+                facing: getLookupId('Facing', formData.facing)
+            };
+
             // Real API call
             let response;
             if (property && property._id) {
-                response = await api.put(`/inventory/${property._id}`, payload);
+                response = await api.put(`/inventory/${property._id}`, transformedData);
             } else {
-                response = await api.post('/inventory', payload);
+                response = await api.post('/inventory', transformedData);
             }
 
             if (!response.data || !response.data.success) {

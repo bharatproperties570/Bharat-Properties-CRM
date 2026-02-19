@@ -58,7 +58,36 @@ const resolveAllReferenceFields = async (doc) => {
     }
 
     if (doc.owner) doc.owner = await resolveUser(doc.owner);
+
+    // Handle Team resolution (from ID to Name for assignment.team)
+    if (doc.team) {
+        const Team = mongoose.model('Team');
+        let teamId = doc.team;
+        if (typeof teamId === 'object' && teamId._id) teamId = teamId._id;
+
+        if (mongoose.Types.ObjectId.isValid(teamId)) {
+            const teamDoc = await Team.findById(teamId);
+            if (teamDoc) {
+                if (!doc.assignment) doc.assignment = {};
+                // assignment.team is [String] in Lead model
+                doc.assignment.team = [teamDoc.name];
+            }
+        }
+    }
+
+    if (doc.contactDetails && !mongoose.Types.ObjectId.isValid(doc.contactDetails)) {
+        // If it's not a valid ID, it might be a name or something from old logic, but here we expect ID
+        // However, resolveAllReferenceFields is usually for bulk imports too.
+        // For now, just ensure it's handled if it exists.
+    }
     if (doc.assignment?.assignedTo) doc.assignment.assignedTo = await resolveUser(doc.assignment.assignedTo);
+
+    // Sync top-level owner to assignment.assignedTo if missing
+    if (doc.owner && !doc.assignment?.assignedTo) {
+        if (!doc.assignment) doc.assignment = {};
+        doc.assignment.assignedTo = doc.owner;
+    }
+
     if (doc.project) {
         // Assume doc.project is name if not valid ID
         if (!mongoose.Types.ObjectId.isValid(doc.project)) {
@@ -93,6 +122,7 @@ const leadPopulateFields = [
     { path: 'roadWidth', select: 'lookup_value' },
     { path: 'direction', select: 'lookup_value' },
     { path: 'owner', select: 'fullName email name' },
+    { path: 'contactDetails' },
     { path: 'assignment.assignedTo', select: 'fullName email name' },
     { path: 'documents.documentCategory', select: 'lookup_value' },
     { path: 'documents.documentName', select: 'lookup_value' },

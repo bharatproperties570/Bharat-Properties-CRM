@@ -81,7 +81,19 @@ export const checkDuplicates = async (req, res, next) => {
 
             const ruleQueries = activeRules.map(rule => {
                 const fieldQueries = rule.fields.map(field => {
-                    let value = field.split('.').reduce((obj, key) => obj?.[key], data);
+                    // Smart value extraction: handles nested objects and arrays
+                    let keys = field.split('.');
+                    let value = data;
+                    for (const key of keys) {
+                        if (Array.isArray(value)) {
+                            // If we encounter an array in the data (like phones or emails from frontend), 
+                            // we extract the property from the first element for the "search" value.
+                            value = value[0]?.[key];
+                        } else {
+                            value = value?.[key];
+                        }
+                    }
+
                     if (!value) return null;
 
                     // --- 2. Data Standardization (Phone) ---

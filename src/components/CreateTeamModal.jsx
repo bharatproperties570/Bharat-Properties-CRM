@@ -114,8 +114,6 @@ const CreateTeamModal = ({ isOpen, onClose, onSave, team, isEdit }) => {
     });
 
     const departments = [
-        { id: 'sales', name: 'Sales' },
-        { id: 'marketing', name: 'Marketing' },
         { id: 'inventory', name: 'Inventory' },
         { id: 'accounts', name: 'Accounts' }
     ];

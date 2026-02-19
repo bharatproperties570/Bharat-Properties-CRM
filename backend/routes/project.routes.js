@@ -3,9 +3,9 @@ import { getProjects, addProject, updateProject, deleteProject, importProjects, 
 
 const router = express.Router();
 router.get("/", getProjects);
-router.get("/:id", getProjectById);
 router.post("/import", importProjects);
 router.post("/check-duplicates", checkDuplicatesImport);
+router.get("/:id", getProjectById);
 router.post("/", addProject);
 router.put("/:id", updateProject);
 router.delete("/:id", deleteProject);

@@ -22,6 +22,9 @@ export const PropertyConfigProvider = ({ children }) => {
     // Initialize Projects State (Dynamic)
     const [projects, setProjects] = useState([]);
 
+    // --- LOOKUPS STATE ---
+    const [lookups, setLookups] = useState({}); // { type: [lookupObjects] }
+
     const refreshSizes = useCallback(async () => {
         try {
             const sizesResponse = await lookupsAPI.getByCategory('size');
@@ -38,11 +41,108 @@ export const PropertyConfigProvider = ({ children }) => {
         }
     }, []);
 
+    const getLookupId = useCallback((type, value) => {
+        if (!lookups[type] || !value) return null;
+        if (typeof value === 'object' && value._id) return value._id;
+        const found = lookups[type].find(l =>
+            l.lookup_value === value ||
+            (typeof value === 'string' && value === l._id)
+        );
+        return found ? found._id : null;
+    }, [lookups]);
+
+    const getLookupValue = useCallback((type, id) => {
+        if (!id) return id;
+
+        // If it's already a populated object, just return the value
+        if (typeof id === 'object' && id.lookup_value) return id.lookup_value;
+
+        // 1. Try the specified category first (efficient)
+        if (lookups[type]) {
+            const found = lookups[type].find(l => l._id === id || l.id === id);
+            if (found) return found.lookup_value;
+        }
+
+        // 2. Global Fallback: Search across all categories if ID is not found in specified type
+        // This handles cases where the frontend and backend have mismatched category names
+        for (const category in lookups) {
+            if (Array.isArray(lookups[category])) {
+                const found = lookups[category].find(l => l._id === id || l.id === id);
+                if (found) return found.lookup_value;
+            }
+        }
+
+        return id;
+    }, [lookups]);
+
+    const findLookup = useCallback((type, value, parentId = null) => {
+        if (!lookups[type]) return null;
+        return lookups[type].find(l =>
+            l.lookup_value === value &&
+            (!parentId || l.parent_lookup_id === parentId)
+        );
+    }, [lookups]);
+
+    const refreshLookups = useCallback(async () => {
+        try {
+            const types = [
+                'Category', 'SubCategory', 'PropertyType', 'BuiltupType',
+                'Facing', 'Direction', 'RoadWidth', 'UnitType',
+                'ProjectStatus', 'ParkingType', 'Size', 'Intent', 'Status',
+                'category', 'subCategory', 'facing', 'direction',
+                'Country', 'State', 'City', 'Location',
+                'Title', 'CountryCode', 'Source', 'SubSource', 'Campaign',
+                'ProfessionCategory', 'ProfessionSubCategory', 'Designation',
+                'Requirement', 'Sub Requirement', 'Property Type', 'Sub Type', 'Budget'
+            ];
+
+            const results = await Promise.all(
+                types.map(t => lookupsAPI.getByCategory(t))
+            );
+
+            const newLookups = {};
+            types.forEach((type, index) => {
+                const res = results[index];
+                if (res && res.status === "success" && Array.isArray(res.data)) {
+                    newLookups[type] = res.data;
+                } else if (Array.isArray(res)) {
+                    newLookups[type] = res;
+                } else {
+                    newLookups[type] = [];
+                }
+            });
+
+            setLookups(newLookups);
+
+            // Reconstruct propertyConfig from Lookups (for compatibility)
+            // This is a complex mapping, we'll implement it if needed, 
+            // but for now let's focus on providing the lookup lists.
+
+            // Map Sizes for refreshSizes compatibility
+            if (newLookups['Size']) {
+                const normalizedSizes = newLookups['Size'].map(l => ({
+                    id: l._id,
+                    name: l.lookup_value,
+                    ...l.metadata
+                }));
+                setSizes(normalizedSizes);
+            }
+
+            return newLookups;
+        } catch (error) {
+            console.error('[PropertyConfigContext] Failed to refresh lookups:', error);
+            return {};
+        }
+    }, []);
+
     // Load all configurations from backend on mount
     useEffect(() => {
         const loadAllConfigs = async () => {
             try {
-                // Fetch all system settings
+                // 1. LOAD LOOKUPS FIRST (Primary source for normalized fields)
+                const fetchedLookups = await refreshLookups();
+
+                // 2. LOAD SYSTEM SETTINGS (Secondary source / Remaining configs)
                 const response = await systemSettingsAPI.getAll();
                 if (response && response.data) {
                     const settings = response.data;
@@ -402,9 +502,39 @@ export const PropertyConfigProvider = ({ children }) => {
         }
     }, [setPropertyConfig]);
 
-    const updateMasterFields = useCallback(async (field, newValues) => {
+    const updateMasterFields = useCallback(async (field, newValuesOrValue, mode = 'update') => {
+        const fieldToLookupType = {
+            facings: 'Facing',
+            directions: 'Direction',
+            roadWidths: 'RoadWidth',
+            unitTypes: 'UnitType'
+        };
+
+        const lookupType = fieldToLookupType[field];
+
+        if (lookupType) {
+            try {
+                if (mode === 'add') {
+                    await lookupsAPI.create({
+                        lookup_type: lookupType,
+                        lookup_value: newValuesOrValue,
+                        is_active: true
+                    });
+                    await refreshLookups();
+                } else if (mode === 'delete') {
+                    const lookupToDelete = lookups[lookupType]?.find(l => l.lookup_value === newValuesOrValue || l._id === newValuesOrValue);
+                    if (lookupToDelete) {
+                        await lookupsAPI.delete(lookupToDelete._id);
+                        await refreshLookups();
+                    }
+                }
+            } catch (error) {
+                console.error(`Failed to sync lookup for ${field}:`, error);
+            }
+        }
+
         setMasterFields(prevFields => {
-            const updated = { ...prevFields, [field]: newValues };
+            const updated = mode === 'update' ? { ...prevFields, [field]: newValuesOrValue } : prevFields;
             systemSettingsAPI.upsert('master_fields', {
                 category: 'property',
                 value: updated,
@@ -412,11 +542,39 @@ export const PropertyConfigProvider = ({ children }) => {
             }).catch(e => console.error('Failed to save master fields:', e));
             return updated;
         });
-    }, [setMasterFields]);
+    }, [setMasterFields, lookups, refreshLookups]);
 
-    const updateProjectMasterFields = useCallback(async (field, newValues) => {
+    const updateProjectMasterFields = useCallback(async (field, newValuesOrValue, mode = 'update') => {
+        const fieldToLookupType = {
+            projectStatuses: 'ProjectStatus',
+            parkingTypes: 'ParkingType'
+        };
+
+        const lookupType = fieldToLookupType[field];
+
+        if (lookupType) {
+            try {
+                if (mode === 'add') {
+                    await lookupsAPI.create({
+                        lookup_type: lookupType,
+                        lookup_value: newValuesOrValue,
+                        is_active: true
+                    });
+                    await refreshLookups();
+                } else if (mode === 'delete') {
+                    const lookupToDelete = lookups[lookupType]?.find(l => l.lookup_value === newValuesOrValue || l._id === newValuesOrValue);
+                    if (lookupToDelete) {
+                        await lookupsAPI.delete(lookupToDelete._id);
+                        await refreshLookups();
+                    }
+                }
+            } catch (error) {
+                console.error(`Failed to sync lookup for ${field}:`, error);
+            }
+        }
+
         setProjectMasterFields(prevFields => {
-            const updated = { ...prevFields, [field]: newValues };
+            const updated = mode === 'update' ? { ...prevFields, [field]: newValuesOrValue } : prevFields;
             systemSettingsAPI.upsert('project_master_fields', {
                 category: 'property',
                 value: updated,
@@ -424,7 +582,66 @@ export const PropertyConfigProvider = ({ children }) => {
             }).catch(e => console.error('Failed to save project master fields:', e));
             return updated;
         });
-    }, [setProjectMasterFields]);
+    }, [setProjectMasterFields, lookups, refreshLookups]);
+
+    const syncCategoryLookup = useCallback(async (categoryName, mode = 'add', oldName = null) => {
+        try {
+            if (mode === 'add') {
+                await lookupsAPI.create({ lookup_type: 'Category', lookup_value: categoryName, is_active: true });
+            } else if (mode === 'update' && oldName) {
+                const existing = findLookup('Category', oldName);
+                if (existing) await lookupsAPI.update(existing._id, { lookup_value: categoryName });
+            } else if (mode === 'delete') {
+                const existing = findLookup('Category', categoryName);
+                if (existing) await lookupsAPI.delete(existing._id);
+            }
+            await refreshLookups();
+        } catch (error) {
+            console.error('Failed to sync Category lookup:', error);
+        }
+    }, [findLookup, refreshLookups]);
+
+    const syncSubCategoryLookup = useCallback(async (categoryName, subCategoryName, mode = 'add', oldName = null) => {
+        try {
+            const category = findLookup('Category', categoryName);
+            if (!category) return;
+
+            if (mode === 'add') {
+                await lookupsAPI.create({ lookup_type: 'SubCategory', lookup_value: subCategoryName, parent_lookup_id: category._id, is_active: true });
+            } else if (mode === 'update' && oldName) {
+                const existing = findLookup('SubCategory', oldName, category._id);
+                if (existing) await lookupsAPI.update(existing._id, { lookup_value: subCategoryName });
+            } else if (mode === 'delete') {
+                const existing = findLookup('SubCategory', subCategoryName, category._id);
+                if (existing) await lookupsAPI.delete(existing._id);
+            }
+            await refreshLookups();
+        } catch (error) {
+            console.error('Failed to sync SubCategory lookup:', error);
+        }
+    }, [findLookup, refreshLookups]);
+
+    const syncPropertyTypeLookup = useCallback(async (categoryName, subCategoryName, typeName, mode = 'add', oldName = null) => {
+        try {
+            const category = findLookup('Category', categoryName);
+            if (!category) return;
+            const subCategory = findLookup('SubCategory', subCategoryName, category._id);
+            if (!subCategory) return;
+
+            if (mode === 'add') {
+                await lookupsAPI.create({ lookup_type: 'PropertyType', lookup_value: typeName, parent_lookup_id: subCategory._id, is_active: true });
+            } else if (mode === 'update' && oldName) {
+                const existing = findLookup('PropertyType', oldName, subCategory._id);
+                if (existing) await lookupsAPI.update(existing._id, { lookup_value: typeName });
+            } else if (mode === 'delete') {
+                const existing = findLookup('PropertyType', typeName, subCategory._id);
+                if (existing) await lookupsAPI.delete(existing._id);
+            }
+            await refreshLookups();
+        } catch (error) {
+            console.error('Failed to sync PropertyType lookup:', error);
+        }
+    }, [findLookup, refreshLookups]);
 
     const updateProjectAmenities = useCallback(async (category, newAmenities) => {
         setProjectAmenities(prevAmenities => {
@@ -1080,11 +1297,19 @@ export const PropertyConfigProvider = ({ children }) => {
         updateScoreBands,
         activityMasterFields,
         setActivityMasterFields,
-        sizes,
         addSize,
         updateSize,
         deleteSize,
-        refreshSizes
+        refreshSizes,
+        sizes,
+        lookups,
+        refreshLookups,
+        getLookupId,
+        getLookupValue,
+        findLookup,
+        syncCategoryLookup,
+        syncSubCategoryLookup,
+        syncPropertyTypeLookup
     };
 
 

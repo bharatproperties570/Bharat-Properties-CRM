@@ -4,11 +4,13 @@ import { useTriggers } from '../context/TriggersContext';
 import { useUserContext } from '../context/UserContext';
 import { useDistribution } from '../context/DistributionContext';
 import { useSequences } from '../context/SequenceContext';
+import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { numberToIndianWords } from '../utils/numberToWords';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 
 const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
+    const { getLookupId, getLookupValue } = usePropertyConfig();
     const { validateAsync } = useFieldRules();
     const { fireEvent } = useTriggers();
     const { executeDistribution } = useDistribution();
@@ -115,7 +117,11 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
                 owner: typeof deal.owner === 'object' ? { ...prev.owner, ...deal.owner } : (deal.owner ? { ...prev.owner, _id: deal.owner } : prev.owner),
                 associatedContact: typeof deal.associatedContact === 'object' ? { ...prev.associatedContact, ...deal.associatedContact } : (deal.associatedContact ? { ...prev.associatedContact, _id: deal.associatedContact } : prev.associatedContact),
                 assignedTo: normalizeId(deal.assignedTo) || prev.assignedTo,
-                team: normalizeId(deal.team) || prev.team
+                team: normalizeId(deal.team) || prev.team,
+                category: getLookupValue('Category', deal.category),
+                subCategory: getLookupValue('SubCategory', deal.subCategory),
+                propertyType: getLookupValue('PropertyType', deal.propertyType),
+                status: deal.status || 'Open'
             }));
         }
     }, [deal, isOpen]);
@@ -369,25 +375,33 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
                 }
             }
 
-            // Prepare payload
-            const payload = { ...formData };
+            // Transform names to IDs for Lookup fields
+            const transformedData = {
+                ...formData,
+                category: getLookupId('Category', formData.category),
+                subCategory: getLookupId('SubCategory', formData.subCategory),
+                propertyType: getLookupId('PropertyType', formData.propertyType),
+                source: getLookupId('Source', formData.source),
+                status: formData.status // Status might be enum or lookup, keeping as is if matches enum
+            };
+
             if (formData.isOwnerSelected && formData.owner?._id) {
-                payload.owner = formData.owner._id;
+                transformedData.owner = formData.owner._id;
             } else if (!formData.isOwnerSelected) {
-                payload.owner = null;
+                transformedData.owner = null;
             }
             if (formData.isAssociateSelected && formData.associatedContact?._id) {
-                payload.associatedContact = formData.associatedContact._id;
+                transformedData.associatedContact = formData.associatedContact._id;
             } else if (!formData.isAssociateSelected) {
-                payload.associatedContact = null;
+                transformedData.associatedContact = null;
             }
 
             // Real API call
             let response;
             if (deal && deal._id) {
-                response = await api.put(`/deals/${deal._id}`, payload);
+                response = await api.put(`/deals/${deal._id}`, transformedData);
             } else {
-                response = await api.post('/deals', payload);
+                response = await api.post('/deals', transformedData);
             }
 
             if (!response.data || !response.data.success) {

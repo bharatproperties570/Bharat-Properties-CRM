@@ -237,7 +237,7 @@ const DuplicateResults = ({ contacts, onUpdate, isBlocked }) => {
                 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                         <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.95rem' }}>
-                            {contact.title} {contact.firstName || contact.name} {contact.lastName || contact.surname}
+                            {contact.title?.lookup_value || contact.title || ""} {contact.firstName || contact.name || ""} {contact.lastName || contact.surname || ""}
                         </div>
                         {contact.matchedEntityType && (
                             <span style={{
@@ -450,7 +450,7 @@ const BUDGET_VALUES = [
 ];
 
 const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entityType = 'lead', contactData, title = "Add New Lead", saveLabel = "Save" }) => {
-    const { propertyConfig, masterFields, leadMasterFields } = usePropertyConfig();
+    const { propertyConfig, masterFields, leadMasterFields, getLookupId, getLookupValue } = usePropertyConfig();
     const { validate, validateAsync } = useFieldRules(); // Get Validator Engine
     const { executeDistribution } = useDistribution(); // Get Distribution Engine
     const { evaluateAndEnroll } = useSequences();
@@ -611,7 +611,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         countryCode: '+91',
         phones: [{ number: '', type: 'Personal' }],
         emails: [{ address: '', type: 'Personal' }],
-        contactDetails: '',
+        contactDetails: null,
         description: '',
 
         // System Details
@@ -731,14 +731,14 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 subRequirement: normalizeId(initialData.subRequirement) || prev.subRequirement,
                 location: normalizeId(initialData.location) || prev.location,
                 source: normalizeId(initialData.source) || prev.source,
-                status: normalizeId(initialData.status) || prev.status,
-                budget: normalizeId(initialData.budget) || prev.budget,
-                propertyType: normalizeArray(initialData.propertyType),
-                subType: normalizeArray(initialData.subType),
-                unitType: normalizeArray(initialData.unitType),
-                facing: normalizeArray(initialData.facing),
-                roadWidth: normalizeArray(initialData.roadWidth),
-                direction: normalizeArray(initialData.direction),
+                status: getLookupValue('Status', initialData.status) || prev.status,
+                budget: getLookupValue('Budget', initialData.budget) || prev.budget,
+                propertyType: Array.isArray(initialData.propertyType) ? initialData.propertyType.map(v => getLookupValue('Property Type', v)).filter(Boolean) : [],
+                subType: Array.isArray(initialData.subType) ? initialData.subType.map(v => getLookupValue('Sub Type', v)).filter(Boolean) : [],
+                unitType: Array.isArray(initialData.unitType) ? initialData.unitType.map(v => getLookupValue('Unit Type', v)).filter(Boolean) : [],
+                facing: Array.isArray(initialData.facing) ? initialData.facing.map(v => getLookupValue('Facing', v)).filter(Boolean) : [],
+                roadWidth: Array.isArray(initialData.roadWidth) ? initialData.roadWidth.map(v => getLookupValue('Road Width', v)).filter(Boolean) : [],
+                direction: Array.isArray(initialData.direction) ? initialData.direction.map(v => getLookupValue('Direction', v)).filter(Boolean) : [],
                 budgetMin: initialData.budgetMin || '',
                 budgetMax: initialData.budgetMax || '',
                 areaMin: initialData.areaMin || '',
@@ -857,6 +857,30 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
     const handleSave = async () => {
         setIsSaving(true);
+
+        // Normalize references to IDs only to prevent 500/400 errors
+        const normalizeRefs = (obj) => {
+            if (!obj || typeof obj !== 'object') return obj;
+            const result = Array.isArray(obj) ? [...obj] : { ...obj };
+
+            if (Array.isArray(result)) {
+                return result.map(item => (item && typeof item === 'object' && item._id) ? item._id : item);
+            }
+
+            for (const key in result) {
+                if (result[key] && typeof result[key] === 'object') {
+                    if (result[key]._id) {
+                        result[key] = result[key]._id;
+                    } else if (Array.isArray(result[key])) {
+                        result[key] = result[key].map(item =>
+                            (item && typeof item === 'object' && item._id) ? item._id : item
+                        );
+                    }
+                }
+            }
+            return result;
+        };
+
         try {
             // --- FIELD RULES ENGINE VALIDATION (ASYNC) ---
             const validationResult = await validateAsync('lead', formData, { stage: formData.stage || 'New' });
@@ -880,20 +904,22 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
             // ... (rest of save logic)
             // Ensure we setIsSaving(false) in catch or end
-            let finalContactId = selectedContact?._id || formData.contactDetails;
+            let finalContactId = selectedContact?._id || formData.contactDetails || null;
 
             // If no existing contact selected, create new one first
             if (!finalContactId) {
                 // Prepare contact payload
                 // Filter out empty phones/emails and trim data
                 const contactPayload = {
-                    title: formData.title || "",
+                    title: getLookupId('Title', formData.title) || "",
                     name: (formData.name || "").trim(),
                     surname: (formData.surname || "").trim(),
                     phones: (formData.phones || []).filter(p => p.number && p.number.trim()),
                     emails: (formData.emails || []).filter(e => e.address && e.address.trim()),
-                    source: formData.source || "",
-                    countryCode: formData.countryCode || "+91",
+                    source: getLookupId('Source', formData.source) || "",
+                    countryCode: getLookupId('CountryCode', formData.countryCode) || "",
+                    campaign: getLookupId('Campaign', formData.campaign) || "",
+                    subSource: getLookupId('SubSource', formData.subSource) || "",
                     team: formData.team || "",
                     owner: formData.owner || "",
                     visibleTo: formData.visibleTo || "Public",
@@ -911,9 +937,11 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                     return;
                 }
 
+                const cleanContactPayload = normalizeRefs(contactPayload);
+
                 // Call Add Contact API
                 try {
-                    const response = await api.post("contacts", contactPayload);
+                    const response = await api.post("contacts", cleanContactPayload);
                     if (response.data && response.data.success) {
                         finalContactId = response.data.data._id;
                     } else {
@@ -966,12 +994,44 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
             // Call Add/Update Lead API
             try {
+                // Transform names to IDs for Lookup fields
+                const transformedData = {
+                    ...leadPayload, // Use leadPayload as base
+                    requirement: getLookupId('Requirement', leadPayload.requirement) || leadPayload.requirement,
+                    subRequirement: getLookupId('Sub Requirement', leadPayload.subRequirement) || leadPayload.subRequirement,
+                    budget: getLookupId('Budget', leadPayload.budget) || leadPayload.budget,
+                    source: getLookupId('Source', leadPayload.source) || leadPayload.source,
+                    status: getLookupId('Status', leadPayload.status) || leadPayload.status,
+                    propertyType: (leadPayload.propertyType || []).map(v => getLookupId('Property Type', v) || v).filter(Boolean),
+                    subType: (leadPayload.subType || []).map(v => getLookupId('Sub Type', v) || v).filter(Boolean),
+                    unitType: (leadPayload.unitType || []).map(v => getLookupId('Unit Type', v) || v).filter(Boolean),
+                    facing: (leadPayload.facing || []).map(v => getLookupId('Facing', v) || v).filter(Boolean),
+                    roadWidth: (leadPayload.roadWidth || []).map(v => getLookupId('Road Width', v) || v).filter(Boolean),
+                    direction: (leadPayload.direction || []).map(v => getLookupId('Direction', v) || v).filter(Boolean),
+                    location: getLookupId('Location', leadPayload.location) || leadPayload.location,
+                    campaign: getLookupId('Campaign', leadPayload.campaign) || leadPayload.campaign,
+                    subSource: getLookupId('SubSource', leadPayload.subSource) || leadPayload.subSource
+                };
+
+                const topLevelRefs = [
+                    "requirement", "subRequirement", "budget", "source", "status",
+                    "campaign", "subSource", "team", "owner", "visibleTo"
+                ];
+
+                topLevelRefs.forEach(ref => {
+                    if (transformedData[ref] && typeof transformedData[ref] === 'object') {
+                        transformedData[ref] = transformedData[ref]._id || transformedData[ref].id;
+                    }
+                });
+
+                // Final cleanup: Ensure no objects left in transformedData before sending
+                const finalLeadPayload = normalizeRefs(transformedData);
+
                 let response;
-                if (mode === 'edit' && initialData && (initialData._id || initialData.id)) {
-                    const leadId = initialData._id || initialData.id;
-                    response = await api.put(`leads/${leadId}`, leadPayload);
+                if (mode === 'edit' && initialData?._id) {
+                    response = await api.put(`/leads/${initialData._id}`, finalLeadPayload);
                 } else {
-                    response = await api.post("leads", leadPayload);
+                    response = await api.post('/leads', finalLeadPayload);
                 }
                 if (!response.data || !response.data.success) {
                     throw new Error("Failed to create lead: " + (response.data?.message || "Unknown error"));
@@ -983,7 +1043,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 if (mode === 'add') {
                     fireEvent('lead_created', leadPayload, { entityType: 'leads' });
                 } else {
-                    const previousEntity = contactData || initialData || {};
+                    const previousEntity = initialData || {};
                     fireEvent('lead_updated', leadPayload, {
                         entityType: 'leads',
                         previousEntity
@@ -1008,7 +1068,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 }
             } catch (leadError) {
                 console.error("Error creating lead:", leadError);
-                alert("Failed to save lead. Please try again.");
+                alert("Failed to save lead. Please try again: " + (leadError.response?.data?.message || leadError.message));
+                setIsSaving(false);
                 return;
             }
 
@@ -1018,6 +1079,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         } catch (error) {
             console.error("Error saving lead:", error);
             alert("An error occurred while saving. Please try again.");
+            setIsSaving(false);
         }
     };
 
@@ -1037,6 +1099,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     const handlePopulateForm = (data) => {
         if (!data) return;
         handleSelectContact(data);
+        setSimilarContacts([]); // Clear suggestions after selection
         alert(`Linked to existing contact: ${data.name}`);
     };
 
@@ -1088,7 +1151,12 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
                 const response = await api.post('duplication-rules/check', {
                     entityType: 'Lead',
-                    data: formData
+                    data: {
+                        ...formData,
+                        firstName: formData.name,
+                        mobile: formData.phones[0]?.number || '',
+                        email: formData.emails[0]?.address || ''
+                    }
                 });
 
                 if (response.data && response.data.success) {
@@ -1321,12 +1389,13 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                     </div>
                                 )}
 
-                                {/* Identity Card */}
+                                {/* Identity & Contact Consolidation */}
                                 <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                                     <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
                                         <i className="fas fa-user-circle" style={{ color: '#3b82f6' }}></i> Identity Details
                                     </h3>
-                                    <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr 1fr', gap: '20px' }}>
+
+                                    <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr 1fr', gap: '20px', marginBottom: '24px' }}>
                                         <div>
                                             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Title</label>
                                             <select
@@ -1341,7 +1410,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                 <option value="Dr.">Dr.</option>
                                             </select>
                                         </div>
-                                        <div>
+                                        <div style={{ position: 'relative' }}>
                                             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>First Name <span style={{ color: '#ef4444' }}>*</span></label>
                                             <input
                                                 type="text"
@@ -1362,19 +1431,12 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             />
                                         </div>
                                     </div>
-                                </div>
-
-                                {/* Contact Card */}
-                                <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                    <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                        <i className="fas fa-address-book" style={{ color: '#10b981' }}></i> Contact Methods
-                                    </h3>
 
                                     {/* Phones */}
                                     <div style={{ marginBottom: '24px' }}>
                                         <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '12px' }}>Mobile Numbers <span style={{ color: '#ef4444' }}>*</span></label>
                                         {formData.phones.map((phone, index) => (
-                                            <div key={index} style={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 120px) 1fr minmax(100px, 120px) 40px', gap: '12px', marginBottom: '12px' }}>
+                                            <div key={index} style={{ display: 'grid', gridTemplateColumns: '100px 1fr 100px 40px', gap: '8px', marginBottom: '12px' }}>
                                                 <select
                                                     value={formData.countryCode}
                                                     onChange={(e) => handleInputChange('countryCode', e.target.value)}
@@ -1391,7 +1453,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                         handleInputChange('phones', newPhones);
                                                     }}
                                                     placeholder="Enter mobile number"
-                                                    style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
+                                                    style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
                                                 />
                                                 <select
                                                     value={phone.type}
@@ -1586,98 +1648,15 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                             </div>
                         ) : currentTab === 'basic' ? (<div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
-                            {/* NEW: Search Existing Contact */}
-                            <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                    <i className="fas fa-search" style={{ color: '#64748b' }}></i> Search Existing Contact
-                                </h3>
-                                <div style={{ position: 'relative' }}>
-                                    <div style={{ position: 'relative' }}>
-                                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
-                                        <input
-                                            type="text"
-                                            value={contactSearchQuery}
-                                            onChange={(e) => setContactSearchQuery(e.target.value)}
-                                            placeholder="Search by name to auto-fill details..."
-                                            style={{
-                                                width: '100%',
-                                                padding: '12px 12px 12px 36px',
-                                                borderRadius: '8px',
-                                                border: '1px solid #cbd5e1',
-                                                fontSize: '0.95rem',
-                                                outline: 'none',
-                                                transition: 'all 0.2s',
-                                                background: '#f8fafc'
-                                            }}
-                                            onFocus={(e) => e.target.style.background = '#fff'}
-                                            onBlur={(e) => e.target.style.background = '#f8fafc'}
-                                        />
-                                        {isContactSearchLoading && (
-                                            <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)' }}>
-                                                <i className="fas fa-circle-notch fa-spin" style={{ color: '#3b82f6' }}></i>
-                                            </div>
-                                        )}
-                                    </div>
 
-                                    {/* Search Results Dropdown */}
-                                    {contactSearchResults.length > 0 && (
-                                        <div style={{
-                                            position: 'absolute',
-                                            top: '100%',
-                                            left: 0,
-                                            right: 0,
-                                            background: '#fff',
-                                            borderRadius: '8px',
-                                            border: '1px solid #e2e8f0',
-                                            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
-                                            marginTop: '8px',
-                                            zIndex: 50,
-                                            maxHeight: '300px',
-                                            overflowY: 'auto'
-                                        }}>
-                                            {contactSearchResults.map(contact => (
-                                                <div
-                                                    key={contact._id}
-                                                    onClick={() => handleSelectContact(contact)}
-                                                    style={{
-                                                        padding: '12px 16px',
-                                                        borderBottom: '1px solid #f1f5f9',
-                                                        cursor: 'pointer',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'space-between',
-                                                        transition: 'background 0.2s'
-                                                    }}
-                                                    onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-                                                    onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
-                                                >
-                                                    <div>
-                                                        <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.9rem' }}>
-                                                            {contact.title} {contact.name} {contact.surname}
-                                                        </div>
-                                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                                                            {contact.mobile || contact.phones?.[0]?.number || contact.phones?.[0]?.phoneNumber} • {contact.email || contact.emails?.[0]?.address || (typeof contact.emails?.[0] === 'string' ? contact.emails[0] : '')}
-                                                        </div>
-                                                        {contact.company && (
-                                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>
-                                                                <i className="fas fa-building"></i> {contact.company}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <i className="fas fa-chevron-right" style={{ color: '#cbd5e1', fontSize: '0.8rem' }}></i>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
 
-                            {/* Identity Card */}
+                            {/* Identity & Contact Consolidation */}
                             <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                                 <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
                                     <i className="fas fa-user-circle" style={{ color: '#3b82f6' }}></i> Identity Details
                                 </h3>
-                                <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr 1fr', gap: '20px' }}>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr 1fr', gap: '20px', marginBottom: '24px' }}>
                                     <div>
                                         <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Title</label>
                                         <select
@@ -1692,7 +1671,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             <option value="Dr.">Dr.</option>
                                         </select>
                                     </div>
-                                    <div>
+                                    <div style={{ position: 'relative' }}>
                                         <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>First Name <span style={{ color: '#ef4444' }}>*</span></label>
                                         <input
                                             type="text"
@@ -1701,6 +1680,18 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             placeholder="Enter first name"
                                             style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
                                         />
+                                        {/* Suggestion Box */}
+                                        {similarContacts.length > 0 && (
+                                            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', marginTop: '4px', zIndex: 100, maxHeight: '250px', overflowY: 'auto' }}>
+                                                <div style={{ padding: '8px 12px', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>SUGGESTED CONTACTS ({similarContacts.length})</div>
+                                                {similarContacts.map(contact => (
+                                                    <div key={contact._id} onClick={() => { handleSelectContact(contact); setSimilarContacts([]); }} style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                                                        <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.85rem' }}>{contact.name} {contact.surname}</div>
+                                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{contact.mobile || contact.phones?.[0]?.number} • {contact.email || contact.emails?.[0]?.address}</div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                     <div>
                                         <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Last Name</label>
@@ -1725,19 +1716,12 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         </div>
                                     )}
                                 </div>
-                            </div>
-
-                            {/* Contact Card */}
-                            <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                    <i className="fas fa-address-book" style={{ color: '#10b981' }}></i> Contact Methods
-                                </h3>
 
                                 {/* Phones */}
                                 <div style={{ marginBottom: '24px' }}>
                                     <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '12px' }}>Mobile Numbers <span style={{ color: '#ef4444' }}>*</span></label>
                                     {formData.phones.map((phone, index) => (
-                                        <div key={index} style={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 120px) 1fr minmax(100px, 120px) 40px', gap: '12px', marginBottom: '12px' }}>
+                                        <div key={index} style={{ display: 'grid', gridTemplateColumns: '100px 1fr 100px 40px', gap: '8px', marginBottom: '12px' }}>
                                             <select
                                                 value={formData.countryCode}
                                                 onChange={(e) => handleInputChange('countryCode', e.target.value)}
@@ -1754,7 +1738,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                     handleInputChange('phones', newPhones);
                                                 }}
                                                 placeholder="Enter mobile number"
-                                                style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
+                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
                                             />
                                             <select
                                                 value={phone.type}
@@ -2668,7 +2652,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
                 {/* Right Pane */}
                 {
-                    similarContacts.length > 0 && (
+                    (formData.name || formData.phones[0].number || formData.emails[0].address) && (
                         <div style={rightPaneStyle}>
                             <div style={{ padding: '20px', borderBottom: '1px solid #e2e8f0' }}>
                                 <h3>Suggestions</h3>

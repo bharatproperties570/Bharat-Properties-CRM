@@ -92,6 +92,27 @@ export const getContact = async (req, res, next) => {
     }
 };
 
+const resolveAllReferenceFields = async (obj) => {
+    if (!obj || typeof obj !== 'object') return;
+
+    for (const key in obj) {
+        if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
+        const value = obj[key];
+
+        if (value === null || value === undefined) continue;
+
+        if (typeof value === 'object') {
+            if (value._id) {
+                obj[key] = value._id;
+            } else if (Array.isArray(value)) {
+                obj[key] = value.map(item => (item && typeof item === 'object' && item._id) ? item._id : item);
+            } else if (!(value instanceof mongoose.Types.ObjectId)) {
+                await resolveAllReferenceFields(value);
+            }
+        }
+    }
+};
+
 export const createContact = async (req, res, next) => {
     try {
         // Strip internal fields that shouldn't be in the create payload according to Joi
@@ -107,70 +128,19 @@ export const createContact = async (req, res, next) => {
         if (error) return res.status(400).json({ success: false, error: error.details[0].message });
 
         // Resolve All Reference Fields
-        const resolveAllReferenceFields = async (doc) => {
-            // Standard Lookups
-            if (doc.title) doc.title = await resolveLookup('Title', doc.title);
-            if (doc.countryCode) doc.countryCode = await resolveLookup('Country-Code', doc.countryCode);
-            if (doc.professionCategory) doc.professionCategory = await resolveLookup('ProfessionalCategory', doc.professionCategory);
-            if (doc.professionSubCategory) doc.professionSubCategory = await resolveLookup('ProfessionalSubCategory', doc.professionSubCategory);
-            if (doc.designation) doc.designation = await resolveLookup('ProfessionalDesignation', doc.designation);
-            if (doc.source) doc.source = await resolveLookup('Source', doc.source);
-            if (doc.subSource) doc.subSource = await resolveLookup('Sub-Source', doc.subSource);
-            if (doc.campaign) doc.campaign = await resolveLookup('Campaign', doc.campaign);
-            if (doc.requirement) doc.requirement = await resolveLookup('Requirement', doc.requirement);
-            if (doc.budget) doc.budget = await resolveLookup('Budget', doc.budget);
-            if (doc.location) doc.location = await resolveLookup('Location', doc.location);
-
-            // User Reference
-            if (doc.owner) doc.owner = await resolveUser(doc.owner);
-
-            // Address Resolution Helper
-            const resolveAddress = async (addr) => {
-                if (!addr) return;
-                if (addr.country) addr.country = await resolveLookup('Country', addr.country);
-                if (addr.state) addr.state = await resolveLookup('State', addr.state);
-                if (addr.city) addr.city = await resolveLookup('City', addr.city);
-                if (addr.tehsil) addr.tehsil = await resolveLookup('Tehsil', addr.tehsil);
-                if (addr.postOffice) addr.postOffice = await resolveLookup('PostOffice', addr.postOffice);
-                if (addr.location) addr.location = await resolveLookup('Location', addr.location);
-            };
-
-            await resolveAddress(doc.personalAddress);
-            await resolveAddress(doc.correspondenceAddress);
-
-            // Arrays
-            if (Array.isArray(doc.educations)) {
-                for (const edu of doc.educations) {
-                    if (edu.education) edu.education = await resolveLookup('Education', edu.education);
-                    if (edu.degree) edu.degree = await resolveLookup('Degree', edu.degree);
-                }
-            }
-            if (Array.isArray(doc.loans)) {
-                for (const loan of doc.loans) {
-                    if (loan.loanType) loan.loanType = await resolveLookup('LoanType', loan.loanType);
-                    if (loan.bank) loan.bank = await resolveLookup('Bank', loan.bank);
-                }
-            }
-            if (Array.isArray(doc.socialMedia)) {
-                for (const sm of doc.socialMedia) {
-                    if (sm.platform) sm.platform = await resolveLookup('SocialPlatform', sm.platform);
-                }
-            }
-            if (Array.isArray(doc.incomes)) {
-                for (const inc of doc.incomes) {
-                    if (inc.incomeType) inc.incomeType = await resolveLookup('IncomeType', inc.incomeType);
-                }
-            }
-            if (Array.isArray(doc.documents)) {
-                for (const docItem of doc.documents) {
-                    if (docItem.documentCategory) docItem.documentCategory = await resolveLookup('Document-Category', docItem.documentCategory);
-                    if (docItem.documentType) docItem.documentType = await resolveLookup('Document-Type', docItem.documentType);
-                    if (docItem.documentName) docItem.documentName = await resolveLookup('Document-Type', docItem.documentName);
+        const cleanEmptyStrings = (obj) => {
+            if (!obj || typeof obj !== 'object') return;
+            for (const key in obj) {
+                if (obj[key] === "") {
+                    obj[key] = null;
+                } else if (obj[key] && typeof obj[key] === 'object' && !(obj[key] instanceof mongoose.Types.ObjectId)) {
+                    cleanEmptyStrings(obj[key]);
                 }
             }
         };
 
         await resolveAllReferenceFields(data);
+        cleanEmptyStrings(data);
 
         const contact = await Contact.create(data);
         res.status(201).json({ success: true, data: contact });
@@ -200,70 +170,19 @@ export const updateContact = async (req, res, next) => {
         }
 
         // Resolve All Reference Fields
-        const resolveAllReferenceFields = async (doc) => {
-            // Standard Lookups
-            if (doc.title) doc.title = await resolveLookup('Title', doc.title);
-            if (doc.countryCode) doc.countryCode = await resolveLookup('Country-Code', doc.countryCode);
-            if (doc.professionCategory) doc.professionCategory = await resolveLookup('ProfessionalCategory', doc.professionCategory);
-            if (doc.professionSubCategory) doc.professionSubCategory = await resolveLookup('ProfessionalSubCategory', doc.professionSubCategory);
-            if (doc.designation) doc.designation = await resolveLookup('ProfessionalDesignation', doc.designation);
-            if (doc.source) doc.source = await resolveLookup('Source', doc.source);
-            if (doc.subSource) doc.subSource = await resolveLookup('Sub-Source', doc.subSource);
-            if (doc.campaign) doc.campaign = await resolveLookup('Campaign', doc.campaign);
-            if (doc.requirement) doc.requirement = await resolveLookup('Requirement', doc.requirement);
-            if (doc.budget) doc.budget = await resolveLookup('Budget', doc.budget);
-            if (doc.location) doc.location = await resolveLookup('Location', doc.location);
-
-            // User Reference
-            if (doc.owner) doc.owner = await resolveUser(doc.owner);
-
-            // Address Resolution Helper
-            const resolveAddress = async (addr) => {
-                if (!addr) return;
-                if (addr.country) addr.country = await resolveLookup('Country', addr.country);
-                if (addr.state) addr.state = await resolveLookup('State', addr.state);
-                if (addr.city) addr.city = await resolveLookup('City', addr.city);
-                if (addr.tehsil) addr.tehsil = await resolveLookup('Tehsil', addr.tehsil);
-                if (addr.postOffice) addr.postOffice = await resolveLookup('PostOffice', addr.postOffice);
-                if (addr.location) addr.location = await resolveLookup('Location', addr.location);
-            };
-
-            await resolveAddress(doc.personalAddress);
-            await resolveAddress(doc.correspondenceAddress);
-
-            // Arrays
-            if (Array.isArray(doc.educations)) {
-                for (const edu of doc.educations) {
-                    if (edu.education) edu.education = await resolveLookup('Education', edu.education);
-                    if (edu.degree) edu.degree = await resolveLookup('Degree', edu.degree);
-                }
-            }
-            if (Array.isArray(doc.loans)) {
-                for (const loan of doc.loans) {
-                    if (loan.loanType) loan.loanType = await resolveLookup('LoanType', loan.loanType);
-                    if (loan.bank) loan.bank = await resolveLookup('Bank', loan.bank);
-                }
-            }
-            if (Array.isArray(doc.socialMedia)) {
-                for (const sm of doc.socialMedia) {
-                    if (sm.platform) sm.platform = await resolveLookup('SocialPlatform', sm.platform);
-                }
-            }
-            if (Array.isArray(doc.incomes)) {
-                for (const inc of doc.incomes) {
-                    if (inc.incomeType) inc.incomeType = await resolveLookup('IncomeType', inc.incomeType);
-                }
-            }
-            if (Array.isArray(doc.documents)) {
-                for (const docItem of doc.documents) {
-                    if (docItem.documentCategory) docItem.documentCategory = await resolveLookup('Document-Category', docItem.documentCategory);
-                    if (docItem.documentType) docItem.documentType = await resolveLookup('Document-Type', docItem.documentType);
-                    if (docItem.documentName) docItem.documentName = await resolveLookup('Document-Type', docItem.documentName);
+        const cleanEmptyStrings = (obj) => {
+            if (!obj || typeof obj !== 'object') return;
+            for (const key in obj) {
+                if (obj[key] === "") {
+                    obj[key] = null;
+                } else if (obj[key] && typeof obj[key] === 'object' && !(obj[key] instanceof mongoose.Types.ObjectId)) {
+                    cleanEmptyStrings(obj[key]);
                 }
             }
         };
 
         await resolveAllReferenceFields(updateData);
+        cleanEmptyStrings(updateData);
 
         const contact = await Contact.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found" });
@@ -434,11 +353,11 @@ export const importContacts = async (req, res, next) => {
 
             // Resolve Lookups
             newItem.title = await resolveLookup('Title', item.title);
-            newItem.professionCategory = await resolveLookup('ProfessionalCategory', item.professionCategory);
-            newItem.professionSubCategory = await resolveLookup('ProfessionalSubCategory', item.professionSubCategory);
-            newItem.designation = await resolveLookup('ProfessionalDesignation', item.designation);
+            newItem.professionCategory = await resolveLookup('ProfessionCategory', item.professionCategory);
+            newItem.professionSubCategory = await resolveLookup('ProfessionSubCategory', item.professionSubCategory);
+            newItem.designation = await resolveLookup('Designation', item.designation);
             newItem.source = await resolveLookup('Source', item.source);
-            newItem.subSource = await resolveLookup('Sub-Source', item.subSource);
+            newItem.subSource = await resolveLookup('SubSource', item.subSource);
             newItem.campaign = await resolveLookup('Campaign', item.campaign);
             newItem.owner = await resolveUser(item.owner);
             newItem.status = item.status || 'Active';
