@@ -62,9 +62,6 @@ export const getContacts = async (req, res, next) => {
             };
         }
 
-        // Enabled population
-        let mongoQuery = paginate(Contact, query, Number(page), Number(limit), { createdAt: -1 }, populateFields);
-
         // Wait, paginate utility handles call. 
         // We passed populateFields (Array) to paginate.
         // paginate uses model.find()...populate(populate).
@@ -101,11 +98,45 @@ const resolveAllReferenceFields = async (obj) => {
 
         if (value === null || value === undefined) continue;
 
-        if (typeof value === 'object') {
+        if (typeof value === 'string') {
+            if (value === "") {
+                obj[key] = null;
+                continue;
+            }
+            // Resolve common lookup fields if they are strings
+            if (mongoose.Types.ObjectId.isValid(value)) continue;
+
+            const lookupMap = {
+                title: 'Title',
+                countryCode: 'CountryCode',
+                professionCategory: 'ProfessionCategory',
+                professionSubCategory: 'ProfessionSubCategory',
+                designation: 'Designation',
+                source: 'Source',
+                subSource: 'SubSource',
+                campaign: 'Campaign',
+                requirement: 'Requirement',
+                budget: 'Budget',
+                location: 'Location'
+            };
+
+            if (lookupMap[key]) {
+                obj[key] = await resolveLookup(lookupMap[key], value);
+            } else if (key === 'owner') {
+                obj[key] = await resolveUser(value);
+            }
+        } else if (typeof value === 'object') {
             if (value._id) {
                 obj[key] = value._id;
             } else if (Array.isArray(value)) {
-                obj[key] = value.map(item => (item && typeof item === 'object' && item._id) ? item._id : item);
+                obj[key] = await Promise.all(value.map(async (item) => {
+                    if (item && typeof item === 'object') {
+                        if (item._id) return item._id;
+                        await resolveAllReferenceFields(item);
+                        return item;
+                    }
+                    return item;
+                }));
             } else if (!(value instanceof mongoose.Types.ObjectId)) {
                 await resolveAllReferenceFields(value);
             }

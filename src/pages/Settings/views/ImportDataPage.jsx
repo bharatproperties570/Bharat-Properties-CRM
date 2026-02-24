@@ -174,7 +174,8 @@ const ImportDataPage = () => {
                 if (module === 'sizes' || module === 'inventory') {
                     const projectObj = projects.find(p => p._id === selectedProject);
                     item.projectId = selectedProject;
-                    item.project = projectObj ? projectObj.name : ''; // Store name for display/filtering
+                    item.project = projectObj ? projectObj.name : ''; // Fallback name
+                    item.projectName = projectObj ? projectObj.name : item.projectName; // Prioritize selected project
                     item.block = selectedBlock;
                 }
 

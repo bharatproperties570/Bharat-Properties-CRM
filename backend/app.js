@@ -21,27 +21,48 @@ import bookingRoutes from "./routes/booking.routes.js";
 import collectorRateRoutes from "./routes/collectorRate.routes.js";
 import valuationRoutes from "./routes/valuation.routes.js";
 import duplicationRuleRoutes from "./routes/duplicationRule.routes.js";
+import dashboardRoutes from "./routes/dashboard.routes.js";
+import emailRoutes from "./routes/email.routes.js";
+import enrichmentRoutes from "./src/modules/prospectingEnrichment/enrichment.routes.js";
 
 const app = express();
 
 const allowedOrigins = [
+    // Web CRM (React dev server)
     "http://localhost:3000",
+    "http://localhost:3001",
+    // Expo Web (various ports)
+    "http://localhost:8081",
+    "http://localhost:8082",
+    "http://localhost:8083",
+    "http://localhost:19006",
+    "http://localhost:19000",
+    "http://localhost:19001",
+    // LAN access from device
+    "http://192.168.1.10:3000",
+    "http://192.168.1.10:8081",
+    "http://192.168.1.10:8082",
+    "http://192.168.1.10:19006",
+    // Production
     "https://bharat-properties-crm.vercel.app",
     "https://api.bharatproperties.co"
 ];
 
 app.use(cors({
     origin: function (origin, callback) {
-        // allow requests with no origin (like mobile apps or curl requests)
+        // Allow requests with no origin (native mobile apps, curl)
         if (!origin) return callback(null, true);
-        if (allowedOrigins.indexOf(origin) === -1) {
-            var msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-            return callback(new Error(msg), false);
+        // Allow any localhost origin in development (any port)
+        if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+            return callback(null, true);
         }
-        return callback(null, true);
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            return callback(null, true);
+        }
+        return callback(new Error(`CORS: Origin ${origin} not allowed`), false);
     },
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     credentials: true
 }));
 app.use(express.json({ limit: "10mb" }));
@@ -79,6 +100,9 @@ app.use("/api/collector-rates", collectorRateRoutes);
 app.use("/api/valuation", valuationRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/duplication-rules", duplicationRuleRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/email", emailRoutes);
+app.use("/api/enrichment", enrichmentRoutes);
 
 import fs from 'fs';
 import path from 'path';

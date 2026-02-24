@@ -902,6 +902,24 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 return;
             }
 
+            // Validation: Mandatory Assignment Fields
+            if (!formData.team) {
+                alert("Team is required");
+                setIsSaving(false);
+                return;
+            }
+            if (!formData.owner) {
+                alert("Owner/Assignee is required");
+                setIsSaving(false);
+                return;
+            }
+            if (!formData.visibleTo) {
+                alert("Visibility is required");
+                setIsSaving(false);
+                return;
+            }
+
+
             // ... (rest of save logic)
             // Ensure we setIsSaving(false) in catch or end
             let finalContactId = selectedContact?._id || formData.contactDetails || null;
@@ -1417,6 +1435,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                 value={formData.name}
                                                 onChange={(e) => handleInputChange('name', e.target.value)}
                                                 placeholder="Enter first name"
+                                                autoComplete="off"
                                                 style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
                                             />
                                         </div>
@@ -1427,6 +1446,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                 value={formData.surname}
                                                 onChange={(e) => handleInputChange('surname', e.target.value)}
                                                 placeholder="Enter last name"
+                                                autoComplete="off"
                                                 style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
                                             />
                                         </div>
@@ -1453,6 +1473,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                         handleInputChange('phones', newPhones);
                                                     }}
                                                     placeholder="Enter mobile number"
+                                                    autoComplete="off"
                                                     style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
                                                 />
                                                 <select
@@ -1495,6 +1516,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                         handleInputChange('emails', newEmails);
                                                     }}
                                                     placeholder="Enter email address"
+                                                    autoComplete="off"
                                                     style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
                                                 />
                                                 <select
@@ -1678,6 +1700,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             value={formData.name}
                                             onChange={(e) => handleInputChange('name', e.target.value)}
                                             placeholder="Enter first name"
+                                            autoComplete="off"
                                             style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
                                         />
                                         {/* Suggestion Box */}
@@ -1700,6 +1723,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             value={formData.surname}
                                             onChange={(e) => handleInputChange('surname', e.target.value)}
                                             placeholder="Enter last name"
+                                            autoComplete="off"
                                             style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
                                         />
                                     </div>
@@ -1738,6 +1762,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                     handleInputChange('phones', newPhones);
                                                 }}
                                                 placeholder="Enter mobile number"
+                                                autoComplete="off"
                                                 style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
                                             />
                                             <select
@@ -1780,6 +1805,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                     handleInputChange('emails', newEmails);
                                                 }}
                                                 placeholder="Enter email address"
+                                                autoComplete="off"
                                                 style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
                                             />
                                             <select
@@ -1907,7 +1933,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                 </h3>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Team</label>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Team <span style={{ color: '#ef4444' }}>*</span></label>
+
                                         <select
                                             value={formData.team}
                                             onChange={(e) => {
@@ -1927,7 +1954,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         </select>
                                     </div>
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Assign</label>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Assign <span style={{ color: '#ef4444' }}>*</span></label>
+
                                         <select
                                             value={formData.owner}
                                             onChange={(e) => handleInputChange('owner', e.target.value)}
@@ -1944,7 +1972,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         </select>
                                     </div>
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Visibility</label>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Visibility <span style={{ color: '#ef4444' }}>*</span></label>
+
                                         <select
                                             value={formData.visibleTo}
                                             onChange={(e) => handleInputChange('visibleTo', e.target.value)}

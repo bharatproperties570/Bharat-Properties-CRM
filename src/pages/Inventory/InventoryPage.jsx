@@ -14,7 +14,7 @@ import UploadModal from '../../components/UploadModal';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
 import AddInventoryModal from '../../components/AddInventoryModal';
 import AddOwnerModal from '../../components/AddOwnerModal';
-import SendMailModal from '../Contacts/components/SendMailModal';
+import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../components/SendMessageModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
 import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
@@ -178,8 +178,30 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
         if (property) {
             // Mock parsing owner data from flat mock data
             const owners = [];
-            if (property.ownerName) owners.push({ name: property.ownerName, mobile: property.ownerPhone, role: 'Property Owner' });
-            if (property.associatedContact) owners.push({ name: property.associatedContact, mobile: property.associatedPhone, role: 'Associate', relationship: 'Broker' });
+            if (property.owners && property.owners.length > 0) {
+                property.owners.forEach(owner => {
+                    owners.push({
+                        name: owner.name,
+                        mobile: owner.phones?.[0]?.number || owner.mobile || '',
+                        role: 'Property Owner'
+                    });
+                });
+            } else if (property.ownerName) {
+                owners.push({ name: property.ownerName, mobile: property.ownerPhone, role: 'Property Owner' });
+            }
+
+            if (property.associates && property.associates.length > 0) {
+                property.associates.forEach(assoc => {
+                    owners.push({
+                        name: assoc.name,
+                        mobile: assoc.phones?.[0]?.number || assoc.mobile || '',
+                        role: 'Associate',
+                        relationship: assoc.relationship || 'Broker'
+                    });
+                });
+            } else if (property.associatedContact) {
+                owners.push({ name: property.associatedContact, mobile: property.associatedPhone, role: 'Associate', relationship: 'Broker' });
+            }
 
             setCurrentOwners(owners);
             setSelectedProperty(property);
@@ -187,41 +209,27 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
         }
     };
 
-    const handleSaveOwners = (owners) => {
+    const handleSaveOwners = async (owners) => {
         if (!selectedProperty) return;
 
-        const updatedItems = inventoryItems.map(item => {
-            if (item._id === selectedProperty._id) {
-                const updates = {
-                    ownerName: '', ownerPhone: '',
-                    associatedContact: '', associatedPhone: ''
-                };
+        try {
+            // Persist to Backend
+            const response = await api.put(`inventory/${selectedProperty._id}`, {
+                owners: owners.filter(o => o.role === 'Property Owner'),
+                associates: owners.filter(o => o.role === 'Associate')
+            });
 
-                const owner = owners.find(o => o.role === 'Property Owner');
-                if (owner) {
-                    updates.ownerName = owner.name;
-                    updates.ownerPhone = owner.mobile;
-                } else {
-                    updates.ownerEmail = '';
-                }
-
-                const associate = owners.find(o => o.role === 'Associate');
-                if (associate) {
-                    updates.associatedContact = associate.name;
-                    updates.associatedPhone = associate.mobile;
-                } else {
-                    updates.associatedEmail = '';
-                }
-
-                return { ...item, ...updates };
+            if (response.data && response.data.success) {
+                toast.success('Owner details updated successfully');
+                fetchInventory(); // Refresh list to show updated data
+                setIsOwnerModalOpen(false);
+            } else {
+                toast.error('Failed to update owner details');
             }
-            return item;
-        });
-
-        setInventoryItems(updatedItems);
-        const newSelected = updatedItems.find(i => i._id === selectedProperty._id);
-        setSelectedProperty(newSelected);
-        toast.success('Owner details updated successfully');
+        } catch (error) {
+            console.error("Error updating owners:", error);
+            toast.error("Error saving owner details");
+        }
     };
 
     const getTargetContacts = () => {
@@ -230,8 +238,29 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
         selectedIds.forEach(id => {
             const prop = inventoryItems.find(p => p._id === id);
             if (prop) {
-                if (prop.ownerName) targets.push({ name: prop.ownerName, mobile: prop.ownerPhone, email: prop.ownerEmail || 'owner@example.com' });
-                if (prop.associatedContact) targets.push({ name: prop.associatedContact, mobile: prop.associatedPhone, email: prop.associatedEmail || 'associate@example.com' });
+                if (prop.owners && prop.owners.length > 0) {
+                    prop.owners.forEach(owner => {
+                        targets.push({
+                            name: owner.name,
+                            mobile: owner.phones?.[0]?.number || owner.mobile || '',
+                            email: owner.emails?.[0]?.address || owner.ownerEmail || 'owner@example.com'
+                        });
+                    });
+                } else if (prop.ownerName) {
+                    targets.push({ name: prop.ownerName, mobile: prop.ownerPhone, email: prop.ownerEmail || 'owner@example.com' });
+                }
+
+                if (prop.associates && prop.associates.length > 0) {
+                    prop.associates.forEach(assoc => {
+                        targets.push({
+                            name: assoc.name,
+                            mobile: assoc.phones?.[0]?.number || assoc.mobile || '',
+                            email: assoc.emails?.[0]?.address || assoc.associatedEmail || 'associate@example.com'
+                        });
+                    });
+                } else if (prop.associatedContact) {
+                    targets.push({ name: prop.associatedContact, mobile: prop.associatedPhone, email: prop.associatedEmail || 'associate@example.com' });
+                }
             }
         });
         return targets;
@@ -347,8 +376,8 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                 size: property.size || property.plotArea || '',
                 owner: {
                     name: property.owners?.[0]?.name || property.ownerName || '',
-                    phone: property.owners?.[0]?.phone || property.ownerPhone || '',
-                    email: property.owners?.[0]?.email || property.ownerEmail || ''
+                    phone: property.owners?.[0]?.phones?.[0]?.number || property.owners?.[0]?.phone || property.ownerPhone || '',
+                    email: property.owners?.[0]?.emails?.[0]?.address || property.owners?.[0]?.email || property.ownerEmail || ''
                 }
             });
             setIsAddDealModalOpen(true);
@@ -554,8 +583,8 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                     const property = getSelectedProperty();
                                                     if (property) {
                                                         startCall({
-                                                            name: property.ownerName || 'Unknown Owner',
-                                                            mobile: property.ownerPhone
+                                                            name: property.owners?.[0]?.name || property.ownerName || 'Unknown Owner',
+                                                            mobile: property.owners?.[0]?.phones?.[0]?.number || property.ownerPhone
                                                         }, {
                                                             purpose: 'Owner Update',
                                                             entityId: property.id,
@@ -745,7 +774,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                     {renderValue(item.unitNo) || renderValue(item.unitNumber) || 'N/A'}
                                                 </div>
                                                 <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                                    {renderValue(item.unitType) || renderValue(item.corner) || ''}
+                                                    {renderValue(getLookupValue('UnitType', item.unitType)) || renderValue(getLookupValue('Facing', item.facing)) || ''}
                                                 </div>
                                             </div>
                                             <div style={{ paddingLeft: '2px' }}>
@@ -795,7 +824,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                         </div>
                                                     </div>
                                                     <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px' }}>
-                                                        {item.owners && item.owners.length > 0 ? renderValue(item.owners[0]?.mobile || 'No Phone') : renderValue(item.ownerPhone)}
+                                                        {item.owners && item.owners.length > 0 ? renderValue(item.owners[0]?.phones?.[0]?.number || 'No Phone') : renderValue(item.ownerPhone)}
                                                     </div>
                                                     <div className="address-clamp" style={{ fontSize: '0.68rem', lineHeight: '1.2' }} title={renderValue(item.ownerAddress)}>
                                                         {item.address ? `${renderValue(item.address.location || '')} ${renderValue(item.address.city || '')}` : renderValue(item.ownerAddress)}
@@ -806,14 +835,14 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
 
                                         <div className="super-cell">
                                             {(() => {
-                                                const associate = item.owners?.find(o => o.role === 'Associate' || o.link_role === 'Associate');
+                                                const associate = (item.associates && item.associates.length > 0) ? item.associates[0] : item.owners?.find(o => o.role === 'Associate' || o.link_role === 'Associate');
                                                 if (associate) {
                                                     return (
                                                         <>
                                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
                                                                 <div style={{ fontWeight: 800, color: '#6366f1', fontSize: '0.85rem' }}>{renderValue(associate.name)}</div>
                                                             </div>
-                                                            <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px' }}>{renderValue(associate.mobile)}</div>
+                                                            <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px' }}>{renderValue(associate.phones?.[0]?.number || associate.mobile)}</div>
                                                             <div className="address-clamp" style={{ fontSize: '0.68rem', lineHeight: '1.2', color: '#94a3b8' }}>
                                                                 {renderValue(associate.relationship) ? `Associate (${renderValue(associate.relationship)})` : 'Verified Associate'}
                                                             </div>
@@ -1120,7 +1149,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
             />
 
             {/* Email Modal */}
-            <SendMailModal
+            <ComposeEmailModal
                 isOpen={isEmailModalOpen}
                 onClose={() => setIsEmailModalOpen(false)}
                 recipients={modalData}

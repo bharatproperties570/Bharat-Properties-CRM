@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { api } from '../../utils/api';
+import { api, enrichmentAPI } from '../../utils/api';
 import { contactData, leadData, inventoryData } from '../../data/mockData';
 import { getInitials } from '../../utils/helpers';
 import LeadConversionService from '../../services/LeadConversionService';
@@ -441,6 +441,11 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                         {aiStats.leadScore.total}
                                     </div>
                                 )}
+                                {contact.intent_index > 0 && (
+                                    <div title="Intent Index" style={{ width: '32px', height: '32px', fontSize: '0.8rem', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '900', border: '2px solid #fff', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', background: contact.intent_index >= 70 ? '#10b981' : contact.intent_index >= 40 ? '#f59e0b' : '#ef4444', color: '#fff' }}>
+                                        {contact.intent_index}
+                                    </div>
+                                )}
                                 <div style={{ display: 'flex', gap: '4px' }}>
                                     <span style={{
                                         background: recordType === 'lead' ? '#ecfdf5' : '#eff6ff',
@@ -453,6 +458,19 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                     }}>
                                         {recordType.toUpperCase()}
                                     </span>
+                                    {contact.lead_classification && (
+                                        <span style={{
+                                            background: '#fef3c7',
+                                            color: '#92400e',
+                                            fontSize: '0.6rem',
+                                            padding: '2px 8px',
+                                            borderRadius: '6px',
+                                            fontWeight: 800,
+                                            border: '1px solid #fcd34d'
+                                        }}>
+                                            {contact.lead_classification.toUpperCase()}
+                                        </span>
+                                    )}
                                     <span style={{
                                         background: `${aiStats.persona.color}15`,
                                         color: aiStats.persona.color,
@@ -468,6 +486,22 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                     }}>
                                         <i className={`fas fa-${aiStats.persona.icon}`} style={{ fontSize: '0.6rem' }}></i> {aiStats.persona.label}
                                     </span>
+                                    {contact.intent_tags && contact.intent_tags.map((tag, idx) => (
+                                        <span key={idx} style={{
+                                            background: '#f1f5f9',
+                                            color: '#475569',
+                                            fontSize: '0.6rem',
+                                            padding: '2px 8px',
+                                            borderRadius: '6px',
+                                            fontWeight: 700,
+                                            border: '1px solid #e2e8f0',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px'
+                                        }}>
+                                            <i className="fas fa-tag" style={{ fontSize: '0.5rem', opacity: 0.5 }}></i> {tag}
+                                        </span>
+                                    ))}
                                 </div>
                             </div>
                             <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, display: 'flex', gap: '12px', alignItems: 'center' }}>
@@ -507,6 +541,17 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                         <i className={`fas fa-${dealStatus === 'active' ? 'times-circle' : 'check-circle'}`}></i>
                         {dealStatus === 'active' ? 'Mark as Lost' : 'Mark as Active'}
                     </button>
+                    <button className="action-btn" title="Run Enrichment" onClick={async () => {
+                        try {
+                            const res = await enrichmentAPI.runLead(contactId);
+                            if (res.success) {
+                                showNotification('Intelligence Enrichment Complete!');
+                                window.location.reload(); // Simple way to refresh for now
+                            }
+                        } catch (e) {
+                            showNotification('Enrichment failed');
+                        }
+                    }}><i className="fas fa-magic" style={{ color: '#10b981' }}></i> Enrich</button>
                     <button className="action-btn" title="Call"><i className="fas fa-phone-alt" style={{ color: '#16a34a' }}></i> Call</button>
                     <button className="action-btn" title="WhatsApp"><i className="fab fa-whatsapp" style={{ color: '#25d366' }}></i> WhatsApp</button>
                     <button className="action-btn" title="Email"><i className="fas fa-envelope" style={{ color: '#8b5cf6' }}></i> Email</button>

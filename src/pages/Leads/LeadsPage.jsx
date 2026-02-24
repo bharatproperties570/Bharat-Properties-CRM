@@ -9,7 +9,7 @@ import SendMessageModal from '../../components/SendMessageModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
 import AssignContactModal from '../../components/AssignContactModal';
 // CallModal removed - using global context
-import SendMailModal from '../Contacts/components/SendMailModal';
+import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import AddLeadModal from '../../components/AddLeadModal';
 import LeadConversionService from '../../services/LeadConversionService';
 import { calculateLeadScore } from '../../utils/leadScoring';
@@ -84,15 +84,15 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     };
 
     const getTeamName = useCallback((teamValue) => {
-        if (!teamValue) return "General Team";
+        if (!teamValue) return "-";
 
         // Handle array of team names (as stored in assignment.team)
         if (Array.isArray(teamValue)) {
-            return teamValue.length > 0 ? teamValue.join(', ') : "General Team";
+            return teamValue.length > 0 ? teamValue.join(', ') : "-";
         }
 
         if (typeof teamValue === 'object') {
-            return teamValue.name || teamValue.lookup_value || "General Team";
+            return teamValue.name || teamValue.lookup_value || "-";
         }
         // Check if teams is an array (it might be {success: true, data: []})
         const teamArray = Array.isArray(teams) ? teams : (teams?.data || []);
@@ -100,16 +100,18 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         return found ? (found.name || found.lookup_value) : teamValue;
     }, [teams]);
 
+
     const getUserName = useCallback((userValue) => {
-        if (!userValue) return "Admin";
+        if (!userValue) return "-";
         if (typeof userValue === 'object') {
-            return userValue.fullName || userValue.name || userValue.lookup_value || userValue.username || "Admin";
+            return userValue.fullName || userValue.name || userValue.lookup_value || userValue.username || "-";
         }
         // Check if users is an array
         const userArray = Array.isArray(users) ? users : (users?.data || []);
         const found = userArray.find(u => (u._id === userValue) || (u.id === userValue));
         return found ? (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username))) : userValue;
     }, [users]);
+
 
     // Modals State
     const [isSendMessageOpen, setIsSendMessageOpen] = useState(false);
@@ -245,7 +247,13 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                         // ===== TEMPORARY LEAD META =====
                         isTemporary: lead.isTemporary || false,
-                        expiryBadge
+                        expiryBadge,
+
+                        // ===== ENRICHMENT DATA =====
+                        intentIndex: lead.intent_index || 0,
+                        classification: lead.lead_classification || '',
+                        roleType: lead.role_type || '',
+                        intentTags: lead.intent_tags || []
                     };
                 });
 
@@ -825,6 +833,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             </div>
                                         </div>
                                         <div style={{ display: 'flex', gap: '8px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
+                                            <button className="btn-icon" style={{ flex: 1, padding: '6px', fontSize: '0.9rem', color: '#16a34a', background: '#f0fdf4', borderRadius: '6px', border: 'none', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); enrichmentAPI.runLead(lead._id).then(() => { toast.success('Enrichment updated'); setRefreshTrigger(t => t + 1); }); }} title="Run Enrichment"><i className="fas fa-magic"></i></button>
                                             <button className="btn-icon" style={{ flex: 1, padding: '6px', fontSize: '0.9rem', color: '#3b82f6', background: '#eff6ff', borderRadius: '6px', border: 'none', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); startCall({ name: lead.name, mobile: lead.mobile }, { purpose: 'Lead Follow-up', entityId: lead._id, entityType: 'lead' }); }}><i className="fas fa-phone-alt"></i></button>
                                             <button className="btn-icon" style={{ flex: 1, padding: '6px', fontSize: '0.9rem', color: '#64748b', background: '#f1f5f9', borderRadius: '6px', border: 'none', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onEdit(lead); }}><i className="fas fa-edit"></i></button>
                                         </div>
@@ -873,43 +882,68 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         <div className="col-profile">
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                                 {/* Dynamic Lead Scoring Engine Badge */}
-                                                {(() => {
-                                                    const scoring = calculateLeadScore(c, c.activities || [], scoringConfig);
-                                                    const temp = scoring.temperature;
-                                                    return (
+                                                <div style={{ position: 'relative' }}>
+                                                    {(() => {
+                                                        const scoring = calculateLeadScore(c, c.activities || [], scoringConfig);
+                                                        const temp = scoring.temperature;
+                                                        return (
+                                                            <div
+                                                                className={`score-indicator ${temp.class}`}
+                                                                style={{
+                                                                    width: '42px',
+                                                                    height: '42px',
+                                                                    fontSize: '0.95rem',
+                                                                    borderRadius: '50%',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    fontWeight: '900',
+                                                                    border: '2px solid rgba(255,255,255,0.2)',
+                                                                    cursor: 'pointer',
+                                                                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                                                                    background: temp.color,
+                                                                    color: '#fff'
+                                                                }}
+                                                                onClick={(e) => {
+                                                                    const rect = e.currentTarget.getBoundingClientRect();
+                                                                    const aiExplanation = AIExpertService.explainLeadScore(c, scoringConfig);
+                                                                    setActiveScorePopover({
+                                                                        name: c.name,
+                                                                        x: rect.left,
+                                                                        y: rect.bottom + 10,
+                                                                        scoring,
+                                                                        ai: aiExplanation
+                                                                    });
+                                                                }}
+                                                            >
+                                                                {scoring.total}
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                    {c.intentIndex > 0 && (
                                                         <div
-                                                            className={`score-indicator ${temp.class}`}
+                                                            title={`Intent Index: ${c.intentIndex}`}
                                                             style={{
-                                                                width: '42px',
-                                                                height: '42px',
-                                                                fontSize: '0.95rem',
+                                                                position: 'absolute',
+                                                                top: '-5px',
+                                                                right: '-5px',
+                                                                width: '18px',
+                                                                height: '18px',
+                                                                background: c.intentIndex >= 70 ? '#10b981' : c.intentIndex >= 40 ? '#f59e0b' : '#ef4444',
                                                                 borderRadius: '50%',
+                                                                color: '#fff',
+                                                                fontSize: '0.55rem',
                                                                 display: 'flex',
                                                                 alignItems: 'center',
                                                                 justifyContent: 'center',
-                                                                fontWeight: '900',
-                                                                border: '2px solid rgba(255,255,255,0.2)',
-                                                                cursor: 'pointer',
-                                                                boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                                                                background: temp.color,
-                                                                color: '#fff'
-                                                            }}
-                                                            onClick={(e) => {
-                                                                const rect = e.currentTarget.getBoundingClientRect();
-                                                                const aiExplanation = AIExpertService.explainLeadScore(c, scoringConfig);
-                                                                setActiveScorePopover({
-                                                                    name: c.name,
-                                                                    x: rect.left,
-                                                                    y: rect.bottom + 10,
-                                                                    scoring,
-                                                                    ai: aiExplanation
-                                                                });
+                                                                fontWeight: 900,
+                                                                border: '2px solid #fff'
                                                             }}
                                                         >
-                                                            {scoring.total}
+                                                            {c.intentIndex}
                                                         </div>
-                                                    );
-                                                })()}
+                                                    )}
+                                                </div>
                                                 <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                                                     <div>
                                                         <a
@@ -954,6 +988,16 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                             ) : (
                                                                 <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}><i className="fas fa-mobile-alt" style={{ marginRight: '6px', width: '12px' }}></i>{c.mobile}</div>
                                                             )
+                                                        )}
+                                                        {c.classification && (
+                                                            <span style={{ background: '#fef3c7', color: '#92400e', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 800, border: '1px solid #fcd34d' }}>
+                                                                {c.classification.toUpperCase()}
+                                                            </span>
+                                                        )}
+                                                        {c.roleType && (
+                                                            <span style={{ background: '#f3f4f6', color: '#374151', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 800, border: '1px solid #e5e7eb' }}>
+                                                                {c.roleType.toUpperCase()}
+                                                            </span>
                                                         )}
                                                     </div>
                                                 </div>
@@ -1129,7 +1173,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
 
             {/* Send Mail Modal */}
-            <SendMailModal
+            <ComposeEmailModal
                 isOpen={isSendMailOpen}
                 onClose={() => setIsSendMailOpen(false)}
                 recipients={selectedLeadsForMail}
@@ -1143,7 +1187,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
             <AddLeadModal
                 isOpen={isAddLeadModalOpen}
                 onClose={() => setIsAddLeadModalOpen(false)}
-                contactData={editingLead} // Pass selected lead data
+                initialData={editingLead} // Correctly pass as initialData for Edit mode
                 title={editingLead ? "Update Lead" : "Add New Lead"}
                 saveLabel={editingLead ? "Update" : "Save"}
                 mode={editingLead ? "edit" : "add"}
@@ -1209,9 +1253,26 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             </div>
                         )}
 
-                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontStyle: 'italic', marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
-                            AI Intent: <span style={{ color: '#10b981', fontWeight: 900 }}>{activeScorePopover.scoring.intent.toUpperCase()}</span>
+                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ opacity: 0.8 }}>Classification:</span>
+                                <span style={{ color: '#f59e0b', fontWeight: 900 }}>{(activeScorePopover.ai.classification || 'Exploring').toUpperCase()}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ opacity: 0.8 }}>AI Intent:</span>
+                                <span style={{ color: '#10b981', fontWeight: 900 }}>{activeScorePopover.scoring.intent.toUpperCase()}</span>
+                            </div>
                         </div>
+
+                        {activeScorePopover.ai.intentTags && activeScorePopover.ai.intentTags.length > 0 && (
+                            <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                                {activeScorePopover.ai.intentTags.map((tag, idx) => (
+                                    <span key={idx} style={{ fontSize: '0.55rem', background: 'rgba(59, 130, 246, 0.2)', color: '#93c5fd', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+                                        #{tag.toUpperCase()}
+                                    </span>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )
             }

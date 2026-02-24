@@ -6,7 +6,7 @@ import Swal from 'sweetalert2';
 import { api } from "../../utils/api";
 import { getInitials, getSourceBadgeClass } from "../../utils/helpers";
 import { useContactSync } from "../../hooks/useContactSync";
-import SendMailModal from "./components/SendMailModal";
+import ComposeEmailModal from "../Communication/components/ComposeEmailModal";
 import AddLeadModal from "../../components/AddLeadModal";
 import SendMessageModal from "../../components/SendMessageModal";
 import AssignContactModal from "../../components/AssignContactModal";
@@ -118,23 +118,31 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   }, [fetchContacts]);
 
   const getTeamName = useCallback((teamValue) => {
-    if (!teamValue) return "General Team";
-    if (typeof teamValue === 'object') {
-      return teamValue.name || teamValue.lookup_value || "General Team";
+    if (!teamValue) return "-";
+    // Handle array of team names
+    if (Array.isArray(teamValue)) {
+      return teamValue.length > 0 ? teamValue.join(', ') : "-";
     }
-    // If it's a string, try to find it in lookup/teams
-    const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
+    if (typeof teamValue === 'object') {
+      return teamValue.name || teamValue.lookup_value || "-";
+    }
+    // Check if teams is an array or wrapper
+    const teamArray = Array.isArray(teams) ? teams : (teams?.data || []);
+    const found = teamArray.find(t => (t._id === teamValue) || (t.id === teamValue));
     return found ? (found.name || found.lookup_value) : teamValue;
   }, [teams]);
 
   const getUserName = useCallback((userValue) => {
-    if (!userValue) return "Admin";
+    if (!userValue) return "-";
     if (typeof userValue === 'object') {
-      return userValue.fullName || userValue.name || userValue.lookup_value || userValue.username || "Admin";
+      return userValue.fullName || userValue.name || userValue.lookup_value || userValue.username || "-";
     }
-    const found = users.find(u => (u._id === userValue) || (u.id === userValue));
+    // Check if users is an array or wrapper
+    const userArray = Array.isArray(users) ? users : (users?.data || []);
+    const found = userArray.find(u => (u._id === userValue) || (u.id === userValue));
     return found ? (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username))) : userValue;
   }, [users]);
+
 
   // ==============delete contact======================
 
@@ -235,6 +243,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   // Manage Tags Modal State
   const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
   const [selectedContactsForTags, setSelectedContactsForTags] = useState([]);
+  const [selectedContactsForMail, setSelectedContactsForMail] = useState([]);
 
 
 
@@ -340,6 +349,11 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   };
 
   const handleSendMail = () => {
+    const selected = getSelectedContacts().map((c) => ({
+      name: c.name,
+      email: c.email,
+    }));
+    setSelectedContactsForMail(selected);
     setIsSendMailOpen(true);
   };
 
@@ -998,10 +1012,11 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             >
                               {item?.personalAddress ? (
                                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                  <div>{`${item.personalAddress?.hNo || ""}, ${item.personalAddress?.street || ""}, ${item.personalAddress?.location?.lookup_value || (typeof item.personalAddress?.location === 'string' ? item.personalAddress.location : "")}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}</div>
+                                  <div>{`${item.personalAddress?.hNo || ""}, ${item.personalAddress?.street || ""}, ${renderValue(getLookupValue("Location", item.personalAddress?.location), item.personalAddress?.location?.lookup_value || (typeof item.personalAddress?.location === 'string' ? item.personalAddress.location : ""))}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}</div>
                                   <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                    {`${item.personalAddress?.area || ""}, ${item.personalAddress?.city?.lookup_value || item.personalAddress?.city || ""}, ${item.personalAddress?.state?.lookup_value || item.personalAddress?.state || ""} ${item.personalAddress?.pinCode || ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}
+                                    {`${item.personalAddress?.area || ""}, ${renderValue(getLookupValue("City", item.personalAddress?.city), item.personalAddress?.city?.lookup_value || item.personalAddress?.city || "")}, ${renderValue(getLookupValue("State", item.personalAddress?.state), item.personalAddress?.state?.lookup_value || item.personalAddress?.state || "")} ${item.personalAddress?.pinCode || ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}
                                   </div>
+
                                 </div>
                               ) : (typeof item?.address === 'string' ? item.address : "Address not listed")}
                             </div>
@@ -1025,12 +1040,11 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                               }}
                             >
                               {(
-                                item?.professionCategory?.lookup_value ||
-                                item?.professionCategory ||
-                                item?.professional?.lookup_value ||
-                                item?.professional ||
+                                renderValue(getLookupValue("ProfessionalCategory", item.professionCategory), item.professionCategory?.lookup_value || item.professionCategory) ||
+                                renderValue(getLookupValue("ProfessionalCategory", item.professional), item.professional?.lookup_value || item.professional) ||
                                 "N/A"
                               ).toUpperCase()}
+
                             </span>
                             <div
                               style={{
@@ -1039,7 +1053,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 fontWeight: 700,
                               }}
                             >
-                              {item?.designation?.lookup_value || item?.designation || "-"}
+                              {renderValue(getLookupValue("ProfessionalDesignation", item.designation), item.designation?.lookup_value || item.designation || "-")}
+
                             </div>
                             <div
                               style={{
@@ -1455,10 +1470,11 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                           }}
                         >
                           {(
-                            item?.professionCategory?.lookup_value ||
-                            (typeof item?.professionCategory === 'string' ? item.professionCategory :
-                              item?.professional?.lookup_value || "N/A")
+                            renderValue(getLookupValue("ProfessionalCategory", item.professionCategory), item.professionCategory?.lookup_value || (typeof item.professionCategory === 'string' ? item.professionCategory : "")) ||
+                            renderValue(getLookupValue("ProfessionalCategory", item.professional), item.professional?.lookup_value || (typeof item.professional === 'string' ? item.professional : "")) ||
+                            "N/A"
                           ).toUpperCase()}
+
                         </span>
                         <div
                           style={{
@@ -1468,7 +1484,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             marginBottom: "3px",
                           }}
                         >
-                          {item?.designation?.lookup_value || (typeof item?.designation === 'string' ? item.designation : "-")}
+                          {renderValue(getLookupValue("ProfessionalDesignation", item.designation), item.designation?.lookup_value || (typeof item.designation === 'string' ? item.designation : "-"))}
+
                         </div>
                         <div
                           style={{
@@ -1544,8 +1561,9 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             }}
                           >
                             {item?.personalAddress?.city
-                              ? `${item.personalAddress?.city?.lookup_value || (typeof item.personalAddress?.city === 'string' ? item.personalAddress.city : '')}, ${item.personalAddress?.state?.lookup_value || (typeof item.personalAddress?.state === 'string' ? item.personalAddress.state : '')}`
+                              ? `${renderValue(getLookupValue("City", item.personalAddress?.city), item.personalAddress?.city?.lookup_value || (typeof item.personalAddress?.city === 'string' ? item.personalAddress.city : ''))}, ${renderValue(getLookupValue("State", item.personalAddress?.state), item.personalAddress?.state?.lookup_value || (typeof item.personalAddress?.state === 'string' ? item.personalAddress.state : ''))}`
                               : item?.address || "Address not listed"}
+
                           </div>
                         </div>
                       </div>
@@ -1587,7 +1605,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             className="fas fa-tag"
                             style={{ fontSize: "0.6rem" }}
                           ></i>
-                          {item?.source?.lookup_value || (typeof item?.source === 'string' ? item.source : "N/A")}
+                          {renderValue(getLookupValue("Source", item.source), item.source?.lookup_value || (typeof item.source === 'string' ? item.source : "N/A"))}
+
                         </span>
                       </div>
 
@@ -1905,12 +1924,13 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
 
 
 
-      <SendMailModal
+      <ComposeEmailModal
         isOpen={isSendMailOpen}
         onClose={() => setIsSendMailOpen(false)}
-        onSend={() => {
-          alert("Email sent successfully!");
+        recipients={selectedContactsForMail}
+        onSent={() => {
           setIsSendMailOpen(false);
+          setRefreshTrigger(prev => prev + 1);
         }}
       />
 

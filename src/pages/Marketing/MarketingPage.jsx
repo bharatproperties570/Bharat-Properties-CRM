@@ -395,6 +395,68 @@ function MarketingPage({ onNavigate }) {
                     </div>
                 )}
 
+                {/* Intelligence Hub Section */}
+                <div style={{ padding: '1.5rem 2rem', background: '#fff', borderBottom: '1px solid #e2e8f0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                        <div style={{
+                            width: '40px',
+                            height: '40px',
+                            background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
+                            borderRadius: '10px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}>
+                            <i className="fas fa-microchip" style={{ color: '#fff', fontSize: '1.1rem' }}></i>
+                        </div>
+                        <div>
+                            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#1e293b' }}>Intelligence Hub</h3>
+                            <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>Top Prospects identified via Enrichment Engine</p>
+                        </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '15px' }}>
+                        {marketingData.intelligenceProspects?.map((prospect, idx) => (
+                            <div key={idx} style={{
+                                background: '#f8fafc',
+                                borderRadius: '12px',
+                                padding: '16px',
+                                border: '1px solid #e2e8f0',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '8px'
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                                    <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9rem' }}>{prospect.name}</div>
+                                    <div style={{
+                                        background: prospect.intentIndex >= 90 ? '#dcfce7' : '#fef3c7',
+                                        color: prospect.intentIndex >= 90 ? '#166534' : '#92400e',
+                                        fontSize: '0.65rem',
+                                        fontWeight: 900,
+                                        padding: '2px 8px',
+                                        borderRadius: '20px'
+                                    }}>
+                                        {prospect.intentIndex}% INTENT
+                                    </div>
+                                </div>
+                                <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                                    <i className="fas fa-bullseye" style={{ marginRight: '6px', color: '#3b82f6' }}></i>
+                                    {prospect.campaign}
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+                                    <span style={{ fontSize: '0.6rem', background: '#3b82f6', color: '#fff', padding: '1px 8px', borderRadius: '4px', fontWeight: 800 }}>
+                                        {prospect.classification.toUpperCase()}
+                                    </span>
+                                    {prospect.tags.map((tag, tIdx) => (
+                                        <span key={tIdx} style={{ fontSize: '0.6rem', background: '#e2e8f0', color: '#475569', padding: '1px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                                            #{tag.toUpperCase()}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
                 {/* Content Body */}
                 <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0 }}>
                     {/* Campaign Count */}

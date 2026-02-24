@@ -153,7 +153,8 @@ const DealSchema = new mongoose.Schema({
             sellerContacted: { type: Boolean, default: false }
         },
         remarks: String
-    }
+    },
+    negotiation_window: { type: Boolean, default: false }
 }, { timestamps: true, strict: false });
 
 export default mongoose.model("Deal", DealSchema);

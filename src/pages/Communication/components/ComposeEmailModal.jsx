@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { emailAPI } from '../../../utils/api';
 import { emailTemplates } from '../../../data/mockData';
 import { getInitials } from '../../../utils/helpers';
+import toast from 'react-hot-toast';
 
 const styles = {
     overlay: {
@@ -31,7 +33,6 @@ const styles = {
         animation: 'zoomIn 0.2s ease-out',
         position: 'relative',
         isolation: 'isolate',
-        contain: 'layout style paint'
     },
     header: {
         padding: '20px 32px',
@@ -93,11 +94,6 @@ const styles = {
         padding: '10px 20px', fontSize: '0.875rem', fontWeight: 700, color: '#64748b',
         border: 'none', backgroundColor: 'transparent', cursor: 'pointer'
     },
-    btnSchedule: {
-        padding: '10px 20px', borderRadius: '8px', border: '1px solid #cbd5e1',
-        backgroundColor: '#fff', color: '#475569', fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer',
-        display: 'flex', alignItems: 'center', gap: '8px'
-    },
     btnSend: {
         padding: '10px 24px', borderRadius: '8px', border: 'none',
         backgroundColor: '#2563eb', color: '#fff', fontWeight: 700, fontSize: '0.875rem',
@@ -111,36 +107,52 @@ const styles = {
     }
 };
 
-const SendMailModal = ({ isOpen, onClose, recipients = [], onSend, initialSubject = '', initialBody = '', autoAttachments = [], initialTemplateId = '' }) => {
-
+const ComposeEmailModal = ({
+    isOpen,
+    onClose,
+    onSent,
+    initialTo = '',
+    initialSubject = '',
+    initialBody = '',
+    recipients = [], // Support array of {id, name, email}
+    autoAttachments = [],
+    initialTemplateId = ''
+}) => {
     const [subject, setSubject] = useState(initialSubject);
-    const [body, setBody] = useState(initialBody);
-    const editorRef = React.useRef(null); // Add ref for editor
+    const [body, setBody] = useState(initialBody || '');
+    const [isSending, setIsSending] = useState(false);
+    const [selectedTemplate, setSelectedTemplate] = useState('');
+    const [toEmail, setToEmail] = useState(initialTo);
+    const editorRef = useRef(null);
 
-    React.useEffect(() => {
+    // Synchronize states when modal opens
+    useEffect(() => {
         if (isOpen) {
             setSubject(initialSubject);
-            setBody(initialBody);
+            setBody(initialBody || '');
+            setToEmail(initialTo);
+            if (initialTemplateId) {
+                setSelectedTemplate(initialTemplateId);
+                const tmpl = emailTemplates.find(t => t.id === parseInt(initialTemplateId));
+                if (tmpl) {
+                    setSubject(tmpl.subject);
+                    setBody(tmpl.content);
+                    if (editorRef.current) {
+                        editorRef.current.innerHTML = tmpl.content;
+                    }
+                }
+            }
+            if (editorRef.current && !initialTemplateId) {
+                editorRef.current.innerHTML = initialBody || '';
+            }
         }
-    }, [isOpen, initialSubject, initialBody]);
-    const [selectedTemplate, setSelectedTemplate] = useState(initialTemplateId);
-
-    React.useEffect(() => {
-        if (isOpen && initialTemplateId) {
-            setSelectedTemplate(initialTemplateId);
-        }
-    }, [isOpen, initialTemplateId]);
-    const [scheduleDate, setScheduleDate] = useState('');
-    const [scheduleTime, setScheduleTime] = useState('');
-    const [addSignature, setAddSignature] = useState(true);
-    const [trackOpens, setTrackOpens] = useState(true);
+    }, [isOpen, initialSubject, initialBody, initialTo, initialTemplateId]);
 
     const variables = [
         { label: 'Contact Name', value: '{{ContactName}}' },
         { label: 'Phone', value: '{{Phone}}' },
         { label: 'Email', value: '{{Email}}' },
         { label: 'Property Name', value: '{{PropertyName}}' },
-        { label: 'Assigned Agent', value: '{{AssignedAgent}}' },
     ];
 
     const insertHTML = (html) => {
@@ -157,7 +169,6 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend, initialSubjec
             }
             range.insertNode(frag);
 
-            // Move cursor after the inserted content
             if (lastNode) {
                 const newRange = document.createRange();
                 newRange.setStartAfter(lastNode);
@@ -166,13 +177,12 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend, initialSubjec
                 selection.addRange(newRange);
             }
 
-            // Sync body state - USE REF instead of querySelector
             if (editorRef.current) {
                 setBody(editorRef.current.innerHTML);
             }
-        } else {
-            // Fallback: append to end
-            setBody(prev => prev + html);
+        } else if (editorRef.current) {
+            editorRef.current.innerHTML += html;
+            setBody(editorRef.current.innerHTML);
         }
     };
 
@@ -181,52 +191,67 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend, initialSubjec
         insertHTML(html);
     };
 
-    const handleSend = () => {
-        const payload = {
-            recipients: recipients.map(r => r.email || r.mobile),
-            subject,
-            body,
-            schedule: scheduleDate ? { date: scheduleDate, time: scheduleTime } : null,
-            options: { addSignature, trackOpens }
-        };
-        console.log('Sending Mail Payload:', payload);
-        onSend && onSend(payload);
-        onClose();
+    const handleSend = async () => {
+        setIsSending(true);
+        try {
+            // Determine final recipients list
+            let finalRecipients = [];
+            if (recipients.length > 0) {
+                finalRecipients = recipients.map(r => r.email).filter(Boolean);
+            } else if (toEmail) {
+                finalRecipients = [toEmail];
+            }
+
+            if (finalRecipients.length === 0) {
+                toast.error("Please specify a recipient");
+                setIsSending(false);
+                return;
+            }
+
+            const response = await emailAPI.send({
+                to: finalRecipients.join(', '),
+                subject,
+                html: body,
+                attachments: autoAttachments
+            });
+
+            if (response && response.success) {
+                toast.success('Email sent successfully!');
+                setTimeout(() => {
+                    onSent?.();
+                    onClose();
+                    setSubject('');
+                    setBody('');
+                    setToEmail('');
+                }, 500);
+            } else {
+                toast.error(response.message || 'Failed to send email');
+            }
+        } catch (error) {
+            console.error('Error sending email:', error);
+            toast.error(error.message || 'An error occurred');
+        } finally {
+            setIsSending(false);
+        }
     };
 
     if (!isOpen) return null;
 
     return createPortal(
-        <div
-            style={styles.overlay}
-            onClick={(e) => {
-                // Close modal when clicking on overlay (outside modal)
-                if (e.target === e.currentTarget) {
-                    onClose();
-                }
-            }}
-        >
+        <div style={styles.overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
             <style>
-                {`
-                @keyframes zoomIn {
-                    from { opacity: 0; transform: scale(0.95); }
-                    to { opacity: 1; transform: scale(1); }
-                }
-                `}
+                {`@keyframes zoomIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }`}
             </style>
-            <div
-                style={styles.modal}
-                onClick={(e) => {
-                    // Stop propagation to prevent overlay click from closing modal
-                    e.stopPropagation();
-                }}
-            >
-
+            <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
                 {/* Header */}
                 <div style={styles.header}>
                     <div>
-                        <h2 style={styles.title}>Send Mail</h2>
-                        <p style={styles.subtitle}>Send email to <span style={{ fontWeight: 700, color: '#334155' }}>{recipients.length} selected contact(s)</span></p>
+                        <h2 style={styles.title}>Compose Email</h2>
+                        {recipients.length > 0 ? (
+                            <p style={styles.subtitle}>Sending to <span style={{ fontWeight: 700, color: '#334155' }}>{recipients.length} selected contact(s)</span></p>
+                        ) : (
+                            <p style={styles.subtitle}>Craft a professional message</p>
+                        )}
                     </div>
                     <button onClick={onClose} style={styles.closeBtn}>
                         <i className="fas fa-times"></i>
@@ -235,36 +260,28 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend, initialSubjec
 
                 {/* Body */}
                 <div style={styles.body}>
-
                     {/* Recipient Section */}
                     <div>
                         <label style={styles.label}>To:</label>
                         <div style={styles.inputContainer}>
                             {recipients.map((recipient, idx) => (
                                 <div key={idx} style={styles.pill}>
-                                    <div style={styles.pillAvatar}>
-                                        {getInitials(recipient.name)}
-                                    </div>
+                                    <div style={styles.pillAvatar}>{getInitials(recipient.name)}</div>
                                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                                         <span style={styles.pillText}>{recipient.name}</span>
-                                        {recipient.email && (
-                                            <span style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '-2px' }}>{recipient.email}</span>
-                                        )}
+                                        {recipient.email && <span style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '-2px' }}>{recipient.email}</span>}
                                     </div>
-                                    {idx === 0 && recipients.length > 1 && (
-                                        <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 500 }}>+{recipients.length - 1} others</span>
-                                    )}
                                 </div>
                             ))}
-                            <input
-                                type="text"
-                                placeholder="Add more..."
-                                style={styles.input}
-                            />
-                        </div>
-                        <div style={{ display: 'flex', gap: '16px', fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8', marginTop: '8px', paddingLeft: '4px' }}>
-                            <span style={{ cursor: 'pointer', transition: 'color 0.2s' }} onMouseEnter={e => e.target.style.color = '#2563eb'} onMouseLeave={e => e.target.style.color = '#94a3b8'}>Cc</span>
-                            <span style={{ cursor: 'pointer', transition: 'color 0.2s' }} onMouseEnter={e => e.target.style.color = '#2563eb'} onMouseLeave={e => e.target.style.color = '#94a3b8'}>Bcc</span>
+                            {!recipients.length && (
+                                <input
+                                    type="email"
+                                    placeholder="Enter recipient email..."
+                                    style={styles.input}
+                                    value={toEmail}
+                                    onChange={(e) => setToEmail(e.target.value)}
+                                />
+                            )}
                         </div>
                     </div>
 
@@ -284,8 +301,6 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend, initialSubjec
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <label style={{ ...styles.label, marginBottom: 0 }}>Message</label>
-
-                            {/* Templates & Variables */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <select
                                     style={{ fontSize: '0.75rem', border: '1px solid #e2e8f0', borderRadius: '100px', padding: '4px 12px', outline: 'none', cursor: 'pointer', color: '#475569', maxWidth: '180px' }}
@@ -298,7 +313,6 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend, initialSubjec
                                             if (tmpl) {
                                                 setSubject(tmpl.subject);
                                                 setBody(tmpl.content);
-                                                // Sync editor using ref instead of querySelector
                                                 if (editorRef.current) {
                                                     editorRef.current.innerHTML = tmpl.content;
                                                 }
@@ -307,115 +321,88 @@ const SendMailModal = ({ isOpen, onClose, recipients = [], onSend, initialSubjec
                                     }}
                                 >
                                     <option value="">Select Template</option>
-                                    {emailTemplates.map(tmpl => (
-                                        <option key={tmpl.id} value={tmpl.id}>{tmpl.name}</option>
-                                    ))}
+                                    {emailTemplates.map(tmpl => <option key={tmpl.id} value={tmpl.id}>{tmpl.name}</option>)}
                                 </select>
                                 <div style={{ width: '1px', height: '16px', backgroundColor: '#e2e8f0' }}></div>
                                 <div style={{ display: 'flex', gap: '6px' }}>
-                                    {variables.slice(0, 3).map(v => (
+                                    {variables.map(v => (
                                         <button key={v.value} onClick={() => insertVariable(v.value)} style={styles.variablePill}>{v.label}</button>
                                     ))}
-                                    <button style={{ ...styles.variablePill, backgroundColor: '#f1f5f9', color: '#64748b', borderColor: '#e2e8f0' }}>+ Variable</button>
                                 </div>
                             </div>
                         </div>
 
                         <div style={styles.editor}>
-                            {/* Toolbar */}
                             <div style={styles.toolbar}>
-                                <button style={styles.toolBtn} title="Bold"><i className="fas fa-bold"></i></button>
-                                <button style={styles.toolBtn} title="Italic"><i className="fas fa-italic"></i></button>
-                                <button style={styles.toolBtn} title="Underline"><i className="fas fa-underline"></i></button>
+                                <button style={styles.toolBtn} title="Bold" onClick={() => document.execCommand('bold')}><i className="fas fa-bold"></i></button>
+                                <button style={styles.toolBtn} title="Italic" onClick={() => document.execCommand('italic')}><i className="fas fa-italic"></i></button>
                                 <div style={{ width: '1px', height: '16px', backgroundColor: '#cbd5e1', margin: '0 4px' }}></div>
-                                <button style={styles.toolBtn} title="List"><i className="fas fa-list-ul"></i></button>
-                                <button style={styles.toolBtn} title="Ordered List"><i className="fas fa-list-ol"></i></button>
-                                <div style={{ width: '1px', height: '16px', backgroundColor: '#cbd5e1', margin: '0 4px' }}></div>
-                                <button style={styles.toolBtn} title="Link"><i className="fas fa-link"></i></button>
-                                <button style={styles.toolBtn} title="Image"><i className="far fa-image"></i></button>
+                                <button style={styles.toolBtn} title="List" onClick={() => document.execCommand('insertUnorderedList')}><i className="fas fa-list-ul"></i></button>
+                                <button style={styles.toolBtn} title="Link" onClick={() => {
+                                    const url = prompt("Enter URL:");
+                                    if (url) document.execCommand('createLink', false, url);
+                                }}><i className="fas fa-link"></i></button>
                             </div>
                             <div
                                 ref={editorRef}
                                 contentEditable
-                                style={{
-                                    ...styles.textarea,
-                                    minHeight: '200px',
-                                    overflowY: 'auto'
-                                }}
+                                style={{ ...styles.textarea, minHeight: '250px', overflowY: 'auto' }}
                                 onInput={(e) => setBody(e.target.innerHTML)}
-                                dangerouslySetInnerHTML={{ __html: body }}
+                                dangerouslySetInnerHTML={{ __html: initialBody || '' }}
                             />
                         </div>
-
-                        {autoAttachments.length > 0 && (
-                            <div style={{ padding: '12px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <i className="fas fa-paperclip"></i> Auto-Attachments ({autoAttachments.length})
-                                </div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                    {autoAttachments.map((att, idx) => (
-                                        <div key={idx} style={{ position: 'relative', width: '70px', height: '54px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', background: '#fff' }}>
-                                            {att.type === 'image' ? (
-                                                <img src={att.url} alt="attachment" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                            ) : (
-                                                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9' }}>
-                                                    <i className="fas fa-video" style={{ color: 'var(--primary-color)', fontSize: '1rem' }}></i>
-                                                </div>
-                                            )}
-                                            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: '10px', padding: '1px 4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>
-                                                {att.name || 'Media'}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
                     </div>
-
-                    {/* Attachments */}
-                    <button style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                        fontSize: '0.875rem', fontWeight: 600, color: '#475569',
-                        padding: '12px', border: '1px dashed #cbd5e1', borderRadius: '8px',
-                        backgroundColor: '#fff', cursor: 'pointer', width: '100%', transition: 'background-color 0.2s'
-                    }} onMouseEnter={e => e.target.style.backgroundColor = '#f8fafc'} onMouseLeave={e => e.target.style.backgroundColor = '#fff'}>
-                        <i className="fas fa-paperclip"></i> Attach Files
-                    </button>
-
+                    {autoAttachments.length > 0 && (
+                        <div style={{ padding: '12px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
+                            <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <i className="fas fa-paperclip"></i> Auto-Attachments ({autoAttachments.length})
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                {autoAttachments.map((att, idx) => (
+                                    <div key={idx} style={{ position: 'relative', width: '70px', height: '54px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', background: '#fff' }}>
+                                        {att.type === 'image' ? (
+                                            <img src={att.url} alt="attachment" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        ) : (
+                                            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9' }}>
+                                                <i className="fas fa-video" style={{ color: '#2563eb', fontSize: '1rem' }}></i>
+                                            </div>
+                                        )}
+                                        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: '10px', padding: '1px 4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'center' }}>
+                                            {att.name || 'Media'}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Footer */}
                 <div style={styles.footer}>
                     <div style={{ display: 'flex', gap: '24px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                            <input type="checkbox" checked={addSignature} onChange={() => setAddSignature(!addSignature)} style={{ accentColor: '#2563eb' }} />
-                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>Add Signature</span>
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                            <input type="checkbox" checked={trackOpens} onChange={() => setTrackOpens(!trackOpens)} style={{ accentColor: '#2563eb' }} />
-                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>Track Opens</span>
-                        </label>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b' }}>
+                            <i className="fas fa-shield-alt" style={{ marginRight: '6px' }}></i>
+                            Secure Connection Active
+                        </span>
                     </div>
 
                     <div style={{ display: 'flex', gap: '12px' }}>
                         <button onClick={onClose} style={styles.btnCancel}>Cancel</button>
-                        <button style={styles.btnSchedule}>
-                            <i className="far fa-clock"></i> Schedule
-                        </button>
                         <button
                             onClick={handleSend}
-                            disabled={!subject || !body}
-                            style={{ ...styles.btnSend, opacity: (!subject || !body) ? 0.5 : 1, cursor: (!subject || !body) ? 'not-allowed' : 'pointer' }}
+                            disabled={isSending || !subject || (!body && !editorRef.current?.innerHTML)}
+                            style={{ ...styles.btnSend, opacity: (isSending || !subject) ? 0.5 : 1 }}
                         >
-                            <i className="fas fa-paper-plane"></i> Send Now
+                            {isSending ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
+                            {isSending ? 'Sending...' : 'Send Now'}
                         </button>
                     </div>
                 </div>
-
             </div>
         </div>,
         document.body
     );
 };
 
-export default SendMailModal;
+export default ComposeEmailModal;
+

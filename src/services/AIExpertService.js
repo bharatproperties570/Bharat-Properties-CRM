@@ -10,12 +10,23 @@ class AIExpertService {
      * Explain a lead's score with natural language insights
      */
     explainLeadScore(lead, config) {
-        const scoreData = calculateLeadScore(lead, config);
+        const scoreData = calculateLeadScore(lead, lead.activities || [], config);
         const { score, breakdown, temperature, intent } = scoreData;
 
         const insights = [];
 
-        // Positive Insights
+        // Enrichment-based Insights (Backend Intelligence)
+        if (lead.intentIndex > 70 || lead.intent_index > 70) {
+            insights.push("High behavioral intent detected by enrichment engine.");
+        }
+        if (lead.classification === 'Serious Buyer' || lead.lead_classification === 'Serious Buyer') {
+            insights.push("Classified as a Serious Buyer - prioritize for immediate closure.");
+        }
+        if (lead.intentTags && lead.intentTags.includes('ROI')) {
+            insights.push("Lead is heavily focused on ROI and investment potential.");
+        }
+
+        // Positive Interaction Insights
         if (breakdown.attribute > 50) insights.push("Strong requirement alignment with current portfolio.");
         if (breakdown.activity > 30) insights.push("Highly engaged lead with multiple recent interactions.");
         if (breakdown.source > 15) insights.push("High-intent source (e.g. Website/Referral).");
@@ -25,11 +36,16 @@ class AIExpertService {
         if (breakdown.decay < -10) insights.push("Risk of cooling off due to inactivity.");
         if (lead.stage === 'Lost') insights.push("Marked as Lost - requires re-engagement strategy.");
 
+        // Combine scores (frontend + backend weighting)
+        const finalScore = Math.max(score, lead.intentIndex || lead.intent_index || 0);
+
         return {
-            score,
+            score: finalScore,
             temperature,
             intent,
             breakdown,
+            classification: lead.classification || lead.lead_classification,
+            intentTags: lead.intentTags || lead.intent_tags || [],
             summary: insights.slice(0, 3).join(' '),
             fullExplanation: insights.length > 0 ? insights : ["Waiting for more interaction data for detailed insights."]
         };

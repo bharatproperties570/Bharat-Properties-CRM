@@ -27,15 +27,18 @@ export const PropertyConfigProvider = ({ children }) => {
 
     const refreshSizes = useCallback(async () => {
         try {
+            // SINGLE SOURCE OF TRUTH: Fetch from Lookups ('size' category)
             const sizesResponse = await lookupsAPI.getByCategory('size');
+            let lookupSizes = [];
             if (sizesResponse && sizesResponse.status === "success" && Array.isArray(sizesResponse.data)) {
-                const normalizedSizes = sizesResponse.data.map(l => ({
+                lookupSizes = sizesResponse.data.map(l => ({
                     id: l._id,
                     name: l.lookup_value,
                     ...l.metadata
                 }));
-                setSizes(normalizedSizes);
             }
+
+            setSizes(lookupSizes);
         } catch (error) {
             console.error('Failed to refresh sizes:', error);
         }
@@ -92,7 +95,7 @@ export const PropertyConfigProvider = ({ children }) => {
                 'category', 'subCategory', 'facing', 'direction',
                 'Country', 'State', 'City', 'Location',
                 'Title', 'CountryCode', 'Source', 'SubSource', 'Campaign',
-                'ProfessionCategory', 'ProfessionSubCategory', 'Designation',
+                'ProfessionalCategory', 'ProfessionalSubCategory', 'ProfessionalDesignation',
                 'Requirement', 'Sub Requirement', 'Property Type', 'Sub Type', 'Budget'
             ];
 
@@ -113,6 +116,15 @@ export const PropertyConfigProvider = ({ children }) => {
             });
 
             setLookups(newLookups);
+
+            // Populate masterFields from Lookups (Facing, Direction, etc.)
+            setMasterFields(prev => ({
+                ...prev,
+                facings: newLookups['Facing']?.map(l => l.lookup_value) || [],
+                directions: newLookups['Direction']?.map(l => l.lookup_value) || [],
+                roadWidths: newLookups['RoadWidth']?.map(l => l.lookup_value) || [],
+                unitTypes: newLookups['UnitType']?.map(l => l.lookup_value) || []
+            }));
 
             // Reconstruct propertyConfig from Lookups (for compatibility)
             // This is a complex mapping, we'll implement it if needed, 
@@ -143,7 +155,7 @@ export const PropertyConfigProvider = ({ children }) => {
                 const fetchedLookups = await refreshLookups();
 
                 // 2. LOAD SYSTEM SETTINGS (Secondary source / Remaining configs)
-                const response = await systemSettingsAPI.getAll();
+                const response = await systemSettingsAPI.getAll({ limit: 100 });
                 if (response && response.data) {
                     const settings = response.data;
                     const settingsList = Array.isArray(settings) ? settings : (settings.docs || []);
@@ -152,7 +164,6 @@ export const PropertyConfigProvider = ({ children }) => {
                     settingsList.forEach(setting => {
                         switch (setting.key) {
                             case 'property_config': setPropertyConfig(setting.value); break;
-                            case 'master_fields': setMasterFields(setting.value); break;
                             case 'project_master_fields': setProjectMasterFields(setting.value); break;
                             case 'project_amenities': setProjectAmenities(setting.value); break;
                             case 'lead_master_fields': setLeadMasterFields(setting.value); break;
@@ -313,23 +324,12 @@ export const PropertyConfigProvider = ({ children }) => {
     };
 
     // Master Fields State (Property Specific)
+    // Initialized from LocalStorage or empty arrays; populated on load from Lookups
     const [masterFields, setMasterFields] = useLocalStorage('masterFields', {
-        facings: [
-            'Park Facing', 'Main Road Facing', 'Corner', 'School Facing',
-            'Temple/Mandir Facing', 'Commercial Facing', 'Club Facing',
-            'Pool Facing', 'Garden Facing'
-        ],
-        roadWidths: [
-            '9 Mtr (30 Feet) Wide', '12 Mtr (40 Feet) Wide', '18 Mtr (60 Feet) Wide',
-            '24 Mtr (80 Feet) Wide', '30 Mtr (100 Feet) Wide', '60 Mtr (200 Feet) Wide'
-        ],
-        directions: [
-            'North', 'South', 'East', 'West',
-            'North-East', 'North-West', 'South-East', 'South-West'
-        ],
-        unitTypes: [
-            'Ordinary', 'Corner', 'Two Side Open', 'Three Side Open'
-        ],
+        facings: [],
+        roadWidths: [],
+        directions: [],
+        unitTypes: [],
         floorLevels: [
             'Basement', 'Ground Floor', 'First Floor', 'Second Floor', 'Third Floor', 'Top Floor'
         ],
@@ -481,20 +481,34 @@ export const PropertyConfigProvider = ({ children }) => {
 
     // CRUD Operations exposed to the app
     const updateConfig = useCallback(async (newConfig) => {
+        // Validation: Ensure newConfig is a valid object
+        if (!newConfig || typeof newConfig !== 'object' || Array.isArray(newConfig)) {
+            console.error('[PropertyConfigContext] Invalid config object provided to updateConfig');
+            return;
+        }
+
+        // Deep Validation: Ensure categories have subCategories array
+        const isValid = Object.values(newConfig).every(cat =>
+            cat && typeof cat === 'object' && Array.isArray(cat.subCategories)
+        );
+
+        if (!isValid) {
+            console.error('[PropertyConfigContext] Invalid category structure in updateConfig');
+            // We still update local state to allow UI to show something, but we might want to alert or block save
+            // For now, let's at least protect the backend
+        }
+
         setPropertyConfig(newConfig);
         localStorage.setItem('propertyConfig', JSON.stringify(newConfig));
+
+        if (!isValid) return; // Block backend save if invalid
+
         try {
             await systemSettingsAPI.upsert('property_config', {
                 category: 'property',
                 value: newConfig,
                 isPublic: true,
-                description: 'Global property configuration'
-            });
-            await lookupsAPI.create({
-                category: 'property_configuration',
-                key: 'global_config',
-                value: newConfig,
-                description: 'Global property configuration'
+                description: 'Global property configuration (Validated)'
             });
         } catch (error) {
             console.error('Failed to save property config:', error);
@@ -520,26 +534,39 @@ export const PropertyConfigProvider = ({ children }) => {
                         lookup_value: newValuesOrValue,
                         is_active: true
                     });
-                    await refreshLookups();
                 } else if (mode === 'delete') {
                     const lookupToDelete = lookups[lookupType]?.find(l => l.lookup_value === newValuesOrValue || l._id === newValuesOrValue);
                     if (lookupToDelete) {
                         await lookupsAPI.delete(lookupToDelete._id);
-                        await refreshLookups();
                     }
                 }
+                // Always refresh from lookups to keep state in sync
+                await refreshLookups();
+                return;
             } catch (error) {
                 console.error(`Failed to sync lookup for ${field}:`, error);
             }
         }
 
+        // For non-lookup fields or if direct update is needed
         setMasterFields(prevFields => {
-            const updated = mode === 'update' ? { ...prevFields, [field]: newValuesOrValue } : prevFields;
-            systemSettingsAPI.upsert('master_fields', {
-                category: 'property',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save master fields:', e));
+            let updated;
+            if (mode === 'add') {
+                updated = { ...prevFields, [field]: [...(prevFields[field] || []), newValuesOrValue] };
+            } else if (mode === 'delete') {
+                updated = { ...prevFields, [field]: (prevFields[field] || []).filter(v => v !== newValuesOrValue) };
+            } else {
+                updated = { ...prevFields, [field]: newValuesOrValue };
+            }
+
+            // Professional cleanup: Only upsert to master_fields if it's NOT a lookup-driven field
+            if (!lookupType) {
+                systemSettingsAPI.upsert('master_fields', {
+                    category: 'property',
+                    value: updated,
+                    isPublic: true
+                }).catch(e => console.error('Failed to save master fields:', e));
+            }
             return updated;
         });
     }, [setMasterFields, lookups, refreshLookups]);
@@ -640,6 +667,30 @@ export const PropertyConfigProvider = ({ children }) => {
             await refreshLookups();
         } catch (error) {
             console.error('Failed to sync PropertyType lookup:', error);
+        }
+    }, [findLookup, refreshLookups]);
+
+    const syncBuiltupTypeLookup = useCallback(async (categoryName, subCategoryName, typeName, builtupTypeName, mode = 'add', oldName = null) => {
+        try {
+            const category = findLookup('Category', categoryName);
+            if (!category) return;
+            const subCategory = findLookup('SubCategory', subCategoryName, category._id);
+            if (!subCategory) return;
+            const propertyType = findLookup('PropertyType', typeName, subCategory._id);
+            if (!propertyType) return;
+
+            if (mode === 'add') {
+                await lookupsAPI.create({ lookup_type: 'BuiltupType', lookup_value: builtupTypeName, parent_lookup_id: propertyType._id, is_active: true });
+            } else if (mode === 'update' && oldName) {
+                const existing = findLookup('BuiltupType', oldName, propertyType._id);
+                if (existing) await lookupsAPI.update(existing._id, { lookup_value: builtupTypeName });
+            } else if (mode === 'delete') {
+                const existing = findLookup('BuiltupType', builtupTypeName, propertyType._id);
+                if (existing) await lookupsAPI.delete(existing._id);
+            }
+            await refreshLookups();
+        } catch (error) {
+            console.error('Failed to sync BuiltupType lookup:', error);
         }
     }, [findLookup, refreshLookups]);
 
@@ -1309,7 +1360,8 @@ export const PropertyConfigProvider = ({ children }) => {
         findLookup,
         syncCategoryLookup,
         syncSubCategoryLookup,
-        syncPropertyTypeLookup
+        syncPropertyTypeLookup,
+        syncBuiltupTypeLookup
     };
 
 

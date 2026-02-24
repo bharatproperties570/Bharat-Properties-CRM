@@ -90,12 +90,28 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
 
         const newOwner = {
             name: selectedContact.name || `${selectedContact.firstName || ''} ${selectedContact.lastName || ''}`.trim() || 'Unknown',
-            mobile: selectedContact.mobile || (selectedContact.phones && selectedContact.phones[0]?.number) || (selectedContact.contacts && selectedContact.contacts[0]?.number) || '',
+            mobile: selectedContact.phones?.[0]?.number || selectedContact.mobile || (selectedContact.contacts && selectedContact.contacts[0]?.number) || '',
             role: linkData.role,
             relationship: linkData.relationship,
             id: selectedContact._id || selectedContact.id || Date.now().toString()
         };
 
+        const FALLBACK_RELATIONSHIPS = [
+            "Spouse",
+            "Partner",
+            "Child",
+            "Parent",
+            "Sibling",
+            "Father",
+            "Mother",
+            "Brother",
+            "Sister",
+            "Friend",
+            "Colleague",
+            "Broker",
+            "Agent",
+            "Other",
+        ];
         const updatedOwners = [...owners, newOwner];
         setOwners(updatedOwners);
         setLinkData({ role: 'Property Owner', relationship: '' });
@@ -162,7 +178,7 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
                                                         {contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim()}
                                                     </div>
                                                     <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                                                        {contact.mobile || contact.phones?.[0]?.number || contact.contacts?.[0]?.number}
+                                                        {contact.phones?.[0]?.number || contact.mobile || contact.contacts?.[0]?.number}
                                                     </div>
                                                 </div>
                                                 <i className="fas fa-plus" style={{ color: '#3b82f6' }}></i>
@@ -182,7 +198,7 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
                                             {selectedContact.name || `${selectedContact.firstName || ''} ${selectedContact.lastName || ''}`.trim()}
                                         </div>
                                         <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                                            {selectedContact.mobile || selectedContact.phones?.[0]?.number || selectedContact.contacts?.[0]?.number}
+                                            {selectedContact.phones?.[0]?.number || selectedContact.mobile || selectedContact.contacts?.[0]?.number}
                                         </div>
                                     </div>
                                 </div>

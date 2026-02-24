@@ -1,4 +1,5 @@
 import Activity from "../models/Activity.js";
+import { runFullLeadEnrichment } from "../src/utils/enrichmentEngine.js";
 
 // @desc    Get all activities with filtering and pagination
 // @route   GET /api/activities
@@ -69,6 +70,12 @@ export const getActivities = async (req, res) => {
 export const addActivity = async (req, res) => {
     try {
         const activity = await Activity.create(req.body);
+
+        // Auto-run Enrichment if entity is a Lead
+        if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
+            await runFullLeadEnrichment(activity.entityId);
+        }
+
         res.status(201).json({ success: true, data: activity });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
@@ -87,6 +94,11 @@ export const updateActivity = async (req, res) => {
 
         if (!activity) {
             return res.status(404).json({ success: false, error: "Activity not found" });
+        }
+
+        // Auto-run Enrichment if entity is a Lead
+        if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
+            await runFullLeadEnrichment(activity.entityId);
         }
 
         res.json({ success: true, data: activity });

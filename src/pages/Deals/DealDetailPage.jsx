@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ChevronRight, Home, Building2, User, FileText, Calendar, Wallet, CheckCircle, Clock, Search, Filter, Plus, Phone, Mail, MoreVertical, Edit, Trash2, X, AlertCircle, FileCheck, DollarSign, Percent, Calculator, Printer, Settings } from 'lucide-react';
-import { api, lookupsAPI, dealsAPI, contactsAPI, usersAPI } from '../../utils/api';
+import { api, lookupsAPI, dealsAPI, contactsAPI, usersAPI, enrichmentAPI } from '../../utils/api';
 import toast from 'react-hot-toast';
 import { formatIndianCurrency, numberToIndianWords } from '../../utils/numberToWords';
 import { renderValue } from '../../utils/renderUtils';
@@ -355,6 +355,18 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: stageStyle.dot }}></span>
                                 {currentStage}
                             </span>
+                            {deal.negotiation_window && (
+                                <span style={{
+                                    backgroundColor: '#fef3c7', color: '#92400e',
+                                    padding: '4px 12px', borderRadius: '6px',
+                                    fontSize: '0.7rem', fontWeight: 900,
+                                    display: 'flex', alignItems: 'center', gap: '6px',
+                                    textTransform: 'uppercase', letterSpacing: '0.05em', border: '1px solid #fcd34d',
+                                    boxShadow: '0 2px 4px rgba(251, 191, 36, 0.2)'
+                                }}>
+                                    <i className="fas fa-bolt" style={{ color: '#f59e0b' }}></i> High Margin
+                                </span>
+                            )}
                         </div>
                         <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, margin: 0 }}>
                             {renderValue(deal.projectName)} • {renderValue(deal.block)}
@@ -398,6 +410,29 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                         display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer'
                     }} className="hover:bg-slate-50">
                         <i className="fas fa-ellipsis-v"></i>
+                    </button>
+                    <button
+                        onClick={async () => {
+                            try {
+                                const res = await enrichmentAPI.runDeal(dealId);
+                                if (res.success) {
+                                    toast.success('Deal Intelligence Enriched!');
+                                    fetchDealDetails();
+                                }
+                            } catch (e) {
+                                toast.error('Enrichment failed');
+                            }
+                        }}
+                        style={{
+                            background: '#fff', color: '#16a34a', border: '1px solid #dcfce7',
+                            width: '44px', height: '44px', borderRadius: '12px',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+                        }}
+                        title="Run Enrichment Intelligence"
+                        className="hover:bg-green-50"
+                    >
+                        <i className="fas fa-magic"></i>
                     </button>
                 </div>
             </header>

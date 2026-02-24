@@ -10,7 +10,7 @@ import { sizeData } from '../../data/sizeData';
 import { applyDealsFilters } from '../../utils/dealsFilterLogic';
 import UploadModal from '../../components/UploadModal';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
-import SendMailModal from '../Contacts/components/SendMailModal';
+import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../components/SendMessageModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
 import toast from 'react-hot-toast';
@@ -933,10 +933,10 @@ function DealsPage({ onNavigate, onAddActivity }) {
                 }}
             />
 
-            <SendMailModal
+            <ComposeEmailModal
                 isOpen={isSendMailOpen}
                 onClose={() => setIsSendMailOpen(false)}
-                selectedContacts={selectedDealsForMail}
+                recipients={selectedDealsForMail}
             />
 
             <SendMessageModal

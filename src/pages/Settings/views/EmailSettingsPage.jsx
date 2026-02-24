@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { emailTemplates } from '../../../data/mockData';
+import { systemSettingsAPI, emailAPI } from '../../../utils/api';
+import Toast from '../../../components/Toast';
 
 // --- Sub-Components (Moved outside to prevent re-renders) ---
 
@@ -345,8 +347,8 @@ const EmailSettingsPage = () => {
     const [signatureType, setSignatureType] = useState('simple');
     const [simpleSignature, setSimpleSignature] = useState('--Real Deal');
     const [htmlSignature, setHtmlSignature] = useState('--Real Deal');
-    const [connectedEmail, setConnectedEmail] = useState(''); // Reset to empty for discovery
-    const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(true); // Default to true for "Other"
+    const [connectedEmail, setConnectedEmail] = useState('');
+    const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(true);
     const [selectedProvider, setSelectedProvider] = useState('Other');
     const [emailConfig, setEmailConfig] = useState({
         email: '',
@@ -361,6 +363,82 @@ const EmailSettingsPage = () => {
         syncContacts: true,
         syncCalendar: true
     });
+    const [isTestingConnection, setIsTestingConnection] = useState(false);
+    const [toast, setToast] = useState(null);
+
+    useEffect(() => {
+        const fetchSettings = async () => {
+            try {
+                const response = await systemSettingsAPI.getByKey('email_config');
+                if (response && response.status === 'success' && response.data && response.data.value) {
+                    const settingsValue = response.data.value;
+                    setConnectedEmail(settingsValue.email || '');
+                    setEmailConfig(prev => ({ ...prev, ...settingsValue }));
+                    if (settingsValue.provider) {
+                        setSelectedProvider(settingsValue.provider);
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching email settings:', error);
+            }
+        };
+        fetchSettings();
+    }, []);
+
+    useEffect(() => {
+        const queryParams = new URLSearchParams(window.location.search);
+        if (queryParams.get('success') === 'true') {
+            setToast({ message: 'Google account connected successfully!', type: 'success' });
+            // Clear URL params
+            window.history.replaceState({}, document.title, window.location.pathname);
+            // Refresh settings
+            const refreshSettings = async () => {
+                try {
+                    const response = await systemSettingsAPI.getOne('email_config');
+                    if (response && response.success && response.data) {
+                        setConnectedEmail(response.data.email || '');
+                    }
+                } catch (error) {
+                    console.error('Error refreshing settings:', error);
+                }
+            };
+            refreshSettings();
+        }
+    }, []);
+
+    const handleConnectGoogle = async () => {
+        setIsTestingConnection(true);
+        try {
+            const response = await emailAPI.getOAuthUrl();
+            if (response && response.success && response.data) {
+                window.location.href = response.data;
+            } else {
+                setToast({ message: 'Failed to initiate Google login', type: 'error' });
+            }
+        } catch (error) {
+            console.error('Error initiating Google login:', error);
+            setToast({ message: error.message || 'Failed to initiate Google login', type: 'error' });
+        } finally {
+            setIsTestingConnection(false);
+        }
+    };
+
+    const handleTestConnection = async () => {
+        setIsTestingConnection(true);
+        try {
+            const response = await emailAPI.testConnection();
+            if (response && response.success) {
+                setToast({ message: 'Connection successful! (SMTP & IMAP verified)', type: 'success' });
+            } else {
+                setToast({ message: response.message || 'Connection failed', type: 'error' });
+            }
+        } catch (error) {
+            console.error('Error testing connection:', error);
+            setToast({ message: error.message || 'Connection failed', type: 'error' });
+        } finally {
+            setIsTestingConnection(false);
+        }
+    };
 
     const tabs = [
         { id: 'connection', label: 'Connection' },
@@ -498,7 +576,58 @@ const EmailSettingsPage = () => {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <span style={{ fontSize: '0.8rem', color: '#334155', fontWeight: 600 }}>Status</span>
                             <span style={{ fontSize: '0.85rem', color: '#22c55e', fontWeight: 700 }}>Connected</span>
+                            <span style={{ fontSize: '0.75rem', color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', marginLeft: '8px' }}>
+                                Via {emailConfig.useOAuth ? 'Google Security' : 'Password'}
+                            </span>
                         </div>
+
+                        {!emailConfig.useOAuth && (
+                            <button
+                                onClick={handleConnectGoogle}
+                                disabled={isTestingConnection}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '6px 12px',
+                                    borderRadius: '4px',
+                                    border: '1px solid #fed7aa',
+                                    background: '#fff7ed',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 700,
+                                    color: '#c2410c',
+                                    cursor: isTestingConnection ? 'not-allowed' : 'pointer',
+                                    transition: '0.2s',
+                                    marginLeft: 'auto'
+                                }}
+                            >
+                                <img src="https://www.gstatic.com/images/branding/product/1x/gmail_32dp.png" alt="Gmail" style={{ width: '16px' }} />
+                                Upgrade to Google Login (Recommended)
+                            </button>
+                        )}
+
+                        <button
+                            onClick={handleTestConnection}
+                            disabled={isTestingConnection}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '6px 12px',
+                                borderRadius: '4px',
+                                border: '1px solid #e2e8f0',
+                                background: '#f8fafc',
+                                fontSize: '0.8rem',
+                                fontWeight: 600,
+                                color: '#475569',
+                                cursor: isTestingConnection ? 'not-allowed' : 'pointer',
+                                transition: '0.2s',
+                                marginLeft: emailConfig.useOAuth ? 'auto' : '12px'
+                            }}
+                        >
+                            {isTestingConnection ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-sync-alt"></i>}
+                            {isTestingConnection ? 'Testing...' : 'Test Connection'}
+                        </button>
 
                         <span style={{ fontSize: '0.85rem', color: '#475569', cursor: 'pointer', marginLeft: 'auto' }}>Update your password</span>
                         <span style={{ fontSize: '0.85rem', color: '#ef4444', cursor: 'pointer' }} onClick={() => setConnectedEmail('')}>Disconnect Email Account</span>
@@ -686,7 +815,33 @@ const EmailSettingsPage = () => {
                     <h2 style={{ margin: '0 0 12px 0', fontSize: '1.25rem', fontWeight: 800 }}>Add your email address</h2>
                     <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '32px' }}>Connecting your email is the best way to track conversations.</p>
                     <div style={{ display: 'flex', gap: '8px', marginBottom: '40px' }}>
-                        {['Google', 'Microsoft', 'Yahoo', 'Other'].map(p => (<button key={p} onClick={() => setSelectedProvider(p === 'Microsoft' ? 'Outlook' : p)} style={{ flex: 1, padding: '12px', background: '#fff', border: selectedProvider === (p === 'Microsoft' ? 'Outlook' : p) ? '2px solid var(--primary-color)' : '1px solid #e2e8f0', borderRadius: '4px', fontWeight: 700 }}>Sign in {p}</button>))}
+                        <button
+                            onClick={handleConnectGoogle}
+                            disabled={isTestingConnection}
+                            style={{
+                                flex: 1,
+                                padding: '12px',
+                                background: '#fff',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '4px',
+                                fontWeight: 700,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '10px',
+                                cursor: isTestingConnection ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.2s'
+                            }}
+                            onMouseOver={(e) => e.target.style.background = '#f8fafc'}
+                            onMouseOut={(e) => e.target.style.background = '#fff'}
+                        >
+                            {isTestingConnection ? (
+                                <i className="fas fa-spinner fa-spin"></i>
+                            ) : (
+                                <img src="https://www.gstatic.com/images/branding/product/1x/gmail_32dp.png" alt="Gmail" style={{ width: '20px' }} />
+                            )}
+                            Connect with Google
+                        </button>
                     </div>
                     <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '32px' }}>
                         <div style={{ fontSize: '0.8rem', fontWeight: 800, marginBottom: '24px' }}>or sign in with email and password</div>
@@ -718,7 +873,20 @@ const EmailSettingsPage = () => {
                             )}
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'center', marginTop: '40px' }}>
-                            <button className="btn-primary" style={{ padding: '12px 48px', fontWeight: 700 }} onClick={() => { setConnectedEmail(emailConfig.email || 'custom@provider.com'); setIsAddEmailModalOpen(false); }}>Connect</button>
+                            <button className="btn-primary" style={{ padding: '12px 48px', fontWeight: 700 }} onClick={async () => {
+                                try {
+                                    const newConfig = { ...emailConfig, provider: selectedProvider };
+                                    await systemSettingsAPI.upsert('email_config', {
+                                        category: 'email',
+                                        value: newConfig,
+                                        active: true
+                                    });
+                                    setConnectedEmail(emailConfig.email || 'custom@provider.com');
+                                    setIsAddEmailModalOpen(false);
+                                } catch (error) {
+                                    console.error('Error saving email settings:', error);
+                                }
+                            }}>Connect</button>
                         </div>
                     </div>
                 </div>
@@ -752,6 +920,13 @@ const EmailSettingsPage = () => {
                         </div>
                     </div>
                 </div>
+            )}
+            {toast && (
+                <Toast
+                    message={toast.message}
+                    type={toast.type}
+                    onClose={() => setToast(null)}
+                />
             )}
         </section>
     );

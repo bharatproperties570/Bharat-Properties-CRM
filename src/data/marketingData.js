@@ -540,6 +540,11 @@ export const marketingData = {
             get clickThroughRate() { return ((this.clicks / this.views) * 100).toFixed(2); },
             get leadConversionRate() { return ((this.leadsGenerated / this.clicks) * 100).toFixed(2); }
         }
+    ],
+    intelligenceProspects: [
+        { id: '101', name: 'Raj Kumar', classification: 'Serious Buyer', intentIndex: 92, tags: ['Ready Cash', 'ROI Focus'], campaign: 'Google Plot Campaign' },
+        { id: '102', name: 'Amit Shah', classification: 'Investor', intentIndex: 88, tags: ['Plot Expert', 'Multiple Units'], campaign: 'Facebook Flat Campaign' },
+        { id: '103', name: 'Sanjay Gupta', classification: 'Qualified', intentIndex: 75, tags: ['High Budget', 'Urgent'], campaign: 'Instagram Commercial' }
     ]
 };
 

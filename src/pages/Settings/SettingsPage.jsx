@@ -35,6 +35,7 @@ import BulkUpdatePage from './views/BulkUpdatePage';
 import ExportDataPage from './views/ExportDataPage';
 import ParsingRulesPage from './views/ParsingRulesPage';
 import DuplicationSettingsPage from './views/DuplicationSettingsPage';
+import EnrichmentSettingsPage from './views/EnrichmentSettingsPage';
 
 
 // --- Sub-Components (Defined Outside to prevent re-creation crashes) ---
@@ -914,6 +915,8 @@ const SettingsHubPage = () => {
                         <BulkUpdatePage />
                     ) : activeTab === 'parsing-rules' ? (
                         <ParsingRulesPage />
+                    ) : activeTab === 'enrichment' ? (
+                        <EnrichmentSettingsPage />
                     ) : activeTab === 'duplicate-mgt' ? (
                         <DuplicationSettingsPage />
                     ) : activeTab === 'deals-c' ? (

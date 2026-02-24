@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import SendMailModal from '../../Contacts/components/SendMailModal';
+import ComposeEmailModal from '../../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../../components/SendMessageModal';
 import CreateActivityModal from '../../../components/CreateActivityModal';
 import toast from 'react-hot-toast';
@@ -656,7 +656,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             )}
 
             {/* Communication Modals */}
-            <SendMailModal
+            <ComposeEmailModal
                 isOpen={isMailOpen}
                 onClose={() => setIsMailOpen(false)}
                 recipients={selectedContactsForMail}

@@ -8,12 +8,12 @@ import { renderValue } from '../../utils/renderUtils';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
 import UploadModal from '../../components/UploadModal';
 import AddOwnerModal from '../../components/AddOwnerModal';
-import SendMailModal from '../Contacts/components/SendMailModal';
+import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../components/SendMessageModal';
 import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
 
 export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, onAddActivity, onAddDeal, onEditInventory }) {
-    const { masterFields } = usePropertyConfig();
+    const { masterFields, getLookupValue } = usePropertyConfig();
     const { fireEvent } = useTriggers();
     const { startCall } = useCall();
 
@@ -127,13 +127,19 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
             block: inventory.block,
             category: inventory.category,
             subCategory: inventory.subCategory,
-            unitType: inventory.unitType,
+            unitType: getLookupValue('UnitType', inventory.unitType),
             intent: type === 'Sell' ? 'For Sale' : 'For Rent',
             size: inventory.size,
             sizeUnit: inventory.sizeUnit,
             location: inventory.address?.locality || inventory.address?.area,
-            owner: inventory.owners?.[0] || { name: inventory.ownerName, phone: inventory.ownerPhone },
-            associatedContact: inventory.associates?.[0] || { name: inventory.associatedContact, phone: inventory.associatedPhone },
+            owner: inventory.owners?.[0] ? {
+                ...inventory.owners[0],
+                phone: inventory.owners[0].phones?.[0]?.number || inventory.owners[0].mobile || ''
+            } : { name: inventory.ownerName, phone: inventory.ownerPhone },
+            associatedContact: inventory.associates?.[0] ? {
+                ...inventory.associates[0],
+                phone: inventory.associates[0].phones?.[0]?.number || inventory.associates[0].mobile || ''
+            } : { name: inventory.associatedContact, phone: inventory.associatedPhone },
             isOwnerSelected: !!inventory.owners?.[0],
             isAssociateSelected: !!inventory.associates?.[0]
         });
@@ -148,8 +154,18 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
             // Also check owners array if it exists
             if (inventory.owners && inventory.owners.length > 0) {
                 inventory.owners.forEach(o => {
-                    if (o.name && !targets.find(t => t.mobile === o.mobile)) {
-                        targets.push({ name: o.name, mobile: o.mobile, email: o.email || 'owner@example.com' });
+                    const mobile = o.phones?.[0]?.number || o.mobile || '';
+                    if (o.name && !targets.find(t => t.mobile === mobile)) {
+                        targets.push({ name: o.name, mobile: mobile, email: o.emails?.[0]?.address || o.email || 'owner@example.com' });
+                    }
+                });
+            }
+            // Check associates array
+            if (inventory.associates && inventory.associates.length > 0) {
+                inventory.associates.forEach(a => {
+                    const mobile = a.phones?.[0]?.number || a.mobile || '';
+                    if (a.name && !targets.find(t => t.mobile === mobile)) {
+                        targets.push({ name: a.name, mobile: mobile, email: a.emails?.[0]?.address || a.email || 'associate@example.com' });
                     }
                 });
             }
@@ -306,9 +322,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-0.02em', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
                                 {renderValue(inventory.unitNo)}
-                                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#64748b' }}>
-                                    ({renderValue(inventory.unitType)})
-                                </span>
+                                ({renderValue(getLookupValue('UnitType', inventory.unitType))})
                             </h2>
                             <span style={{
                                 backgroundColor: statusStyle.bg,
@@ -578,8 +592,8 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                     <i className="fas fa-home" style={{ marginRight: '8px', fontSize: '0.8rem', color: '#2563eb' }}></i> Basic Details
                                 </h4>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                    <DetailField label="Category" value={inventory.category} />
-                                    <DetailField label="Subcategory" value={inventory.subCategory} />
+                                    <DetailField label="Category" value={getLookupValue('Category', inventory.category)} />
+                                    <DetailField label="Subcategory" value={getLookupValue('SubCategory', inventory.subCategory)} />
 
                                     {/* Dimensions Row (Size, Length, Width) */}
                                     <div style={{
@@ -605,9 +619,9 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                     <i className="fas fa-compass" style={{ marginRight: '8px', fontSize: '0.8rem', color: '#f59e0b' }}></i> Orientation & Features
                                 </h4>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                    <DetailField label="Direction" value={inventory.direction} />
-                                    <DetailField label="Facing" value={inventory.facing} />
-                                    <DetailField label="Road Width" value={inventory.roadWidth} />
+                                    <DetailField label="Direction" value={getLookupValue('Direction', inventory.direction)} />
+                                    <DetailField label="Facing" value={getLookupValue('Facing', inventory.facing)} />
+                                    <DetailField label="Road Width" value={getLookupValue('RoadWidth', inventory.roadWidth)} />
                                 </div>
                             </div>
                         </div>
@@ -684,7 +698,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                             <i className="fas fa-layer-group" style={{ marginRight: '8px', color: '#8b5cf6' }}></i> Builtup & Furnishing Details
                         </h3>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-                            <DetailField label="Built-up Type" value={inventory.builtupType} />
+                            <DetailField label="Built-up Type" value={getLookupValue('BuiltupType', inventory.builtupType)} />
                             <DetailField label="Possession Status" value={inventory.possessionStatus} />
                             <DetailField label="Occupation Date" value={inventory.occupationDate ? new Date(inventory.occupationDate).toLocaleDateString() : '-'} />
                             <DetailField label="Age of Construction" value={inventory.ageOfConstruction || inventory.constructionAge} />
@@ -886,8 +900,8 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                     </div>
                                     <div style={{ flex: 1 }}>
                                         <p style={{ fontSize: '0.65rem', color: '#64748b', margin: '0 0 2px 0', fontWeight: 700, textTransform: 'uppercase' }}>Owner</p>
-                                        <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', margin: '0 0 4px 0' }}>{renderValue(inventory.ownerName)}</p>
-                                        <p style={{ fontSize: '0.8rem', color: '#475569', margin: 0 }}>{renderValue(inventory.ownerPhone)}</p>
+                                        <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', margin: '0 0 4px 0' }}>{renderValue(inventory.owners?.[0]?.name || inventory.ownerName)}</p>
+                                        <p style={{ fontSize: '0.8rem', color: '#475569', margin: 0 }}>{renderValue(inventory.owners?.[0]?.phones?.[0]?.number || inventory.ownerPhone)}</p>
                                     </div>
                                 </div>
 
@@ -898,8 +912,8 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                         </div>
                                         <div style={{ flex: 1 }}>
                                             <p style={{ fontSize: '0.65rem', color: '#64748b', margin: '0 0 2px 0', fontWeight: 700, textTransform: 'uppercase' }}>Associate</p>
-                                            <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', margin: '0 0 4px 0' }}>{renderValue(inventory.associatedContact)}</p>
-                                            <p style={{ fontSize: '0.8rem', color: '#475569', margin: 0 }}>{renderValue(inventory.associatedPhone)}</p>
+                                            <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', margin: '0 0 4px 0' }}>{renderValue(inventory.associates?.[0]?.name || inventory.associatedContact)}</p>
+                                            <p style={{ fontSize: '0.8rem', color: '#475569', margin: 0 }}>{renderValue(inventory.associates?.[0]?.phones?.[0]?.number || inventory.associatedPhone)}</p>
                                         </div>
                                     </div>
                                 )}
@@ -907,14 +921,20 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
 
                             <div style={{ display: 'flex', gap: '8px' }}>
                                 <button
-                                    onClick={() => startCall(inventory.ownerPhone, inventory.ownerName)}
+                                    onClick={() => {
+                                        const phone = inventory.owners?.[0]?.phones?.[0]?.number || inventory.ownerPhone;
+                                        startCall(phone, inventory.owners?.[0]?.name || inventory.ownerName);
+                                    }}
                                     style={{ flex: 1, padding: '10px', borderRadius: '10px', background: '#ecfdf5', color: '#059669', border: '1px solid #d1fae5', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', transition: 'all 0.2s' }}
                                 >
                                     <i className="fas fa-phone-alt"></i> Call
                                 </button>
                                 <button
                                     style={{ flex: 1, padding: '10px', borderRadius: '10px', background: '#eff6ff', color: '#2563eb', border: '1px solid #dbeafe', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', transition: 'all 0.2s' }}
-                                    onClick={() => window.open(`https://wa.me/${inventory.ownerPhone?.replace(/\D/g, '')}`, '_blank')}
+                                    onClick={() => {
+                                        const phone = (inventory.owners?.[0]?.phones?.[0]?.number || inventory.ownerPhone || '').replace(/\D/g, '');
+                                        window.open(`https://wa.me/${phone}`, '_blank');
+                                    }}
                                 >
                                     <i className="fab fa-whatsapp"></i> WhatsApp
                                 </button>
@@ -1083,8 +1103,22 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                 isOpen={isOwnerModalOpen}
                 onClose={() => setIsOwnerModalOpen(false)}
                 currentOwners={[
-                    ...(inventory.ownerName ? [{ name: inventory.ownerName, mobile: inventory.ownerPhone, role: 'Property Owner' }] : []),
-                    ...(inventory.associatedContact ? [{ name: inventory.associatedContact, mobile: inventory.associatedPhone, role: 'Associate' }] : [])
+                    ...(inventory.owners && inventory.owners.length > 0
+                        ? inventory.owners.map(o => ({
+                            name: o.name,
+                            mobile: o.phones?.[0]?.number || o.mobile || '',
+                            role: 'Property Owner'
+                        }))
+                        : (inventory.ownerName ? [{ name: inventory.ownerName, mobile: inventory.ownerPhone, role: 'Property Owner' }] : [])
+                    ),
+                    ...(inventory.associates && inventory.associates.length > 0
+                        ? inventory.associates.map(a => ({
+                            name: a.name,
+                            mobile: a.phones?.[0]?.number || a.mobile || '',
+                            role: 'Associate'
+                        }))
+                        : (inventory.associatedContact ? [{ name: inventory.associatedContact, mobile: inventory.associatedPhone, role: 'Associate' }] : [])
+                    )
                 ]}
                 onSave={async (owners) => {
                     try {
@@ -1110,7 +1144,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                 }}
             />
 
-            <SendMailModal
+            <ComposeEmailModal
                 isOpen={isEmailModalOpen}
                 onClose={() => setIsEmailModalOpen(false)}
                 recipients={modalData}

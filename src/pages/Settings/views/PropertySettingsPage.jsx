@@ -70,7 +70,9 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                 setSizeData(initialData);
             } else {
                 const initialCat = propertyConfig && Object.keys(propertyConfig).length > 0 ? Object.keys(propertyConfig)[0] : '';
-                const initialSub = initialCat && propertyConfig[initialCat]?.subCategories?.length > 0 ? propertyConfig[initialCat].subCategories[0].name : '';
+                const initialSub = initialCat && Array.isArray(propertyConfig[initialCat]?.subCategories) && propertyConfig[initialCat].subCategories.length > 0
+                    ? propertyConfig[initialCat].subCategories[0].name
+                    : '';
 
                 setSizeData({
                     ...defaultState,
@@ -187,7 +189,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                             <label style={labelStyle}>Category</label>
                             <select value={sizeData.category} onChange={e => {
                                 const cat = e.target.value;
-                                const subs = propertyConfig[cat]?.subCategories || [];
+                                const subs = propertyConfig?.[cat]?.subCategories || [];
                                 setSizeData({ ...sizeData, category: cat, subCategory: subs.length > 0 ? subs[0].name : '', sizeType: '' });
                             }} style={customSelectStyle}>
                                 {propertyConfig && Object.keys(propertyConfig).map(cat => <option key={cat} value={cat}>{cat}</option>)}
@@ -196,7 +198,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                         <div>
                             <label style={labelStyle}>Sub Category</label>
                             <select value={sizeData.subCategory} onChange={e => setSizeData({ ...sizeData, subCategory: e.target.value, sizeType: '' })} style={customSelectStyle}>
-                                {propertyConfig && propertyConfig[sizeData.category]?.subCategories.map(sub => (
+                                {propertyConfig && Array.isArray(propertyConfig[sizeData.category]?.subCategories) && propertyConfig[sizeData.category].subCategories.map(sub => (
                                     <option key={sub.name} value={sub.name}>{sub.name}</option>
                                 ))}
                             </select>
@@ -207,7 +209,9 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                                 <option value="">Select Type</option>
                                 {(() => {
                                     if (!propertyConfig) return null;
-                                    const subCatObj = propertyConfig[sizeData.category]?.subCategories.find(s => s.name === sizeData.subCategory);
+                                    const subCatObj = Array.isArray(propertyConfig[sizeData.category]?.subCategories)
+                                        ? propertyConfig[sizeData.category].subCategories.find(s => s.name === sizeData.subCategory)
+                                        : null;
                                     return subCatObj?.types?.map(t => { const typeName = typeof t === 'string' ? t : t.name; return <option key={typeName} value={typeName}>{typeName}</option>; });
                                 })()}
                             </select>
@@ -337,7 +341,7 @@ const PropertySettingsPage = () => {
     const {
         propertyConfig, updateConfig, masterFields, updateMasterFields,
         sizes, addSize, updateSize, deleteSize, projects,
-        syncCategoryLookup, syncSubCategoryLookup, syncPropertyTypeLookup
+        syncCategoryLookup, syncSubCategoryLookup, syncPropertyTypeLookup, syncBuiltupTypeLookup
     } = context;
 
     const safeProjects = React.useMemo(() => Array.isArray(projects) ? projects : [], [projects]);
@@ -505,9 +509,15 @@ const PropertySettingsPage = () => {
         openInputModal(`Enter new Sub-Category for ${configCategory}:`, '', async (name) => {
             if (name) {
                 const newConfig = JSON.parse(JSON.stringify(propertyConfig));
-                if (newConfig[configCategory].subCategories.some(s => s.name === name)) {
+                if (!newConfig[configCategory]) {
+                    newConfig[configCategory] = { subCategories: [] };
+                }
+                if (Array.isArray(newConfig[configCategory].subCategories) && newConfig[configCategory].subCategories.some(s => s.name === name)) {
                     alert("Sub-Category already exists.");
                     return;
+                }
+                if (!Array.isArray(newConfig[configCategory].subCategories)) {
+                    newConfig[configCategory].subCategories = [];
                 }
                 newConfig[configCategory].subCategories.push({ name, types: [] });
                 await updateConfig(newConfig);
@@ -521,9 +531,12 @@ const PropertySettingsPage = () => {
         openInputModal("Edit Sub-Category name:", oldName, async (newName) => {
             if (newName && newName !== oldName) {
                 const newConfig = JSON.parse(JSON.stringify(propertyConfig));
-                const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === oldName);
+                const subCategories = newConfig[configCategory]?.subCategories;
+                if (!Array.isArray(subCategories)) return;
+
+                const subIndex = subCategories.findIndex(s => s.name === oldName);
                 if (subIndex > -1) {
-                    newConfig[configCategory].subCategories[subIndex].name = newName;
+                    subCategories[subIndex].name = newName;
                     await updateConfig(newConfig);
                     await syncSubCategoryLookup(configCategory, newName, 'update', oldName);
                     if (configSubCategory === oldName) setConfigSubCategory(newName);
@@ -536,11 +549,13 @@ const PropertySettingsPage = () => {
     const handleDeleteSubCategory = (name) => {
         openConfirmModal(`Delete sub-category '${name}'?`, async () => {
             const newConfig = JSON.parse(JSON.stringify(propertyConfig));
-            newConfig[configCategory].subCategories = newConfig[configCategory].subCategories.filter(s => s.name !== name);
-            await updateConfig(newConfig);
-            await syncSubCategoryLookup(configCategory, name, 'delete');
-            if (configSubCategory === name) setConfigSubCategory(null);
-            showToast(`Sub-Category '${name}' deleted`);
+            if (newConfig[configCategory] && Array.isArray(newConfig[configCategory].subCategories)) {
+                newConfig[configCategory].subCategories = newConfig[configCategory].subCategories.filter(s => s.name !== name);
+                await updateConfig(newConfig);
+                await syncSubCategoryLookup(configCategory, name, 'delete');
+                if (configSubCategory === name) setConfigSubCategory(null);
+                showToast(`Sub-Category '${name}' deleted`);
+            }
         });
     };
 
@@ -588,21 +603,26 @@ const PropertySettingsPage = () => {
     const handleDeleteType = (name) => {
         openConfirmModal(`Delete type '${name}'?`, async () => {
             const newConfig = JSON.parse(JSON.stringify(propertyConfig));
-            const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
+            const subCategories = newConfig[configCategory]?.subCategories;
+            if (!Array.isArray(subCategories)) return;
+
+            const subIndex = subCategories.findIndex(s => s.name === configSubCategory);
             if (subIndex > -1) {
-                const types = newConfig[configCategory].subCategories[subIndex].types;
-                newConfig[configCategory].subCategories[subIndex].types = types.filter(t => t.name !== name);
-                await updateConfig(newConfig);
-                await syncPropertyTypeLookup(configCategory, configSubCategory, name, 'delete');
-                if (configType === name) setConfigType(null);
-                showToast(`Type '${name}' deleted`);
+                const types = subCategories[subIndex].types;
+                if (Array.isArray(types)) {
+                    subCategories[subIndex].types = types.filter(t => t.name !== name);
+                    await updateConfig(newConfig);
+                    await syncPropertyTypeLookup(configCategory, configSubCategory, name, 'delete');
+                    if (configType === name) setConfigType(null);
+                    showToast(`Type '${name}' deleted`);
+                }
             }
         });
     };
 
     const handleAddBuiltupType = () => {
         if (!configCategory || !configSubCategory || !configType) return;
-        openInputModal(`Enter new Builtup Type for ${configType}:`, '', (name) => {
+        openInputModal(`Enter new Builtup Type for ${configType}:`, '', async (name) => {
             if (name) {
                 const newConfig = JSON.parse(JSON.stringify(propertyConfig));
                 const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
@@ -611,7 +631,8 @@ const PropertySettingsPage = () => {
                     if (typeObj) {
                         if (!typeObj.builtupTypes.includes(name)) {
                             typeObj.builtupTypes.push(name);
-                            updateConfig(newConfig);
+                            await updateConfig(newConfig);
+                            await syncBuiltupTypeLookup(configCategory, configSubCategory, configType, name, 'add');
                             showToast(`Builtup Type '${name}' added`);
                         } else {
                             alert("Builtup Type already exists.");
@@ -623,7 +644,7 @@ const PropertySettingsPage = () => {
     };
 
     const handleEditBuiltupType = (oldName) => {
-        openInputModal("Edit Builtup Type name:", oldName, (newName) => {
+        openInputModal("Edit Builtup Type name:", oldName, async (newName) => {
             if (newName && newName !== oldName) {
                 const newConfig = JSON.parse(JSON.stringify(propertyConfig));
                 const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
@@ -631,7 +652,8 @@ const PropertySettingsPage = () => {
                 const index = typeObj.builtupTypes.indexOf(oldName);
                 if (index > -1) {
                     typeObj.builtupTypes[index] = newName;
-                    updateConfig(newConfig);
+                    await updateConfig(newConfig);
+                    await syncBuiltupTypeLookup(configCategory, configSubCategory, configType, newName, 'update', oldName);
                     showToast(`Builtup Type updated to '${newName}'`);
                 }
             }
@@ -639,12 +661,13 @@ const PropertySettingsPage = () => {
     };
 
     const handleDeleteBuiltupType = (name) => {
-        openConfirmModal(`Delete Builtup Type '${name}'?`, () => {
+        openConfirmModal(`Delete Builtup Type '${name}'?`, async () => {
             const newConfig = JSON.parse(JSON.stringify(propertyConfig));
             const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
             const typeObj = newConfig[configCategory].subCategories[subIndex].types.find(t => t.name === configType);
             typeObj.builtupTypes = typeObj.builtupTypes.filter(b => b !== name);
-            updateConfig(newConfig);
+            await updateConfig(newConfig);
+            await syncBuiltupTypeLookup(configCategory, configSubCategory, configType, name, 'delete');
             showToast(`Builtup Type '${name}' deleted`);
         });
     };
@@ -813,12 +836,12 @@ const PropertySettingsPage = () => {
                                     </div>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
-                                    {configCategory && propertyConfig[configCategory]?.subCategories.map(sub => (
+                                    {configCategory && Array.isArray(propertyConfig[configCategory]?.subCategories) && propertyConfig[configCategory].subCategories.map(sub => (
                                         <div key={sub.name} onClick={() => { setConfigSubCategory(sub.name); setConfigType(null); }} style={{ padding: '16px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: configSubCategory === sub.name ? 700 : 500, background: configSubCategory === sub.name ? '#f0f9ff' : 'transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="group">
                                             <span>{sub.name}</span>
                                             <div style={{ display: 'flex', gap: '8px' }}>
                                                 {configSubCategory === sub.name && <ActionButtons onEdit={() => handleEditSubCategory(sub.name)} onDelete={() => handleDeleteSubCategory(sub.name)} />}
-                                                <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: '#f1f5f9', borderRadius: '12px' }}>{sub.types.length}</span>
+                                                <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: '#f1f5f9', borderRadius: '12px' }}>{sub?.types?.length || 0}</span>
                                             </div>
                                         </div>
                                     ))}
@@ -833,7 +856,7 @@ const PropertySettingsPage = () => {
                                     </div>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
-                                    {configSubCategory && propertyConfig[configCategory]?.subCategories.find(s => s.name === configSubCategory)?.types.map(type => (
+                                    {configSubCategory && Array.isArray(propertyConfig[configCategory]?.subCategories?.find(s => s.name === configSubCategory)?.types) && propertyConfig[configCategory].subCategories.find(s => s.name === configSubCategory).types.map(type => (
                                         <div key={type.name} onClick={() => setConfigType(type.name)} style={{ padding: '16px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: configType === type.name ? 700 : 500, background: configType === type.name ? '#f0f9ff' : 'transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="group">
                                             <span>{type.name}</span>
                                             {configType === type.name && <ActionButtons onEdit={() => handleEditType(type.name)} onDelete={() => handleDeleteType(type.name)} />}
@@ -850,9 +873,9 @@ const PropertySettingsPage = () => {
                                     </div>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1, padding: '16px' }}>
-                                    {configType && (
+                                    {configType && Array.isArray(propertyConfig[configCategory]?.subCategories?.find(s => s.name === configSubCategory)?.types?.find(t => t.name === configType)?.builtupTypes) && (
                                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px' }}>
-                                            {propertyConfig[configCategory]?.subCategories.find(s => s.name === configSubCategory)?.types.find(t => t.name === configType)?.builtupTypes.map(bType => (
+                                            {propertyConfig[configCategory].subCategories.find(s => s.name === configSubCategory).types.find(t => t.name === configType).builtupTypes.map(bType => (
                                                 <div key={bType} style={{ padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', justifyContent: 'space-between' }} className="group">
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }}></div>{bType}</div>
                                                     <ActionButtons onEdit={() => handleEditBuiltupType(bType)} onDelete={() => handleDeleteBuiltupType(bType)} />

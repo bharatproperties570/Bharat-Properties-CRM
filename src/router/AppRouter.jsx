@@ -34,6 +34,7 @@ const MessagingSettingsPage = lazy(() => import('../pages/Settings/views/Messagi
 const NotificationSettingsPage = lazy(() => import('../pages/Settings/views/NotificationSettingsPage'));
 const SalesGoalsSettingsPage = lazy(() => import('../pages/Settings/views/SalesGoalsSettingsPage'));
 const VoiceSettingsPage = lazy(() => import('../pages/Settings/views/VoiceSettingsPage'));
+const EnrichmentSettingsPage = lazy(() => import('../pages/Settings/views/EnrichmentSettingsPage'));
 
 const ContactDetail = lazy(() => import('../pages/Contacts/ContactDetail'));
 
@@ -153,6 +154,8 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
                 return <SalesGoalsSettingsPage onBack={() => onNavigate('settings')} />;
             case 'settings-voice':
                 return <VoiceSettingsPage onBack={() => onNavigate('settings')} />;
+            case 'settings-enrichment':
+                return <EnrichmentSettingsPage onBack={() => onNavigate('settings')} />;
 
             default:
                 return <DashboardPage />;

@@ -1,7 +1,52 @@
 import Deal from "../models/Deal.js";
 import Activity from "../models/Activity.js";
 import Inventory from "../models/Inventory.js";
+import Lead from "../models/Lead.js";
 import { paginate } from "../utils/pagination.js";
+
+export const matchDeals = async (req, res) => {
+    try {
+        const { leadId } = req.query;
+        if (!leadId) {
+            return res.status(400).json({ success: false, error: "leadId is required" });
+        }
+
+        const lead = await Lead.findById(leadId).lean();
+        if (!lead) {
+            return res.status(404).json({ success: false, error: "Lead not found" });
+        }
+
+        const query = {
+            isVisible: { $ne: false },
+            stage: { $ne: "Cancelled" }, // Don't show cancelled deals
+            $or: []
+        };
+
+        if (lead.project) query.$or.push({ projectId: lead.project }, { projectName: lead.project });
+        if (lead.requirement) query.$or.push({ category: lead.requirement });
+        if (lead.location) query.$or.push({ location: lead.location });
+
+        if (query.$or.length === 0) {
+            return res.status(200).json({ success: true, count: 0, data: [] });
+        }
+
+        const populateFields = [
+            { path: 'projectId' },
+            { path: 'category', select: 'lookup_value' },
+            { path: 'status', select: 'lookup_value' }
+        ];
+
+        const deals = await Deal.find(query)
+            .populate(populateFields)
+            .limit(50)
+            .sort({ createdAt: -1 })
+            .lean();
+
+        return res.status(200).json({ success: true, count: deals.length, data: deals });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
 
 const syncInventoryStatus = async (deal) => {
     if (!deal.inventoryId) return;

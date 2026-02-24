@@ -14,7 +14,7 @@ export const getSystemSettings = async (req, res) => {
             return res.json({ status: "success", data: Object.values(mockSettingsStore) });
         }
 
-        const { category, isPublic, page = 1, limit = 10, search } = req.query;
+        const { category, isPublic, page = 1, limit = 100, search } = req.query;
         const query = {};
         if (category) query.category = category;
         if (isPublic === 'true') query.isPublic = true;
@@ -29,7 +29,7 @@ export const getSystemSettings = async (req, res) => {
         const skip = (parseInt(page) - 1) * parseInt(limit);
         const totalDocs = await SystemSetting.countDocuments(query);
         const settings = await SystemSetting.find(query)
-            .sort({ createdAt: -1 })
+            .sort({ key: 1 }) // Sort alphabetically for consistency
             .skip(skip)
             .limit(parseInt(limit))
             .lean();

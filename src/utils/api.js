@@ -203,6 +203,21 @@ export const activitiesAPI = {
     delete: (id) => apiRequest(`/activities/${id}`, { method: 'DELETE' }),
 };
 
+// Email API
+export const emailAPI = {
+    getInbox: () => apiRequest('/email/inbox'),
+    send: (data) => apiRequest('/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    }),
+    testConnection: () => apiRequest('/email/test-connection', {
+        method: 'POST'
+    }),
+    getContent: (uid) => apiRequest(`/email/content/${uid}`),
+    getOAuthUrl: () => apiRequest('/email/oauth/url'),
+};
+
 // Teams API
 export const teamsAPI = {
     getAll: (params) => apiRequest('/teams', { params }),
@@ -210,6 +225,16 @@ export const teamsAPI = {
     create: (data) => apiRequest('/teams', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => apiRequest(`/teams/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => apiRequest(`/teams/${id}`, { method: 'DELETE' }),
+};
+
+// Enrichment API
+export const enrichmentAPI = {
+    getRules: () => apiRequest('/enrichment/rules'),
+    saveKeywordRule: (data) => apiRequest('/enrichment/rules/keyword', { method: 'POST', body: JSON.stringify(data) }),
+    deleteKeywordRule: (id) => apiRequest(`/enrichment/rules/keyword/${id}`, { method: 'DELETE' }),
+    runLead: (leadId) => apiRequest(`/enrichment/run/lead/${leadId}`, { method: 'POST' }),
+    runDeal: (dealId) => apiRequest(`/enrichment/run/deal/${dealId}`, { method: 'POST' }),
+    getLogs: (params) => apiRequest('/enrichment/logs', { params }),
 };
 
 export default {
@@ -227,5 +252,6 @@ export default {
     scoringRules: scoringRulesAPI,
     systemSettings: systemSettingsAPI,
     settings: systemSettingsAPI, // Map settings to systemSettingsAPI for compatibility
-    deals: dealsAPI
+    deals: dealsAPI,
+    enrichment: enrichmentAPI
 };

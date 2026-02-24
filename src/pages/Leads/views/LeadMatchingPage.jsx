@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { whatsappTemplates } from '../../../data/mockData';
-import SendMailModal from '../../Contacts/components/SendMailModal';
+import ComposeEmailModal from '../../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../../components/SendMessageModal';
 import CreateActivityModal from '../../../components/CreateActivityModal';
 import AlgorithmSettingsModal from '../components/AlgorithmSettingsModal';
@@ -642,7 +642,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             )}
 
             {/* Communication Modals */}
-            <SendMailModal
+            <ComposeEmailModal
                 isOpen={isMailOpen}
                 onClose={() => setIsMailOpen(false)}
                 recipients={[lead]}

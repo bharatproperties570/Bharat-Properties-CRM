@@ -1,17 +1,27 @@
 import Inventory from "../models/Inventory.js";
 import Lead from "../models/Lead.js";
+import Lookup from "../models/Lookup.js";
+import User from "../models/User.js";
+import SystemSetting from "../models/SystemSetting.js";
 import { paginate } from "../utils/pagination.js";
 import mongoose from "mongoose";
 
 export const getInventory = async (req, res) => {
     try {
-        const { page = 1, limit = 10, search = "", category, subCategory, unitType, status, project } = req.query;
+        const { page = 1, limit = 10, search = "", category, subCategory, unitType, status, project, contactId } = req.query;
 
         let query = {};
 
+        if (contactId) {
+            query.$or = [
+                { owners: contactId },
+                { associates: contactId }
+            ];
+        }
+
         // Search in unitNo, unitNumber, ownerName, ownerPhone
         if (search) {
-            query.$or = [
+            const searchConditions = [
                 { unitNo: { $regex: search, $options: "i" } },
                 { unitNumber: { $regex: search, $options: "i" } },
                 { ownerName: { $regex: search, $options: "i" } },
@@ -19,6 +29,15 @@ export const getInventory = async (req, res) => {
                 { description: { $regex: search, $options: "i" } },
                 { projectName: { $regex: search, $options: "i" } }
             ];
+            if (query.$or) {
+                query.$and = [
+                    { $or: query.$or },
+                    { $or: searchConditions }
+                ];
+                delete query.$or;
+            } else {
+                query.$or = searchConditions;
+            }
         }
 
         // Apply filters
@@ -27,11 +46,21 @@ export const getInventory = async (req, res) => {
         if (unitType) query.unitType = unitType;
         if (status) query.status = status;
         if (project) {
-            query.$or = [
-                ...(query.$or || []),
+            const projectConditions = [
                 { projectId: project },
                 { projectName: project }
             ];
+
+            if (query.$or) {
+                // If we already have $or (from search or contactId), we need to $and it with project conditions
+                // This is getting complex, let's simplify by pushing to an $and array if multiple $ors exist
+                if (!query.$and) query.$and = [];
+                query.$and.push({ $or: query.$or });
+                query.$and.push({ $or: projectConditions });
+                delete query.$or;
+            } else {
+                query.$or = projectConditions;
+            }
         }
 
         // Only populate fields that are reliably ObjectIds (Contact references)
@@ -110,6 +139,16 @@ export const addInventory = async (req, res) => {
         }
 
         const data = { ...req.body };
+
+        // Resolve Reference Fields to prevent CastErrors
+        if (data.category) data.category = await resolveLookup('Category', data.category);
+        if (data.subCategory) data.subCategory = await resolveLookup('Sub Category', data.subCategory);
+        if (data.unitType) data.unitType = await resolveLookup('Unit Type', data.unitType);
+        if (data.status) data.status = await resolveLookup('Status', data.status);
+        if (data.facing) data.facing = await resolveLookup('Facing', data.facing);
+        if (data.intent) data.intent = await resolveLookup('Intent', data.intent);
+        if (data.assignedTo) data.assignedTo = await resolveUser(data.assignedTo);
+
         if (data.owners) data.owners = sanitizeIds(data.owners);
         if (data.associates) data.associates = sanitizeIds(data.associates);
 
@@ -123,6 +162,16 @@ export const addInventory = async (req, res) => {
 export const updateInventory = async (req, res) => {
     try {
         const data = { ...req.body };
+
+        // Resolve Reference Fields to prevent CastErrors
+        if (data.category) data.category = await resolveLookup('Category', data.category);
+        if (data.subCategory) data.subCategory = await resolveLookup('Sub Category', data.subCategory);
+        if (data.unitType) data.unitType = await resolveLookup('Unit Type', data.unitType);
+        if (data.status) data.status = await resolveLookup('Status', data.status);
+        if (data.facing) data.facing = await resolveLookup('Facing', data.facing);
+        if (data.intent) data.intent = await resolveLookup('Intent', data.intent);
+        if (data.assignedTo) data.assignedTo = await resolveUser(data.assignedTo);
+
         if (data.owners) data.owners = sanitizeIds(data.owners);
         if (data.associates) data.associates = sanitizeIds(data.associates);
 
@@ -224,9 +273,19 @@ export const matchInventory = async (req, res) => {
             if (lead.project) query.$or.push({ projectId: lead.project }, { projectName: lead.project });
             if (lead.requirement) query.$or.push({ category: lead.requirement });
 
+            // Advanced matching based on property type and geography
+            if (lead.propertyType && Array.isArray(lead.propertyType) && lead.propertyType.length > 0) {
+                query.$or.push({ category: { $in: lead.propertyType } });
+            }
+            if (lead.location) {
+                query.$or.push({ "address.locality": lead.location });
+                query.$or.push({ "address.area": lead.location });
+                query.$or.push({ "address.city": lead.location });
+            }
+
             if (query.$or.length === 0) return res.status(200).json({ success: true, data: [] });
 
-            const inventories = await Inventory.find(query).limit(50).lean();
+            const inventories = await Inventory.find(query).limit(50).sort({ createdAt: -1 }).lean();
             return res.status(200).json({ success: true, count: inventories.length, data: inventories });
         }
 
@@ -236,7 +295,32 @@ export const matchInventory = async (req, res) => {
     }
 };
 
-import SystemSetting from "../models/SystemSetting.js";
+// Helper to resolve lookup (Find or Create)
+const resolveLookup = async (type, value) => {
+    if (!value) return null;
+    if (mongoose.Types.ObjectId.isValid(value)) return value;
+    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${value}$`, 'i') } });
+    if (!lookup) {
+        lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
+    }
+    return lookup._id;
+};
+
+// Helper to resolve User (By Name or Email)
+const resolveUser = async (identifier) => {
+    if (!identifier) return null;
+    if (mongoose.Types.ObjectId.isValid(identifier)) return identifier;
+
+    const user = await User.findOne({
+        $or: [
+            { fullName: { $regex: new RegExp(`^${identifier}$`, 'i') } },
+            { email: identifier.toLowerCase() },
+            { name: { $regex: new RegExp(`^${identifier}$`, 'i') } }
+        ]
+    });
+    return user ? user._id : null;
+};
+
 
 /**
  * @desc    Bulk import inventory
@@ -254,21 +338,20 @@ export const importInventory = async (req, res) => {
         const sizesSetting = await SystemSetting.findOne({ key: 'property_sizes' }).lean();
         const systemSizes = sizesSetting ? sizesSetting.value : [];
 
-        const restructuredData = data.map(item => {
+        const restructuredData = [];
+
+        for (const item of data) {
             const result = {
-                projectName: item.projectName,
+                // Ensure project names and IDs are handled consistently
+                projectName: item.projectName || item.project,
                 projectId: item.projectId,
                 unitNo: item.unitNo,
                 unitNumber: item.unitNo,
-                unitType: item.unitType,
-                category: item.category || item.type,
-                subCategory: item.subCategory,
                 builtupType: item.builtupType,
                 block: item.block,
                 size: item.size,
                 sizeLabel: item.sizeLabel,
                 direction: item.direction,
-                facing: item.facing,
                 roadWidth: item.roadWidth,
                 ownership: item.ownership,
 
@@ -294,34 +377,45 @@ export const importInventory = async (req, res) => {
                     lng: item.lng
                 },
 
-                // Owner Details
+                // Plain fields
                 ownerName: item.ownerName,
                 ownerPhone: item.ownerPhone,
                 ownerEmail: item.ownerEmail,
                 ownerAddress: item.ownerAddress,
 
                 // System Details
-                assignedTo: item.assignedTo,
                 team: item.team,
-                status: item.status || 'Available',
                 visibleTo: item.visibleTo || 'Everyone'
             };
 
+            // Resolve Lookups
+            result.category = await resolveLookup('Category', item.category || item.type);
+            result.subCategory = await resolveLookup('Sub Category', item.subCategory);
+            result.unitType = await resolveLookup('Unit Type', item.unitType);
+            result.status = await resolveLookup('Status', item.status || 'Available');
+            result.facing = await resolveLookup('Facing', item.facing);
+            result.intent = await resolveLookup('Intent', item.intent);
+
+            // Resolve User for AssignedTo
+            result.assignedTo = await resolveUser(item.assignedTo);
+
             // AUTO-POPULATE FROM SYSTEM SIZES
             if (item.sizeLabel) {
+                const currentProjectName = result.projectName;
                 // Find matching size by Label, Project, and Block
                 const matchedSize = systemSizes.find(s =>
                     s.name === item.sizeLabel &&
-                    (s.project === item.projectName || s.project === 'Global')
+                    (s.project === currentProjectName || s.project === 'Global')
                 );
 
                 if (matchedSize) {
-                    result.unitType = matchedSize.sizeType || result.unitType;
+                    // Overwrite if matched
+                    if (matchedSize.sizeType) result.unitType = await resolveLookup('Unit Type', matchedSize.sizeType);
                     result.builtUpArea = matchedSize.coveredArea || matchedSize.saleableArea; // Fallback
                     result.carpetArea = matchedSize.carpetArea;
                     result.superArea = matchedSize.saleableArea || matchedSize.totalArea;
-                    result.category = matchedSize.category || result.category;
-                    result.subCategory = matchedSize.subCategory || result.subCategory;
+                    if (matchedSize.category) result.category = await resolveLookup('Category', matchedSize.category);
+                    if (matchedSize.subCategory) result.subCategory = await resolveLookup('Sub Category', matchedSize.subCategory);
 
                     // If plot type, use totalArea and resultMetric
                     if (matchedSize.totalArea) {
@@ -332,14 +426,16 @@ export const importInventory = async (req, res) => {
                 }
             }
 
-            return result;
-        });
+            restructuredData.push(result);
+        }
 
         await Inventory.insertMany(restructuredData, { ordered: false });
 
         res.status(200).json({
             success: true,
-            message: `Successfully imported ${restructuredData.length} inventory items.`
+            message: `Successfully imported ${restructuredData.length} inventory items.`,
+            successCount: restructuredData.length,
+            errorCount: 0
         });
     } catch (error) {
         if (error.writeErrors) {
@@ -370,6 +466,7 @@ export const importInventory = async (req, res) => {
                 errors: errorDetails
             });
         }
+        console.error("Inventory Import Error:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

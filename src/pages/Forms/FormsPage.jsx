@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import AddContactModal from '../../components/AddContactModal';
-import SendMailModal from '../Contacts/components/SendMailModal';
+import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import CreateActivityModal from '../../components/CreateActivityModal';
 import SendMessageModal from '../../components/SendMessageModal';
 import CallModal from '../../components/CallModal';
@@ -208,14 +208,10 @@ const FormsPage = () => {
                 onAdd={handleAddContact}
             />
 
-            {/* Send Mail Modal */}
-            <SendMailModal
+            {/* Compose Email Modal */}
+            <ComposeEmailModal
                 isOpen={isSendMailOpen}
                 onClose={() => setIsSendMailOpen(false)}
-                onSend={() => {
-                    alert('Email sent successfully!');
-                    setIsSendMailOpen(false);
-                }}
             />
 
             {/* Create Activity Modal */}

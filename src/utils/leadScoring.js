@@ -15,6 +15,9 @@ export const calculateLeadScore = (lead, activities = [], config = {}) => {
         stageMultipliers = {}
     } = config;
 
+    // Safety check for activities
+    if (!Array.isArray(activities)) activities = [];
+
     // Helper: Safely get points
     const getAttr = (obj, key) => obj?.[key]?.points || 0;
     const getMult = (obj, key) => obj?.[key]?.value || 1.0;

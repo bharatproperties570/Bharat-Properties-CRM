@@ -1070,6 +1070,24 @@ const AddContactModal = ({
       return;
     }
 
+    // Validation: Mandatory Assignment Fields
+    if (!formData.team) {
+      toast.error("Team is required", { id: toastId });
+      setIsSaving(false);
+      return;
+    }
+    if (!formData.owner) {
+      toast.error("Owner/Assignee is required", { id: toastId });
+      setIsSaving(false);
+      return;
+    }
+    if (!formData.visibleTo) {
+      toast.error("Visibility is required", { id: toastId });
+      setIsSaving(false);
+      return;
+    }
+
+
     try {
       // --- FIELD RULES ENGINE VALIDATION (ASYNC) ---
       if (validateAsync) {
@@ -1127,10 +1145,11 @@ const AddContactModal = ({
         campaign: 'Campaign',
         source: 'Source',
         subSource: 'SubSource',
-        professionCategory: 'ProfessionCategory',
-        professionSubCategory: 'ProfessionSubCategory',
-        designation: 'Designation'
+        professionCategory: 'ProfessionalCategory',
+        professionSubCategory: 'ProfessionalSubCategory',
+        designation: 'ProfessionalDesignation'
       };
+
 
       Object.entries(lookupMapping).forEach(([field, type]) => {
         if (finalFormData[field] && typeof finalFormData[field] === 'string') {
@@ -1558,6 +1577,7 @@ const AddContactModal = ({
                           handleInputChange("name", e.target.value)
                         }
                         placeholder="Enter first name"
+                        autoComplete="off"
                         style={{
                           width: "100%",
                           padding: "10px 12px",
@@ -1588,6 +1608,7 @@ const AddContactModal = ({
                           handleInputChange("surname", e.target.value)
                         }
                         placeholder="Enter last name"
+                        autoComplete="off"
                         style={{
                           width: "100%",
                           padding: "10px 12px",
@@ -1698,6 +1719,7 @@ const AddContactModal = ({
                             handleInputChange("phones", newPhones);
                           }}
                           placeholder="Enter mobile number"
+                          autoComplete="off"
                           style={{
                             padding: "10px 12px",
                             borderRadius: "6px",
@@ -1794,6 +1816,7 @@ const AddContactModal = ({
                             handleInputChange("emails", newEmails);
                           }}
                           placeholder="Enter email address"
+                          autoComplete="off"
                           style={{
                             padding: "10px 12px",
                             borderRadius: "6px",
@@ -2318,7 +2341,8 @@ const AddContactModal = ({
                           marginBottom: "8px",
                         }}
                       >
-                        Team
+                        Team <span style={{ color: '#ef4444' }}>*</span>
+
                       </label>
                       <select
                         value={formData.team}
@@ -2350,7 +2374,8 @@ const AddContactModal = ({
                           marginBottom: "8px",
                         }}
                       >
-                        Assign
+                        Assign <span style={{ color: '#ef4444' }}>*</span>
+
                       </label>
                       <select
                         value={formData.owner}
@@ -2384,7 +2409,8 @@ const AddContactModal = ({
                           marginBottom: "8px",
                         }}
                       >
-                        Visibility
+                        Visibility <span style={{ color: '#ef4444' }}>*</span>
+
                       </label>
                       <select
                         value={formData.visibleTo}

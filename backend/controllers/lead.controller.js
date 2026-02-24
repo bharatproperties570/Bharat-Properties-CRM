@@ -5,6 +5,7 @@ import Contact from "../models/Contact.js";
 import mongoose from "mongoose";
 import { paginate } from "../utils/pagination.js";
 import mockStore from "../utils/mockStore.js";
+import { runFullLeadEnrichment } from "../src/utils/enrichmentEngine.js";
 
 // Helper to resolve lookup (Find or Create)
 const resolveLookup = async (type, value) => {
@@ -34,12 +35,19 @@ const resolveUser = async (identifier) => {
 
 // Resolve All Reference Fields for Lead
 const resolveAllReferenceFields = async (doc) => {
+    // If field is an empty string, set it to null so Mongoose doesn't try to cast it as ObjectId
+    const fieldsToResolve = ['requirement', 'subRequirement', 'budget', 'location', 'source', 'status', 'stage'];
+    for (const field of fieldsToResolve) {
+        if (doc[field] === "") doc[field] = null;
+    }
+
     if (doc.requirement) doc.requirement = await resolveLookup('Requirement', doc.requirement);
     if (doc.subRequirement) doc.subRequirement = await resolveLookup('Sub Requirement', doc.subRequirement);
     if (doc.budget) doc.budget = await resolveLookup('Budget', doc.budget);
     if (doc.location) doc.location = await resolveLookup('Location', doc.location);
     if (doc.source) doc.source = await resolveLookup('Source', doc.source);
     if (doc.status) doc.status = await resolveLookup('Status', doc.status);
+    if (doc.stage) doc.stage = await resolveLookup('Stage', doc.stage);
 
     // Handle Arrays (Lookup fields)
     const arrayLookups = {
@@ -53,10 +61,13 @@ const resolveAllReferenceFields = async (doc) => {
 
     for (const [field, type] of Object.entries(arrayLookups)) {
         if (Array.isArray(doc[field])) {
+            // Filter out empty strings from arrays
+            doc[field] = doc[field].filter(val => val !== "");
             doc[field] = await Promise.all(doc[field].map(val => resolveLookup(type, val)));
         }
     }
 
+    if (doc.owner === "") doc.owner = null;
     if (doc.owner) doc.owner = await resolveUser(doc.owner);
 
     // Handle Team resolution (from ID to Name for assignment.team)
@@ -105,6 +116,7 @@ const resolveAllReferenceFields = async (doc) => {
             if (docItem.documentType) docItem.documentType = await resolveLookup('Document Type', docItem.documentType);
         }
     }
+    console.log("[DEBUG] resolveAllReferenceFields completed successfully");
     return doc;
 };
 
@@ -115,14 +127,35 @@ const leadPopulateFields = [
     { path: 'location', select: 'lookup_value' },
     { path: 'source', select: 'lookup_value' },
     { path: 'status', select: 'lookup_value' },
+    { path: 'stage', select: 'lookup_value' },
     { path: 'propertyType', select: 'lookup_value' },
     { path: 'subType', select: 'lookup_value' },
     { path: 'unitType', select: 'lookup_value' },
     { path: 'facing', select: 'lookup_value' },
     { path: 'roadWidth', select: 'lookup_value' },
     { path: 'direction', select: 'lookup_value' },
+    { path: 'project', select: 'name' },
     { path: 'owner', select: 'fullName email name' },
-    { path: 'contactDetails' },
+    {
+        path: 'contactDetails',
+        populate: [
+            { path: 'title', select: 'lookup_value' },
+            { path: 'source', select: 'lookup_value' },
+            { path: 'personalAddress.location', select: 'lookup_value' },
+            { path: 'correspondenceAddress.city', select: 'lookup_value' },
+            { path: 'correspondenceAddress.state', select: 'lookup_value' },
+            { path: 'correspondenceAddress.country', select: 'lookup_value' },
+            { path: 'correspondenceAddress.location', select: 'lookup_value' },
+            { path: 'professionCategory', select: 'lookup_value' },
+            { path: 'professionSubCategory', select: 'lookup_value' },
+            { path: 'designation', select: 'lookup_value' },
+            { path: 'educations.education', select: 'lookup_value' },
+            { path: 'educations.degree', select: 'lookup_value' },
+            { path: 'loans.loanType', select: 'lookup_value' },
+            { path: 'loans.bank', select: 'lookup_value' },
+            { path: 'incomes.incomeType', select: 'lookup_value' }
+        ]
+    },
     { path: 'assignment.assignedTo', select: 'fullName email name' },
     { path: 'documents.documentCategory', select: 'lookup_value' },
     { path: 'documents.documentName', select: 'lookup_value' },
@@ -171,12 +204,20 @@ export const getLeads = async (req, res, next) => {
 // ... Rest of the file remained unchanged but simplified for logging
 export const addLead = async (req, res, next) => {
     try {
+        console.log("[DEBUG] addLead called with body:", JSON.stringify(req.body, null, 2));
         const data = { ...req.body };
         await resolveAllReferenceFields(data);
+        console.log("[DEBUG] Data after resolution:", JSON.stringify(data, null, 2));
         const lead = await Lead.create(data);
+        console.log("[DEBUG] Lead created successfully:", lead._id);
+
+        // Auto-run Enrichment
+        await runFullLeadEnrichment(lead._id);
+
         await lead.populate(leadPopulateFields);
         res.status(201).json({ success: true, data: lead });
     } catch (error) {
+        console.error("[ERROR] addLead failed:", error);
         next(error);
     }
 };
@@ -186,7 +227,11 @@ export const updateLead = async (req, res, next) => {
         const updateData = { ...req.body };
         await resolveAllReferenceFields(updateData);
         const lead = await Lead.findByIdAndUpdate(req.params.id, updateData, { new: true });
-        if (lead) await lead.populate(leadPopulateFields);
+        if (lead) {
+            // Auto-run Enrichment
+            await runFullLeadEnrichment(lead._id);
+            await lead.populate(leadPopulateFields);
+        }
         res.json({ success: true, data: lead });
     } catch (error) {
         next(error);
@@ -326,6 +371,7 @@ export const importLeads = async (req, res, next) => {
             leadEntry.requirement = await resolveLookup('Requirement', item.requirement || 'Buy');
             leadEntry.source = await resolveLookup('Source', item.source || 'Direct');
             leadEntry.status = await resolveLookup('Status', item.status || 'Active');
+            leadEntry.stage = await resolveLookup('Stage', item.stage || 'New');
             leadEntry.location = await resolveLookup('Location', item.location || leadEntry.locArea);
             leadEntry.budget = await resolveLookup('Budget', item.budget);
 
@@ -335,7 +381,19 @@ export const importLeads = async (req, res, next) => {
             restructuredData.push(leadEntry);
         }
 
-        await Lead.insertMany(restructuredData, { ordered: false });
+        const importedLeads = await Lead.insertMany(restructuredData, { ordered: false });
+
+        // Auto-run Enrichment for imported leads (in background, non-blocking for response)
+        // Using Promise.allSettled to not fail the whole import if one enrichment fails
+        if (importedLeads && importedLeads.length > 0) {
+            Promise.allSettled(importedLeads.map(l => runFullLeadEnrichment(l._id)))
+                .then(results => {
+                    const failures = results.filter(r => r.status === 'rejected');
+                    if (failures.length > 0) console.error(`[IMPORT ENRICHMENT] ${failures.length} leads failed to enrich.`);
+                    console.log(`[IMPORT ENRICHMENT] Finished processing ${importedLeads.length} leads.`);
+                });
+        }
+
         res.status(200).json({
             success: true,
             message: `Successfully imported ${restructuredData.length} leads.`,

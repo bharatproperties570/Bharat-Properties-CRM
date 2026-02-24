@@ -1,7 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import CommunicationFilterPanel from './components/CommunicationFilterPanel';
 import { applyCommunicationFilters } from '../../utils/communicationFilterLogic';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
+import { activitiesAPI, emailAPI } from '../../utils/api';
+import ComposeEmailModal from './components/ComposeEmailModal';
+import ViewEmailModal from './components/ViewEmailModal';
 
 function CommunicationPage() {
     const [activeTab, setActiveTab] = useState('Calls');
@@ -11,6 +14,11 @@ function CommunicationPage() {
     // Filter State
     const [isFilterOpen, setIsFilterOpen] = useState(false);
     const [filters, setFilters] = useState({});
+    const [liveEmails, setLiveEmails] = useState([]);
+    const [isInboxLoading, setIsInboxLoading] = useState(false);
+    const [isComposeModalOpen, setIsComposeModalOpen] = useState(false);
+    const [selectedEmail, setSelectedEmail] = useState(null);
+    const [isViewModalOpen, setIsViewModalOpen] = useState(false);
 
     // Filter Handlers
     const handleRemoveFilter = (key) => {
@@ -29,173 +37,87 @@ function CommunicationPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
 
-    // Sample communication data - Calls
-    const callsData = [
-        {
-            id: 1,
-            participant: 'JASWINDER SINGH',
-            via: 'PHONE',
-            type: 'Outgoing Call',
-            outcome: '',
-            duration: '',
-            associatedDeals: '115',
-            date: '4 days ago',
-            platform: 'GSM Call'
-        },
-        {
-            id: 2,
-            participant: 'Subhash Chander',
-            via: 'PHONE',
-            type: 'Outgoing Call',
-            outcome: 'Not Interested',
-            duration: '00:00:03',
-            associatedDeals: '1110',
-            date: '4 days ago',
-            platform: 'WhatsApp Call'
-        },
-        {
-            id: 3,
-            participant: 'Rajesh Kumar',
-            via: 'PHONE',
-            type: 'Incoming Call',
-            outcome: 'Interested',
-            duration: '00:05:23',
-            associatedDeals: '220',
-            date: '3 days ago',
-            platform: 'GSM Call'
-        },
-        {
-            id: 4,
-            participant: 'Priya Sharma',
-            via: 'PHONE',
-            type: 'Outgoing Call',
-            outcome: 'Call Back Later',
-            duration: '00:02:15',
-            associatedDeals: '330',
-            date: '2 days ago',
-            platform: 'Telegram Call'
-        }
-    ];
+    const [activities, setActivities] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
 
-    // Sample communication data - Messages
-    const messagesData = [
-        {
-            id: 5,
-            participant: 'Amit Verma',
-            via: 'MESSAGE',
-            type: 'Outgoing Message',
-            outcome: 'Delivered',
-            duration: '',
-            associatedDeals: '440',
-            date: '1 day ago',
-            platform: 'WhatsApp'
-        },
-        {
-            id: 6,
-            participant: 'Neha Gupta',
-            via: 'MESSAGE',
-            type: 'Incoming Message',
-            outcome: 'Read',
-            duration: '',
-            associatedDeals: '550',
-            date: '12 hours ago',
-            platform: 'SMS'
-        },
-        {
-            id: 7,
-            participant: 'Vikram Singh',
-            via: 'MESSAGE',
-            type: 'Outgoing Message',
-            outcome: 'Sent',
-            duration: '',
-            associatedDeals: '660',
-            date: '6 hours ago',
-            platform: 'Telegram'
-        },
-        {
-            id: 8,
-            participant: 'Kavita Reddy',
-            via: 'MESSAGE',
-            type: 'Incoming Message',
-            outcome: 'Read',
-            duration: '',
-            associatedDeals: '770',
-            date: '2 hours ago',
-            platform: 'FB Messenger'
-        },
-        {
-            id: 9,
-            participant: 'Rahul Jain',
-            via: 'MESSAGE',
-            type: 'Outgoing Message',
-            outcome: 'Delivered',
-            duration: '',
-            associatedDeals: '880',
-            date: '1 hour ago',
-            platform: 'RCS'
-        }
-    ];
+    // Fetch activities from backend
+    useEffect(() => {
+        const fetchActivities = async () => {
+            setIsLoading(true);
+            try {
+                const response = await activitiesAPI.getAll();
+                if (response && response.success) {
+                    // Map backend Activity to UI format
+                    const mappedData = response.data.map(act => ({
+                        id: act._id,
+                        participant: act.participants && act.participants.length > 0 ? act.participants[0].name : 'Unknown',
+                        via: act.type === 'Messaging' ? 'MESSAGE' : act.type.toUpperCase(),
+                        type: `${act.details?.direction || 'Outgoing'} ${act.type}`,
+                        outcome: act.details?.outcome || '',
+                        duration: act.details?.duration || '',
+                        associatedDeals: act.relatedTo && act.relatedTo.length > 0 ? act.relatedTo[0].name : '--',
+                        date: new Date(act.dueDate).toLocaleDateString(),
+                        platform: act.details?.platform || 'Direct'
+                    }));
+                    setActivities(mappedData);
+                }
+            } catch (error) {
+                console.error('Error fetching activities:', error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchActivities();
+    }, []);
 
-    // Sample communication data - Email
-    const emailData = [
-        {
-            id: 10,
-            participant: 'Sunita Verma',
-            via: 'EMAIL',
-            type: 'Outgoing Email',
-            outcome: 'Sent',
-            duration: '',
-            associatedDeals: '990',
-            date: '3 days ago',
-            platform: 'Gmail'
-        },
-        {
-            id: 11,
-            participant: 'Deepak Sharma',
-            via: 'EMAIL',
-            type: 'Incoming Email',
-            outcome: 'Read',
-            duration: '',
-            associatedDeals: '1100',
-            date: '2 days ago',
-            platform: 'Outlook'
-        },
-        {
-            id: 12,
-            participant: 'Anita Patel',
-            via: 'EMAIL',
-            type: 'Outgoing Email',
-            outcome: 'Delivered',
-            duration: '',
-            associatedDeals: '1210',
-            date: '1 day ago',
-            platform: 'Yahoo Mail'
-        },
-        {
-            id: 13,
-            participant: 'Manoj Kumar',
-            via: 'EMAIL',
-            type: 'Incoming Email',
-            outcome: 'Unread',
-            duration: '',
-            associatedDeals: '1320',
-            date: '5 hours ago',
-            platform: 'Gmail'
+    // Fetch live emails when Email tab is active
+    useEffect(() => {
+        if (activeTab === 'Email') {
+            const fetchInbox = async () => {
+                setIsInboxLoading(true);
+                try {
+                    const response = await emailAPI.getInbox();
+                    if (response && response.success) {
+                        const mappedEmails = response.data.map(email => ({
+                            id: email.id || email.uid,
+                            participant: email.fromName || email.from,
+                            via: 'EMAIL',
+                            type: 'Incoming Email',
+                            outcome: 'Received',
+                            duration: '--',
+                            associatedDeals: '--',
+                            date: new Date(email.date).toLocaleString(),
+                            platform: 'Gmail',
+                            subject: email.subject,
+                            isLive: true
+                        }));
+                        setLiveEmails(mappedEmails);
+                    }
+                } catch (error) {
+                    console.error('Error fetching inbox:', error);
+                } finally {
+                    setIsInboxLoading(false);
+                }
+            };
+            fetchInbox();
         }
-    ];
+    }, [activeTab]);
 
     // Filter Logic
     const communicationData = useMemo(() => {
-        let data = [];
-        switch (activeTab) {
-            case 'Calls': data = callsData; break;
-            case 'Messaging': data = messagesData; break;
-            case 'Email': data = emailData; break;
-            default: data = callsData;
+        if (activeTab === 'Email') {
+            const data = [...liveEmails];
+            return applyCommunicationFilters(data, filters, searchQuery);
         }
 
+        const data = activities.filter(item => {
+            if (activeTab === 'Calls') return item.via === 'CALL';
+            if (activeTab === 'Messaging') return item.via === 'MESSAGE';
+            return true;
+        });
+
         return applyCommunicationFilters(data, filters, searchQuery);
-    }, [activeTab, filters, searchQuery]);
+    }, [activeTab, activities, filters, searchQuery]);
 
     // Pagination Helpers
     const totalRecords = communicationData.length;
@@ -242,6 +164,28 @@ function CommunicationPage() {
                             <h1>Communication Center</h1>
                         </div>
                     </div>
+                    {activeTab === 'Email' && (
+                        <button
+                            className="btn-primary"
+                            onClick={() => setIsComposeModalOpen(true)}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '10px 20px',
+                                borderRadius: '10px',
+                                fontSize: '0.9rem',
+                                fontWeight: 700,
+                                background: '#0891b2',
+                                color: '#fff',
+                                border: 'none',
+                                cursor: 'pointer',
+                                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                            }}
+                        >
+                            <i className="fas fa-plus"></i> Compose Email
+                        </button>
+                    )}
                     <div className="header-actions">
                         <button
                             className={`btn-filter ${isFilterOpen ? 'active' : ''}`}
@@ -515,8 +459,13 @@ function CommunicationPage() {
                                         {/* Participants */}
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <i className="fas fa-user" style={{ color: '#64748b', fontSize: '0.8rem' }}></i>
-                                            <div>
-                                                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0f172a' }}>{comm.participant}</div>
+                                            <div style={{ overflow: 'hidden' }}>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                                                    {comm.isLive && comm.subject ? (
+                                                        <span style={{ color: '#0369a1' }}>[{comm.subject}] </span>
+                                                    ) : null}
+                                                    {comm.participant}
+                                                </div>
                                                 <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Via {comm.via}</div>
                                             </div>
                                         </div>
@@ -582,7 +531,31 @@ function CommunicationPage() {
                                         <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 600 }}>{comm.duration || '--'}</div>
 
                                         {/* Associated Deals */}
-                                        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0891b2' }}>{comm.associatedDeals}</div>
+                                        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0891b2' }}>
+                                            {comm.associatedDeals}
+                                            {comm.isLive && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedEmail(comm);
+                                                        setIsViewModalOpen(true);
+                                                    }}
+                                                    style={{
+                                                        marginLeft: '12px',
+                                                        padding: '4px 8px',
+                                                        borderRadius: '4px',
+                                                        border: '1px solid #0891b2',
+                                                        background: '#fff',
+                                                        color: '#0891b2',
+                                                        fontSize: '0.7rem',
+                                                        fontWeight: 700,
+                                                        cursor: 'pointer'
+                                                    }}
+                                                >
+                                                    View
+                                                </button>
+                                            )}
+                                        </div>
 
                                         {/* Date */}
                                         <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{comm.date}</div>
@@ -613,10 +586,41 @@ function CommunicationPage() {
                     }}
                     onReset={() => setFilters({})}
                 />
+                <ComposeEmailModal
+                    isOpen={isComposeModalOpen}
+                    onClose={() => setIsComposeModalOpen(false)}
+                    onSent={() => {
+                        // Refresh inbox if on Email tab
+                        if (activeTab === 'Email') {
+                            emailAPI.getInbox().then(response => {
+                                if (response && response.success) {
+                                    const mappedEmails = response.data.map(email => ({
+                                        id: email.id || email.uid,
+                                        participant: email.fromName || email.from,
+                                        via: 'EMAIL',
+                                        type: 'Incoming Email',
+                                        outcome: 'Received',
+                                        duration: '--',
+                                        associatedDeals: '--',
+                                        date: new Date(email.date).toLocaleString(),
+                                        platform: 'Gmail',
+                                        subject: email.subject,
+                                        isLive: true
+                                    }));
+                                    setLiveEmails(mappedEmails);
+                                }
+                            });
+                        }
+                    }}
+                />
+                <ViewEmailModal
+                    isOpen={isViewModalOpen}
+                    onClose={() => setIsViewModalOpen(false)}
+                    email={selectedEmail}
+                />
             </div>
         </section>
     );
 }
-
 
 export default CommunicationPage;

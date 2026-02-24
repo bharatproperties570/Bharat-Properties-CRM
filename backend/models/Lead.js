@@ -16,6 +16,7 @@ const LeadSchema = new mongoose.Schema({
     tags: [String],
     description: String,
     status: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup', index: true },
+    stage: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup', index: true },
 
     // Extended Fields for Frontend Alignment
     budgetMin: { type: Number },
@@ -60,10 +61,20 @@ const LeadSchema = new mongoose.Schema({
     assignment: {
         method: String,
         assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-        team: [String]
+        team: [String],
+        visibleTo: { type: String, enum: ['Everyone', 'Team', 'Private'], default: 'Everyone' }
     },
     owner: { type: mongoose.Schema.Types.Mixed, ref: 'User' },
     contactDetails: { type: mongoose.Schema.Types.ObjectId, ref: 'Contact' },
+
+    // Prospecting & Enrichment Intelligence Fields
+    intent_index: { type: Number, default: 0, min: 0, max: 100 },
+    lead_classification: { type: String }, // Serious Buyer, Qualified, Explorer, etc.
+    role_type: { type: String }, // Buyer, Seller, Investor, etc.
+    negotiation_window: { type: Boolean, default: false },
+    intent_tags: [String],
+    enrichment_last_run: { type: Date },
+
     customFields: mongoose.Schema.Types.Mixed
 }, { timestamps: true });
 
