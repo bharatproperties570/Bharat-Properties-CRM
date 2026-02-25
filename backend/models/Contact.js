@@ -29,7 +29,7 @@ const ContactSchema = new mongoose.Schema({
     source: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     subSource: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     campaign: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-    team: { type: mongoose.Schema.Types.Mixed },
+    team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
     owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     visibleTo: { type: String },
 

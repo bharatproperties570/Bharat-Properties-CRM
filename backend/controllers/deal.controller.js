@@ -80,6 +80,17 @@ export const getDeals = async (req, res) => {
         if (projectId) query.projectId = projectId;
         if (inventoryId) query.inventoryId = inventoryId;
 
+        if (req.query.contactId) {
+            const contactIds = req.query.contactId.split(',');
+            query.$or = query.$or || [];
+            query.$or.push(
+                { owner: { $in: contactIds } },
+                { "partyStructure.owner": { $in: contactIds } },
+                { associatedContact: { $in: contactIds } },
+                { "partyStructure.buyer": { $in: contactIds } }
+            );
+        }
+
         const populateFields = [
             { path: 'inventoryId' },
             { path: 'projectId' },
@@ -92,7 +103,8 @@ export const getDeals = async (req, res) => {
             { path: 'category', select: 'lookup_value' },
             { path: 'subCategory', select: 'lookup_value' },
             { path: 'intent', select: 'lookup_value' },
-            { path: 'status', select: 'lookup_value' }
+            { path: 'status', select: 'lookup_value' },
+            { path: 'team', select: 'name' }
         ];
         const results = await paginate(Deal, query, Number(page), Number(limit), { createdAt: -1 }, populateFields);
 
@@ -166,7 +178,8 @@ export const getDealById = async (req, res) => {
             { path: 'category' },
             { path: 'subCategory' },
             { path: 'intent' },
-            { path: 'status' }
+            { path: 'status' },
+            { path: 'team' }
         ];
         const deal = await Deal.findById(req.params.id).populate(populateFields);
         if (!deal) {
@@ -174,7 +187,8 @@ export const getDealById = async (req, res) => {
         }
         res.json({
             success: true,
-            deal: deal
+            data: deal,
+            deal: deal // Backward compatibility
         });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

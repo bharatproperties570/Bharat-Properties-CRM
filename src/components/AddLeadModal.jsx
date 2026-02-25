@@ -859,17 +859,27 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         setIsSaving(true);
 
         // Normalize references to IDs only to prevent 500/400 errors
-        const normalizeRefs = (obj) => {
+        const normalizeRefs = (obj, parentKey = null) => {
             if (!obj || typeof obj !== 'object') return obj;
             const result = Array.isArray(obj) ? [...obj] : { ...obj };
 
+            // Fields that should REMAIN as objects (not converted to IDs)
+            const embeddedFields = ["phones", "emails", "personalAddress", "correspondenceAddress", "educations", "loans", "socialMedia", "incomes", "documents"];
+
             if (Array.isArray(result)) {
+                // If we are INSIDE an embedded field (like phones array), don't normalize the items to IDs
+                if (embeddedFields.includes(parentKey)) {
+                    return result.map(item => normalizeRefs(item));
+                }
                 return result.map(item => (item && typeof item === 'object' && item._id) ? item._id : item);
             }
 
             for (const key in result) {
                 if (result[key] && typeof result[key] === 'object') {
-                    if (result[key]._id) {
+                    if (embeddedFields.includes(key)) {
+                        // Recurse into embedded fields without converting to ID
+                        result[key] = normalizeRefs(result[key], key);
+                    } else if (result[key]._id) {
                         result[key] = result[key]._id;
                     } else if (Array.isArray(result[key])) {
                         result[key] = result[key].map(item =>

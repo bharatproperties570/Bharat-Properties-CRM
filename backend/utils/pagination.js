@@ -20,7 +20,14 @@ export const paginate = async (model, query, page, limit, sort = {}, populate = 
             currentPage: Number(page)
         };
     } catch (error) {
-        console.error(`[PAGINATION ERROR] Model: ${model.modelName}, Query: ${JSON.stringify(query)}, Error: ${error.message}`);
+        console.error(`[PAGINATION ERROR] Model: ${model.modelName}, Query: ${JSON.stringify(query)}`);
+        console.error(`[PAGINATION ERROR] Error Message: ${error.message}`);
+        if (error.stack) console.error(`[PAGINATION ERROR] Stack: ${error.stack}`);
+
+        // If it's a CastError, it might be in one of the records
+        if (error.name === 'CastError') {
+            console.error(`[PAGINATION ERROR] Cast Error Details: ${JSON.stringify(error)}`);
+        }
 
         // If population fails, try fetching without population
         if (populate) {

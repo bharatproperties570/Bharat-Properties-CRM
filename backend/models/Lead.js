@@ -13,6 +13,8 @@ const LeadSchema = new mongoose.Schema({
     location: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     sector: { type: String },
     source: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    subSource: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    campaign: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     tags: [String],
     description: String,
     status: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup', index: true },
@@ -61,11 +63,16 @@ const LeadSchema = new mongoose.Schema({
     assignment: {
         method: String,
         assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-        team: [String],
+        team: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
         visibleTo: { type: String, enum: ['Everyone', 'Team', 'Private'], default: 'Everyone' }
     },
     owner: { type: mongoose.Schema.Types.Mixed, ref: 'User' },
     contactDetails: { type: mongoose.Schema.Types.ObjectId, ref: 'Contact' },
+
+    // Lead Capture & Intelligence
+    pre_intent_score: { type: Number, default: 0 },
+    source_meta: { type: mongoose.Schema.Types.Mixed }, // UTMs, referrer, etc.
+    capture_form: { type: mongoose.Schema.Types.ObjectId, ref: 'LeadForm' },
 
     // Prospecting & Enrichment Intelligence Fields
     intent_index: { type: Number, default: 0, min: 0, max: 100 },

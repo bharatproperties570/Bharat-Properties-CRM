@@ -132,7 +132,7 @@ const DealSchema = new mongoose.Schema({
     owner: { type: mongoose.Schema.Types.Mixed, ref: 'Contact' },
     associatedContact: { type: mongoose.Schema.Types.Mixed, ref: 'Contact' },
 
-    team: String,
+    team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     visibleTo: { type: String, default: "Public" },
 

@@ -17,6 +17,7 @@ const populateFields = [
     { path: 'source', select: 'lookup_value' },
     { path: 'subSource', select: 'lookup_value' },
     { path: 'campaign', select: 'lookup_value' },
+    { path: 'team', select: 'name' },
     { path: 'owner', select: 'fullName email name' },
     { path: 'personalAddress.country', select: 'lookup_value' },
     { path: 'personalAddress.state', select: 'lookup_value' },
@@ -108,10 +109,10 @@ const resolveAllReferenceFields = async (obj) => {
 
             const lookupMap = {
                 title: 'Title',
-                countryCode: 'CountryCode',
-                professionCategory: 'ProfessionCategory',
-                professionSubCategory: 'ProfessionSubCategory',
-                designation: 'Designation',
+                countryCode: 'Country-Code', // Fixed: was CountryCode
+                professionCategory: 'ProfessionalCategory', // Fixed: was ProfessionCategory
+                professionSubCategory: 'ProfessionalSubCategory', // Fixed: was ProfessionSubCategory
+                designation: 'ProfessionalDesignation', // Fixed: was Designation
                 source: 'Source',
                 subSource: 'SubSource',
                 campaign: 'Campaign',
@@ -126,12 +127,26 @@ const resolveAllReferenceFields = async (obj) => {
                 obj[key] = await resolveUser(value);
             }
         } else if (typeof value === 'object') {
-            if (value._id) {
+            // ONLY normalize to ID if it's a known reference field
+            // Otherwise, recurse to find nested strings to resolve
+            const refFields = [
+                'title', 'countryCode', 'professionCategory', 'professionSubCategory',
+                'designation', 'source', 'subSource', 'campaign', 'owner',
+                'requirement', 'budget', 'location', 'country', 'state', 'city',
+                'tehsil', 'postOffice', 'education', 'degree', 'loanType',
+                'bank', 'platform', 'incomeType', 'documentCategory',
+                'documentType', 'documentName'
+            ];
+
+            if (value._id && refFields.includes(key)) {
                 obj[key] = value._id;
             } else if (Array.isArray(value)) {
                 obj[key] = await Promise.all(value.map(async (item) => {
                     if (item && typeof item === 'object') {
-                        if (item._id) return item._id;
+                        // If item in array has _id and we are in a ref array (like requirement in Lead), we might need it
+                        // But for Contact, most arrays are embedded objects (phones, emails, etc.)
+                        // We should NOT generically return item._id here.
+                        // Instead, recurse into the item to resolve its fields.
                         await resolveAllReferenceFields(item);
                         return item;
                     }

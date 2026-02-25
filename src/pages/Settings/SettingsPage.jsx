@@ -36,6 +36,7 @@ import ExportDataPage from './views/ExportDataPage';
 import ParsingRulesPage from './views/ParsingRulesPage';
 import DuplicationSettingsPage from './views/DuplicationSettingsPage';
 import EnrichmentSettingsPage from './views/EnrichmentSettingsPage';
+import LeadCaptureSettingsPage from './views/LeadCaptureSettingsPage';
 
 
 // --- Sub-Components (Defined Outside to prevent re-creation crashes) ---
@@ -875,6 +876,8 @@ const SettingsHubPage = () => {
                         <SalesGoalsSettingsPage />
                     ) : activeTab === 'notifications' ? (
                         <NotificationSettingsPage />
+                    ) : activeTab === 'lead-capture' ? (
+                        <LeadCaptureSettingsPage />
                     ) : activeTab === 'email' ? (
                         <EmailSettingsPage />
                     ) : activeTab === 'calls' ? (

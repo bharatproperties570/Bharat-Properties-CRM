@@ -10,6 +10,7 @@ const populateFields = [
     { path: 'industry', select: 'lookup_value' },
     { path: 'source', select: 'lookup_value' },
     { path: 'subSource', select: 'lookup_value' },
+    { path: 'team', select: 'name' },
     { path: 'owner', select: 'fullName email name' },
     { path: 'addresses.registeredOffice.country', select: 'lookup_value' },
     { path: 'addresses.registeredOffice.state', select: 'lookup_value' },
@@ -41,7 +42,7 @@ const populateFields = [
     { path: 'addresses.siteOffice.tehsil', select: 'lookup_value' },
     { path: 'addresses.siteOffice.postOffice', select: 'lookup_value' },
     { path: 'addresses.siteOffice.location', select: 'lookup_value' },
-    { path: 'employees', select: 'name surname phones emails' }
+    { path: 'employees', select: 'name surname fullName phones emails designation' }
 ];
 
 // Helper to resolve string lookups or populated objects to ObjectIds

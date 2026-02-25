@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getInitials } from '../../utils/helpers';
+import { renderValue } from '../../utils/renderUtils';
 import { useUserContext } from '../../context/UserContext';
 import CompanyFilterPanel from './components/CompanyFilterPanel';
 import AssignContactModal from '../../components/AssignContactModal';
@@ -151,29 +152,13 @@ function CompanyPage({ onEdit, onNavigate }) {
 
     const getTeamName = useCallback((teamValue) => {
         if (!teamValue) return "General Team";
-        if (typeof teamValue === 'object') {
-            return teamValue.name || teamValue.lookup_value || "General Team";
-        }
-        const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
-        return found ? (found.name || found.lookup_value) : teamValue;
-    }, [teams]);
+        return renderValue(teamValue, "General Team");
+    }, []);
 
     const getUserName = useCallback((ownerValue) => {
         if (!ownerValue) return "Admin";
-        if (typeof ownerValue === 'object') {
-            return ownerValue.fullName || ownerValue.name || ownerValue.lookup_value || ownerValue.username || "Admin";
-        }
-        const found = users.find(u => (u._id === ownerValue) || (u.id === ownerValue));
-        return found ? (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username))) : ownerValue;
-    }, [users]);
-
-    const renderLookup = (field, fallback = '-') => {
-        if (!field) return fallback;
-        if (typeof field === 'object' && field.lookup_value) return field.lookup_value;
-        if (typeof field === 'object' && field.name) return field.name; // For user refs
-        if (typeof field === 'object') return fallback;
-        return field || fallback;
-    };
+        return renderValue(ownerValue, "Admin");
+    }, []);
 
     const getFirstAddress = (company) => {
         if (!company.addresses) return '-';
@@ -190,13 +175,13 @@ function CompanyPage({ onEdit, onNavigate }) {
                 addr.hNo,
                 addr.street,
                 addr.area,
-                renderLookup(addr.location),
-                renderLookup(addr.tehsil),
-                renderLookup(addr.postOffice),
-                renderLookup(addr.city),
-                renderLookup(addr.state),
+                renderValue(addr.location),
+                renderValue(addr.tehsil),
+                renderValue(addr.postOffice),
+                renderValue(addr.city),
+                renderValue(addr.state),
                 addr.pinCode,
-                renderLookup(addr.country)
+                renderValue(addr.country)
             ].filter(Boolean);
             return components.join(', ') || '-';
         }
@@ -539,10 +524,10 @@ function CompanyPage({ onEdit, onNavigate }) {
 
                                     {/* Category / Industry */}
                                     <div style={{ fontSize: '0.75rem', color: '#64748b', lineHeight: 1.3 }}>
-                                        {renderLookup(company.industry)}
+                                        {renderValue(company.industry)}
                                         {company.companyType && (
                                             <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '1px' }}>
-                                                {renderLookup(company.companyType)}
+                                                {renderValue(company.companyType)}
                                             </div>
                                         )}
                                     </div>
@@ -557,7 +542,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                                             background: '#f1f5f9',
                                             color: '#475569'
                                         }}>
-                                            {renderLookup(company.source)}
+                                            {renderValue(company.source)}
                                         </span>
                                     </div>
 
@@ -684,7 +669,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                                         <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <div>
                                                 <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Source</div>
-                                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a' }}>{renderLookup(company.source)}</div>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a' }}>{renderValue(company.source)}</div>
                                             </div>
                                             <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '10px' }}>
                                                 <div style={{ textAlign: 'right' }}>

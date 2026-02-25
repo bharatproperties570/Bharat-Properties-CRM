@@ -41,7 +41,7 @@ const InventorySchema = new mongoose.Schema({
     associates: [{ type: mongoose.Schema.Types.Mixed, ref: 'Contact' }],
 
     // System
-    team: String,
+    team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
     assignedTo: String,
     visibleTo: String
 }, { timestamps: true, strict: false });

@@ -2,6 +2,7 @@ import Lead from "../models/Lead.js";
 import Activity from "../models/Activity.js";
 import Deal from "../models/Deal.js";
 import Lookup from "../models/Lookup.js";
+import Inventory from "../models/Inventory.js";
 
 export const getDashboardStats = async (req, res) => {
     try {
@@ -75,18 +76,21 @@ export const getDashboardStats = async (req, res) => {
         const inventoryStatsRaw = await Inventory.aggregate([
             { $group: { _id: "$status", count: { $sum: 1 } } }
         ]);
-        const populatedInventory = inventoryStatsRaw.map(item => ({
+        const populatedInventory = (inventoryStatsRaw || []).map(item => ({
             status: lookupMap[item._id?.toString()] || 'Available',
             count: item.count
         }));
+
+        const activities = activityStats?.[0] || { overdue: [], today: [], upcoming: [] };
+        const deals = dealStats?.[0] || { byStage: [], achieved: [], revenue: [] };
 
         res.json({
             success: true,
             data: {
                 activities: {
-                    overdue: activityStats[0].overdue[0]?.count || 0,
-                    today: activityStats[0].today[0]?.count || 0,
-                    upcoming: activityStats[0].upcoming[0]?.count || 0
+                    overdue: activities.overdue?.[0]?.count || 0,
+                    today: activities.today?.[0]?.count || 0,
+                    upcoming: activities.upcoming?.[0]?.count || 0
                 },
                 performance: {
                     target: targetAmount,
@@ -97,7 +101,7 @@ export const getDashboardStats = async (req, res) => {
                     trend: 12 // Placeholder for trend
                 },
                 leads: populatedLeads,
-                deals: dealStats[0].byStage.map(d => ({ stage: d._id, count: d.count, value: d.value })),
+                deals: (deals.byStage || []).map(d => ({ stage: d._id, count: d.count, value: d.value })),
                 inventoryHealth: populatedInventory
             }
         });

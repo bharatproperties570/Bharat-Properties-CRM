@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { Toaster } from 'react-hot-toast';
 import AppRouter from './router/AppRouter';
 import MainLayout from './layouts/MainLayout';
@@ -16,6 +16,7 @@ import { ParsingProvider } from './context/ParsingContext'; // Import ParsingPro
 import { UserProvider } from './context/UserContext';
 import CallModal from './components/CallModal'; // Import CallModal
 import ErrorBoundary from './components/ErrorBoundary';
+import PublicLeadForm from './pages/Public/PublicLeadForm';
 
 // Helper Wrapper to connect Context to Modal
 const CallModalWrapper = () => {
@@ -54,6 +55,11 @@ function App() {
         if (path === '/deal-intake') return 'deal-intake';
         if (path.startsWith('/deals/match/')) return 'deal-matching';
         if (path.startsWith('/leads/match/')) return 'lead-matching';
+        if (path.startsWith('/public/form/')) return 'public-form';
+        if (path === '/settings') return 'settings';
+        if (path.startsWith('/settings/')) return 'settings';
+        if (path === '/marketing') return 'marketing';
+        if (path === '/activities') return 'activities';
         return 'dashboard';
     });
 
@@ -173,16 +179,22 @@ function App() {
                                                 <UserProvider>
                                                     <CallProvider>
                                                         <Toaster position="top-right" />
-                                                        <MainLayout currentView={currentView} onNavigate={handleNavigate}>
-                                                            {(modalHandlers) => (
-                                                                <AppRouter
-                                                                    currentView={currentView}
-                                                                    currentContactId={currentContactId}
-                                                                    onNavigate={handleNavigate}
-                                                                    {...modalHandlers}
-                                                                />
-                                                            )}
-                                                        </MainLayout>
+                                                        {currentView === 'public-form' ? (
+                                                            <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
+                                                                <PublicLeadForm slug={window.location.pathname.split('/').pop()} />
+                                                            </Suspense>
+                                                        ) : (
+                                                            <MainLayout currentView={currentView} onNavigate={handleNavigate}>
+                                                                {(modalHandlers) => (
+                                                                    <AppRouter
+                                                                        currentView={currentView}
+                                                                        currentContactId={currentContactId}
+                                                                        onNavigate={handleNavigate}
+                                                                        {...modalHandlers}
+                                                                    />
+                                                                )}
+                                                            </MainLayout>
+                                                        )}
                                                         <CallModalWrapper />
                                                     </CallProvider>
                                                 </UserProvider>

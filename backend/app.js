@@ -24,6 +24,7 @@ import duplicationRuleRoutes from "./routes/duplicationRule.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
 import emailRoutes from "./routes/email.routes.js";
 import enrichmentRoutes from "./src/modules/prospectingEnrichment/enrichment.routes.js";
+import leadFormRoutes from "./routes/leadForm.routes.js";
 
 const app = express();
 
@@ -103,6 +104,7 @@ app.use("/api/duplication-rules", duplicationRuleRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/email", emailRoutes);
 app.use("/api/enrichment", enrichmentRoutes);
+app.use("/api/lead-forms", leadFormRoutes);
 
 import fs from 'fs';
 import path from 'path';

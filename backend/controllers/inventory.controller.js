@@ -72,7 +72,8 @@ export const getInventory = async (req, res) => {
             { path: "subCategory" },
             { path: "status" },
             { path: "facing" },
-            { path: "intent" }
+            { path: "intent" },
+            { path: "team", select: "name" }
         ];
 
         const results = await paginate(Inventory, query, Number(page), Number(limit), { createdAt: -1 }, populateFields);
@@ -96,7 +97,8 @@ export const getInventoryById = async (req, res) => {
             { path: "subCategory" },
             { path: "status" },
             { path: "facing" },
-            { path: "intent" }
+            { path: "intent" },
+            { path: "team", select: "name" }
         ];
 
         const inventory = await Inventory.findById(req.params.id).populate(populateFields);

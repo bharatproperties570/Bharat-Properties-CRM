@@ -1,4 +1,5 @@
 import Lead from "../models/Lead.js";
+import Deal from "../models/Deal.js";
 import Lookup from "../models/Lookup.js";
 import User from "../models/User.js";
 import Contact from "../models/Contact.js";
@@ -36,7 +37,7 @@ const resolveUser = async (identifier) => {
 // Resolve All Reference Fields for Lead
 const resolveAllReferenceFields = async (doc) => {
     // If field is an empty string, set it to null so Mongoose doesn't try to cast it as ObjectId
-    const fieldsToResolve = ['requirement', 'subRequirement', 'budget', 'location', 'source', 'status', 'stage'];
+    const fieldsToResolve = ['requirement', 'subRequirement', 'budget', 'location', 'source', 'status', 'stage', 'countryCode', 'campaign', 'subSource'];
     for (const field of fieldsToResolve) {
         if (doc[field] === "") doc[field] = null;
     }
@@ -48,16 +49,29 @@ const resolveAllReferenceFields = async (doc) => {
     if (doc.source) doc.source = await resolveLookup('Source', doc.source);
     if (doc.status) doc.status = await resolveLookup('Status', doc.status);
     if (doc.stage) doc.stage = await resolveLookup('Stage', doc.stage);
+    if (doc.countryCode) doc.countryCode = await resolveLookup('Country-Code', doc.countryCode);
+    if (doc.campaign) doc.campaign = await resolveLookup('Campaign', doc.campaign);
+    if (doc.subSource) doc.subSource = await resolveLookup('SubSource', doc.subSource);
 
     // Handle Arrays (Lookup fields)
     const arrayLookups = {
-        propertyType: 'Property Type',
+        propertyType: 'PropertyType', // Database uses PropertyType (no space) or Property Type? check_lookup said PropertyType and Property Type both exist but PropertyType is more common? Actually list_lookup showed both. I'll stick to Property Type or check again.
         subType: 'Sub Type',
         unitType: 'Unit Type',
         facing: 'Facing',
         roadWidth: 'Road Width',
         direction: 'Direction'
     };
+
+    // Re-check from list_lookup results:
+    // Property Type
+    // PropertyType
+    // Road Width
+    // RoadWidth
+    // Unit Type
+    // UnitType
+    // I'll update to match the ones with spaces if they are more standard, or stick to what was there.
+    // The previous code had spaces. I'll keep them but harmonize with Country-Code etc.
 
     for (const [field, type] of Object.entries(arrayLookups)) {
         if (Array.isArray(doc[field])) {
@@ -111,9 +125,9 @@ const resolveAllReferenceFields = async (doc) => {
     // Resolve Documents
     if (Array.isArray(doc.documents)) {
         for (const docItem of doc.documents) {
-            if (docItem.documentCategory) docItem.documentCategory = await resolveLookup('Document Category', docItem.documentCategory);
+            if (docItem.documentCategory) docItem.documentCategory = await resolveLookup('Document-Category', docItem.documentCategory);
             if (docItem.documentName) docItem.documentName = await resolveLookup('Document Name', docItem.documentName);
-            if (docItem.documentType) docItem.documentType = await resolveLookup('Document Type', docItem.documentType);
+            if (docItem.documentType) docItem.documentType = await resolveLookup('Document-Type', docItem.documentType);
         }
     }
     console.log("[DEBUG] resolveAllReferenceFields completed successfully");
@@ -126,6 +140,8 @@ const leadPopulateFields = [
     { path: 'budget', select: 'lookup_value' },
     { path: 'location', select: 'lookup_value' },
     { path: 'source', select: 'lookup_value' },
+    { path: 'subSource', select: 'lookup_value' },
+    { path: 'campaign', select: 'lookup_value' },
     { path: 'status', select: 'lookup_value' },
     { path: 'stage', select: 'lookup_value' },
     { path: 'propertyType', select: 'lookup_value' },
@@ -149,6 +165,8 @@ const leadPopulateFields = [
             { path: 'professionCategory', select: 'lookup_value' },
             { path: 'professionSubCategory', select: 'lookup_value' },
             { path: 'designation', select: 'lookup_value' },
+            { path: 'subSource', select: 'lookup_value' },
+            { path: 'campaign', select: 'lookup_value' },
             { path: 'educations.education', select: 'lookup_value' },
             { path: 'educations.degree', select: 'lookup_value' },
             { path: 'loans.loanType', select: 'lookup_value' },
@@ -157,6 +175,7 @@ const leadPopulateFields = [
         ]
     },
     { path: 'assignment.assignedTo', select: 'fullName email name' },
+    { path: 'assignment.team', select: 'name' },
     { path: 'documents.documentCategory', select: 'lookup_value' },
     { path: 'documents.documentName', select: 'lookup_value' },
     { path: 'documents.documentType', select: 'lookup_value' }
@@ -444,5 +463,51 @@ export const checkDuplicatesImport = async (req, res, next) => {
         res.status(200).json({ success: true, duplicates: duplicates.map(d => d.mobile) });
     } catch (error) {
         next(error);
+    }
+};
+
+export const matchLeads = async (req, res) => {
+    try {
+        const { dealId } = req.query;
+        if (!dealId) {
+            return res.status(400).json({ success: false, error: "dealId is required" });
+        }
+
+        const deal = await Deal.findById(dealId).lean();
+        if (!deal) {
+            return res.status(404).json({ success: false, error: "Deal not found" });
+        }
+
+        const query = {
+            isVisible: { $ne: false },
+            $or: []
+        };
+
+        if (deal.projectId) query.$or.push({ project: deal.projectId }, { projectName: deal.projectName });
+        if (deal.category) query.$or.push({ requirement: deal.category });
+        if (deal.location) query.$or.push({ location: deal.location });
+
+        if (query.$or.length === 0) {
+            return res.status(200).json({ success: true, count: 0, data: [] });
+        }
+
+        const leads = await Lead.find(query)
+            .populate('requirement location status contactDetails')
+            .limit(50)
+            .sort({ createdAt: -1 })
+            .lean();
+
+        // Simple scoring based on how many fields match
+        const scoredLeads = leads.map(lead => {
+            let score = 50;
+            if (lead.project?.toString() === deal.projectId?.toString()) score += 20;
+            if (lead.requirement?._id?.toString() === deal.category?.toString() || lead.requirement?.toString() === deal.category?.toString()) score += 20;
+            if (lead.location?._id?.toString() === deal.location?.toString() || lead.location?.toString() === deal.location?.toString()) score += 10;
+            return { ...lead, score: Math.min(score, 100) };
+        });
+
+        return res.status(200).json({ success: true, count: scoredLeads.length, data: scoredLeads });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
 };
