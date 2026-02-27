@@ -121,6 +121,13 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
                 email: processTemplate(outcomeTemplates.email || '')
             });
 
+            // Apply Inventory Status Automation Rule
+            if (rule.inventoryStatus === 'InActive') {
+                setFormData(prev => ({ ...prev, markAsSold: true }));
+            } else if (rule.inventoryStatus === 'Active') {
+                setFormData(prev => ({ ...prev, markAsSold: false }));
+            }
+
             // Set default preview channel to the first active one
             if (activeTriggers.whatsapp) setPreviewChannel('whatsapp');
             else if (activeTriggers.sms) setPreviewChannel('sms');
@@ -508,7 +515,12 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
                                 <input type="checkbox" name="markAsSold" checked={formData.markAsSold} onChange={handleChange} style={{ width: '20px', height: '20px' }} />
                                 <div>
                                     <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0369a1' }}>Update Property Status?</div>
-                                    <div style={{ fontSize: '0.8rem', color: '#0c4a6e' }}>This will set the property status to {formData.reason.includes('Sold') ? 'Sold Out' : 'Rented Out'} and update owner visibility.</div>
+                                    <div style={{ fontSize: '0.8rem', color: '#0c4a6e' }}>
+                                        {formData.reason.includes('Sold') || formData.reason.includes('Rented')
+                                            ? `This will set the property status to ${formData.reason.includes('Sold') ? 'Sold Out' : 'Rented Out'} and update owner visibility.`
+                                            : `This will mark the property as InActive based on the feedback outcome.`
+                                        }
+                                    </div>
                                 </div>
                             </div>
                         )}

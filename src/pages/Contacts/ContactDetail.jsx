@@ -25,6 +25,8 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
     const [pendingTasks, setPendingTasks] = useState([{ id: Date.now(), subject: '', dueDate: '', reminder: false }]);
     const [composerContent, setComposerContent] = useState('');
     const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
+    const [unifiedTimeline, setUnifiedTimeline] = useState([]);
+    const [loadingTimeline, setLoadingTimeline] = useState(false);
 
     const showNotification = (message) => {
         setToast(message);
@@ -59,7 +61,21 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
         ));
     };
 
-    const handleSaveActivity = () => {
+    const fetchUnifiedTimeline = async (id, type) => {
+        setLoadingTimeline(true);
+        try {
+            const res = await api.get(`activities/unified/${type}/${id}`);
+            if (res.data && res.data.success) {
+                setUnifiedTimeline(res.data.data);
+            }
+        } catch (error) {
+            console.error("Error fetching unified timeline:", error);
+        } finally {
+            setLoadingTimeline(false);
+        }
+    };
+
+    const handleSaveActivity = async () => {
         if (composerTab === 'task') {
             const tasksToSave = pendingTasks.filter(t => t.subject.trim());
             if (tasksToSave.length === 0) {
@@ -69,6 +85,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
             // In real app: call onAddActivity or API
             showNotification(`${tasksToSave.length} task(s) saved!`);
             setPendingTasks([{ id: Date.now(), subject: '', dueDate: '', reminder: false }]);
+            fetchUnifiedTimeline(contactId, recordType);
         } else {
             if (!composerContent.trim()) {
                 showNotification('Please enter details.');
@@ -76,6 +93,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
             }
             showNotification(`${composerTab.charAt(0).toUpperCase() + composerTab.slice(1)} logged!`);
             setComposerContent('');
+            fetchUnifiedTimeline(contactId, recordType);
         }
     };
 
@@ -99,6 +117,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                     const data = response.data.data;
                     setContact(data);
                     setRecordType(foundType);
+                    fetchUnifiedTimeline(contactId, foundType);
                 } else {
                     setContact(null);
                 }
@@ -109,6 +128,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                     if (leadRes.data && leadRes.data.success) {
                         setContact(leadRes.data.data);
                         setRecordType('lead');
+                        fetchUnifiedTimeline(contactId, 'lead');
                     } else {
                         setContact(null);
                     }
@@ -1088,96 +1108,114 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                             </div>
                         </div>
 
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', paddingLeft: '24px', borderLeft: '2px solid #f1f5f9', marginLeft: '12px' }}>
-                            {/* Render Categorized Activities */}
-                            {['due', 'upcoming', 'completed'].map(cat => (
-                                aiStats.leadScore.categorized[cat].length > 0 && (
-                                    <div key={cat} style={{ marginBottom: '10px' }}>
-                                        <div style={{
-                                            fontSize: '0.65rem',
-                                            fontWeight: 900,
-                                            color: cat === 'due' ? '#ef4444' : cat === 'upcoming' ? 'var(--premium-blue)' : '#10b981',
-                                            textTransform: 'uppercase',
-                                            marginBottom: '12px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '6px'
-                                        }}>
-                                            <i className={`fas fa-${cat === 'due' ? 'exclamation-circle' : cat === 'upcoming' ? 'calendar-alt' : 'check-circle'}`}></i>
-                                            {cat} Activities
-                                        </div>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                            {aiStats.leadScore.categorized[cat].map((act, idx) => (
-                                                <div key={idx} style={{ position: 'relative' }}>
-                                                    <div style={{
-                                                        position: 'absolute',
-                                                        left: '-36px',
-                                                        top: '0',
-                                                        background: cat === 'due' ? '#ef4444' : cat === 'upcoming' ? 'var(--premium-blue)' : '#10b981',
-                                                        color: '#fff',
-                                                        width: '24px',
-                                                        height: '24px',
-                                                        borderRadius: '50%',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        fontSize: '0.7rem',
-                                                        border: '3px solid #fff',
-                                                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-                                                    }}>
-                                                        <i className={`fas fa-${(act.activityType || act.type).toLowerCase().includes('call') ? 'phone-alt' :
-                                                            (act.activityType || act.type).toLowerCase().includes('meeting') ? 'users' :
-                                                                (act.activityType || act.type).toLowerCase().includes('task') ? 'tasks' : 'envelope'
-                                                            }`}></i>
-                                                    </div>
-                                                    <div className="glass-card" style={{
-                                                        borderRadius: '14px',
-                                                        padding: '12px',
-                                                        border: `1px solid ${cat === 'due' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(226, 232, 240, 0.8)'}`,
-                                                        background: cat === 'due' ? 'rgba(239, 68, 68, 0.02)' : 'rgba(255, 255, 255, 0.5)'
-                                                    }}>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', alignItems: 'center' }}>
-                                                            <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#1e293b' }}>
-                                                                {act.subject || act.activityType || act.type.replace(/_/g, ' ')}
-                                                            </div>
-                                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700 }}>
-                                                                {act.dueDate ? new Date(act.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : act.date}
-                                                            </div>
-                                                        </div>
-                                                        {act.completionResult && (
-                                                            <div style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 700, marginTop: '4px' }}>
-                                                                Result: {act.completionResult}
-                                                            </div>
-                                                        )}
-                                                        {act.clientFeedback && (
-                                                            <div style={{
-                                                                fontSize: '0.75rem',
-                                                                color: '#475569',
-                                                                marginTop: '8px',
-                                                                padding: '8px',
-                                                                background: '#f8fafc',
-                                                                borderRadius: '8px',
-                                                                fontStyle: 'italic',
-                                                                borderLeft: '3px solid #10b981'
-                                                            }}>
-                                                                "{act.clientFeedback}"
-                                                            </div>
-                                                        )}
-                                                        {act.notes && (
-                                                            <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '4px' }}>
-                                                                {act.notes}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )
-                            ))}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', paddingLeft: '24px', borderLeft: '2px solid #f1f5f9', marginLeft: '12px', minHeight: '100px' }}>
+                            {loadingTimeline ? (
+                                <div style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '20px' }}>
+                                    <i className="fas fa-spinner fa-spin" style={{ marginRight: '8px' }}></i> Loading timeline...
+                                </div>
+                            ) : unifiedTimeline.length > 0 ? (
+                                unifiedTimeline
+                                    .filter(item => {
+                                        if (timelineFilter === 'all') return true;
+                                        if (timelineFilter === 'call') return item.type.includes('call');
+                                        if (timelineFilter === 'whatsapp') return item.type.includes('whatsapp');
+                                        if (timelineFilter === 'email') return item.type.includes('email');
+                                        if (timelineFilter === 'ai') return item.source === 'ai'; // Placeholder if source is AI
+                                        return true;
+                                    })
+                                    .map((item, idx) => {
+                                        // Determine icon and color based on type
+                                        let icon = 'clock';
+                                        let color = '#64748b';
+                                        let bg = '#f8fafc';
 
-                            {/* Legacy Items (if any as fallback) */}
-                            {(!aiStats.leadScore.categorized.due.length && !aiStats.leadScore.categorized.upcoming.length && !aiStats.leadScore.categorized.completed.length) && (
+                                        if (item.source === 'audit') {
+                                            icon = 'history';
+                                            color = '#8b5cf6';
+                                            bg = '#f5f3ff';
+                                        } else if (item.type.includes('call')) {
+                                            icon = 'phone-alt';
+                                            color = '#3b82f6';
+                                            bg = '#eff6ff';
+                                        } else if (item.type.includes('meeting')) {
+                                            icon = 'users';
+                                            color = '#10b981';
+                                            bg = '#f0fdf4';
+                                        } else if (item.type.includes('task')) {
+                                            icon = 'tasks';
+                                            color = '#f59e0b';
+                                            bg = '#fffbeb';
+                                        } else if (item.type.includes('email')) {
+                                            icon = 'envelope';
+                                            color = '#ef4444';
+                                            bg = '#fef2f2';
+                                        }
+
+                                        return (
+                                            <div key={idx} style={{ position: 'relative' }}>
+                                                <div style={{
+                                                    position: 'absolute',
+                                                    left: '-36px',
+                                                    top: '0',
+                                                    background: color,
+                                                    color: '#fff',
+                                                    width: '24px',
+                                                    height: '24px',
+                                                    borderRadius: '50%',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    fontSize: '0.7rem',
+                                                    border: '3px solid #fff',
+                                                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                                                    zIndex: 2
+                                                }}>
+                                                    <i className={`fas fa-${icon}`}></i>
+                                                </div>
+                                                <div className="glass-card" style={{
+                                                    borderRadius: '14px',
+                                                    padding: '12px',
+                                                    border: `1px solid ${bg === '#f8fafc' ? 'rgba(226, 232, 240, 0.8)' : bg.replace(')', ', 0.3)')}`,
+                                                    background: bg
+                                                }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', alignItems: 'center', gap: '8px' }}>
+                                                        <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#1e293b', flex: 1 }}>
+                                                            {item.title}
+                                                        </div>
+                                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                                                            {new Date(item.timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                        </div>
+                                                    </div>
+                                                    {item.description && (
+                                                        <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '4px', lineHeight: '1.4' }}>
+                                                            {item.description}
+                                                        </div>
+                                                    )}
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+                                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}> By {item.actor}</div>
+                                                        {item.status && (
+                                                            <div style={{
+                                                                fontSize: '0.6rem',
+                                                                padding: '2px 8px',
+                                                                borderRadius: '4px',
+                                                                background: item.status === 'Completed' ? '#dcfce7' : '#fee2e2',
+                                                                color: item.status === 'Completed' ? '#166534' : '#991b1b',
+                                                                fontWeight: 800
+                                                            }}>
+                                                                {item.status.toUpperCase()}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    {item.metadata?.completionResult && (
+                                                        <div style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 800, marginTop: '4px', borderTop: '1px dashed #dcfce7', paddingTop: '4px' }}>
+                                                            Result: {item.metadata.completionResult}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                            ) : (
                                 <div style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', padding: '20px' }}>
                                     No activities tracked yet.
                                 </div>

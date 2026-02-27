@@ -5,6 +5,9 @@ import toast from 'react-hot-toast';
 import { formatIndianCurrency, numberToIndianWords } from '../../utils/numberToWords';
 import { renderValue } from '../../utils/renderUtils';
 import AddOfferModal from '../../components/AddOfferModal';
+import { STAGE_PIPELINE, getStageProbability } from '../../utils/stageEngine';
+import { computeAging, computeDealDeath, detectCommissionLeakage, computeDealHealth, computeOwnerResponseRate, DEFAULT_AGING_RULES, DEFAULT_FORECAST_CONFIG, DEFAULT_HEALTH_CONFIG } from '../../utils/agingEngine';
+import { computeDealStageFromLeads } from '../../utils/syncEngine';
 
 const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const [deal, setDeal] = useState(null);
@@ -269,6 +272,63 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         }
     }, [deal?.stage]);
 
+    // ─── HOOKS must ALL be above early returns (React rules of hooks) ──────────
+    // currentStage: safe default when deal is null (useMemo guard handles null)
+    const currentStage = deal?.stage || 'Open';
+
+    // Stage Engine: Deal Death + Commission Leakage + Deal Health (v3)
+    const stageAlerts = useMemo(() => {
+        if (!deal) return { dealDeath: null, leakage: null, stageInfo: null, health: null };
+
+        // Aging
+        const aging = computeAging(
+            deal.createdAt || Date.now(),
+            deal.stageChangedAt || deal.createdAt,
+            deal.lastActivityAt
+        );
+
+        // Deal Death Detection
+        const lastOfferDate = deal.negotiationRounds?.length > 0
+            ? deal.negotiationRounds[deal.negotiationRounds.length - 1].date
+            : null;
+        const dealDeath = computeDealDeath(currentStage, aging.stageDays, lastOfferDate, aging.activityGapDays);
+
+        // Commission leakage
+        const commissionRate = DEFAULT_FORECAST_CONFIG.commissionRate.value;
+        const commission = (deal.price || 0) * (commissionRate / 100);
+        const leakageThreshold = DEFAULT_FORECAST_CONFIG.commissionLeakageThreshold.value;
+        const stageHealth = getStageProbability(currentStage);
+        const leakage = detectCommissionLeakage(stageHealth, commission, leakageThreshold);
+
+        // ━━ Deal Health Score v3: activity-driven ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // Real ownerResponseRate from activity gap (Bug 3 fix)
+        const ownerResponseRate = computeOwnerResponseRate(aging.activityGapDays);
+        // Activities on this deal (if populated by API)
+        const dealActivities = Array.isArray(deal.activities) ? deal.activities : [];
+        // leadScore: use deal.leadScore if API provides it, else estimate from stage probability
+        const leadScore = deal.leadScore || stageHealth;
+        const health = computeDealHealth(
+            leadScore,
+            currentStage,
+            [],               // riskFlags (computed separately via computeRiskFlags if needed)
+            DEFAULT_HEALTH_CONFIG,
+            ownerResponseRate,
+            dealActivities    // ← activity-driven score (outcome quality + recency)
+        );
+
+        // STAGE_PIPELINE info
+        const STAGE_MAP = {
+            'Open': 'New', 'Quote': 'Opportunity', 'Negotiation': 'Negotiation',
+            'Booked': 'Booked', 'Closed': 'Closed Won', 'Closed Won': 'Closed Won',
+            'Closed Lost': 'Closed Lost', 'Stalled': 'Stalled'
+        };
+        const mapped = STAGE_MAP[currentStage] || currentStage;
+        const stageInfo = STAGE_PIPELINE.find(s => s.label === mapped) || STAGE_PIPELINE[0];
+
+        return { dealDeath, leakage, stageInfo, aging, health, ownerResponseRate };
+    }, [deal, currentStage]);
+
+    // ─── Early returns AFTER all hooks ──────────────────────────────────────
     if (loading) return (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f8fafc' }}>
             <div className="loader"></div>
@@ -277,16 +337,16 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     );
     if (!deal) return <div className="error-state">Deal not found</div>;
 
+    // Legacy stageColors — plain objects, safe after hooks
     const stageColors = {
         'Open': { bg: '#e0f2fe', text: '#0369a1', dot: '#0ea5e9' },
         'Quote': { bg: '#fff7ed', text: '#9a3412', dot: '#f97316' },
         'Negotiation': { bg: '#f5f3ff', text: '#5b21b6', dot: '#8b5cf6' },
         'Booked': { bg: '#ecfdf5', text: '#065f46', dot: '#10b981' },
         'Closed': { bg: '#f0fdf4', text: '#166534', dot: '#22c55e' },
-        'Cancelled': { bg: '#fef2f2', text: '#991b1b', dot: '#ef4444' }
+        'Cancelled': { bg: '#fef2f2', text: '#991b1b', dot: '#ef4444' },
+        'Stalled': { bg: '#fafaf9', text: '#57534e', dot: '#78716c' },
     };
-
-    const currentStage = deal.stage || 'Open';
     const stageStyle = stageColors[currentStage] || stageColors['Open'];
 
     const cardStyle = {
@@ -345,6 +405,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                     ({renderValue(deal.unitType) || 'Unit'})
                                 </span>
                             </h1>
+                            {/* Stage Badge with probability */}
                             <span style={{
                                 backgroundColor: stageStyle.bg, color: stageStyle.text,
                                 padding: '4px 12px', borderRadius: '6px',
@@ -354,7 +415,58 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                             }}>
                                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: stageStyle.dot }}></span>
                                 {currentStage}
+                                <span style={{ opacity: 0.6, fontSize: '0.6rem' }}>
+                                    {getStageProbability(stageAlerts.stageInfo?.label || currentStage)}% win
+                                </span>
                             </span>
+
+                            {/* Deal Death Alert */}
+                            {stageAlerts.dealDeath?.stalled && (
+                                <span style={{
+                                    backgroundColor: stageAlerts.dealDeath.severity === 'critical' ? '#fef2f2' : '#fffbeb',
+                                    color: stageAlerts.dealDeath.severity === 'critical' ? '#991b1b' : '#92400e',
+                                    padding: '4px 10px', borderRadius: '6px', fontSize: '0.65rem', fontWeight: 800,
+                                    display: 'flex', alignItems: 'center', gap: '5px',
+                                    border: `1px solid ${stageAlerts.dealDeath.severity === 'critical' ? '#fecaca' : '#fde68a'}`
+                                }}>
+                                    <i className={`fas ${stageAlerts.dealDeath.severity === 'critical' ? 'fa-skull' : 'fa-pause-circle'}`} />
+                                    {stageAlerts.dealDeath.severity === 'critical' ? 'STALLED — DEAD DEAL' : 'STALLING'}
+                                </span>
+                            )}
+
+                            {/* Commission Leakage Alert */}
+                            {stageAlerts.leakage?.leakage && (
+                                <span style={{
+                                    backgroundColor: stageAlerts.leakage.severity === 'critical' ? '#fef2f2' : '#fffbeb',
+                                    color: stageAlerts.leakage.severity === 'critical' ? '#991b1b' : '#92400e',
+                                    padding: '4px 10px', borderRadius: '6px', fontSize: '0.65rem', fontWeight: 800,
+                                    display: 'flex', alignItems: 'center', gap: '5px',
+                                    border: `1px solid ${stageAlerts.leakage.severity === 'critical' ? '#fecaca' : '#fde68a'}`
+                                }}>
+                                    <i className="fas fa-exclamation-circle" />
+                                    COMMISSION RISK: {formatIndianCurrency((deal.price || 0) * 0.02)}
+                                </span>
+                            )}
+
+                            {/* Deal Health Score Badge (v3 — activity-driven) */}
+                            {stageAlerts.health && (
+                                <span
+                                    title={`Activity Score: ${stageAlerts.health.activityScore}/25 | Owner: ${stageAlerts.health.ownerRisk.label} (${stageAlerts.health.ownerRisk.rate}%)`}
+                                    style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: '5px',
+                                        background: stageAlerts.health.color + '18',
+                                        color: stageAlerts.health.color,
+                                        border: `1px solid ${stageAlerts.health.color}40`,
+                                        borderRadius: '6px', padding: '4px 10px',
+                                        fontSize: '0.65rem', fontWeight: 800, cursor: 'help'
+                                    }}
+                                >
+                                    <i className={`fas ${stageAlerts.health.icon}`} style={{ fontSize: '0.6rem' }} />
+                                    HEALTH {stageAlerts.health.score}%
+                                    <span style={{ opacity: 0.6 }}>{stageAlerts.health.label}</span>
+                                </span>
+                            )}
+
                             {deal.negotiation_window && (
                                 <span style={{
                                     backgroundColor: '#fef3c7', color: '#92400e',

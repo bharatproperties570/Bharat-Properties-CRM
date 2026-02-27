@@ -286,7 +286,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
         'Rented Out': { bg: '#e0e7ff', text: '#3730a3', dot: '#6366f1' }
     };
 
-    const currentStatus = renderValue(inventory.status) || 'Active';
+    const currentStatus = getLookupValue('Status', inventory.status) || 'Active';
     const statusStyle = statusColors[currentStatus] || statusColors['Active'];
 
     const glassCardStyle = {

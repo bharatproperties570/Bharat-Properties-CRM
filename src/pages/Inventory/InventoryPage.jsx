@@ -41,6 +41,8 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const [activeCount, setActiveCount] = useState(0);
+    const [inactiveCount, setInactiveCount] = useState(0);
 
     // Advanced Filtering State
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
@@ -90,16 +92,22 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                 // Backend returns 'records' not 'data' for paginated results
                 setInventoryItems(response.data.records || []);
                 setTotalRecords(response.data.totalCount || 0);
+                setActiveCount(response.data.activeCount || 0);
+                setInactiveCount(response.data.inactiveCount || 0);
             } else {
                 toast.error("Failed to fetch inventory");
                 setInventoryItems([]);
                 setTotalRecords(0);
+                setActiveCount(0);
+                setInactiveCount(0);
             }
         } catch (error) {
             console.error("Error fetching inventory:", error);
             toast.error("Error loading inventory");
             setInventoryItems([]);
             setTotalRecords(0);
+            setActiveCount(0);
+            setInactiveCount(0);
         } finally {
             setLoading(false);
         }
@@ -314,16 +322,19 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                 newRemark += ` | Next: ${data.nextActionType} on ${data.nextActionDate} @ ${data.nextActionTime}`;
             }
 
-            // Automation: Mark as Sold/Rented/Inactive
+            // Automation: Mark as Sold/Rented/Inactive (Driven by Business Rules)
             let newStatus = selectedProperty.status;
-            if (data.markAsSold && data.reason) {
-                if (String(data.reason).includes('Sold Out')) {
-                    newStatus = 'Sold Out';
-                } else if (String(data.reason).includes('Rented Out')) {
-                    newStatus = 'Rented Out';
-                } else {
-                    newStatus = 'Inactive';
-                }
+
+            // Get business rule from context if it exists
+            const rule = masterFields.feedbackRules?.[data.result]?.[data.reason];
+            if (rule?.inventoryStatus === 'InActive' && data.markAsSold) {
+                // Determine internal status name based on reason
+                if (String(data.reason).includes('Sold Out')) newStatus = 'Sold Out';
+                else if (String(data.reason).includes('Rented Out')) newStatus = 'Rented Out';
+                else newStatus = 'Inactive';
+            } else if (rule?.inventoryStatus === 'Active') {
+                // If it's explicitly marked as active by rule (e.g. Price Too High), keep it Available
+                // but usually it's already in an active state.
             }
 
             // Create History Entry
@@ -495,20 +506,18 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                         />
                     </div>
 
-                    <div className="inventory-stats-row" style={{ padding: '12px 25px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div className="inventory-stats-row" style={{ padding: '12px 25px', display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: '20px' }}>
                         <div style={{ display: 'flex', gap: '15px' }}>
-                            <div className="status-card" style={{ padding: '8px 15px', maxWidth: '200px' }}>
-                                <div className="stat-icon-dot dot-active"></div>
+                            <div className="status-card" style={{ padding: '8px 15px', minWidth: '160px', borderLeft: '4px solid #22c55e' }}>
                                 <div className="stat-card-info">
-                                    <h3 style={{ fontSize: '0.7rem' }}>Total Inventory</h3>
-                                    <div className="stat-count" style={{ fontSize: '1.2rem', color: '#2563eb' }}>{totalRecords.toLocaleString()}</div>
+                                    <h3 style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Active Inventory</h3>
+                                    <div className="stat-count" style={{ fontSize: '1.2rem', color: '#16a34a', fontWeight: 800 }}>{activeCount.toLocaleString()}</div>
                                 </div>
                             </div>
-                            <div className="status-card" style={{ padding: '8px 15px', maxWidth: '180px' }}>
-                                <div className="stat-icon-dot" style={{ background: '#94a3b8' }}></div>
+                            <div className="status-card" style={{ padding: '8px 15px', minWidth: '160px', borderLeft: '4px solid #94a3b8' }}>
                                 <div className="stat-card-info">
-                                    <h3 style={{ fontSize: '0.7rem' }}>Showing</h3>
-                                    <div className="stat-count" style={{ fontSize: '1.2rem', color: '#64748b' }}>{inventoryItems.length}</div>
+                                    <h3 style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>InActive Inventory</h3>
+                                    <div className="stat-count" style={{ fontSize: '1.2rem', color: '#64748b', fontWeight: 800 }}>{inactiveCount.toLocaleString()}</div>
                                 </div>
                             </div>
                         </div>
@@ -883,7 +892,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                     borderRadius: '50%',
                                                     background: renderValue(item.status) === 'Active' ? '#10b981' : (renderValue(item.status) === 'Sold Out' || renderValue(item.status) === 'Rented Out') ? '#f59e0b' : '#64748b'
                                                 }}></div>
-                                                {renderValue(item.status) || 'Active'}
+                                                {getLookupValue('Status', item.status) || 'Active'}
                                             </div>
                                             {(item.remarks || (item.history && item.history.length > 0)) && (
                                                 <div style={{

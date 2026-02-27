@@ -3,6 +3,8 @@ import Deal from "../models/Deal.js";
 import Lookup from "../models/Lookup.js";
 import User from "../models/User.js";
 import Contact from "../models/Contact.js";
+import Activity from "../models/Activity.js";
+import AuditLog from "../models/AuditLog.js";
 import mongoose from "mongoose";
 import { paginate } from "../utils/pagination.js";
 import mockStore from "../utils/mockStore.js";
@@ -43,23 +45,23 @@ const resolveAllReferenceFields = async (doc) => {
     }
 
     if (doc.requirement) doc.requirement = await resolveLookup('Requirement', doc.requirement);
-    if (doc.subRequirement) doc.subRequirement = await resolveLookup('Sub Requirement', doc.subRequirement);
+    if (doc.subRequirement) doc.subRequirement = await resolveLookup('SubRequirement', doc.subRequirement);
     if (doc.budget) doc.budget = await resolveLookup('Budget', doc.budget);
     if (doc.location) doc.location = await resolveLookup('Location', doc.location);
     if (doc.source) doc.source = await resolveLookup('Source', doc.source);
     if (doc.status) doc.status = await resolveLookup('Status', doc.status);
     if (doc.stage) doc.stage = await resolveLookup('Stage', doc.stage);
-    if (doc.countryCode) doc.countryCode = await resolveLookup('Country-Code', doc.countryCode);
+    if (doc.countryCode) doc.countryCode = await resolveLookup('CountryCode', doc.countryCode);
     if (doc.campaign) doc.campaign = await resolveLookup('Campaign', doc.campaign);
     if (doc.subSource) doc.subSource = await resolveLookup('SubSource', doc.subSource);
 
     // Handle Arrays (Lookup fields)
     const arrayLookups = {
-        propertyType: 'PropertyType', // Database uses PropertyType (no space) or Property Type? check_lookup said PropertyType and Property Type both exist but PropertyType is more common? Actually list_lookup showed both. I'll stick to Property Type or check again.
-        subType: 'Sub Type',
-        unitType: 'Unit Type',
+        propertyType: 'PropertyType',
+        subType: 'SubType',
+        unitType: 'UnitType',
         facing: 'Facing',
-        roadWidth: 'Road Width',
+        roadWidth: 'RoadWidth',
         direction: 'Direction'
     };
 
@@ -125,9 +127,9 @@ const resolveAllReferenceFields = async (doc) => {
     // Resolve Documents
     if (Array.isArray(doc.documents)) {
         for (const docItem of doc.documents) {
-            if (docItem.documentCategory) docItem.documentCategory = await resolveLookup('Document-Category', docItem.documentCategory);
+            if (docItem.documentCategory) docItem.documentCategory = await resolveLookup('DocumentCategory', docItem.documentCategory);
             if (docItem.documentName) docItem.documentName = await resolveLookup('Document Name', docItem.documentName);
-            if (docItem.documentType) docItem.documentType = await resolveLookup('Document-Type', docItem.documentType);
+            if (docItem.documentType) docItem.documentType = await resolveLookup('DocumentType', docItem.documentType);
         }
     }
     console.log("[DEBUG] resolveAllReferenceFields completed successfully");
@@ -210,6 +212,35 @@ export const getLeads = async (req, res, next) => {
         // Enable population for key fields
         const results = await paginate(Lead, query, Number(page), Number(limit), { createdAt: -1 }, leadPopulateFields);
 
+        // Attach Interaction Data (Latest Activity)
+        if (results.records && results.records.length > 0) {
+            const leadIds = results.records.map(r => r._id);
+            const latestActivities = await Activity.aggregate([
+                { $match: { entityId: { $in: leadIds.map(id => id.toString()) } } },
+                { $sort: { createdAt: -1 } },
+                {
+                    $group: {
+                        _id: "$entityId",
+                        latestActivity: { $first: "$$ROOT" }
+                    }
+                }
+            ]);
+
+            const activityMap = new Map();
+            latestActivities.forEach(item => {
+                activityMap.set(item._id, item.latestActivity);
+            });
+
+            results.records = results.records.map(lead => {
+                const activity = activityMap.get(lead._id.toString());
+                return {
+                    ...lead,
+                    activity: activity ? activity.subject : "None",
+                    lastAct: activity ? new Date(activity.createdAt).toLocaleDateString() : "Today"
+                };
+            });
+        }
+
         res.status(200).json({
             success: true,
             ...results
@@ -245,9 +276,63 @@ export const updateLead = async (req, res, next) => {
     try {
         const updateData = { ...req.body };
         await resolveAllReferenceFields(updateData);
+
+        // ━━ Stage History: auto-track if stage is changing ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        if (updateData.stage) {
+            const existing = await Lead.findById(req.params.id).select('stage stageHistory stageChangedAt createdAt').lean();
+            if (existing) {
+                // Resolve current stage to a string label
+                let currentStageStr = 'New';
+                if (existing.stage) {
+                    const existingLookup = await Lookup.findById(existing.stage).select('lookup_value').lean();
+                    currentStageStr = existingLookup?.lookup_value || 'New';
+                }
+                // Resolve new stage to a string label (updateData.stage is now an ObjectId)
+                const newLookup = await Lookup.findById(updateData.stage).select('lookup_value').lean();
+                const newStageStr = newLookup?.lookup_value || String(updateData.stage);
+
+                // Only write history if stage actually changed
+                if (currentStageStr !== newStageStr) {
+                    const now = new Date();
+                    const historyUpdate = {};
+
+                    // Close previous open entry
+                    if (existing.stageHistory?.length > 0) {
+                        const lastIdx = existing.stageHistory.length - 1;
+                        const last = existing.stageHistory[lastIdx];
+                        if (!last.exitedAt) {
+                            const enteredAt = new Date(last.enteredAt || existing.stageChangedAt || existing.createdAt);
+                            const daysInStage = Math.floor((now - enteredAt) / 86400000);
+                            historyUpdate[`stageHistory.${lastIdx}.exitedAt`] = now;
+                            historyUpdate[`stageHistory.${lastIdx}.daysInStage`] = daysInStage;
+                        }
+                    }
+
+                    // Push new history entry
+                    const triggeredBy = updateData.triggeredBy || 'activity';
+                    await Lead.findByIdAndUpdate(req.params.id, {
+                        $set: historyUpdate,
+                        $push: {
+                            stageHistory: {
+                                stage: newStageStr,
+                                enteredAt: now,
+                                triggeredBy,
+                                activityType: updateData.activityType || null,
+                                outcome: updateData.outcome || null,
+                                reason: updateData.reason || null
+                            }
+                        }
+                    });
+
+                    // Set stageChangedAt
+                    updateData.stageChangedAt = now;
+                }
+            }
+        }
+
+        // Standard update (stage already resolved to ObjectId by resolveAllReferenceFields)
         const lead = await Lead.findByIdAndUpdate(req.params.id, updateData, { new: true });
         if (lead) {
-            // Auto-run Enrichment
             await runFullLeadEnrichment(lead._id);
             await lead.populate(leadPopulateFields);
         }

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { validateEntity } from '../utils/fieldRuleEngine';
 import { fieldRulesAPI } from '../utils/api';
+import { STAGE_LABELS } from '../utils/stageEngine';
 
 const FieldRulesContext = createContext();
 
@@ -56,10 +57,9 @@ export const FieldRulesProvider = ({ children }) => {
                                 ruleType: 'MANDATORY',
                                 isActive: true,
                                 matchType: 'AND',
-                                conditions: [
-                                    { field: 'stage', operator: 'not_equals', value: 'New' },
-                                    { field: 'stage', operator: 'not_equals', value: 'Contacted' }
-                                ],
+                                // Conditions built from STAGE_PIPELINE early stages so they
+                                // always match the computed stage system (never hardcoded strings).
+                                conditions: ['New', 'Prospect'].map(s => ({ field: 'stage', operator: 'not_equals', value: s })),
                                 message: 'Budget is required for leads in Prospect stage or higher.'
                             },
                             {

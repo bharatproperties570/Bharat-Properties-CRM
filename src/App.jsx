@@ -14,9 +14,9 @@ import { AutomatedActionsProvider } from './context/AutomatedActionsContext';
 import { CallProvider, useCall } from './context/CallContext'; // Import CallProvider and hook
 import { ParsingProvider } from './context/ParsingContext'; // Import ParsingProvider
 import { UserProvider } from './context/UserContext';
-import CallModal from './components/CallModal'; // Import CallModal
 import ErrorBoundary from './components/ErrorBoundary';
 import PublicLeadForm from './pages/Public/PublicLeadForm';
+import CallModal from './components/CallModal'; // Import CallModal
 
 // Helper Wrapper to connect Context to Modal
 const CallModalWrapper = () => {
@@ -31,8 +31,9 @@ const CallModalWrapper = () => {
         />
     );
 };
+const AppContent = () => {
+    // const { token } = useUserContext(); // Removed token check for now
 
-function App() {
     // Global Navigation State (Routing Logic Only)
     const [currentView, setCurrentView] = useState(() => {
         const path = window.location.pathname;
@@ -165,6 +166,33 @@ function App() {
         return () => window.removeEventListener('popstate', handlePopState);
     }, []);
 
+    if (currentView === 'public-form') {
+        return (
+            <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
+                <PublicLeadForm slug={window.location.pathname.split('/').pop()} />
+            </Suspense>
+        );
+    }
+
+    /* if (!token) {
+        return <LoginPage />;
+    } */
+
+    return (
+        <MainLayout currentView={currentView} onNavigate={handleNavigate}>
+            {(modalHandlers) => (
+                <AppRouter
+                    currentView={currentView}
+                    currentContactId={currentContactId}
+                    onNavigate={handleNavigate}
+                    {...modalHandlers}
+                />
+            )}
+        </MainLayout>
+    );
+};
+
+function App() {
     return (
         <ErrorBoundary>
             <ContactConfigProvider>
@@ -179,22 +207,7 @@ function App() {
                                                 <UserProvider>
                                                     <CallProvider>
                                                         <Toaster position="top-right" />
-                                                        {currentView === 'public-form' ? (
-                                                            <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
-                                                                <PublicLeadForm slug={window.location.pathname.split('/').pop()} />
-                                                            </Suspense>
-                                                        ) : (
-                                                            <MainLayout currentView={currentView} onNavigate={handleNavigate}>
-                                                                {(modalHandlers) => (
-                                                                    <AppRouter
-                                                                        currentView={currentView}
-                                                                        currentContactId={currentContactId}
-                                                                        onNavigate={handleNavigate}
-                                                                        {...modalHandlers}
-                                                                    />
-                                                                )}
-                                                            </MainLayout>
-                                                        )}
+                                                        <AppContent />
                                                         <CallModalWrapper />
                                                     </CallProvider>
                                                 </UserProvider>

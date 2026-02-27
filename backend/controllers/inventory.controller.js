@@ -71,15 +71,38 @@ export const getInventory = async (req, res) => {
             { path: "category" },
             { path: "subCategory" },
             { path: "status" },
+            { path: "unitType" },
             { path: "facing" },
             { path: "intent" },
             { path: "team", select: "name" }
         ];
 
+        // Fetch counts for Active and InActive
+        // Note: In a real production system, these "Active/InActive" rules would be lookups or business rules.
+        // For now, we define Active as 'Available' and InActive as 'Sold Out', 'Rented Out', 'Inactive'.
+
+        const activeStatusNames = ['Available', 'Interested / Warm', 'Interested / Hot', 'Request Call Back', 'Busy / Driving', 'Market Feedback', 'General Inquiry'];
+        const inactiveStatusNames = ['Sold Out', 'Rented Out', 'Not Interested', 'Inactive', 'Wrong Number / Invalid', 'Switch Off / Unreachable'];
+
+        const [activeStatusDocs, inactiveStatusDocs] = await Promise.all([
+            Lookup.find({ lookup_type: 'Status', lookup_value: { $in: activeStatusNames } }),
+            Lookup.find({ lookup_type: 'Status', lookup_value: { $in: inactiveStatusNames } })
+        ]);
+
+        const activeStatusIds = activeStatusDocs.map(d => d._id);
+        const inactiveStatusIds = inactiveStatusDocs.map(d => d._id);
+
+        const [activeCount, inactiveCount] = await Promise.all([
+            Inventory.countDocuments({ ...query, status: { $in: activeStatusIds } }),
+            Inventory.countDocuments({ ...query, status: { $in: inactiveStatusIds } })
+        ]);
+
         const results = await paginate(Inventory, query, Number(page), Number(limit), { createdAt: -1 }, populateFields);
 
         res.status(200).json({
             success: true,
+            activeCount: activeCount || 0,
+            inactiveCount: inactiveCount || 0,
             ...results
         });
     } catch (error) {
@@ -96,6 +119,7 @@ export const getInventoryById = async (req, res) => {
             { path: "category" },
             { path: "subCategory" },
             { path: "status" },
+            { path: "unitType" },
             { path: "facing" },
             { path: "intent" },
             { path: "team", select: "name" }
@@ -144,8 +168,8 @@ export const addInventory = async (req, res) => {
 
         // Resolve Reference Fields to prevent CastErrors
         if (data.category) data.category = await resolveLookup('Category', data.category);
-        if (data.subCategory) data.subCategory = await resolveLookup('Sub Category', data.subCategory);
-        if (data.unitType) data.unitType = await resolveLookup('Unit Type', data.unitType);
+        if (data.subCategory) data.subCategory = await resolveLookup('SubCategory', data.subCategory);
+        if (data.unitType) data.unitType = await resolveLookup('UnitType', data.unitType);
         if (data.status) data.status = await resolveLookup('Status', data.status);
         if (data.facing) data.facing = await resolveLookup('Facing', data.facing);
         if (data.intent) data.intent = await resolveLookup('Intent', data.intent);
@@ -167,8 +191,8 @@ export const updateInventory = async (req, res) => {
 
         // Resolve Reference Fields to prevent CastErrors
         if (data.category) data.category = await resolveLookup('Category', data.category);
-        if (data.subCategory) data.subCategory = await resolveLookup('Sub Category', data.subCategory);
-        if (data.unitType) data.unitType = await resolveLookup('Unit Type', data.unitType);
+        if (data.subCategory) data.subCategory = await resolveLookup('SubCategory', data.subCategory);
+        if (data.unitType) data.unitType = await resolveLookup('UnitType', data.unitType);
         if (data.status) data.status = await resolveLookup('Status', data.status);
         if (data.facing) data.facing = await resolveLookup('Facing', data.facing);
         if (data.intent) data.intent = await resolveLookup('Intent', data.intent);
@@ -392,8 +416,8 @@ export const importInventory = async (req, res) => {
 
             // Resolve Lookups
             result.category = await resolveLookup('Category', item.category || item.type);
-            result.subCategory = await resolveLookup('Sub Category', item.subCategory);
-            result.unitType = await resolveLookup('Unit Type', item.unitType);
+            result.subCategory = await resolveLookup('SubCategory', item.subCategory);
+            result.unitType = await resolveLookup('UnitType', item.unitType);
             result.status = await resolveLookup('Status', item.status || 'Available');
             result.facing = await resolveLookup('Facing', item.facing);
             result.intent = await resolveLookup('Intent', item.intent);
@@ -412,12 +436,12 @@ export const importInventory = async (req, res) => {
 
                 if (matchedSize) {
                     // Overwrite if matched
-                    if (matchedSize.sizeType) result.unitType = await resolveLookup('Unit Type', matchedSize.sizeType);
+                    if (matchedSize.sizeType) result.unitType = await resolveLookup('UnitType', matchedSize.sizeType);
                     result.builtUpArea = matchedSize.coveredArea || matchedSize.saleableArea; // Fallback
                     result.carpetArea = matchedSize.carpetArea;
                     result.superArea = matchedSize.saleableArea || matchedSize.totalArea;
                     if (matchedSize.category) result.category = await resolveLookup('Category', matchedSize.category);
-                    if (matchedSize.subCategory) result.subCategory = await resolveLookup('Sub Category', matchedSize.subCategory);
+                    if (matchedSize.subCategory) result.subCategory = await resolveLookup('SubCategory', matchedSize.subCategory);
 
                     // If plot type, use totalArea and resultMetric
                     if (matchedSize.totalArea) {

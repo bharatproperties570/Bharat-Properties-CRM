@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../utils/api';
+import { STAGE_PIPELINE } from '../utils/stageEngine';
 
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useFieldRules } from '../context/FieldRulesContext';
@@ -2667,6 +2668,29 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                     {/* Footer */}
                     < div style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <button onClick={onClose} style={buttonStyle.cancel}>Cancel</button>
+
+                        {/* Stage Engine – Read-Only Badge (edit mode only) */}
+                        {mode === 'edit' && initialData?.stage && (() => {
+                            const stageName = initialData.stage || 'New';
+                            const stageInfo = STAGE_PIPELINE.find(s => s.label.toLowerCase() === stageName.toLowerCase()) || { color: '#94a3b8', icon: 'fa-circle', label: stageName };
+                            return (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '6px 14px' }}>
+                                    <i className="fas fa-lock" style={{ fontSize: '0.7rem', color: '#64748b' }}></i>
+                                    <span style={{ fontSize: '0.75rem', color: '#475569', fontWeight: 700 }}>Stage:</span>
+                                    <span style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: '5px',
+                                        background: stageInfo.color + '20', color: stageInfo.color,
+                                        border: `1px solid ${stageInfo.color}50`, borderRadius: '5px',
+                                        padding: '2px 10px', fontSize: '0.7rem', fontWeight: 800
+                                    }}>
+                                        <i className={`fas ${stageInfo.icon}`} style={{ fontSize: '0.6rem' }}></i>
+                                        {stageInfo.label}
+                                    </span>
+                                    <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontStyle: 'italic' }}>Auto-computed</span>
+                                </div>
+                            );
+                        })()}
+
                         <div style={{ display: 'flex', gap: '12px' }}>
                             {/* Previous Button - Hide on first tab */}
                             {((entityType === 'lead' && currentTab !== 'requirement') || (entityType !== 'lead' && currentTab !== 'basic')) && (

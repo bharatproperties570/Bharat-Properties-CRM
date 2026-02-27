@@ -10,33 +10,99 @@ const ChartPlaceholder = () => (
     </div>
 );
 import { reportsData } from '../../data/reportsData';
-import { bookingData } from '../../data/bookingData';
-import { accountData } from '../../data/accountData';
+import { api } from '../../utils/api';
 
 const DashboardPage = () => {
     const [role, setRole] = useState('owner'); // owner | agent | investor
     const [selectedTeam, setSelectedTeam] = useState('Select Team');
+    const [dashboardData, setDashboardData] = useState(null);
+    const [loading, setLoading] = useState(true);
 
-    const data = reportsData;
+    const fetchData = async () => {
+        try {
+            const response = await api.get('/dashboard/stats');
+            if (response.data.success) {
+                setDashboardData(response.data.data);
+            }
+        } catch (error) {
+            console.error('Error fetching dashboard stats:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
-    // --- Live Data Integration ---
-    // 1. Pipeline Liquidity (Total Deal Value)
-    const pipelineValue = bookingData.reduce((sum, b) => b.stage !== 'Cancelled' ? sum + b.financials.dealValue : sum, 0);
-
-    // 2. Active Deals (Count)
-    const activeDealsCount = bookingData.filter(b => b.stage !== 'Cancelled' && b.stage !== 'Registry').length;
-
-    // 3. Outstanding Collections (From Account Data)
-    const totalOutstanding = accountData ? accountData.reduce((sum, a) => sum + (a.financials.pending || 0), 0) : 0;
-
-    // 4. Commission Pending
-    const totalCommPending = bookingData.reduce((sum, b) => b.stage !== 'Cancelled' ? sum + b.financials.commissionPending : sum, 0);
+    React.useEffect(() => {
+        fetchData();
+    }, []);
 
     const formatCurrency = (amount) => {
         return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
     };
 
-    // Filter Logic for Role-Based View
+    // --- Live Data Integration & Deep Merging ---
+    const data = React.useMemo(() => {
+        const merged = { ...reportsData };
+        if (dashboardData) {
+            // Merge Performance Metrics
+            if (dashboardData.performance) {
+                merged.pipelineMoney = {
+                    ...merged.pipelineMoney,
+                    kpis: [
+                        { label: 'Active Pipeline', value: formatCurrency(dashboardData.performance.achieved || 0), color: 'blue' },
+                        { label: 'Conversion Rate', value: `${dashboardData.performance.conversion}%`, color: 'green' },
+                        { label: 'Revenue (Month)', value: formatCurrency(dashboardData.performance.revenue || 0), color: 'purple' },
+                        { label: 'Pending Target', value: formatCurrency(dashboardData.performance.remaining || 0), color: 'red' }
+                    ]
+                };
+            }
+
+            // Merge Inventory Health
+            if (dashboardData.inventoryHealth) {
+                merged.propertyInventory = {
+                    ...merged.propertyInventory,
+                    kpis: dashboardData.inventoryHealth.map(item => ({
+                        label: item.status,
+                        value: item.count,
+                        color: item.status.toLowerCase() === 'available' ? 'green' : 'blue'
+                    }))
+                };
+            }
+
+            // Merge Agenda (Explicit priority to live data)
+            if (dashboardData.agenda) {
+                merged.agenda = {
+                    ...merged.agenda,
+                    tasks: dashboardData.agenda.tasks || [],
+                    siteVisits: dashboardData.agenda.siteVisits || []
+                };
+            }
+
+            // Merge AI Intelligence Hub
+            if (dashboardData.aiAlertHub) {
+                merged.aiAlertHub = {
+                    ...merged.aiAlertHub,
+                    ...dashboardData.aiAlertHub
+                };
+            }
+
+            // Merge Auto Suggestions
+            if (dashboardData.autoSuggestions) {
+                merged.autoSuggestions = {
+                    ...merged.autoSuggestions,
+                    ...dashboardData.autoSuggestions
+                };
+            }
+        }
+        return merged;
+    }, [dashboardData]);
+
+    // 1. Pipeline Liquidity
+    const pipelineValue = dashboardData?.performance?.achieved || 0;
+    const activeDealsCount = dashboardData?.deals?.reduce((sum, d) => sum + d.count, 0) || 0;
+    const totalOutstanding = dashboardData?.performance?.remaining || 0;
+    const totalCommPending = dashboardData?.performance?.revenue || 0;
+
+
     const getFilteredAlerts = () => {
         const allAlerts = [
             ...(data.aiAlertHub?.followupFailure || []),
@@ -102,12 +168,66 @@ const DashboardPage = () => {
                     {/* LEFT COLUMN: VISUALIZATIONS */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
-                        {/* 1. TOP STATS ROW */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '12px' }}>
-                            {(data.priorityAlerts || []).map((alert, i) => (
-                                <div key={i} className="dashboard-card" style={{ padding: '16px', background: '#fff', borderRadius: '16px', textAlign: 'center', border: '1px solid var(--border-color)', position: 'relative', overflow: 'hidden' }}>
-                                    <div style={{ position: 'absolute', top: 0, left: 0, width: '4px', height: '100%', background: alert.color === 'red' ? 'var(--danger-color)' : alert.color === 'orange' ? 'var(--marketing-orange)' : 'var(--primary-color)' }}></div>
-                                    <i className={`fas ${alert.icon}`} style={{ fontSize: '1.2rem', color: alert.color === 'red' ? 'var(--danger-color)' : alert.color === 'orange' ? 'var(--marketing-orange)' : 'var(--primary-color)', marginBottom: '8px' }}></i>
+                        {/* LEAD INTELLIGENCE COMMAND - NEW PREMIUM SECTION */}
+                        <div style={{ background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', padding: '24px', borderRadius: '24px', color: '#fff', boxShadow: '0 20px 40px rgba(0,0,0,0.1)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{ background: 'rgba(255,255,255,0.1)', width: '40px', height: '40px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <i className="fas fa-bolt" style={{ color: '#fbbf24' }}></i>
+                                    </div>
+                                    <div>
+                                        <h2 style={{ fontSize: '1.2rem', fontWeight: 900, marginBottom: '2px', letterSpacing: '-0.5px' }}>Lead Intelligence Command</h2>
+                                        <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)', fontWeight: 800, textTransform: 'uppercase' }}>Real-time Acquisition Hub</div>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.2)', padding: '6px 12px', borderRadius: '12px', color: '#f59e0b', fontSize: '0.7rem', fontWeight: 800 }}>LIVE SYNC</div>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+                                {[
+                                    { label: 'Total Leads', value: (dashboardData?.leads || []).reduce((s, l) => s + l.count, 0), icon: 'fa-users', color: '#4f46e5', trend: '+12%' },
+                                    { label: 'Fresh Inbound', value: (dashboardData?.leads || []).find(l => l.status === 'INCOMING')?.count || 0, icon: 'fa-bolt', color: '#fbbf24', trend: 'Active' },
+                                    { label: 'Hot Prospects', value: (dashboardData?.leads || []).find(l => l.status === 'PROSPECT')?.count || 0, icon: 'fa-fire', color: '#ef4444', trend: 'High Intent' },
+                                    { label: 'Lead Velocity', value: `${dashboardData?.performance?.conversion || 0}%`, icon: 'fa-tachometer-alt', color: '#10b981', trend: 'Optimal' }
+                                ].map((stat, i) => (
+                                    <div key={i} className="glass-stat-card" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '20px', padding: '20px', position: 'relative', overflow: 'hidden' }}>
+                                        <div style={{ position: 'absolute', top: '-10px', right: '-10px', width: '60px', height: '60px', background: stat.color, filter: 'blur(40px)', opacity: 0.2 }}></div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                                            <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: `${stat.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                <i className={`fas ${stat.icon}`} style={{ color: stat.color, fontSize: '0.9rem' }}></i>
+                                            </div>
+                                            <span style={{ fontSize: '0.65rem', fontWeight: 900, color: '#94a3b8' }}>{stat.trend}</span>
+                                        </div>
+                                        <div style={{ fontSize: '1.8rem', fontWeight: 900, color: '#fff', marginBottom: '2px' }}>{stat.value}</div>
+                                        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{stat.label}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* 1. TOP PERFORMANCE ROW (Refactored for Deals/Revenue) */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+                            {dashboardData ? [
+                                { label: 'Active Deals', value: activeDealsCount, icon: 'fa-handshake', color: 'blue', desc: 'In Pipeline' },
+                                { label: 'Negotiations', value: (dashboardData.deals || []).find(d => d.stage === 'NEGOTIATION')?.count || 0, icon: 'fa-comments-dollar', color: 'orange', desc: 'At Final Stage' },
+                                { label: 'Inventory Units', value: (dashboardData.inventoryHealth || []).reduce((s, i) => s + i.count, 0), icon: 'fa-warehouse', color: 'purple', desc: 'Total Assets' },
+                                { label: 'Success Target', value: (dashboardData.deals || []).find(d => d.stage === 'CLOSED')?.count || 0, icon: 'fa-trophy', color: 'green', desc: 'Booked' }
+                            ].map((alert, i) => (
+                                <div key={i} className="dashboard-card" style={{ padding: '20px', background: '#fff', borderRadius: '20px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                    <div style={{ width: '48px', height: '48px', borderRadius: '14px', background: alert.color === 'blue' ? '#eff6ff' : alert.color === 'orange' ? '#fff7ed' : alert.color === 'green' ? '#ecfdf5' : '#f5f3ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <i className={`fas ${alert.icon}`} style={{ fontSize: '1.2rem', color: alert.color === 'blue' ? '#3b82f6' : alert.color === 'orange' ? '#f59e0b' : alert.color === 'green' ? '#10b981' : '#8b5cf6' }}></i>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '1.3rem', fontWeight: 900, color: 'var(--text-main)', lineHeight: 1 }}>{alert.value}</div>
+                                        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-main)', marginTop: '2px' }}>{alert.label}</div>
+                                        <div style={{ fontSize: '0.6rem', fontWeight: 600, color: 'var(--text-muted)' }}>{alert.desc}</div>
+                                    </div>
+                                </div>
+                            )) : (data.priorityAlerts || []).slice(0, 4).map((alert, i) => (
+                                <div key={i} className="dashboard-card" style={{ padding: '16px', background: '#fff', borderRadius: '16px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
+                                    <i className={`fas ${alert.icon}`} style={{ fontSize: '1.2rem', color: 'var(--primary-color)', marginBottom: '8px' }}></i>
                                     <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)' }}>{alert.value}</div>
                                     <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{alert.label}</div>
                                 </div>
@@ -148,11 +268,14 @@ const DashboardPage = () => {
                                             chart: { toolbar: { show: false } },
                                             plotOptions: { bar: { borderRadius: 4, horizontal: true, barHeight: '70%' } },
                                             colors: ['var(--primary-color)'],
-                                            xaxis: { categories: data.pipelineMoney?.funnel?.categories || [] },
+                                            xaxis: { categories: (dashboardData?.leads || []).length > 0 ? dashboardData.leads.map(l => l.status) : ['Incoming', 'Prospect', 'Opp.', 'Neg.', 'Won'] },
                                             grid: { borderColor: '#f1f5f9' },
                                             dataLabels: { enabled: false }
                                         }}
-                                        series={data.pipelineMoney?.funnel?.series || []}
+                                        series={[{
+                                            name: 'Leads',
+                                            data: (dashboardData?.leads || []).length > 0 ? dashboardData.leads.map(l => l.count) : [0, 0, 0, 0, 0]
+                                        }]}
                                         type="bar" height={200}
                                     />
                                 </Suspense>
@@ -177,13 +300,13 @@ const DashboardPage = () => {
                                 <Suspense fallback={<ChartPlaceholder />}>
                                     <Chart
                                         options={{
-                                            labels: data.financialIntelligence?.portfolioMix?.labels || [],
+                                            labels: (data.financialIntelligence?.portfolioMix?.labels || []).length > 0 ? data.financialIntelligence.portfolioMix.labels : ['Plots', 'Villas', 'Industrial'],
                                             colors: ['var(--primary-color)', 'var(--success-color)', 'var(--marketing-orange)', '#8b5cf6'],
                                             legend: { position: 'bottom', fontSize: '11px', fontWeight: 600 },
                                             stroke: { width: 0 },
                                             plotOptions: { pie: { donut: { size: '75%' } } }
                                         }}
-                                        series={data.financialIntelligence?.portfolioMix?.series || []}
+                                        series={(data.financialIntelligence?.portfolioMix?.series || []).length > 0 ? data.financialIntelligence.portfolioMix.series : [0, 0, 0]}
                                         type="donut" height={200}
                                     />
                                 </Suspense>
@@ -333,6 +456,15 @@ const DashboardPage = () => {
                 .control-pill:hover {
                     border-color: var(--primary-color);
                     background: rgba(0,82,255,0.02);
+                }
+                .glass-stat-card {
+                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                    cursor: pointer;
+                }
+                .glass-stat-card:hover {
+                    background: rgba(255,255,255,0.08) !important;
+                    border-color: rgba(255,255,255,0.2) !important;
+                    transform: translateY(-4px) scale(1.02);
                 }
             `}</style>
         </section>

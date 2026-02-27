@@ -1198,7 +1198,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 color: "#1e293b",
                               }}
                             >
-                              {item?.lastComm || "Never"}
+                              {item?.activity || "Never"}
                             </div>
                             <div
                               style={{
@@ -1207,7 +1207,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 fontWeight: 600,
                               }}
                             >
-                              Active: {item?.actionable || "No"}
+                              Last: {item?.lastAct || "Today"}
                             </div>
                             <div
                               style={{

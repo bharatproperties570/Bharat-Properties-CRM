@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { usersAPI, rolesAPI, teamsAPI } from '../utils/api';
+import { usersAPI, rolesAPI, teamsAPI, authAPI } from '../utils/api';
 
 const UserContext = createContext();
 
@@ -17,6 +17,8 @@ export const UserProvider = ({ children }) => {
     const [teams, setTeams] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [token, setToken] = useState(localStorage.getItem('authToken'));
+    const [currentUser, setCurrentUser] = useState(null);
 
     // Fetch initial data
     const fetchAllData = useCallback(async () => {
@@ -53,6 +55,33 @@ export const UserProvider = ({ children }) => {
     useEffect(() => {
         fetchAllData();
     }, [fetchAllData]);
+
+    // Auth Operations
+    const login = async (credentials) => {
+        try {
+            const response = await authAPI.login(credentials);
+            if (response.success) {
+                const newToken = response.token || response.data?.token || response.data?.accessToken;
+                if (newToken) {
+                    localStorage.setItem('authToken', newToken);
+                    setToken(newToken);
+                    setCurrentUser(response.data?.user || response.user || null);
+                    fetchAllData();
+                    return { success: true };
+                }
+            }
+            return { success: false, error: response.data?.message || 'Login failed' };
+        } catch (err) {
+            return { success: false, error: err.message };
+        }
+    };
+
+    const logout = () => {
+        localStorage.removeItem('authToken');
+        setToken(null);
+        setCurrentUser(null);
+        // Optionally redirect or clear other state
+    };
 
     // User Operations
     const addUser = async (userData) => {
@@ -196,7 +225,11 @@ export const UserProvider = ({ children }) => {
         addTeam,
         updateTeam,
         deleteTeam,
-        refreshData
+        refreshData,
+        login,
+        logout,
+        token,
+        currentUser
     };
 
     return (

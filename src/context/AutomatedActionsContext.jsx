@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useCallback } from 'react';
 import { executeAction } from '../utils/automatedActionsEngine';
 import { useFieldRules } from './FieldRulesContext';
 
-const AutomatedActionsContext = createContext();
+export const AutomatedActionsContext = createContext();
 
 export const AutomatedActionsProvider = ({ children }) => {
     const { validate } = useFieldRules();

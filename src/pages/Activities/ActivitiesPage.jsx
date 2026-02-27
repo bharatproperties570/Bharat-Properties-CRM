@@ -1,9 +1,30 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useActivities } from '../../context/ActivityContext';
 import CreateActivityModal from '../../components/CreateActivityModal';
+import ActivityOutcomeModal from '../../components/ActivityOutcomeModal';
 import ActivityFilterPanel from './components/ActivityFilterPanel';
 import { applyActivityFilters } from '../../utils/activityFilterLogic';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
+import { STAGE_PIPELINE } from '../../utils/stageEngine';
+// Note: Stage update logic is handled inside ActivityOutcomeModal via useStageEngine
+
+// Colored stage chip using STAGE_PIPELINE data
+const LeadStageChip = ({ stage }) => {
+    const info = STAGE_PIPELINE.find(s => s.label === stage) || STAGE_PIPELINE[0];
+    if (!stage) return <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic' }}>--</span>;
+    return (
+        <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: '4px',
+            background: info.color + '18', color: info.color,
+            border: `1px solid ${info.color}40`,
+            borderRadius: '5px', padding: '2px 7px',
+            fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.03em'
+        }}>
+            <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: info.color }} />
+            {stage}
+        </span>
+    );
+};
 
 function ActivitiesPage() {
     const { activities, loading, fetchActivities, addActivity } = useActivities();
@@ -14,6 +35,7 @@ function ActivitiesPage() {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedActivity, setSelectedActivity] = useState(null);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [isOutcomeModalOpen, setIsOutcomeModalOpen] = useState(false);
 
     // Selection State
     const [selectedIds, setSelectedIds] = useState([]);
@@ -47,6 +69,14 @@ function ActivitiesPage() {
             console.error('Failed to save activity:', error);
         }
     };
+
+    // "Complete" action: open outcome modal with correct activity pre-set
+    // ActivityOutcomeModal internally calls triggerStageUpdate(leadId, type, purpose, outcome)
+    // — all 4 params passed — Bug 2 fixed by routing through the modal.
+    const handleOpenCompleteModal = useCallback((activity) => {
+        setSelectedActivity(activity);
+        setIsOutcomeModalOpen(true);
+    }, []);
 
     const toggleSelect = (id) => {
         setSelectedIds(prev =>
@@ -623,7 +653,12 @@ function ActivitiesPage() {
                                             <>
                                                 <button className="action-btn" title="Edit Activity"><i className="fas fa-edit"></i> Edit</button>
                                                 <button className="action-btn" title="Reschedule"><i className="fas fa-calendar-alt"></i> Reschedule</button>
-                                                <button className="action-btn" title="Mark Complete"><i className="fas fa-check-circle"></i> Complete</button>
+                                                <button className="action-btn" title="Mark Complete"
+                                                    onClick={() => selectedIds.length === 1 &&
+                                                        handleOpenCompleteModal(filteredActivities.find(a => a._id === selectedIds[0]))}
+                                                >
+                                                    <i className="fas fa-check-circle"></i> Complete
+                                                </button>
                                                 <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
                                             </>
                                         )}
@@ -764,7 +799,7 @@ function ActivitiesPage() {
 
                             <div className="list-scroll-area" style={{ flex: 1, overflow: 'auto' }}>
                                 {/* Activities List Header - Unified for all types */}
-                                <div style={{ position: 'sticky', top: 0, zIndex: 99, padding: '15px 2rem', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'grid', gridTemplateColumns: '40px 200px 150px 300px 120px 300px 120px 120px 120px', gap: '1rem', alignItems: 'center', minWidth: '1600px' }}>
+                                <div style={{ position: 'sticky', top: 0, zIndex: 99, padding: '15px 2rem', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'grid', gridTemplateColumns: '40px 200px 150px 300px 120px 300px 120px 120px 120px 100px', gap: '1rem', alignItems: 'center', minWidth: '1700px' }}>
                                     <div><input type="checkbox" onChange={toggleSelectAll} checked={selectedIds.length === filteredActivities.length} /></div>
                                     <div>Details</div>
                                     <div>Scheduled Date</div>
@@ -774,6 +809,7 @@ function ActivitiesPage() {
                                     <div>Scheduled By</div>
                                     <div>Scheduled For</div>
                                     <div>Stage / Status</div>
+                                    <div style={{ textAlign: 'center' }}>Actions</div>
                                 </div>
 
                                 {/* Activities List - Unified Layout */}
@@ -789,13 +825,13 @@ function ActivitiesPage() {
                                                 border: selectedActivity?._id === activity._id ? '2px solid #10b981' : '1px solid #e2e8f0',
                                                 background: selectedActivity?._id === activity._id ? '#f0fdf4' : '#fff',
                                                 display: 'grid',
-                                                gridTemplateColumns: '40px 200px 150px 300px 120px 300px 120px 120px 120px',
+                                                gridTemplateColumns: '40px 200px 150px 300px 120px 300px 120px 120px 120px 100px',
                                                 gap: '1rem',
                                                 alignItems: 'center',
                                                 transition: 'all 0.2s',
                                                 cursor: 'pointer',
                                                 boxShadow: selectedActivity?._id === activity._id ? '0 4px 12px rgba(16, 185, 129, 0.1)' : '0 1px 2px rgba(0,0,0,0.04)',
-                                                minWidth: '1600px'
+                                                minWidth: '1700px'
                                             }}
                                         >
                                             {/* Checkbox */}
@@ -880,17 +916,57 @@ function ActivitiesPage() {
 
                                             {/* Stage / Status */}
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
+                                                {/* Lead Stage chip */}
+                                                {activity.relatedTo?.[0]?.stage && (
+                                                    <LeadStageChip stage={activity.relatedTo[0].stage} />
+                                                )}
+                                                {/* Activity Status badge */}
                                                 <span style={{
-                                                    fontSize: '0.75rem',
-                                                    fontWeight: 800,
-                                                    padding: '4px 10px',
-                                                    borderRadius: '12px',
-                                                    background: activity.status?.toLowerCase() === 'completed' ? '#d1fae5' : '#fee2e2',
-                                                    color: activity.status?.toLowerCase() === 'completed' ? '#065f46' : '#991b1b',
+                                                    fontSize: '0.68rem',
+                                                    fontWeight: 700,
+                                                    padding: '3px 8px',
+                                                    borderRadius: '10px',
+                                                    background: activity.status?.toLowerCase() === 'completed'
+                                                        ? '#d1fae5'
+                                                        : activity.status?.toLowerCase() === 'overdue'
+                                                            ? '#fee2e2'
+                                                            : '#fffbeb',
+                                                    color: activity.status?.toLowerCase() === 'completed'
+                                                        ? '#065f46'
+                                                        : activity.status?.toLowerCase() === 'overdue'
+                                                            ? '#991b1b'
+                                                            : '#92400e',
                                                     width: 'fit-content'
                                                 }}>
                                                     {activity.status}
                                                 </span>
+                                            </div>
+
+                                            {/* Actions */}
+                                            <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                                                {activity.status?.toLowerCase() !== 'completed' && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setSelectedActivity(activity);
+                                                            setIsOutcomeModalOpen(true);
+                                                        }}
+                                                        style={{
+                                                            padding: '6px 12px',
+                                                            borderRadius: '6px',
+                                                            border: 'none',
+                                                            background: '#10b981',
+                                                            color: '#fff',
+                                                            fontSize: '0.7rem',
+                                                            fontWeight: 800,
+                                                            cursor: 'pointer',
+                                                            boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)'
+                                                        }}
+                                                        title="Log Outcome"
+                                                    >
+                                                        Complete
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                     ))}
@@ -971,6 +1047,16 @@ function ActivitiesPage() {
                 }}
                 onReset={() => setFilters({})}
             />
+            {isOutcomeModalOpen && (
+                <ActivityOutcomeModal
+                    isOpen={isOutcomeModalOpen}
+                    onClose={() => {
+                        setIsOutcomeModalOpen(false);
+                        fetchActivities(); // Refresh activities after completion
+                    }}
+                    activity={selectedActivity || activities.find(a => a._id === selectedIds[0])}
+                />
+            )}
         </section >
     );
 }

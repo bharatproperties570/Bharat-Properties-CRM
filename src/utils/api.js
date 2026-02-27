@@ -34,9 +34,13 @@ const apiRequest = async (endpoint, options = {}) => {
             delete options.params;
         }
 
+        // Retrieve token from localStorage
+        const token = localStorage.getItem('authToken');
+
         const response = await fetch(url, {
             headers: {
-                'Content-Type': 'application/json',
+                ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
                 ...options.headers,
             },
             ...options,
@@ -237,7 +241,43 @@ export const enrichmentAPI = {
     getLogs: (params) => apiRequest('/enrichment/logs', { params }),
 };
 
+// Parsing Rules API
+export const parsingRulesAPI = {
+    getAll: () => apiRequest('/parsing-rules'),
+    create: (data) => apiRequest('/parsing-rules', { method: 'POST', body: JSON.stringify(data) }),
+    bulkCreate: (data) => apiRequest('/parsing-rules/bulk', { method: 'POST', body: JSON.stringify(data) }),
+    delete: (id) => apiRequest(`/parsing-rules/${id}`, { method: 'DELETE' }),
+};
+
+// Intake API
+export const intakeAPI = {
+    getAll: () => apiRequest('/intake'),
+    updateStatus: (id, status) => apiRequest(`/intake/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    uploadZip: (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        return apiRequest('/intake/zip', { method: 'POST', body: formData });
+    },
+    uploadPdf: (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        return apiRequest('/intake/pdf', { method: 'POST', body: formData });
+    },
+    uploadOcr: (file) => {
+        const formData = new FormData();
+        formData.append('image', file);
+        return apiRequest('/intake/ocr', { method: 'POST', body: formData });
+    },
+};
+
+// Auth API
+export const authAPI = {
+    login: (credentials) => apiRequest('/auth/login', { method: 'POST', body: JSON.stringify(credentials) }),
+    register: (data) => apiRequest('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
+};
+
 export default {
+    auth: authAPI,
     users: usersAPI,
     roles: rolesAPI,
     leads: leadsAPI,
@@ -253,5 +293,7 @@ export default {
     systemSettings: systemSettingsAPI,
     settings: systemSettingsAPI, // Map settings to systemSettingsAPI for compatibility
     deals: dealsAPI,
-    enrichment: enrichmentAPI
+    enrichment: enrichmentAPI,
+    parsingRules: parsingRulesAPI,
+    intake: intakeAPI
 };

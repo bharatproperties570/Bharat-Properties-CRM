@@ -125,4 +125,49 @@ const ProjectSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
+// Helper to resolve lookup (Find or Create)
+const resolveLookupLocal = async (type, value) => {
+    if (!value) return null;
+    if (mongoose.Types.ObjectId.isValid(value)) return value;
+    const Lookup = mongoose.model('Lookup');
+    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${value}$`, 'i') } });
+    if (!lookup) {
+        lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
+    }
+    return lookup._id;
+};
+
+// Middleware to resolve lookup names to IDs before saving
+ProjectSchema.pre('save', async function (next) {
+    if (this.status && typeof this.status === 'string') this.status = await resolveLookupLocal('ProjectStatus', this.status);
+    if (this.parkingType && typeof this.parkingType === 'string') this.parkingType = await resolveLookupLocal('ParkingType', this.parkingType);
+    if (this.unitType && typeof this.unitType === 'string') this.unitType = await resolveLookupLocal('UnitType', this.unitType);
+
+    // Handle arrays
+    if (Array.isArray(this.category)) {
+        this.category = await Promise.all(this.category.map(val => typeof val === 'string' ? resolveLookupLocal('Category', val) : val));
+    }
+    if (Array.isArray(this.subCategory)) {
+        this.subCategory = await Promise.all(this.subCategory.map(val => typeof val === 'string' ? resolveLookupLocal('SubCategory', val) : val));
+    }
+    next();
+});
+
+ProjectSchema.pre('findOneAndUpdate', async function (next) {
+    const update = this.getUpdate();
+    if (!update) return next();
+
+    if (update.status && typeof update.status === 'string') update.status = await resolveLookupLocal('ProjectStatus', update.status);
+    if (update.parkingType && typeof update.parkingType === 'string') update.parkingType = await resolveLookupLocal('ParkingType', update.parkingType);
+    if (update.unitType && typeof update.unitType === 'string') update.unitType = await resolveLookupLocal('UnitType', update.unitType);
+
+    if (update.category && Array.isArray(update.category)) {
+        update.category = await Promise.all(update.category.map(val => typeof val === 'string' ? resolveLookupLocal('Category', val) : val));
+    }
+    if (update.subCategory && Array.isArray(update.subCategory)) {
+        update.subCategory = await Promise.all(update.subCategory.map(val => typeof val === 'string' ? resolveLookupLocal('SubCategory', val) : val));
+    }
+    next();
+});
+
 export default mongoose.model("Project", ProjectSchema);

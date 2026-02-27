@@ -271,8 +271,44 @@ export const addDeal = async (req, res) => {
 export const updateDeal = async (req, res) => {
     try {
         const sanitizedData = sanitizeData(req.body);
+
+        // ━━ Stage History: auto-track if stage is changing ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        if (sanitizedData.stage) {
+            const existing = await Deal.findById(req.params.id).select('stage stageHistory stageChangedAt createdAt').lean();
+            if (existing && existing.stage !== sanitizedData.stage) {
+                const now = new Date();
+                const historyUpdate = {};
+
+                // Close previous open entry
+                if (existing.stageHistory?.length > 0) {
+                    const lastIdx = existing.stageHistory.length - 1;
+                    const last = existing.stageHistory[lastIdx];
+                    if (!last.exitedAt) {
+                        const enteredAt = new Date(last.enteredAt || existing.stageChangedAt || existing.createdAt);
+                        const daysInStage = Math.floor((now - enteredAt) / 86400000);
+                        historyUpdate[`stageHistory.${lastIdx}.exitedAt`] = now;
+                        historyUpdate[`stageHistory.${lastIdx}.daysInStage`] = daysInStage;
+                    }
+                }
+
+                await Deal.findByIdAndUpdate(req.params.id, {
+                    $set: historyUpdate,
+                    $push: {
+                        stageHistory: {
+                            stage: sanitizedData.stage,
+                            enteredAt: now,
+                            triggeredBy: sanitizedData.triggeredBy || 'system',
+                            reason: sanitizedData.stageSyncReason || null
+                        }
+                    }
+                });
+
+                sanitizedData.stageChangedAt = now;
+            }
+        }
+
         const deal = await Deal.findByIdAndUpdate(req.params.id, sanitizedData, { new: true });
-        if (!deal) return res.status(404).json({ success: false, error: "Deal not found" });
+        if (!deal) return res.status(404).json({ success: false, error: 'Deal not found' });
         await syncInventoryStatus(deal);
         res.json({ success: true, data: deal });
     } catch (error) {

@@ -4,11 +4,19 @@ import { PROJECT_DATA } from '../data/projectData';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useSequences } from '../context/SequenceContext';
 import { useTriggers } from '../context/TriggersContext';
+import { useStageEngine } from '../hooks/useStageEngine';
 
 const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
     const { activityMasterFields } = usePropertyConfig();
     const { updateEnrollmentStatus } = useSequences();
     const { fireEvent } = useTriggers();
+    const { triggerStageUpdate, extractOutcome } = useStageEngine();
+    const [stageToast, setStageToast] = useState(null);
+
+    const showStageToast = (msg) => {
+        setStageToast(msg);
+        setTimeout(() => setStageToast(null), 4000);
+    };
     const [formData, setFormData] = useState({
         activityType: 'Call',
         subject: '',
@@ -383,6 +391,23 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
             if (formData.status === 'Completed') {
                 fireEvent('activity_completed', backendData, { entityType: 'activities' });
             }
+
+            // ── STAGE ENGINE INTEGRATION ──────────────────────────────────────────
+            // Auto-compute and update lead stage when a Completed activity is saved
+            if (formData.status === 'Completed' || formData.status === 'Completed') {
+                const entityId = backendData.entityId;
+                const entityType = (backendData.entityType || '').toLowerCase();
+                if (entityId && (entityType === 'lead' || entityType === 'leads')) {
+                    const outcome = extractOutcome(backendData.type, backendData.details || {});
+                    const purpose = backendData.details?.purpose || '';
+                    triggerStageUpdate(entityId, backendData.type, purpose, outcome).then(result => {
+                        if (result.stage) {
+                            showStageToast(`✅ Stage auto-updated → ${result.stage}`);
+                        }
+                    }).catch(err => console.warn('[StageEngine] update after activity save failed:', err));
+                }
+            }
+            // ─────────────────────────────────────────────────────────────────────
 
             onClose();
         }

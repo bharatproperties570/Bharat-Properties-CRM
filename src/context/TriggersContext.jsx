@@ -1,13 +1,15 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { evaluateAndExecuteTriggers } from '../utils/triggersEngine';
 import { useSequences } from './SequenceContext';
-import { useAutomatedActions } from './AutomatedActionsContext';
+import { AutomatedActionsContext } from './AutomatedActionsContext';
 
 const TriggersContext = createContext();
 
 export const TriggersProvider = ({ children }) => {
     const { enrollInSequence, updateEnrollmentStatus } = useSequences();
-    const { invokeAction } = useAutomatedActions();
+    // AutomatedActionsContext is read lazily inside fireEvent to avoid
+    // provider ordering issues during React HMR refresh.
+    const automatedActionsCtx = useContext(AutomatedActionsContext);
 
     // Trigger Definitions (Pre-seeded with examples)
     const [triggers, setTriggers] = useState([
@@ -254,7 +256,11 @@ export const TriggersProvider = ({ children }) => {
                 },
 
                 fireAutomatedAction: async (automatedActionId, entity) => {
-                    const result = await invokeAction(automatedActionId, entity, context);
+                    if (!automatedActionsCtx?.invokeAction) {
+                        console.warn('[Triggers] AutomatedActionsContext not available — skipping action');
+                        return { success: false, reason: 'AutomatedActionsContext unavailable' };
+                    }
+                    const result = await automatedActionsCtx.invokeAction(automatedActionId, entity, context);
                     return result;
                 },
 

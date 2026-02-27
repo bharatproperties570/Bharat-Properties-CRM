@@ -18,10 +18,13 @@
         "ioredis": "^5.9.2",
         "joi": "^18.0.2",
         "jsonwebtoken": "^9.0.2",
+        "jszip": "^3.10.1",
         "mongoose": "^8.7.0",
         "mongoose-paginate-v2": "^1.9.1",
         "multer": "^2.0.2",
-        "nodemailer": "^8.0.1"
+        "nodemailer": "^8.0.1",
+        "pdf-parse": "^1.1.4",
+        "tesseract.js": "^7.0.0"
     },
     "devDependencies": {
         "nodemon": "^3.1.7"

@@ -26,6 +26,9 @@ import fieldRuleRoutes from "./modules/rules/fieldRule.routes.js";
 import distributionRoutes from "./modules/rules/distribution.routes.js";
 import scoringRoutes from "./modules/rules/scoring.routes.js";
 import systemRoutes from "./modules/systemSettings/system.routes.js";
+import parsingRoutes from "./modules/parsing/parsingRule.routes.js";
+import intakeRoutes from "./modules/intake/intake.routes.js";
+
 
 // Middleware
 import { errorHandler } from "./middlewares/error.middleware.js";
@@ -64,6 +67,8 @@ app.use("/rules/field", fieldRuleRoutes);
 app.use("/rules/distribution", distributionRoutes);
 app.use("/scoring-rules", scoringRoutes);
 app.use("/system-settings", systemRoutes);
+app.use("/parsing-rules", parsingRoutes);
+app.use("/intake", intakeRoutes);
 
 // Error Handling Middleware (must be last)
 app.use(errorHandler);

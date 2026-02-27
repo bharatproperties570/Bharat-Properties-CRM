@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import PipelineDashboard from '../../components/PipelineDashboard';
 import Swal from 'sweetalert2';
 import { leadData } from '../../data/mockData';
-import { api } from '../../utils/api';
+import { api, enrichmentAPI } from '../../utils/api';
 import { getInitials } from '../../utils/helpers';
 import toast from 'react-hot-toast';
 import SendMessageModal from '../../components/SendMessageModal';
@@ -14,6 +14,7 @@ import AddLeadModal from '../../components/AddLeadModal';
 import LeadConversionService from '../../services/LeadConversionService';
 import { calculateLeadScore } from '../../utils/leadScoring';
 import AIExpertService from '../../services/AIExpertService';
+import { STAGE_PIPELINE } from '../../utils/stageEngine';
 
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { useSequences } from '../../context/SequenceContext';
@@ -43,6 +44,16 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         getLookupValue
     } = usePropertyConfig();
 
+    // ── STAGE ENGINE SYNC ──────────────────────────────────────────
+    useEffect(() => {
+        const handleActivitySync = (e) => {
+            console.log('[LeadsPage] Activity sync event received:', e.detail);
+            setRefreshTrigger(prev => prev + 1);
+        };
+        window.addEventListener('activity-completed', handleActivitySync);
+        return () => window.removeEventListener('activity-completed', handleActivitySync);
+    }, []);
+    // ────────────────────────────────────────────────────────────────
     const { fireEvent } = useTriggers();
     const { startCall } = useCall();
     const { executeDistribution } = useDistribution();
@@ -66,7 +77,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(10);
-    const [refreshTrigger, setRefreshTrigger] = useState(0); // Add refresh trigger
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const [liveScores, setLiveScores] = useState({}); // { leadId: { score, color, label } } from stage engine
 
     // Filter State
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
@@ -261,6 +273,11 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 setTotalCount(totalDocs);
                 setTotalPages(pages);
 
+                // ── Stage Engine: fetch live scores for this page's leads ──
+                api.get('stage-engine/leads/scores')
+                    .then(r => { if (r.data?.success) setLiveScores(r.data.scores); })
+                    .catch(() => { }); // non-blocking — silent fallback to client-side score
+
             } catch (error) {
                 console.error("Error fetching leads:", error);
                 toast.error("Error loading leads");
@@ -400,8 +417,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     </div>
                 </div>
 
-                {/* Pipeline Dashboard - Scrolls Away */}
-                <PipelineDashboard />
+                {/* Pipeline Dashboard - Dynamic Data */}
+                <PipelineDashboard data={leads} refreshTrigger={refreshTrigger} />
 
                 {/* Content Body */}
                 <div className="content-body" style={{ display: 'flex', flexDirection: 'column', height: 'auto', overflow: 'visible', paddingTop: 0, position: 'relative' }}>
@@ -833,7 +850,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             </div>
                                         </div>
                                         <div style={{ display: 'flex', gap: '8px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
-                                            <button className="btn-icon" style={{ flex: 1, padding: '6px', fontSize: '0.9rem', color: '#16a34a', background: '#f0fdf4', borderRadius: '6px', border: 'none', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); enrichmentAPI.runLead(lead._id).then(() => { toast.success('Enrichment updated'); setRefreshTrigger(t => t + 1); }); }} title="Run Enrichment"><i className="fas fa-magic"></i></button>
+                                            <button className="btn-icon" style={{ flex: 1, padding: '6px', fontSize: '0.9rem', color: '#16a34a', background: '#f0fdf4', borderRadius: '6px', border: 'none', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); enrichmentAPI.runLead(lead._id).then(() => { toast.success('Enrichment updated'); setRefreshTrigger(t => t + 1); }).catch(() => toast.error('Enrichment failed')); }} title="Run Enrichment"><i className="fas fa-magic"></i></button>
                                             <button className="btn-icon" style={{ flex: 1, padding: '6px', fontSize: '0.9rem', color: '#3b82f6', background: '#eff6ff', borderRadius: '6px', border: 'none', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); startCall({ name: lead.name, mobile: lead.mobile }, { purpose: 'Lead Follow-up', entityId: lead._id, entityType: 'lead' }); }}><i className="fas fa-phone-alt"></i></button>
                                             <button className="btn-icon" style={{ flex: 1, padding: '6px', fontSize: '0.9rem', color: '#64748b', background: '#f1f5f9', borderRadius: '6px', border: 'none', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onEdit(lead); }}><i className="fas fa-edit"></i></button>
                                         </div>
@@ -884,11 +901,17 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                 {/* Dynamic Lead Scoring Engine Badge */}
                                                 <div style={{ position: 'relative' }}>
                                                     {(() => {
+                                                        // Prefer backend stage engine score; fall back to client-side
+                                                        const backendScore = liveScores[c._id];
                                                         const scoring = calculateLeadScore(c, c.activities || [], scoringConfig);
-                                                        const temp = scoring.temperature;
+                                                        const displayScore = backendScore ? backendScore.score : scoring.total;
+                                                        const displayColor = backendScore ? backendScore.color : scoring.temperature.color;
+                                                        const tempClass = backendScore
+                                                            ? (displayScore >= 81 ? 'super-hot' : displayScore >= 61 ? 'hot' : displayScore >= 31 ? 'warm' : 'cold')
+                                                            : scoring.temperature.class;
                                                         return (
                                                             <div
-                                                                className={`score-indicator ${temp.class}`}
+                                                                className={`score-indicator ${tempClass}`}
                                                                 style={{
                                                                     width: '42px',
                                                                     height: '42px',
@@ -899,9 +922,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                                     justifyContent: 'center',
                                                                     fontWeight: '900',
                                                                     border: '2px solid rgba(255,255,255,0.2)',
-                                                                    cursor: 'pointer',
                                                                     boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                                                                    background: temp.color,
+                                                                    background: displayColor,
                                                                     color: '#fff'
                                                                 }}
                                                                 onClick={(e) => {
@@ -911,12 +933,12 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                                         name: c.name,
                                                                         x: rect.left,
                                                                         y: rect.bottom + 10,
-                                                                        scoring,
+                                                                        scoring: backendScore ? { ...scoring, total: displayScore } : scoring,
                                                                         ai: aiExplanation
                                                                     });
                                                                 }}
                                                             >
-                                                                {scoring.total}
+                                                                {displayScore}
                                                             </div>
                                                         );
                                                     })()}
@@ -1053,15 +1075,36 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                                         <div className="col-status" key={`status-${c._id || idx}`}>
                                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
-                                                <div style={{ fontWeight: 800, fontSize: '0.7rem', color: '#1a1f23', textTransform: 'uppercase' }}>
-                                                    {renderValue(getLookupValue('Status', c.status), null) || (typeof c.statusFallback === 'object' ? c.statusFallback.label : c.statusFallback)}
-                                                </div>
                                                 <span
                                                     className={`status-badge ${(renderValue(getLookupValue('Status', c.status), null) || (typeof c.statusFallback === 'object' ? c.statusFallback.class : 'new')).toLowerCase()}`}
                                                     style={{ height: '20px', fontSize: '0.65rem', padding: '0 8px', borderRadius: '4px' }}
                                                 >
-                                                    {(renderValue(getLookupValue('Status', c.status), null) || (typeof c.statusFallback === 'object' ? c.statusFallback.class : 'new')).toUpperCase()}
+                                                    {(renderValue(getLookupValue('Status', c.status), null) || (typeof c.statusFallback === 'object' ? c.statusFallback.label : c.statusFallback || 'NEW')).toUpperCase()}
                                                 </span>
+
+                                                {/* ── STAGE ENGINE CHIP ─────────────────────── */}
+                                                {(() => {
+                                                    const stageName = c.stage || 'New';
+                                                    const stageInfo = STAGE_PIPELINE.find(s => s.label.toLowerCase() === stageName.toLowerCase()) || { color: '#94a3b8', icon: 'fa-circle', label: stageName };
+                                                    return (
+                                                        <span title="Auto-computed stage" style={{
+                                                            display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                                            background: stageInfo.color + '18',
+                                                            color: stageInfo.color,
+                                                            border: `1px solid ${stageInfo.color}40`,
+                                                            borderRadius: '5px',
+                                                            padding: '2px 7px',
+                                                            fontSize: '0.6rem',
+                                                            fontWeight: 800,
+                                                            letterSpacing: '0.3px',
+                                                        }}>
+                                                            <i className={`fas ${stageInfo.icon}`} style={{ fontSize: '0.5rem' }}></i>
+                                                            {stageInfo.label.toUpperCase()}
+                                                        </span>
+                                                    );
+                                                })()}
+                                                {/* ─────────────────────────────────────────── */}
+
                                                 <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                     {renderValue(getLookupValue('Source', c.source), null) || c.sourceFallback}
                                                     <i className="fas fa-info-circle" title="AI Insight: Facebook leads convert better when called within 30 mins" style={{ fontSize: '0.6rem', color: '#cbd5e1' }}></i>

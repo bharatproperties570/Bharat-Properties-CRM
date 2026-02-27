@@ -34,7 +34,7 @@ const DealSchema = new mongoose.Schema({
     inventoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' },
     stage: {
         type: String,
-        enum: ['Open', 'Quote', 'Negotiation', 'Booked', 'Closed', 'Cancelled'],
+        enum: ['Open', 'Quote', 'Negotiation', 'Booked', 'Closed', 'Cancelled', 'Closed Won', 'Closed Lost', 'Stalled'],
         default: 'Open'
     },
     dealProbability: { type: Number, default: 50 },
@@ -154,7 +154,30 @@ const DealSchema = new mongoose.Schema({
         },
         remarks: String
     },
-    negotiation_window: { type: Boolean, default: false }
+    negotiation_window: { type: Boolean, default: false },
+
+    // ━━ Stage Engine Fields (MongoDB integration) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    stageChangedAt: { type: Date, index: true },
+    lastActivityAt: { type: Date, index: true },
+    stageSyncReason: { type: String },   // Reason populated by syncDealStage
+
+    // Stage History: Full Audit Trail
+    stageHistory: [{
+        stage: { type: String, required: true },
+        enteredAt: { type: Date, default: Date.now },
+        exitedAt: { type: Date },
+        daysInStage: { type: Number, default: 0 },
+        triggeredBy: {
+            type: String,
+            enum: ['activity', 'manual_override', 'bulk_recalc', 'system', 'import'],
+            default: 'system'
+        },
+        activityId: { type: mongoose.Schema.Types.ObjectId, ref: 'Activity' },
+        activityType: { type: String },
+        outcome: { type: String },
+        triggeredByUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        reason: { type: String }
+    }]
 }, { timestamps: true, strict: false });
 
 export default mongoose.model("Deal", DealSchema);

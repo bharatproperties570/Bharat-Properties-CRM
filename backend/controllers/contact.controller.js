@@ -69,6 +69,35 @@ export const getContacts = async (req, res, next) => {
         // If populate is array, it works.
         const results = await paginate(Contact, query, Number(page), Number(limit), { createdAt: -1 }, populateFields);
 
+        // Attach Interaction Data (Latest Activity)
+        if (results.records && results.records.length > 0) {
+            const contactIds = results.records.map(r => r._id);
+            const latestActivities = await Activity.aggregate([
+                { $match: { entityId: { $in: contactIds.map(id => id.toString()) } } },
+                { $sort: { createdAt: -1 } },
+                {
+                    $group: {
+                        _id: "$entityId",
+                        latestActivity: { $first: "$$ROOT" }
+                    }
+                }
+            ]);
+
+            const activityMap = new Map();
+            latestActivities.forEach(item => {
+                activityMap.set(item._id, item.latestActivity);
+            });
+
+            results.records = results.records.map(contact => {
+                const activity = activityMap.get(contact._id.toString());
+                return {
+                    ...contact,
+                    activity: activity ? activity.subject : "None",
+                    lastAct: activity ? new Date(activity.createdAt).toLocaleDateString() : "Today"
+                };
+            });
+        }
+
         res.status(200).json({
             success: true,
             ...results

@@ -15,6 +15,7 @@ import AddSizeModal from '../../../components/modals/AddSizeModal';
 import AddContactModal from '../../../components/AddContactModal'; // Imported AddContactModal
 import UploadSummaryModal from '../../../components/UploadSummaryModal';
 import QuickDealForm from '../../../components/QuickDealForm';
+import { intakeAPI } from '../../../utils/api';
 
 const DealIntakePage = () => {
     // Shared State
@@ -73,37 +74,16 @@ const DealIntakePage = () => {
         return normalized.length === 10 ? normalized : null;
     };
 
-    // Load intake history from localStorage
-    const loadIntakeHistory = () => {
+    // Load intake history from backend
+    const loadIntakeHistory = async () => {
         try {
-            const stored = localStorage.getItem('dealIntakeHistory');
-            if (stored) {
-                const history = JSON.parse(stored);
-                // Filter out entries older than 30 days
-                const thirtyDaysAgo = new Date();
-                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-                const filtered = history.filter(item =>
-                    new Date(item.receivedAt) > thirtyDaysAgo
-                );
-                return filtered;
+            const response = await intakeAPI.getAll();
+            if (response.success) {
+                setIntakeItems(response.data);
             }
         } catch (error) {
             console.error('Error loading intake history:', error);
-        }
-        return [];
-    };
-
-    // Save intake history to localStorage
-    const saveIntakeHistory = (history) => {
-        try {
-            localStorage.setItem('dealIntakeHistory', JSON.stringify(history));
-        } catch (error) {
-            console.error('Error saving intake history:', error);
-            // If localStorage is full, remove oldest entries
-            if (error.name === 'QuotaExceededError') {
-                const reduced = history.slice(0, Math.floor(history.length / 2));
-                localStorage.setItem('dealIntakeHistory', JSON.stringify(reduced));
-            }
+            toast.error('Failed to load intake history');
         }
     };
 
@@ -230,20 +210,12 @@ const DealIntakePage = () => {
 
     // Load history on component mount
     useEffect(() => {
-        const history = loadIntakeHistory();
-        setIntakeHistory(history);
+        loadIntakeHistory();
 
-        // Run cleanup daily
-        const cleanupInterval = setInterval(cleanupOldIntakes, 24 * 60 * 60 * 1000);
-        return () => clearInterval(cleanupInterval);
+        // Run re-fetch periodically instead of cleanup (live sync)
+        const fetchInterval = setInterval(loadIntakeHistory, 30000); // 30s
+        return () => clearInterval(fetchInterval);
     }, []);
-
-    // Cleanup on mount and periodically
-    useEffect(() => {
-        if (intakeHistory.length > 0) {
-            cleanupOldIntakes();
-        }
-    }, [intakeHistory.length]);
 
     // ===== END DUPLICATE DETECTION UTILITIES =====
 
@@ -257,26 +229,27 @@ const DealIntakePage = () => {
         if (!selectedFile) return;
 
         setIsImporting(true);
-        const toastId = toast.loading('Parsing file...');
+        const toastId = toast.loading('Processing file via backend...');
 
         try {
-            let parsedItems = [];
-
+            let response;
             if (selectedFile.name.endsWith('.zip')) {
-                parsedItems = await parseWhatsAppZip(selectedFile);
+                response = await intakeAPI.uploadZip(selectedFile);
             } else if (selectedFile.name.endsWith('.pdf')) {
-                parsedItems = await parseTribunePdf(selectedFile);
+                response = await intakeAPI.uploadPdf(selectedFile);
+            } else if (selectedFile.name.match(/\.(jpg|jpeg|png|gif)$/i)) {
+                response = await intakeAPI.uploadOcr(selectedFile);
             } else {
-                throw new Error('Unsupported format. Please upload .zip (WhatsApp) or .pdf (Tribune).');
+                throw new Error('Unsupported format. Please upload .zip, .pdf or image.');
             }
 
-            if (parsedItems.length === 0) {
-                toast.error('No valid messages found', { id: toastId });
-            } else {
-                setIntakeItems(prev => [...parsedItems, ...prev]);
-                toast.success(`Imported ${parsedItems.length} items!`, { id: toastId });
+            if (response.success) {
+                toast.success('Imported successfully!', { id: toastId });
                 setIsImportModalOpen(false);
-                setSelectedFile(null); // Reset
+                setSelectedFile(null);
+                loadIntakeHistory(); // Refresh from backend
+            } else {
+                throw new Error(response.message || 'Import failed');
             }
 
         } catch (error) {
@@ -375,10 +348,13 @@ const DealIntakePage = () => {
 
     // --- LEGACY HELPERS REMOVED (Replaced by dealParser.js) ---
 
-    const handleSelectIntake = (item) => {
+    const handleSelectIntake = async (item) => {
         setCurrentItem(item);
 
         try {
+            // Update status to 'Processed' or similar if needed, or just leave as is
+            // For now, let's keep it 'Raw Received' until a deal is actually created.
+
             // Use Multi-Deal Splitter (With dynamic patterns)
             const deals = splitIntakeMessage(item.content, customPatterns);
             console.log("Parsed Deals:", deals); // Debug Log
@@ -481,52 +457,37 @@ const DealIntakePage = () => {
         loadDealIntoWorkflow(parsedDeals[index]);
     };
 
-    const handleAddIntake = () => {
+    const handleAddIntake = async () => {
         if (!newSourceContent.trim()) return;
 
-        const newItem = {
-            id: Date.now(),
-            source: campaignSource || newSourceType,
-            content: newSourceContent,
-            receivedAt: new Date().toISOString(),
-            status: 'Raw Received',
-            campaignName: campaignName
-        };
+        const toastId = toast.loading('Saving to backend...');
+        try {
+            const payload = {
+                source: campaignSource || newSourceType,
+                content: newSourceContent,
+                campaignName: campaignName
+            };
 
-        // Check for duplicates
-        const duplicateInfo = checkDuplicateAndFrequency(newItem, dealData);
-        newItem.duplicateInfo = duplicateInfo;
-        newItem.category = duplicateInfo.category;
+            // In our backend, we should probably have a manual post endpoint or just use another one.
+            // Let's assume we can POST to /intake directly or use a specific one.
+            // Since I didn't add a specific "manual" POST, I'll use the generic one if I add it, 
+            // OR I can add it to intake.controller.js now.
+            // Actually, I'll add a generic create endpoint to intake.controller.js.
 
-        // Add to intake items
-        setIntakeItems([newItem, ...intakeItems]);
+            // For now, let's assume I'll add a 'create' method.
+            const response = await apiRequest('/intake', { method: 'POST', body: JSON.stringify(payload) });
 
-        // Add to history and save to localStorage
-        const updatedHistory = [newItem, ...intakeHistory];
-        setIntakeHistory(updatedHistory);
-        saveIntakeHistory(updatedHistory);
-
-        // Clear form
-        setNewSourceContent('');
-        setCampaignName('');
-        setCampaignSource('WhatsApp');
-        setIsAddModalOpen(false);
-
-        // Show notification with duplicate info
-        if (duplicateInfo.isDuplicate) {
-            // Calculate how old the duplicate is
-            const daysSinceLastSeen = duplicateInfo.lastSeen
-                ? Math.floor((new Date() - new Date(duplicateInfo.lastSeen)) / (1000 * 60 * 60 * 24))
-                : 0;
-            const ageText = daysSinceLastSeen === 0 ? 'today' :
-                daysSinceLastSeen === 1 ? 'yesterday' :
-                    `${daysSinceLastSeen} days ago`;
-
-            toast.warning(`Duplicate! ${duplicateInfo.category.toUpperCase()} (seen ${duplicateInfo.frequency}x, last ${ageText})`, {
-                duration: 5000
-            });
-        } else {
-            toast.success('New Intake Added');
+            if (response.success) {
+                toast.success('New Intake Added', { id: toastId });
+                setNewSourceContent('');
+                setCampaignName('');
+                setCampaignSource('WhatsApp');
+                setIsAddModalOpen(false);
+                loadIntakeHistory(); // Refresh
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error('Failed to save intake', { id: toastId });
         }
     };
 
@@ -535,54 +496,30 @@ const DealIntakePage = () => {
         if (!file) return;
 
         setIsImporting(true);
-        const toastId = toast.loading('Parsing file...');
+        const toastId = toast.loading('Uploading file to backend...');
 
         try {
-            let parsedItems = [];
-
+            let response;
             if (file.name.endsWith('.zip')) {
-                parsedItems = await parseWhatsAppZip(file);
+                response = await intakeAPI.uploadZip(file);
             } else if (file.name.endsWith('.pdf')) {
-                parsedItems = await parseTribunePdf(file);
+                response = await intakeAPI.uploadPdf(file);
             } else if (file.name.match(/\.(jpg|jpeg|png|gif)$/i)) {
-                // Handle image files - create a single intake item
-                parsedItems = [{
-                    id: Date.now(),
-                    source: campaignSource || 'Image Upload',
-                    content: `Image uploaded: ${file.name}`,
-                    receivedAt: new Date().toISOString(),
-                    status: 'Raw Received',
-                    campaignName: campaignName,
-                    campaignDate: campaignDate,
-                    attachments: [file.name]
-                }];
+                response = await intakeAPI.uploadOcr(file);
             } else {
-                throw new Error('Unsupported format. Please upload .zip (WhatsApp), .pdf (Tribune), or image files.');
+                throw new Error('Unsupported format. Please upload .zip, .pdf or image.');
             }
 
-            if (parsedItems.length === 0) {
-                toast.error('No valid messages found', { id: toastId });
-            } else {
-                // Add campaign details to parsed items
-                const itemsWithCampaign = parsedItems.map(item => ({
-                    ...item,
-                    campaignName: campaignName,
-                    campaignDate: campaignDate,
-                    source: campaignSource || item.source
-                }));
-
-                setIntakeItems(prev => [...itemsWithCampaign, ...prev]);
-                toast.success(`Imported ${parsedItems.length} items!`, { id: toastId });
-
-                // Close Add modal and reset form
+            if (response.success) {
+                toast.success('Successfully imported!', { id: toastId });
                 setIsAddModalOpen(false);
                 setCampaignName('');
                 setCampaignSource('WhatsApp');
                 setCampaignDate('');
                 setContentInputMode('paste');
-
-                // Also close import modal if it was open
-                setIsImportModalOpen(false);
+                loadIntakeHistory(); // Refresh
+            } else {
+                throw new Error(response.message || 'Import failed');
             }
 
         } catch (error) {
@@ -601,102 +538,30 @@ const DealIntakePage = () => {
         }
 
         setIsImporting(true);
-        const toastId = toast.loading('Parsing file...');
+        const toastId = toast.loading('Processing file via backend...');
 
         try {
-            let parsedItems = [];
-
+            let response;
             if (selectedFile.name.endsWith('.zip')) {
-                parsedItems = await parseWhatsAppZip(selectedFile);
+                response = await intakeAPI.uploadZip(selectedFile);
             } else if (selectedFile.name.endsWith('.pdf')) {
-                parsedItems = await parseTribunePdf(selectedFile);
+                response = await intakeAPI.uploadPdf(selectedFile);
             } else if (selectedFile.name.match(/\.(jpg|jpeg|png|gif)$/i)) {
-                // Handle image files - create a single intake item
-                parsedItems = [{
-                    id: Date.now(),
-                    source: campaignSource || 'Image Upload',
-                    content: `Image uploaded: ${selectedFile.name}`,
-                    receivedAt: new Date().toISOString(),
-                    status: 'Raw Received',
-                    campaignName: campaignName,
-                    campaignDate: campaignDate,
-                    attachments: [selectedFile.name]
-                }];
+                response = await intakeAPI.uploadOcr(selectedFile);
             } else {
-                throw new Error('Unsupported format. Please upload .zip (WhatsApp), .pdf (Tribune), or image files.');
+                throw new Error('Unsupported format. Please upload .zip, .pdf or image.');
             }
 
-            if (parsedItems.length === 0) {
-                toast.error('No valid messages found', { id: toastId });
-            } else {
-                // Add campaign details and check for duplicates
-                const stats = {
-                    new: 0,
-                    repeat1x: 0,
-                    repeat2x: 0,
-                    repeat3x: 0,
-                    repeat3plus: 0,
-                    total: parsedItems.length
-                };
-
-                const duplicatesList = [];
-
-                const itemsWithCampaign = parsedItems.map(item => {
-                    const enrichedItem = {
-                        ...item,
-                        campaignName: campaignName,
-                        source: campaignSource || item.source
-                    };
-
-                    // Check for duplicates
-                    const duplicateInfo = checkDuplicateAndFrequency(enrichedItem, dealData);
-                    enrichedItem.duplicateInfo = duplicateInfo;
-                    enrichedItem.category = duplicateInfo.category;
-
-                    // Update stats
-                    stats[duplicateInfo.category]++;
-
-                    // Track duplicates for summary
-                    if (duplicateInfo.isDuplicate) {
-                        duplicatesList.push({
-                            ...enrichedItem,
-                            duplicateInfo
-                        });
-                    }
-
-                    return enrichedItem;
-                });
-
-                // Add to intake items
-                setIntakeItems(prev => [...itemsWithCampaign, ...prev]);
-
-                // Add to history and save to localStorage
-                const updatedHistory = [...itemsWithCampaign, ...intakeHistory];
-                setIntakeHistory(updatedHistory);
-                saveIntakeHistory(updatedHistory);
-
-                // Update duplicate stats
-                setDuplicateStats(stats);
-
-                // Prepare upload summary data
-                setUploadSummaryData({
-                    stats,
-                    duplicatesList,
-                    totalUploaded: parsedItems.length,
-                    fileName: selectedFile.name
-                });
-
-                toast.success(`Imported ${parsedItems.length} items!`, { id: toastId });
-
-                // Close Add modal and reset form
+            if (response.success) {
+                toast.success('Successfully imported!', { id: toastId });
                 setIsAddModalOpen(false);
                 setCampaignName('');
                 setCampaignSource('WhatsApp');
                 setContentInputMode('paste');
                 setSelectedFile(null);
-
-                // Show upload summary modal
-                setShowUploadSummary(true);
+                loadIntakeHistory(); // Refresh
+            } else {
+                throw new Error(response.message || 'Import failed');
             }
 
         } catch (error) {
@@ -906,7 +771,7 @@ const DealIntakePage = () => {
     };
 
     // --- QUICK DEAL HANDLERS ---
-    const handleQuickDealCreate = (dealData) => {
+    const handleQuickDealCreate = async (dealData) => {
         // Set owner and property from QuickDealForm
         setSelectedOwner(dealData.owner);
         setSelectedInventory(dealData.property);
@@ -918,6 +783,15 @@ const DealIntakePage = () => {
             status: 'Open',
             verificationStatus: dealData.verificationStatus
         });
+
+        // 1. Mark Intake as Processed in Backend
+        if (currentItem && (currentItem.id || currentItem._id)) {
+            try {
+                await intakeAPI.updateStatus(currentItem.id || currentItem._id, 'Processed');
+            } catch (err) {
+                console.error("Failed to update intake status:", err);
+            }
+        }
 
         // Show success message
         const verificationBadge = dealData.verificationStatus === 'confirmed' ? '✓ Verified' :
@@ -932,6 +806,7 @@ const DealIntakePage = () => {
         setTimeout(() => {
             setCurrentItem(null);
             setStage(0);
+            loadIntakeHistory(); // Refresh list to show updated status
         }, 2000);
     };
 
@@ -1129,8 +1004,8 @@ const DealIntakePage = () => {
                                     padding: '15px',
                                     borderBottom: '1px solid #f1f5f9',
                                     cursor: 'pointer',
-                                    background: currentItem?.id === item.id ? '#eff6ff' : '#fff',
-                                    borderLeft: currentItem?.id === item.id ? '4px solid #3b82f6' : '4px solid transparent',
+                                    background: (currentItem?.id === item.id || currentItem?._id === item._id) ? '#eff6ff' : '#fff',
+                                    borderLeft: (currentItem?.id === item.id || currentItem?._id === item._id) ? '4px solid #3b82f6' : '4px solid transparent',
                                     transition: 'all 0.2s'
                                 }}
                             >
@@ -1153,11 +1028,19 @@ const DealIntakePage = () => {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{new Date(item.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                         <button
-                                            onClick={(e) => {
+                                            onClick={async (e) => {
                                                 e.stopPropagation();
                                                 if (window.confirm("Remove this item from queue?")) {
-                                                    setIntakeItems(prev => prev.filter(i => i.id !== item.id));
-                                                    if (currentItem?.id === item.id) setCurrentItem(null);
+                                                    try {
+                                                        const response = await apiRequest(`/intake/${item.id || item._id}`, { method: 'DELETE' });
+                                                        if (response.success) {
+                                                            toast.success('Item removed');
+                                                            loadIntakeHistory();
+                                                            if (currentItem?.id === item.id || currentItem?._id === item._id) setCurrentItem(null);
+                                                        }
+                                                    } catch (err) {
+                                                        toast.error('Failed to remove item');
+                                                    }
                                                 }
                                             }}
                                             className="delete-btn-hover"
@@ -1997,28 +1880,44 @@ const DealIntakePage = () => {
                                         </div>
                                     </>
                                 ) : (
-                                    <div style={{ padding: '40px', border: '2px dashed #cbd5e1', borderRadius: '12px', textAlign: 'center', background: '#f8fafc' }}>
-                                        <i className="fas fa-cloud-upload-alt" style={{ fontSize: '2rem', color: '#94a3b8', marginBottom: '12px' }}></i>
-                                        <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '12px' }}>
-                                            Upload WhatsApp Export (.zip), Tribune Ad (.pdf), or Images
+                                    <div style={{ padding: '30px', border: '2px dashed #cbd5e1', borderRadius: '12px', textAlign: 'center', background: '#f8fafc' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'center', gap: '24px', marginBottom: '20px' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', opacity: selectedFile?.name.endsWith('.zip') ? 1 : 0.5 }}>
+                                                <i className="fas fa-file-archive" style={{ fontSize: '1.8rem', color: '#f59e0b' }}></i>
+                                                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#92400e' }}>WHATSAPP ZIP</span>
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', opacity: selectedFile?.name.endsWith('.pdf') ? 1 : 0.5 }}>
+                                                <i className="fas fa-file-pdf" style={{ fontSize: '1.8rem', color: '#ef4444' }}></i>
+                                                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#991b1b' }}>TRIBUNE PDF</span>
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', opacity: selectedFile?.name.match(/\.(jpg|jpeg|png|gif)$/i) ? 1 : 0.5 }}>
+                                                <i className="fas fa-file-image" style={{ fontSize: '1.8rem', color: '#10b981' }}></i>
+                                                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#065f46' }}>ESTATE IMAGE</span>
+                                            </div>
+                                        </div>
+
+                                        <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '16px', lineHeight: '1.4' }}>
+                                            {selectedFile
+                                                ? `Selected: ${selectedFile.name}`
+                                                : "Upload WhatsApp export, Tribune PDF, or property photos for automated extraction."}
                                         </p>
+
                                         {selectedFile && (
-                                            <div style={{ marginBottom: '12px' }}>
-                                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 16px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px' }}>
-                                                    <i className="fas fa-file" style={{ color: '#3b82f6' }}></i>
-                                                    <span style={{ color: '#1e40af', fontWeight: 600, fontSize: '0.85rem' }}>{selectedFile.name}</span>
+                                            <div style={{ marginBottom: '16px' }}>
+                                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px' }}>
+                                                    <span style={{ color: '#1e40af', fontWeight: 600, fontSize: '0.8rem' }}>{(selectedFile.size / 1024).toFixed(1)} KB</span>
                                                     <button
                                                         onClick={() => setSelectedFile(null)}
-                                                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0 4px' }}
-                                                        title="Remove file"
+                                                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0 4px', fontSize: '0.9rem' }}
                                                     >
-                                                        <i className="fas fa-times"></i>
+                                                        <i className="fas fa-times-circle"></i>
                                                     </button>
                                                 </div>
                                             </div>
                                         )}
-                                        <label style={{ display: 'inline-block', padding: '10px 20px', background: '#3b82f6', color: '#fff', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
-                                            {selectedFile ? 'Change File' : 'Choose File'}
+
+                                        <label style={{ display: 'inline-block', padding: '10px 24px', background: '#3b82f6', color: '#fff', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)' }}>
+                                            {selectedFile ? 'Change File' : 'Browse Files'}
                                             <input
                                                 type="file"
                                                 accept=".zip,.pdf,image/*"

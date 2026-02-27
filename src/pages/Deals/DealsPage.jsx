@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useUserContext } from '../../context/UserContext';
 import { getInitials } from '../../utils/helpers';
 import AddDealModal from '../../components/AddDealModal';
@@ -18,6 +18,32 @@ import { api } from "../../utils/api";
 import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
 import { formatIndianCurrency, numberToIndianWords } from '../../utils/numberToWords';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
+import { STAGE_PIPELINE, getStageProbability } from '../../utils/stageEngine';
+
+// Helper: colored stage chip for deals
+const DealStageChip = ({ stage }) => {
+    // Map legacy deal stages to STAGE_PIPELINE
+    const STAGE_MAP = {
+        'Open': 'New', 'Quote': 'Opportunity', 'Negotiation': 'Negotiation',
+        'Booked': 'Booked', 'Closed': 'Closed Won', 'Closed Won': 'Closed Won',
+        'Closed Lost': 'Closed Lost', 'Stalled': 'Stalled',
+    };
+    const mappedStage = STAGE_MAP[stage] || stage || 'New';
+    const info = STAGE_PIPELINE.find(s => s.label === mappedStage) || STAGE_PIPELINE[0];
+    return (
+        <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: '5px',
+            background: info.color + '18', color: info.color,
+            border: `1px solid ${info.color}40`,
+            borderRadius: '6px', padding: '3px 8px',
+            fontSize: '0.68rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em'
+        }}>
+            <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: info.color, flexShrink: 0 }} />
+            {stage || 'Open'}
+            <span style={{ fontSize: '0.6rem', opacity: 0.7 }}>{getStageProbability(mappedStage)}%</span>
+        </span>
+    );
+};
 
 function DealsPage({ onNavigate, onAddActivity }) {
     const { teams, users } = useUserContext();
@@ -35,6 +61,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const [dealScores, setDealScores] = useState({}); // { dealId: { score, color, label } } from stage engine
 
     const fetchDeals = useCallback(async () => {
         setLoading(true);
@@ -50,6 +77,11 @@ function DealsPage({ onNavigate, onAddActivity }) {
             if (response.data && response.data.success) {
                 setDeals(response.data.records || []);
                 setTotalRecords(response.data.totalCount || 0);
+
+                // ── Stage Engine: fetch live deal scores ──
+                api.get('stage-engine/deals/scores')
+                    .then(r => { if (r.data?.success) setDealScores(r.data.scores); })
+                    .catch(() => { }); // non-blocking
             } else {
                 toast.error("Failed to fetch deals");
                 setDeals([]);
@@ -363,7 +395,9 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                         >
                                             <i className="fas fa-calendar-plus"></i> Activity
                                         </button>
-                                        <button className="action-btn" title="Move Stage"><i className="fas fa-step-forward"></i> Move</button>
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: '#6b7280', background: '#f1f5f9', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '6px 12px' }} title="Stage is auto-computed from activities">
+                                            <i className="fas fa-lock" style={{ fontSize: '0.6rem', color: '#94a3b8' }} /> Auto-Stage
+                                        </span>
                                         <button
                                             className="action-btn"
                                             title="Call Owner"
@@ -577,10 +611,29 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                         onChange={() => toggleSelect(deal._id)}
                                     />
 
-                                    {/* Col 1: Score */}
-                                    <div className={`score-indicator ${deal.score?.class || 'warm'}`} style={{ width: '40px', height: '40px', fontSize: '0.9rem', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', border: '2px solid rgba(0,0,0,0.05)' }}>
-                                        {deal.score?.val || 0}
-                                    </div>
+                                    {/* Col 1: Score — live from Stage Engine */}
+                                    {(() => {
+                                        const s = dealScores[deal._id];
+                                        const scoreVal = s ? s.score : (deal.dealProbability || 0);
+                                        const scoreColor = s ? s.color : '#94a3b8';
+                                        const scoreLabel = s ? s.label : '';
+                                        return (
+                                            <div
+                                                title={scoreLabel ? `${scoreLabel} · Score: ${scoreVal}` : `Score: ${scoreVal}`}
+                                                style={{
+                                                    width: '40px', height: '40px', fontSize: '0.9rem',
+                                                    borderRadius: '50%', display: 'flex',
+                                                    alignItems: 'center', justifyContent: 'center',
+                                                    fontWeight: '800', cursor: 'default',
+                                                    background: scoreColor + '18',
+                                                    border: `2px solid ${scoreColor}`,
+                                                    color: scoreColor
+                                                }}
+                                            >
+                                                {scoreVal}
+                                            </div>
+                                        );
+                                    })()}
 
                                     {/* Col 2: Property Details */}
                                     <div className="super-cell">
@@ -676,11 +729,15 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                         )}
                                     </div>
 
-                                    {/* Col 8: Status */}
-                                    <div>
-                                        <span className={`status-badge ${getLookupValue('Status', deal.status) === 'Open' ? 'hot' : getLookupValue('Status', deal.status) === 'Quote' ? 'warm' : 'cold'}`} style={{ fontSize: '0.7rem', padding: '4px 10px', borderRadius: '12px', fontWeight: 700 }}>
-                                            {(getLookupValue('Status', deal.status) || 'Unknown').toUpperCase()}
-                                        </span>
+                                    {/* Col 8: Stage (Auto-Computed) */}
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        <DealStageChip stage={deal.stage || 'Open'} />
+                                        {deal.stageUpdatedAt && (
+                                            <div style={{ fontSize: '0.62rem', color: '#94a3b8' }}>
+                                                <i className="fas fa-robot" style={{ marginRight: '3px', fontSize: '0.58rem' }} />
+                                                Auto · {new Date(deal.stageUpdatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Col 9: Interaction (Remarks + Latest Activity) */}

@@ -82,12 +82,110 @@ const LeadSchema = new mongoose.Schema({
     intent_tags: [String],
     enrichment_last_run: { type: Date },
 
-    customFields: mongoose.Schema.Types.Mixed
+    customFields: mongoose.Schema.Types.Mixed,
+
+    // ━━ Stage Engine Fields (added for MongoDB integration) ━━━━━━━━━━━━━━━━━━━━
+    stageChangedAt: { type: Date, index: true },             // When stage last changed
+    lastActivityAt: { type: Date, index: true },             // When last activity logged
+    leadScore: { type: Number, default: 0, min: 0, max: 100 }, // Computed lead score
+    activityScore: { type: Number, default: 0, min: 0, max: 25 }, // Activity-driven score component
+
+    // Stage History: Full Audit Trail of Stage Changes
+    stageHistory: [{
+        stage: { type: String, required: true },      // Stage label at time of change
+        enteredAt: { type: Date, default: Date.now },     // When this stage was entered
+        exitedAt: { type: Date },                        // When exited (null = current)
+        daysInStage: { type: Number, default: 0 },         // Computed on exit
+        triggeredBy: {
+            type: String,
+            enum: ['activity', 'manual_override', 'bulk_recalc', 'system', 'import'],
+            default: 'activity'
+        },
+        activityId: { type: mongoose.Schema.Types.ObjectId, ref: 'Activity' },
+        activityType: { type: String },                      // 'Call', 'Meeting', 'Site Visit'...
+        outcome: { type: String },                      // Outcome string from activity
+        triggeredByUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        reason: { type: String }                       // Human-readable reason
+    }]
 }, { timestamps: true });
 
 // Virtual for full name
 LeadSchema.virtual("fullName").get(function () {
     return `${this.salutation} ${this.firstName} ${this.lastName}`.trim();
+});
+
+// Helper to resolve lookup (Find or Create)
+const resolveLookupLocal = async (type, value) => {
+    if (!value) return null;
+    if (mongoose.Types.ObjectId.isValid(value)) return value;
+    const Lookup = mongoose.model('Lookup');
+    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${value}$`, 'i') } });
+    if (!lookup) {
+        lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
+    }
+    return lookup._id;
+};
+
+// Middleware to resolve lookup names to IDs before saving
+LeadSchema.pre('save', async function (next) {
+    if (this.requirement && typeof this.requirement === 'string') this.requirement = await resolveLookupLocal('Requirement', this.requirement);
+    if (this.subRequirement && typeof this.subRequirement === 'string') this.subRequirement = await resolveLookupLocal('SubRequirement', this.subRequirement);
+    if (this.budget && typeof this.budget === 'string') this.budget = await resolveLookupLocal('Budget', this.budget);
+    if (this.location && typeof this.location === 'string') this.location = await resolveLookupLocal('Location', this.location);
+    if (this.source && typeof this.source === 'string') this.source = await resolveLookupLocal('Source', this.source);
+    if (this.subSource && typeof this.subSource === 'string') this.subSource = await resolveLookupLocal('SubSource', this.subSource);
+    if (this.campaign && typeof this.campaign === 'string') this.campaign = await resolveLookupLocal('Campaign', this.campaign);
+    if (this.status && typeof this.status === 'string') this.status = await resolveLookupLocal('Status', this.status);
+    if (this.stage && typeof this.stage === 'string') this.stage = await resolveLookupLocal('Stage', this.stage);
+
+    // Handle arrays
+    const arrayFields = ['propertyType', 'subType', 'unitType', 'facing', 'roadWidth', 'direction'];
+    const arrayTypes = {
+        propertyType: 'PropertyType',
+        subType: 'SubType',
+        unitType: 'UnitType',
+        facing: 'Facing',
+        roadWidth: 'RoadWidth',
+        direction: 'Direction'
+    };
+
+    for (const field of arrayFields) {
+        if (Array.isArray(this[field])) {
+            this[field] = await Promise.all(this[field].map(val => typeof val === 'string' ? resolveLookupLocal(arrayTypes[field], val) : val));
+        }
+    }
+    next();
+});
+
+LeadSchema.pre('findOneAndUpdate', async function (next) {
+    const update = this.getUpdate();
+    if (!update) return next();
+
+    if (update.requirement && typeof update.requirement === 'string') update.requirement = await resolveLookupLocal('Requirement', update.requirement);
+    if (update.subRequirement && typeof update.subRequirement === 'string') update.subRequirement = await resolveLookupLocal('SubRequirement', update.subRequirement);
+    if (update.budget && typeof update.budget === 'string') update.budget = await resolveLookupLocal('Budget', update.budget);
+    if (update.location && typeof update.location === 'string') update.location = await resolveLookupLocal('Location', update.location);
+    if (update.source && typeof update.source === 'string') update.source = await resolveLookupLocal('Source', update.source);
+    if (update.subSource && typeof update.subSource === 'string') update.subSource = await resolveLookupLocal('SubSource', update.subSource);
+    if (update.campaign && typeof update.campaign === 'string') update.campaign = await resolveLookupLocal('Campaign', update.campaign);
+    if (update.status && typeof update.status === 'string') update.status = await resolveLookupLocal('Status', update.status);
+    if (update.stage && typeof update.stage === 'string') update.stage = await resolveLookupLocal('Stage', update.stage);
+
+    const arrayTypes = {
+        propertyType: 'PropertyType',
+        subType: 'SubType',
+        unitType: 'UnitType',
+        facing: 'Facing',
+        roadWidth: 'RoadWidth',
+        direction: 'Direction'
+    };
+
+    for (const [field, type] of Object.entries(arrayTypes)) {
+        if (update[field] && Array.isArray(update[field])) {
+            update[field] = await Promise.all(update[field].map(val => typeof val === 'string' ? resolveLookupLocal(type, val) : val));
+        }
+    }
+    next();
 });
 
 export default mongoose.model("Lead", LeadSchema);
