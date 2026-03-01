@@ -11,6 +11,8 @@ import AddOwnerModal from '../../components/AddOwnerModal';
 import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../components/SendMessageModal';
 import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
+import UnifiedActivitySection from '../../components/Activities/UnifiedActivitySection';
+
 
 export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, onAddActivity, onAddDeal, onEditInventory }) {
     const { masterFields, getLookupValue } = usePropertyConfig();
@@ -25,8 +27,6 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
     const [activeLeadsCount, setActiveLeadsCount] = useState(0);
     const [showDealDropdown, setShowDealDropdown] = useState(false);
     const [isCopying, setIsCopying] = useState(false);
-    const [activities, setActivities] = useState([]);
-    const [activitiesLoading, setActivitiesLoading] = useState(false);
     const [similarProperties, setSimilarProperties] = useState([]);
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -81,26 +81,13 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
         }
     }, [inventoryId]);
 
-    const fetchActivities = useCallback(async () => {
-        setActivitiesLoading(true);
-        try {
-            const response = await api.get(`activities?entityId=${inventoryId}&entityType=Inventory`);
-            if (response.data && response.data.success) {
-                setActivities(response.data.data || []);
-            }
-        } catch (error) {
-            console.error("Error fetching activities:", error);
-        } finally {
-            setActivitiesLoading(false);
-        }
-    }, [inventoryId]);
+    // Activities now handled by UnifiedActivitySection
 
     useEffect(() => {
         if (inventoryId) {
             fetchInventoryDetails();
-            fetchActivities();
         }
-    }, [inventoryId, fetchInventoryDetails, fetchActivities]);
+    }, [inventoryId, fetchInventoryDetails]);
 
     const handleWhatsAppShare = () => {
         if (!inventory) return;
@@ -248,7 +235,6 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
             if (response.data && response.data.success) {
                 toast.success("Feedback recorded successfully");
                 fetchInventoryDetails();
-                fetchActivities();
             } else {
                 toast.error("Failed to save feedback");
             }
@@ -800,77 +786,14 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
 
 
 
-                    {/* PROPERTY ACTIVITIES TIMELINE */}
+                    {/* ACTIVITIES & TIMELINE Section */}
                     <section className="detail-card" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '24px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
-                            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <i className="fas fa-stream" style={{ color: '#2563eb' }}></i> Activity Timeline
-                            </h3>
-                            <button
-                                onClick={() => onAddActivity([{ type: 'Inventory', id: inventory._id, name: inventory.unitNo, model: 'Inventory' }], { inventory })}
-                                style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                            >
-                                <i className="fas fa-plus"></i> New Activity
-                            </button>
-                        </div>
-
-                        <div style={{ padding: '0 10px' }}>
-                            {activitiesLoading ? (
-                                <div style={{ textAlign: 'center', padding: '40px' }}><div className="loader"></div></div>
-                            ) : activities.length > 0 ? (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
-                                    {activities.map((act, i) => (
-                                        <div key={act._id || i} style={{ display: 'flex', gap: '20px', position: 'relative' }}>
-                                            {/* Left line */}
-                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '20px' }}>
-                                                <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#fff', border: '3px solid #2563eb', zIndex: 1 }}></div>
-                                                {i < activities.length - 1 && <div style={{ flex: 1, width: '2px', background: '#e2e8f0' }}></div>}
-                                            </div>
-
-                                            {/* Content */}
-                                            <div style={{ flex: 1, paddingBottom: (i === activities.length - 1) ? '0' : '32px' }}>
-                                                <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '16px', border: '1px solid #f1f5f9' }}>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                                                        <span style={{ fontWeight: 800, color: '#1e293b', fontSize: '0.95rem' }}>{act.subject}</span>
-                                                        <span style={{ fontSize: '0.75rem', color: '#94a3b8', background: '#fff', padding: '4px 8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                                                            {new Date(act.dueDate || act.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
-                                                        </span>
-                                                    </div>
-                                                    <p style={{ fontSize: '0.85rem', color: '#475569', margin: '0 0 12px 0', lineHeight: '1.5' }}>{act.description}</p>
-
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                        {act.type && (
-                                                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '4px 10px', borderRadius: '20px' }}>
-                                                                {act.type}
-                                                            </span>
-                                                        )}
-                                                        <span style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                            <i className="far fa-user" style={{ fontSize: '0.65rem' }}></i> {renderValue(act.assignedTo) || 'Owner/Associate'}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div style={{ textAlign: 'center', padding: '60px 40px', background: '#f8fafc', borderRadius: '16px', border: '1px dashed #e2e8f0' }}>
-                                    <div style={{ width: '64px', height: '64px', background: '#fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
-                                        <i className="fas fa-stream" style={{ fontSize: '1.5rem', color: '#cbd5e1' }}></i>
-                                    </div>
-                                    <h4 style={{ margin: '0 0 8px 0', color: '#1e293b' }}>No Activities Yet</h4>
-                                    <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: '0 0 20px 0' }}>Start tracking interactions for this property unit and its contacts.</p>
-                                    <button
-                                        onClick={() => onAddActivity([{ type: 'Inventory', id: inventory._id, name: inventory.unitNo, model: 'Inventory' }], { inventory })}
-                                        style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)' }}
-                                    >
-                                        Add First Activity
-                                    </button>
-                                </div>
-                            )}
-                        </div>
+                        <UnifiedActivitySection
+                            entityId={inventoryId}
+                            entityType="Inventory"
+                            entityData={inventory}
+                        />
                     </section>
-
                 </main>
 
                 {/* RIGHT SIDEBAR */}
@@ -1004,7 +927,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                             <SidebarStat label="Created On" value={new Date(inventory.createdAt).toLocaleDateString()} />
                             <SidebarStat label="Last Updated" value={new Date(inventory.updatedAt).toLocaleDateString()} />
-                            <SidebarStat label="Total Activities" value={activities.length} />
+                            <SidebarStat label="Total Activities" value={0} />
                             <SidebarStat label="Days in System" value={Math.floor((new Date() - new Date(inventory.createdAt)) / (1000 * 60 * 60 * 24))} />
                         </div>
                     </section>
@@ -1056,7 +979,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
 
 
             {/* MODALS */}
-            <AddInventoryDocumentModal
+            < AddInventoryDocumentModal
                 isOpen={isDocumentModalOpen}
                 onClose={() => setIsDocumentModalOpen(false)}
                 onSave={async (newDocs) => {

@@ -2016,27 +2016,33 @@ body {
     border: 2px solid #fff;
 }
 
-.score-indicator.high {
-    background: #ff3b30;
-    /* Solid Red */
-    border-color: #ff3b30;
+.score-indicator.high,
+.score-indicator.super-hot {
+    background: #7c3aed;
+    /* Super Hot Purple */
+    border-color: #7c3aed;
+    box-shadow: 0 0 10px rgba(124, 58, 237, 0.4);
 }
 
-.score-indicator.med {
-    background: #ff9f43;
-    /* Solid Orange */
-    border-color: #ff9f43;
+.score-indicator.med,
+.score-indicator.hot {
+    background: #ef4444;
+    /* Hot Red */
+    border-color: #ef4444;
 }
 
-.score-indicator.low {
-    background: #2d98da;
-    /* Solid Blue */
-    border-color: #2d98da;
+.score-indicator.low,
+.score-indicator.warm {
+    background: #f59e0b;
+    /* Warm Amber */
+    border-color: #f59e0b;
 }
 
-.score-indicator.none {
-    background: #a5b1c2;
-    border-color: #a5b1c2;
+.score-indicator.none,
+.score-indicator.cold {
+    background: #64748b;
+    /* Cold Slate */
+    border-color: #64748b;
 }
 
 .primary-text {

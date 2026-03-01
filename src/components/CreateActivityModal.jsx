@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import api, { leadsAPI, contactsAPI, usersAPI } from '../utils/api';
-import { PROJECT_DATA } from '../data/projectData';
+import apiWrapper, { api, leadsAPI, contactsAPI, usersAPI } from '../utils/api';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useSequences } from '../context/SequenceContext';
 import { useTriggers } from '../context/TriggersContext';
@@ -60,6 +59,9 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         mailStatus: '',
         mailFollowUp: false
     });
+
+    const [projects, setProjects] = useState([]);
+    const [rowUnits, setRowUnits] = useState({}); // Map of rowIndex -> array of units
 
     const [errors, setErrors] = useState({});
 
@@ -150,7 +152,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                 subject: '',
                 relatedTo: relations,
                 participants: [],
-                dueDate: new Date().toISOString().slice(0, 16),
+                dueDate: new Date().toISOString().split('T')[0],
                 dueTime: '10:00',
                 priority: 'Normal',
                 description: '', // Remark
@@ -196,6 +198,45 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
             setErrors({});
         }
     }, [isOpen, initialData]);
+
+    const fetchProjects = useCallback(async () => {
+        try {
+            const response = await apiWrapper.projects.getAll();
+            if (response.success) {
+                setProjects(response.data || []);
+            }
+        } catch (error) {
+            console.error("Error fetching projects:", error);
+        }
+    }, []);
+
+    const fetchUnits = useCallback(async (rowIndex, projectName, blockName) => {
+        if (!projectName) return;
+        try {
+            const params = new URLSearchParams();
+            params.append('area', projectName);
+            if (blockName) {
+                params.append('location', blockName);
+            }
+            params.append('limit', '100');
+
+            const response = await api.get(`inventory?${params.toString()}`);
+            if (response.data && (response.data.success || Array.isArray(response.data))) {
+                setRowUnits(prev => ({
+                    ...prev,
+                    [rowIndex]: response.data.records || response.data.data || (Array.isArray(response.data) ? response.data : [])
+                }));
+            }
+        } catch (error) {
+            console.error("Error fetching units:", error);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (isOpen) {
+            fetchProjects();
+        }
+    }, [isOpen, fetchProjects]);
 
     // Auto-generate Subject
     useEffect(() => {
@@ -262,6 +303,29 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         }
     }, [isOpen, formData.activityType, formData.meetingType]);
 
+    const addPropertyRow = useCallback(() => {
+        setFormData(prev => ({
+            ...prev,
+            visitedProperties: [...prev.visitedProperties, { project: '', block: '', property: '', result: '', feedback: '' }]
+        }));
+    }, []);
+
+    const removePropertyRow = useCallback((index) => {
+        if (formData.visitedProperties.length <= 1) return;
+        setFormData(prev => ({
+            ...prev,
+            visitedProperties: prev.visitedProperties.filter((_, i) => i !== index)
+        }));
+    }, [formData.visitedProperties.length]);
+
+    const updatePropertyRow = useCallback((index, updates) => {
+        setFormData(prev => {
+            const newProps = [...prev.visitedProperties];
+            newProps[index] = { ...newProps[index], ...updates };
+            return { ...prev, visitedProperties: newProps };
+        });
+    }, []);
+
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
         setFormData(prev => ({
@@ -304,7 +368,6 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                 if (!formData.meetingOutcomeStatus) {
                     newErrors.meetingOutcomeStatus = 'Status is required';
                 } else if (formData.meetingOutcomeStatus === 'Conducted') {
-                    if (!formData.selectedPropertyNo) newErrors.selectedPropertyNo = 'Property Number is required';
                     // Per-property validation
                     formData.visitedProperties.forEach((item, index) => {
                         if (!item.result) newErrors[`prop_${index}_result`] = 'Result is required';
@@ -654,37 +717,6 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
     );
 
     const renderSiteVisitFields = () => {
-        const addPropertyRow = () => {
-            setFormData(prev => ({
-                ...prev,
-                visitedProperties: [...prev.visitedProperties, { project: '', block: '', property: '', result: '', feedback: '' }]
-            }));
-        };
-
-        const removePropertyRow = (index) => {
-            if (formData.visitedProperties.length <= 1) return;
-            setFormData(prev => ({
-                ...prev,
-                visitedProperties: prev.visitedProperties.filter((_, i) => i !== index)
-            }));
-        };
-
-        const updatePropertyRow = (index, field, value) => {
-            const newProps = [...formData.visitedProperties];
-            newProps[index] = { ...newProps[index], [field]: value };
-            // Reset block if project changes
-            if (field === 'project') newProps[index].block = '';
-            setFormData(prev => ({ ...prev, visitedProperties: newProps }));
-        };
-
-        // Flatten projects for the dropdown
-        const allProjects = [];
-        Object.keys(PROJECT_DATA).forEach(city => {
-            PROJECT_DATA[city].forEach(proj => {
-                allProjects.push({ ...proj, city });
-            });
-        });
-
         return (
             <div style={{ backgroundColor: '#ecfdf5', padding: '16px', borderRadius: '12px', marginBottom: formData.status === 'Completed' ? '12px' : '16px', border: '1px solid #a7f3d0' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -712,15 +744,16 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                 </div>
 
                 {formData.visitedProperties.map((row, index) => {
-                    const selectedProject = allProjects.find(p => p.name === row.project);
-                    const towers = selectedProject ? selectedProject.towers : [];
+                    const selectedProject = projects.find(p => p.name === row.project || p._id === row.project);
+                    const blocks = selectedProject?.blocks || [];
+                    const units = rowUnits[index] || [];
 
                     return (
                         <div key={index} style={{
                             display: 'flex',
                             gap: '10px',
                             marginBottom: '12px',
-                            alignItems: 'flex-start',
+                            alignItems: 'flex-end',
                             padding: '12px',
                             background: 'rgba(255, 255, 255, 0.5)',
                             borderRadius: '8px',
@@ -730,47 +763,62 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                                 <label style={{ ...labelStyle, fontSize: '0.75rem' }}>Project/Location</label>
                                 <select
                                     value={row.project}
-                                    onChange={(e) => updatePropertyRow(index, 'project', e.target.value)}
+                                    onChange={(e) => {
+                                        const projName = e.target.value;
+                                        const proj = projects.find(p => p.name === projName);
+                                        updatePropertyRow(index, { project: projName, block: '', property: '' });
+                                        if (proj) {
+                                            fetchUnits(index, projName, '');
+                                        }
+                                    }}
                                     style={customSelectStyle(errors[`prop_${index}_project`])}
                                 >
                                     <option value="">Select Project</option>
-                                    {allProjects.map(p => (
-                                        <option key={p.id} value={p.name}>{p.name} ({p.city})</option>
+                                    {projects.map(p => (
+                                        <option key={p._id} value={p.name}>{p.name}</option>
                                     ))}
-                                    {row.project && !allProjects.some(p => p.name === row.project) && (
-                                        <option value={row.project}>{row.project}</option>
-                                    )}
                                 </select>
                             </div>
                             <div style={{ flex: 1 }}>
                                 <label style={{ ...labelStyle, fontSize: '0.75rem' }}>Block</label>
                                 <select
                                     value={row.block}
-                                    onChange={(e) => updatePropertyRow(index, 'block', e.target.value)}
+                                    onChange={(e) => {
+                                        const blockName = e.target.value;
+                                        updatePropertyRow(index, { block: blockName, property: '' });
+                                        if (selectedProject) {
+                                            fetchUnits(index, selectedProject.name, blockName);
+                                        }
+                                    }}
                                     style={customSelectStyle(false)}
                                     disabled={!row.project}
                                 >
                                     <option value="">Select Block</option>
-                                    {towers.map(t => (
-                                        <option key={t} value={t}>{t}</option>
+                                    {blocks.map(b => (
+                                        <option key={b.name} value={b.name}>{b.name}</option>
                                     ))}
                                 </select>
                             </div>
                             <div style={{ flex: 1 }}>
                                 <label style={{ ...labelStyle, fontSize: '0.75rem' }}>Property</label>
-                                <input
-                                    type="text"
-                                    placeholder="Unit No."
+                                <select
                                     value={row.property}
-                                    onChange={(e) => updatePropertyRow(index, 'property', e.target.value)}
-                                    style={inputStyle(false)}
-                                />
+                                    onChange={(e) => updatePropertyRow(index, { property: e.target.value })}
+                                    style={customSelectStyle(false)}
+                                    disabled={!row.block && !row.project}
+                                >
+                                    <option value="">Select Unit</option>
+                                    {units.map(u => (
+                                        <option key={u._id} value={u.unitNo || u.unitNumber}>
+                                            {u.unitNo || u.unitNumber} ({u.category?.lookup_value || 'N/A'})
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
                             {formData.visitedProperties.length > 1 && (
                                 <button
                                     onClick={() => removePropertyRow(index)}
                                     style={{
-                                        marginTop: '24px',
                                         padding: '10px',
                                         color: '#ef4444',
                                         background: 'none',
@@ -1230,9 +1278,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                                                     value={prop.result}
                                                     style={customSelectStyle(errors[`prop_${idx}_result`])}
                                                     onChange={(e) => {
-                                                        const newProps = [...formData.visitedProperties];
-                                                        newProps[idx].result = e.target.value;
-                                                        setFormData(prev => ({ ...prev, visitedProperties: newProps }));
+                                                        updatePropertyRow(idx, { result: e.target.value });
                                                     }}
                                                 >
                                                     <option value="">Select Result</option>
@@ -1250,11 +1296,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                                                     value={prop.feedback}
                                                     placeholder="Client's specific reaction to this property..."
                                                     style={{ ...inputStyle(false), height: '60px', resize: 'vertical', fontSize: '0.8rem' }}
-                                                    onChange={(e) => {
-                                                        const newProps = [...formData.visitedProperties];
-                                                        newProps[idx].feedback = e.target.value;
-                                                        setFormData(prev => ({ ...prev, visitedProperties: newProps }));
-                                                    }}
+                                                    onChange={(e) => updatePropertyRow(idx, { feedback: e.target.value })}
                                                 />
                                             </div>
                                         </div>

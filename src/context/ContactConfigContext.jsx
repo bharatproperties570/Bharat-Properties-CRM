@@ -22,28 +22,38 @@ export const ContactConfigProvider = ({ children }) => {
         try {
             setLoading(true);
 
-            const [profRes, addrRes, profiRes, docCatRes, docTypeRes] = await Promise.all([
-                api.get('/lookups', { params: { lookup_type: 'Professional' } }),
-                api.get('/lookups', { params: { lookup_type: 'Address' } }),
-                api.get('/lookups', { params: { lookup_type: 'Profile' } }),
-                api.get('/lookups', { params: { lookup_type: 'Document-Category' } }),
-                api.get('/lookups', { params: { lookup_type: 'Document-Type' } })
-            ]);
+            // Use consolidate getAll() instead of multiple getByCategory calls
+            const response = await api.get('/lookups');
 
-            if (profRes.data && profRes.data.status === 'success') {
-                setProfessionalConfig(buildHierarchy(profRes.data.data, 'Professional'));
+            let allLookups = [];
+            if (response && response.status === 'success' && Array.isArray(response.data)) {
+                allLookups = response.data;
+            } else if (Array.isArray(response)) {
+                allLookups = response;
             }
-            if (addrRes.data && addrRes.data.status === 'success') {
-                setAddressConfig(buildHierarchy(addrRes.data.data, 'Address'));
+
+            // Group by lookup_type
+            const grouped = {};
+            allLookups.forEach(item => {
+                const type = item.lookup_type;
+                if (!grouped[type]) grouped[type] = [];
+                grouped[type].push(item);
+            });
+
+            if (grouped['Professional']) {
+                setProfessionalConfig(buildHierarchy(grouped['Professional'], 'Professional'));
             }
-            if (profiRes.data && profiRes.data.status === 'success') {
-                setProfileConfig(buildHierarchy(profiRes.data.data, 'Profile'));
+            if (grouped['Address']) {
+                setAddressConfig(buildHierarchy(grouped['Address'], 'Address'));
+            }
+            if (grouped['Profile']) {
+                setProfileConfig(buildHierarchy(grouped['Profile'], 'Profile'));
             }
 
             // Combine Document-Category and Document-Type for hierarchy
             const combinedDocs = [
-                ...(docCatRes?.data?.data || []),
-                ...(docTypeRes?.data?.data || [])
+                ...(grouped['Document-Category'] || []),
+                ...(grouped['Document-Type'] || [])
             ];
             setDocumentConfig(buildDocHierarchy(combinedDocs));
 

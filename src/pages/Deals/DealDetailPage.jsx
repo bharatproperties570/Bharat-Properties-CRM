@@ -8,6 +8,8 @@ import AddOfferModal from '../../components/AddOfferModal';
 import { STAGE_PIPELINE, getStageProbability } from '../../utils/stageEngine';
 import { computeAging, computeDealDeath, detectCommissionLeakage, computeDealHealth, computeOwnerResponseRate, DEFAULT_AGING_RULES, DEFAULT_FORECAST_CONFIG, DEFAULT_HEALTH_CONFIG } from '../../utils/agingEngine';
 import { computeDealStageFromLeads } from '../../utils/syncEngine';
+import UnifiedActivitySection from '../../components/Activities/UnifiedActivitySection';
+
 
 const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const [deal, setDeal] = useState(null);
@@ -15,8 +17,6 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const [activeTab, setActiveTab] = useState('activity');
     const [matchingLeads, setMatchingLeads] = useState([]);
     const [allLeads, setAllLeads] = useState([]);
-    const [auditLogs, setAuditLogs] = useState([]);
-    const [auditLoading, setAuditLoading] = useState(false);
     const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
     const [valuationData, setValuationData] = useState(null);
     const [valuationLoading, setValuationLoading] = useState(false);
@@ -232,20 +232,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         }
     }, []);
 
-    const fetchAuditLogs = useCallback(async () => {
-        setAuditLoading(true);
-        try {
-            // Assuming endpoint exists based on KI/research
-            const response = await api.get(`audit-logs?entityId=${dealId}&entityType=Deal`);
-            if (response.data && response.data.success) {
-                setAuditLogs(response.data.data || []);
-            }
-        } catch (error) {
-            console.error("Error fetching audit logs:", error);
-        } finally {
-            setAuditLoading(false);
-        }
-    }, [dealId]);
+    // Audit logs are now handled by UnifiedActivitySection
 
     useEffect(() => {
         fetchDealDetails();
@@ -256,8 +243,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
             fetchMatchingLeads(deal.inventoryId?._id || deal.inventoryId);
         }
         fetchAllLeads();
-        fetchAuditLogs();
-    }, [deal, fetchMatchingLeads, fetchAllLeads, fetchAuditLogs]);
+    }, [deal, fetchMatchingLeads, fetchAllLeads]);
 
     // Phase 5: Inventory Sync Logic
     useEffect(() => {
@@ -792,7 +778,14 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                             <TabItem id="commission" label="Commission" active={activeTab === 'commission'} onClick={setActiveTab} />
                         </div>
                         <div style={{ minHeight: '300px' }}>
-                            {activeTab === 'activity' && <ActivityTimeline dealId={deal._id} logs={auditLogs} loading={auditLoading} />}
+                            {activeTab === 'activity' && (
+                                <UnifiedActivitySection
+                                    entityId={deal._id}
+                                    entityType="Deal"
+                                    entityData={deal}
+                                />
+                            )}
+
                             {activeTab === 'negotiation' && <NegotiationTracker rounds={deal.negotiationRounds} />}
                             {activeTab === 'financials' && <FinancialBreakdown details={deal.financialDetails} type={deal.intent?.lookup_value} />}
                             {activeTab === 'costsheet' && <CostSheet financials={financials} deal={deal} />}
@@ -1170,62 +1163,7 @@ const HealthRow = ({ label, value }) => (
 
 // --- TAB MODULES ---
 // --- TAB MODULES ---
-const ActivityTimeline = ({ dealId, logs, loading }) => (
-    <div className="relative pl-8 space-y-6 before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[2px] before:bg-slate-100">
-
-        <p className="text-[0.6rem] font-black text-slate-400 uppercase tracking-widest mb-8">Transaction Pulse</p>
-
-        {/* ⚡ ACTIVE PULSE ITEMS */}
-        <div className="relative group">
-            <div className="absolute -left-[37px] w-4 h-4 rounded-full bg-blue-600 border-4 border-white shadow-md ring-4 ring-blue-50 group-hover:scale-125 transition-transform"></div>
-            <div className="bg-white p-5 rounded-2xl border border-blue-100 shadow-sm max-w-2xl">
-                <div className="flex justify-between items-center mb-3">
-                    <span className="text-[0.65rem] font-black text-blue-600 uppercase tracking-wider bg-blue-50 px-2 py-1 rounded">Stage Evolution</span>
-                    <span className="text-[0.65rem] text-slate-400 font-bold">Today, 10:45 AM</span>
-                </div>
-                <p className="text-[0.85rem] font-bold text-slate-800 leading-relaxed">
-                    Transaction moved to <span className="text-blue-600">Negotiation Phase</span> following the receipt of a formal counter-proposal.
-                </p>
-            </div>
-        </div>
-
-        <div className="relative group">
-            <div className="absolute -left-[37px] w-4 h-4 rounded-full bg-emerald-500 border-4 border-white shadow-md ring-4 ring-emerald-50 group-hover:scale-125 transition-transform"></div>
-            <div className="bg-white p-5 rounded-2xl border border-emerald-50 shadow-sm max-w-2xl">
-                <div className="flex justify-between items-center mb-3">
-                    <span className="text-[0.65rem] font-black text-emerald-600 uppercase tracking-wider bg-emerald-50 px-2 py-1 rounded">Field Engagement</span>
-                    <span className="text-[0.65rem] text-slate-400 font-bold">Yesterday, 4:20 PM</span>
-                </div>
-                <p className="text-[0.85rem] font-bold text-slate-800 leading-relaxed mb-3">
-                    Site Visit #2 completed with Buyer and Relationship Manager.
-                </p>
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 italic text-[0.8rem] text-slate-600 leading-snug">
-                    "Buyer evaluated the floor plan and natural lighting. Strong interest confirmed; requested a breakdown of park-facing premium charges."
-                </div>
-            </div>
-        </div>
-
-        {/* 🧩 SYSTEM AUDIT LOGS (Condensed) */}
-        {logs && logs.slice(0, 5).map((log, idx) => (
-            <div key={idx} className="relative group opacity-60 hover:opacity-100 transition-opacity">
-                <div className="absolute -left-[37px] w-4 h-4 rounded-full bg-slate-300 border-4 border-white shadow-sm ring-4 ring-slate-50"></div>
-                <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100 max-w-2xl">
-                    <div className="flex justify-between items-center mb-1">
-                        <span className="text-[0.6rem] font-black text-slate-500 uppercase">Audit: {log.action || 'Data Sync'}</span>
-                        <span className="text-[0.6rem] text-slate-400 font-bold">{new Date(log.executedAt || log.timestamp).toLocaleDateString()}</span>
-                    </div>
-                    <p className="text-[0.75rem] font-bold text-slate-600">{log.description || `${log.field} parameter adjustment recorded.`}</p>
-                </div>
-            </div>
-        ))}
-
-        <div className="pt-4">
-            <button className="text-[0.7rem] font-black text-slate-400 uppercase tracking-widest hover:text-blue-600 transition-colors">
-                View All {logs?.length || 12} Activities <i className="fas fa-chevron-down ml-1"></i>
-            </button>
-        </div>
-    </div>
-);
+// Unified activity handles timeline
 
 const NegotiationTracker = ({ rounds }) => (
     <div className="space-y-6">

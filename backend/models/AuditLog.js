@@ -32,6 +32,12 @@ const AuditLogSchema = new mongoose.Schema({
             'deals_transferred',
             'inventory_transferred',
 
+            // Entity Trackers
+            'stage_changed',
+            'score_changed',
+            'deal_converted',
+            'rule_modified',
+
             // Password Events
             'password_changed',
             'password_reset',
@@ -227,6 +233,25 @@ AuditLogSchema.statics.logDataTransfer = async function (fromUserId, toUserId, a
             dataType,
             count
         },
+        status: 'success'
+    });
+};
+
+// Log generic entity update (tracking previous and new values)
+AuditLogSchema.statics.logEntityUpdate = async function (eventType, targetType, targetId, targetName, userId, changes, description) {
+    const User = mongoose.model('User');
+    const user = userId ? await User.findById(userId).select('fullName email') : null;
+
+    return this.create({
+        eventType,
+        userId,
+        userName: user?.fullName || 'System',
+        userEmail: user?.email || 'system@crm.local',
+        targetType,
+        targetId,
+        targetName,
+        description,
+        changes,
         status: 'success'
     });
 };

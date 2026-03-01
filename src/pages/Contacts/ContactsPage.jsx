@@ -119,28 +119,48 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
 
   const getTeamName = useCallback((teamValue) => {
     if (!teamValue) return "-";
+    // Handle populated object case
+    if (typeof teamValue === 'object') {
+      return teamValue.name || teamValue.lookup_value || "-";
+    }
     // Handle array of team names
     if (Array.isArray(teamValue)) {
       return teamValue.length > 0 ? teamValue.join(', ') : "-";
     }
-    if (typeof teamValue === 'object') {
-      return teamValue.name || teamValue.lookup_value || "-";
-    }
     // Check if teams is an array or wrapper
     const teamArray = Array.isArray(teams) ? teams : (teams?.data || []);
     const found = teamArray.find(t => (t._id === teamValue) || (t.id === teamValue));
-    return found ? (found.name || found.lookup_value) : teamValue;
+
+    if (found) return (found.name || found.lookup_value);
+
+    // Safety: If it's a 24-char hex ID and not found, return "Not Assigned"
+    if (typeof teamValue === 'string' && /^[0-9a-fA-F]{24}$/.test(teamValue)) {
+      return "Not Assigned";
+    }
+
+    return teamValue;
   }, [teams]);
 
   const getUserName = useCallback((userValue) => {
     if (!userValue) return "-";
+    // Handle populated object case
     if (typeof userValue === 'object') {
       return userValue.fullName || userValue.name || userValue.lookup_value || userValue.username || "-";
     }
     // Check if users is an array or wrapper
     const userArray = Array.isArray(users) ? users : (users?.data || []);
     const found = userArray.find(u => (u._id === userValue) || (u.id === userValue));
-    return found ? (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username))) : userValue;
+
+    if (found) {
+      return (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username)));
+    }
+
+    // Safety: If it's a 24-char hex ID and not found, return "Unassigned"
+    if (typeof userValue === 'string' && /^[0-9a-fA-F]{24}$/.test(userValue)) {
+      return "Unassigned";
+    }
+
+    return userValue;
   }, [users]);
 
 
@@ -1012,11 +1032,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                             >
                               {item?.personalAddress ? (
                                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                  <div>{`${item.personalAddress?.hNo || ""}, ${item.personalAddress?.street || ""}, ${renderValue(getLookupValue("Location", item.personalAddress?.location), item.personalAddress?.location?.lookup_value || (typeof item.personalAddress?.location === 'string' ? item.personalAddress.location : ""))}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}</div>
+                                  <div>{`${item.personalAddress?.hNo || ""}, ${item.personalAddress?.street || ""}, ${renderValue(getLookupValue("Location", item.personalAddress?.location), item.personalAddress?.location?.lookup_value || (typeof item.personalAddress?.location === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.location) ? item.personalAddress.location : ""))}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}</div>
                                   <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                    {`${item.personalAddress?.area || ""}, ${renderValue(getLookupValue("City", item.personalAddress?.city), item.personalAddress?.city?.lookup_value || item.personalAddress?.city || "")}, ${renderValue(getLookupValue("State", item.personalAddress?.state), item.personalAddress?.state?.lookup_value || item.personalAddress?.state || "")} ${item.personalAddress?.pinCode || ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}
+                                    {`${item.personalAddress?.area || ""}, ${renderValue(getLookupValue("City", item.personalAddress?.city), item.personalAddress?.city?.lookup_value || (typeof item.personalAddress?.city === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.city) ? item.personalAddress.city : ""))}, ${renderValue(getLookupValue("State", item.personalAddress?.state), item.personalAddress?.state?.lookup_value || (typeof item.personalAddress?.state === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.state) ? item.personalAddress.state : ""))}${item.personalAddress?.pinCode ? " " + item.personalAddress.pinCode : ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}
                                   </div>
-
                                 </div>
                               ) : (typeof item?.address === 'string' ? item.address : "Address not listed")}
                             </div>
@@ -1040,11 +1059,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                               }}
                             >
                               {(
-                                renderValue(getLookupValue("ProfessionalCategory", item.professionCategory), item.professionCategory?.lookup_value || item.professionCategory) ||
-                                renderValue(getLookupValue("ProfessionalCategory", item.professional), item.professional?.lookup_value || item.professional) ||
+                                renderValue(getLookupValue("ProfessionalCategory", item.professionCategory), item.professionCategory?.lookup_value || (typeof item.professionCategory === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.professionCategory) ? item.professionCategory : "")) ||
+                                renderValue(getLookupValue("ProfessionalCategory", item.professional), item.professional?.lookup_value || (typeof item.professional === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.professional) ? item.professional : "")) ||
                                 "N/A"
                               ).toUpperCase()}
-
                             </span>
                             <div
                               style={{
@@ -1053,8 +1071,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 fontWeight: 700,
                               }}
                             >
-                              {renderValue(getLookupValue("ProfessionalDesignation", item.designation), item.designation?.lookup_value || item.designation || "-")}
-
+                              {renderValue(getLookupValue("ProfessionalDesignation", item.designation), item.designation?.lookup_value || (typeof item.designation === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.designation) ? item.designation : "-"))}
                             </div>
                             <div
                               style={{
@@ -1104,7 +1121,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                   fontSize: "0.6rem",
                                 }}
                               ></i>
-                              {renderValue(getLookupValue("Campaign", item.campaign), null) || (typeof item?.campaign === 'string' ? item.campaign : "") ? `${renderValue(getLookupValue("Campaign", item.campaign), null) || item.campaign} • ` : ""}{renderValue(getLookupValue("Source", item.source), null) || (typeof item?.source === 'string' ? item.source : "N/A")}
+                              {renderValue(getLookupValue("Campaign", item.campaign), null) || (typeof item?.campaign === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.campaign) ? item.campaign : "") ? `${renderValue(getLookupValue("Campaign", item.campaign), null) || (typeof item?.campaign === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.campaign) ? item.campaign : "")} • ` : ""}{renderValue(getLookupValue("Source", item.source), null) || (typeof item?.source === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.source) ? item.source : "N/A")}
                             </span>
                             {item?.tags && item?.tags?.length > 0 && (
                               <div
@@ -1115,8 +1132,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 }}
                               >
                                 {Array.isArray(item.tags)
-                                  ? item.tags.map(t => renderValue(getLookupValue("Tag", t), t)).join(", ")
-                                  : renderValue(getLookupValue("Tag", item.tags), item.tags)}
+                                  ? item.tags.map(t => renderValue(getLookupValue("Tag", t), (typeof t === 'string' && !/^[0-9a-fA-F]{24}$/.test(t) ? t : ""))).filter(v => v).join(", ")
+                                  : renderValue(getLookupValue("Tag", item.tags), (typeof item.tags === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.tags) ? item.tags : ""))}
                               </div>
                             )}
                           </div>

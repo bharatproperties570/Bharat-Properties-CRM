@@ -3,9 +3,15 @@ import Activity from "../models/Activity.js";
 import Deal from "../models/Deal.js";
 import Lookup from "../models/Lookup.js";
 import Inventory from "../models/Inventory.js";
+import redisConnection from "../src/config/redis.js";
 
 export const getDashboardStats = async (req, res) => {
     try {
+        const cachedKpis = await redisConnection.get('dashboard_kpis').catch(() => null);
+        if (cachedKpis) {
+            return res.json({ success: true, data: JSON.parse(cachedKpis), cached: true });
+        }
+
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
@@ -141,7 +147,7 @@ export const getDashboardStats = async (req, res) => {
 
         // 7. Contextual AI Smart Insights
         // 7. Contextual AI Smart Insights
-        
+
         const aiAlertHub = {
             followupFailure: activityCounts.overdue?.[0]?.count > 0 ? [{
                 id: 'fail-1',
@@ -172,32 +178,37 @@ export const getDashboardStats = async (req, res) => {
             pipeline: (achievedAmount / targetAmount) < 0.5 ? [{ id: 'sug-4', text: 'Pipeline recovery is behind target. Focus on negotiation closings.', type: 'strategy' }] : []
         };
 
+        const dashboardData = {
+            activities: {
+                overdue: overdueCount,
+                today: todayActivityCount,
+                upcoming: upcomingCount
+            },
+            agenda: {
+                tasks: liveTasks,
+                siteVisits: liveSiteVisits
+            },
+            aiAlertHub,
+            autoSuggestions,
+            performance: {
+                target: targetAmount,
+                achieved: achievedAmount,
+                remaining: Math.max(0, targetAmount - achievedAmount),
+                conversion: Math.round(conversionRate),
+                revenue: totalRevenue,
+                trend: 14
+            },
+            leads: populatedLeads,
+            deals: performanceDeals,
+            inventoryHealth: populatedInventory
+        };
+
+        // Cache for 1 hour (3600 seconds)
+        await redisConnection.setex('dashboard_kpis', 3600, JSON.stringify(dashboardData)).catch(() => null);
+
         res.json({
             success: true,
-            data: {
-                activities: {
-                    overdue: overdueCount,
-                    today: todayActivityCount,
-                    upcoming: upcomingCount
-                },
-                agenda: {
-                    tasks: liveTasks,
-                    siteVisits: liveSiteVisits
-                },
-                aiAlertHub,
-                autoSuggestions,
-                performance: {
-                    target: targetAmount,
-                    achieved: achievedAmount,
-                    remaining: Math.max(0, targetAmount - achievedAmount),
-                    conversion: Math.round(conversionRate),
-                    revenue: totalRevenue,
-                    trend: 14
-                },
-                leads: populatedLeads,
-                deals: performanceDeals,
-                inventoryHealth: populatedInventory
-            }
+            data: dashboardData
         });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

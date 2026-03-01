@@ -3,7 +3,7 @@ import Lead from "../models/Lead.js";
 import Lookup from "../models/Lookup.js";
 import User from "../models/User.js";
 import mongoose from "mongoose";
-import { runFullLeadEnrichment } from "../src/utils/enrichmentEngine.js";
+import { enrichmentQueue } from "../src/queues/queueManager.js";
 
 // Helper to resolve lookup (Find or Create)
 const resolveLookup = async (type, value) => {
@@ -160,9 +160,9 @@ export const submitForm = async (req, res, next) => {
         form.analytics.conversions = Math.round((form.analytics.submissions / form.analytics.views) * 100);
         await form.save();
 
-        // 4. Trigger Engines
-        // runFullLeadEnrichment is non-blocking here to speed up response
-        runFullLeadEnrichment(lead._id).catch(err => console.error("[ENRICHMENT ERROR] Form Submit:", err));
+        // 4. Trigger Engines -> Moved to Background Event Queue
+        enrichmentQueue.add('enrichLead', { leadId: lead._id })
+            .catch(err => console.error("[ENRICHMENT QUEUE ERROR] Form Submit:", err));
 
         res.status(201).json({
             success: true,

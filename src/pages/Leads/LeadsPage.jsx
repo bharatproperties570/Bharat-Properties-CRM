@@ -23,6 +23,7 @@ import { useCall } from '../../context/CallContext';
 import { useDistribution } from '../../context/DistributionContext';
 import EnrollSequenceModal from '../../components/EnrollSequenceModal';
 import DocumentUploadModal from '../../components/DocumentUploadModal';
+import ActivityOutcomeModal from '../../components/ActivityOutcomeModal';
 
 import LeadFilterPanel from './components/LeadFilterPanel';
 import { applyLeadFilters } from '../../utils/leadFilterLogic';
@@ -156,6 +157,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
     const [documentModalData, setDocumentModalData] = useState(null);
 
+    const [isOutcomeModalOpen, setIsOutcomeModalOpen] = useState(false);
+    const [selectedActivityForOutcome, setSelectedActivityForOutcome] = useState(null);
+
     const showToast = (msg) => {
         setToastMessage(msg);
         setTimeout(() => setToastMessage(null), 3000);
@@ -200,22 +204,23 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     }
 
                     return {
-                        _id: lead._id || `lead-${index}`,
-
-                        // Pass raw data for accurate filtering
-                        req: lead.req || {
-                            type: lead.requirement?.lookup_value || lead.requirement,
-                            size: `${lead.areaMin || ""}-${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim()
-                        },
-                        budgetMin: lead.budgetMin,
-                        budgetMax: lead.budgetMax,
-                        propertyType: lead.propertyType,
-                        stage: lead.stage || "New",
-
-                        // ===== BASIC INFO =====
+                        _id: lead._id?.toString() || lead._id || `lead-${index}`,
                         name: name,
                         mobile: lead.mobile || contact.phones?.[0]?.number || "",
                         email: lead.email || contact.emails?.[0]?.address || "",
+
+                        // ===== SCORE DATA & CONTEXT (CRITICAL FOR LIST VIEW) =====
+                        detailedReq: lead.detailedReq,
+                        budgetMatch: lead.budgetMatch,
+                        locationPref: lead.locationPref,
+                        timeline: lead.timeline,
+                        payment: lead.payment,
+                        matched: lead.matched || 0,
+                        lastActivityDate: lead.lastActivityAt || lead.updatedAt,
+                        activities: lead.activities || [],
+                        stage: lead.stage || "New",
+                        status: lead.status,
+                        statusFallback: (typeof lead.status === 'object' && lead.status) ? lead.status : { label: "New", class: "new" },
 
                         // ===== REQUIREMENT =====
                         reqDisplay: {
@@ -224,13 +229,11 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             size: `${lead.areaMin || ""}${lead.areaMin && lead.areaMax ? "-" : ""}${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
                         },
 
-                        // ===== BUDGET =====
                         budget: lead.budget,
                         budgetDisplay: lead.budgetMin || lead.budgetMax
                             ? `₹${Number(lead.budgetMin || 0).toLocaleString()} - ₹${Number(lead.budgetMax || 0).toLocaleString()}`
                             : "—",
 
-                        // ===== LOCATION =====
                         location: lead.location,
                         locationDisplay: [
                             lead.project?.name || (Array.isArray(lead.projectName) ? lead.projectName.join(", ") : lead.projectName),
@@ -239,29 +242,20 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             lead.locCity
                         ].filter(Boolean).map(s => s?.toString().trim()).filter(s => s && s.length > 0).join(", ") || lead.searchLocation || "—",
 
-                        // ===== SOURCE & ASSIGNMENT =====
                         source: lead.source,
                         sourceFallback: contact.source || "Direct",
                         owner: lead.assignment?.assignedTo?.fullName || lead.owner?.fullName || lead.owner?.email || lead.owner || contact.owner || "Unassigned",
                         rawOwner: lead.assignment?.assignedTo?._id || lead.owner?._id || lead.owner?.id || lead.owner || contact.owner,
                         team: contact.team || lead.assignment?.team || "",
 
-                        // ===== STATUS =====
-                        status: lead.status,
-                        statusFallback: lead.status || { label: "New", class: "new" },
-
-                        // ===== META =====
                         lastAct: lead.lastAct || "Today",
                         activity: lead.activity || "None",
                         remarks: lead.notes || lead.remarks || "",
-                        matched: 0, // Simplified for now
                         addOn: lead.addOn || `Added ${new Date(lead.createdAt || Date.now()).toLocaleDateString()}`,
 
-                        // ===== TEMPORARY LEAD META =====
                         isTemporary: lead.isTemporary || false,
                         expiryBadge,
 
-                        // ===== ENRICHMENT DATA =====
                         intentIndex: lead.intent_index || 0,
                         classification: lead.lead_classification || '',
                         roleType: lead.role_type || '',
@@ -418,7 +412,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 </div>
 
                 {/* Pipeline Dashboard - Dynamic Data */}
-                <PipelineDashboard data={leads} refreshTrigger={refreshTrigger} />
+                <PipelineDashboard entityType="lead" refreshTrigger={refreshTrigger} />
 
                 {/* Content Body */}
                 <div className="content-body" style={{ display: 'flex', flexDirection: 'column', height: 'auto', overflow: 'visible', paddingTop: 0, position: 'relative' }}>
@@ -509,9 +503,10 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                 const selectedLead = leads.find(l => l._id === selectedIds[0]);
                                                 if (selectedLead && onAddActivity) {
                                                     const relatedAccount = [{
-                                                        id: selectedLead.mobile, // Using mobile as ID for now since leadData doesn't have ID
+                                                        id: selectedLead._id, // Fixed: Pass ObjectId instead of mobile number
                                                         name: selectedLead.name,
-                                                        mobile: selectedLead.mobile
+                                                        mobile: selectedLead.mobile,
+                                                        model: 'Lead' // Explicitly set to Lead so backend links it to EnterprisePipeline
                                                     }];
                                                     onAddActivity(relatedAccount);
                                                 }
@@ -803,8 +798,53 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         }}
                                     >
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
-                                            <div style={{ display: 'flex', gap: '12px' }}>
-                                                <div className="avatar-circle" style={{ width: '40px', height: '40px', fontSize: '1rem', background: '#eff6ff', color: 'var(--primary-color)' }}>{getInitials(lead.name)}</div>
+                                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                                {/* Dynamic Lead Scoring Engine Badge for Card View */}
+                                                <div style={{ position: 'relative' }}>
+                                                    {(() => {
+                                                        const backendScore = liveScores[lead._id];
+                                                        const scoring = calculateLeadScore(lead, lead.activities || [], scoringConfig);
+                                                        const displayScore = backendScore ? backendScore.score : scoring.total;
+                                                        const displayColor = backendScore ? backendScore.color : scoring.temperature.color;
+                                                        const tempClass = backendScore
+                                                            ? (displayScore >= 81 ? 'super-hot' : displayScore >= 61 ? 'hot' : displayScore >= 31 ? 'warm' : 'cold')
+                                                            : scoring.temperature.class;
+                                                        return (
+                                                            <div
+                                                                className={`score-indicator ${tempClass}`}
+                                                                style={{
+                                                                    width: '32px',
+                                                                    height: '32px',
+                                                                    fontSize: '0.8rem',
+                                                                    borderRadius: '50%',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    fontWeight: '900',
+                                                                    border: '2px solid rgba(255,255,255,0.2)',
+                                                                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                                                                    background: displayColor,
+                                                                    color: '#fff',
+                                                                    cursor: 'help'
+                                                                }}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    const rect = e.currentTarget.getBoundingClientRect();
+                                                                    const aiExplanation = AIExpertService.explainLeadScore(lead, scoringConfig);
+                                                                    setActiveScorePopover({
+                                                                        name: lead.name,
+                                                                        x: rect.left,
+                                                                        y: rect.bottom + 10,
+                                                                        scoring: backendScore ? { ...scoring, total: displayScore } : scoring,
+                                                                        ai: aiExplanation
+                                                                    });
+                                                                }}
+                                                            >
+                                                                {displayScore}
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                </div>
                                                 <div>
                                                     <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '1rem' }}>{lead.name}</div>
                                                     <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{lead.mobile}</div>
@@ -814,25 +854,70 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         </div>
                                         {/* Simplified Card Content for brevity in fix */}
                                         <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', marginBottom: '12px' }}>
+                                            {(() => {
+                                                const siteVisit = (lead.activities || []).find(a =>
+                                                    (a.type === 'Site Visit' || a.subject?.toLowerCase().includes('site visit')) &&
+                                                    a.status !== 'Completed'
+                                                );
+
+                                                if (siteVisit) {
+                                                    const dateStr = siteVisit.dueDate ? new Date(siteVisit.dueDate).toLocaleDateString() : 'TBD';
+                                                    return (
+                                                        <div
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSelectedActivityForOutcome(siteVisit);
+                                                                setIsOutcomeModalOpen(true);
+                                                            }}
+                                                            style={{
+                                                                background: '#f0fdf4',
+                                                                border: '1px solid #bbf7d0',
+                                                                borderRadius: '6px',
+                                                                padding: '6px 10px',
+                                                                cursor: 'pointer',
+                                                                marginBottom: '8px',
+                                                                display: 'flex',
+                                                                justifyContent: 'space-between',
+                                                                alignItems: 'center'
+                                                            }}
+                                                        >
+                                                            <div>
+                                                                <div style={{ color: '#166534', fontSize: '0.7rem', fontWeight: 800 }}>
+                                                                    <i className="fas fa-map-marked-alt"></i> SITE VISIT
+                                                                </div>
+                                                                <div style={{ color: '#15803d', fontSize: '0.6rem', fontWeight: 600 }}>
+                                                                    {dateStr} {siteVisit.dueTime ? `@ ${siteVisit.dueTime}` : ''}
+                                                                </div>
+                                                            </div>
+                                                            <div style={{ color: '#166534', fontSize: '0.6rem', fontWeight: 800, textDecoration: 'underline' }}>
+                                                                Log Outcome
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                }
+                                                return null;
+                                            })()}
                                             <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>
                                                 {renderValue(getLookupValue('Requirement', lead.reqDisplay?.type), null) || "Any Property"}
                                             </div>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginTop: '4px', color: '#64748b' }}>
-                                                <span>{lead.reqDisplay?.size}</span>
+                                                <span>{renderValue(lead.reqDisplay?.size, 'Std. Size')}</span>
+
                                                 <span style={{ fontWeight: 700, color: '#059669' }}>
                                                     {renderValue(getLookupValue('Budget', lead.budget), null) || lead.budgetDisplay}
                                                 </span>
                                             </div>
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                            <span
-                                                className={`status-badge ${(renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.class : 'new')).toLowerCase()}`}
-                                                style={{ fontSize: '0.75rem' }}
-                                            >
-                                                {renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.label : lead.statusFallback)}
-                                            </span>
+                                            <div className="flex items-center gap-2">
+                                                <span
+                                                    className={`status-badge ${(renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.class : 'new') || 'new').toLowerCase()}`}
+                                                >
+                                                    {renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.label : lead.statusFallback)}
+                                                </span>
+                                            </div>
                                             <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                                                {renderValue(getLookupValue('Source', lead.source), null) || lead.sourceFallback}
+                                                {renderValue(getLookupValue('Source', lead.source), null) || renderValue(lead.sourceFallback, "Direct")}
                                             </span>
                                         </div>
 
@@ -1057,7 +1142,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                     onBlur={() => showToast(`Budget updated for ${c.name}. Recalculating matches...`)}
                                                     style={{ color: 'var(--primary-color)', fontWeight: 800, fontSize: '0.85rem', outline: 'none' }}
                                                 >{(renderValue(getLookupValue('Budget', c.budget), null) || c.budgetDisplay || '').replace('<br/>', ' ')}</div>
-                                                <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, marginTop: '2px' }}>{c.reqDisplay?.size || 'Std. Size'}</div>
+                                                <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, marginTop: '2px' }}>{renderValue(c.reqDisplay?.size, 'Std. Size')}</div>
                                             </div>
                                         </div>
 
@@ -1084,7 +1169,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                                                 {/* ── STAGE ENGINE CHIP ─────────────────────── */}
                                                 {(() => {
-                                                    const stageName = c.stage || 'New';
+                                                    const stageName = renderValue(getLookupValue('Stage', c.stage), null) || 'New';
                                                     const stageInfo = STAGE_PIPELINE.find(s => s.label.toLowerCase() === stageName.toLowerCase()) || { color: '#94a3b8', icon: 'fa-circle', label: stageName };
                                                     return (
                                                         <span title="Auto-computed stage" style={{
@@ -1106,7 +1191,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                 {/* ─────────────────────────────────────────── */}
 
                                                 <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                    {renderValue(getLookupValue('Source', c.source), null) || c.sourceFallback}
+                                                    {renderValue(getLookupValue('Source', c.source), null) || renderValue(c.sourceFallback, "Direct")}
                                                     <i className="fas fa-info-circle" title="AI Insight: Facebook leads convert better when called within 30 mins" style={{ fontSize: '0.6rem', color: '#cbd5e1' }}></i>
                                                 </div>
                                             </div>
@@ -1114,10 +1199,54 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                                         <div className="col-interaction">
                                             <div style={{ lineHeight: 1.4, maxWidth: '240px' }}>
-                                                <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500, fontStyle: 'italic', marginBottom: '4px' }}>"{c.remarks}"</div>
-                                                <div style={{ color: '#27ae60', fontSize: '0.7rem', fontWeight: 700 }}>
-                                                    <i className="fas fa-phone-alt" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>{c.activity} • <span style={{ color: '#64748b' }}>{c.lastAct}</span>
-                                                </div>
+                                                {(() => {
+                                                    const siteVisit = (c.activities || []).find(a =>
+                                                        (a.type === 'Site Visit' || a.subject?.toLowerCase().includes('site visit')) &&
+                                                        a.status !== 'Completed'
+                                                    );
+
+                                                    if (siteVisit) {
+                                                        const dateStr = siteVisit.dueDate ? new Date(siteVisit.dueDate).toLocaleDateString() : 'TBD';
+                                                        return (
+                                                            <div
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setSelectedActivityForOutcome(siteVisit);
+                                                                    setIsOutcomeModalOpen(true);
+                                                                }}
+                                                                style={{
+                                                                    background: '#f0fdf4',
+                                                                    border: '1px solid #bbf7d0',
+                                                                    borderRadius: '6px',
+                                                                    padding: '4px 8px',
+                                                                    cursor: 'pointer',
+                                                                    transition: 'all 0.2s'
+                                                                }}
+                                                                onMouseOver={(e) => e.currentTarget.style.background = '#dcfce7'}
+                                                                onMouseOut={(e) => e.currentTarget.style.background = '#f0fdf4'}
+                                                            >
+                                                                <div style={{ color: '#166534', fontSize: '0.75rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                                    <i className="fas fa-map-marked-alt"></i> SITE VISIT
+                                                                </div>
+                                                                <div style={{ color: '#15803d', fontSize: '0.65rem', fontWeight: 600 }}>
+                                                                    {dateStr} {siteVisit.dueTime ? `@ ${siteVisit.dueTime}` : ''}
+                                                                </div>
+                                                                <div style={{ color: '#166534', fontSize: '0.6rem', fontWeight: 700, marginTop: '2px', textDecoration: 'underline' }}>
+                                                                    Record Outcome
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    }
+
+                                                    return (
+                                                        <>
+                                                            <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500, fontStyle: 'italic', marginBottom: '4px' }}>"{renderValue(c.remarks, '')}"</div>
+                                                            <div style={{ color: '#27ae60', fontSize: '0.7rem', fontWeight: 700 }}>
+                                                                <i className="fas fa-phone-alt" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>{c.activity} • <span style={{ color: '#64748b' }}>{c.lastAct}</span>
+                                                            </div>
+                                                        </>
+                                                    );
+                                                })()}
                                             </div>
                                         </div>
 
@@ -1424,6 +1553,12 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     setFilters(newFilters);
                     setCurrentPage(1); // Reset to first page on filter change
                 }}
+            />
+            {/* Activity Outcome Modal */}
+            <ActivityOutcomeModal
+                isOpen={isOutcomeModalOpen}
+                onClose={() => setIsOutcomeModalOpen(false)}
+                activity={selectedActivityForOutcome}
             />
         </section >
     );

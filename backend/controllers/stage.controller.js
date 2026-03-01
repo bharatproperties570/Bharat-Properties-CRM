@@ -11,6 +11,7 @@ import Lead from '../models/Lead.js';
 import Deal from '../models/Deal.js';
 import Activity from '../models/Activity.js';
 import Lookup from '../models/Lookup.js';
+import AuditLog from '../models/AuditLog.js';
 import mongoose from 'mongoose';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -142,6 +143,18 @@ export const updateLeadStage = async (req, res) => {
             { path: 'stageHistory.activityId' }
         ]);
 
+        if (currentStageValue !== newStage) {
+            await AuditLog.logEntityUpdate(
+                'stage_changed',
+                'lead',
+                id,
+                `${lead.firstName || ''} ${lead.lastName || ''}`,
+                userId,
+                { before: currentStageValue, after: newStage },
+                `Lead stage shifted from ${currentStageValue} to ${newStage}${reason ? ' - ' + reason : ''}`
+            );
+        }
+
         res.json({
             success: true,
             previousStage: currentStageValue,
@@ -222,6 +235,18 @@ export const syncDealStage = async (req, res) => {
             },
             { new: true }
         );
+
+        if (deal.stage !== computedDealStage) {
+            await AuditLog.logEntityUpdate(
+                'stage_changed',
+                'deal',
+                id,
+                deal.projectName || 'Deal',
+                userId,
+                { before: deal.stage, after: computedDealStage },
+                `Deal stage synced from lead tracking. Shifted to ${computedDealStage}`
+            );
+        }
 
         res.json({
             success: true,
@@ -309,50 +334,83 @@ export const getDealStageHistory = async (req, res) => {
  */
 export const getStageDensity = async (req, res) => {
     try {
-        // Aggregate leads by stage
-        const leadDensity = await Lead.aggregate([
-            {
-                $lookup: {
-                    from: 'lookups',
-                    localField: 'stage',
-                    foreignField: '_id',
-                    as: 'stageInfo'
-                }
-            },
-            {
-                $project: {
-                    stageLabel: { $ifNull: [{ $arrayElemAt: ['$stageInfo.lookup_value', 0] }, 'Unknown'] },
-                    stageChangedAt: 1,
-                    createdAt: 1
-                }
-            },
-            {
-                $group: {
-                    _id: '$stageLabel',
-                    count: { $sum: 1 },
-                    avgDaysInStage: {
-                        $avg: {
-                            $dateDiff: {
-                                startDate: { $ifNull: ['$stageChangedAt', '$createdAt'] },
-                                endDate: '$$NOW',
-                                unit: 'day'
+        const entityType = req.query.entityType === 'deal' ? 'deal' : 'lead';
+
+        let densityStats;
+        let STAGE_ORDER = [];
+
+        if (entityType === 'deal') {
+            const dealDensity = await Deal.aggregate([
+                {
+                    $project: {
+                        stageLabel: { $ifNull: ['$stage', 'Open'] },
+                        stageChangedAt: 1,
+                        createdAt: 1
+                    }
+                },
+                {
+                    $group: {
+                        _id: '$stageLabel',
+                        count: { $sum: 1 },
+                        avgDaysInStage: {
+                            $avg: {
+                                $dateDiff: {
+                                    startDate: { $ifNull: ['$stageChangedAt', '$createdAt'] },
+                                    endDate: '$$NOW',
+                                    unit: 'day'
+                                }
                             }
                         }
                     }
-                }
-            },
-            { $sort: { count: -1 } }
-        ]);
+                },
+                { $sort: { count: -1 } }
+            ]);
+            densityStats = dealDensity;
+            STAGE_ORDER = ['Open', 'Quote', 'Negotiation', 'Stalled', 'Booked', 'Closed', 'Closed Won', 'Closed Lost', 'Cancelled'];
+        } else {
+            const leadDensity = await Lead.aggregate([
+                {
+                    $lookup: {
+                        from: 'lookups',
+                        localField: 'stage',
+                        foreignField: '_id',
+                        as: 'stageInfo'
+                    }
+                },
+                {
+                    $project: {
+                        stageLabel: { $ifNull: [{ $arrayElemAt: ['$stageInfo.lookup_value', 0] }, 'Unknown'] },
+                        stageChangedAt: 1,
+                        createdAt: 1
+                    }
+                },
+                {
+                    $group: {
+                        _id: '$stageLabel',
+                        count: { $sum: 1 },
+                        avgDaysInStage: {
+                            $avg: {
+                                $dateDiff: {
+                                    startDate: { $ifNull: ['$stageChangedAt', '$createdAt'] },
+                                    endDate: '$$NOW',
+                                    unit: 'day'
+                                }
+                            }
+                        }
+                    }
+                },
+                { $sort: { count: -1 } }
+            ]);
+            densityStats = leadDensity;
+            STAGE_ORDER = ['New', 'Prospect', 'Qualified', 'Opportunity', 'Negotiation', 'Booked', 'Closed Won', 'Closed Lost', 'Stalled'];
+        }
 
-        const total = leadDensity.reduce((sum, s) => sum + s.count, 0) || 1;
+        const total = densityStats.reduce((sum, s) => sum + s.count, 0) || 1;
 
-        // Stage order for funnel computation
-        const STAGE_ORDER = ['New', 'Prospect', 'Qualified', 'Opportunity', 'Negotiation', 'Booked', 'Closed Won', 'Closed Lost', 'Stalled'];
-
-        const density = leadDensity.map(entry => {
+        const density = densityStats.map(entry => {
             const stageIdx = STAGE_ORDER.indexOf(entry._id);
             const nextStageCount = stageIdx >= 0 && stageIdx < STAGE_ORDER.length - 2
-                ? leadDensity.find(s => s._id === STAGE_ORDER[stageIdx + 1])?.count || 0
+                ? densityStats.find(s => s._id === STAGE_ORDER[stageIdx + 1])?.count || 0
                 : null;
 
             const conversionRate = nextStageCount !== null && entry.count > 0
@@ -375,9 +433,19 @@ export const getStageDensity = async (req, res) => {
         });
 
         // Overall funnel stats
-        const newCount = leadDensity.find(s => s._id === 'New')?.count || 0;
-        const bookedCount = leadDensity.find(s => s._id === 'Booked')?.count || 0;
-        const overallConversion = newCount > 0 ? Math.round((bookedCount / newCount) * 100) : 0;
+        let newCount = 0;
+        let bookedCount = 0;
+        let overallConversion = 0;
+
+        if (entityType === 'deal') {
+            newCount = densityStats.find(s => s._id === 'Open')?.count || 0;
+            bookedCount = densityStats.find(s => s._id === 'Closed Won')?.count || 0;
+            overallConversion = newCount > 0 ? Math.round((bookedCount / newCount) * 100) : 0;
+        } else {
+            newCount = densityStats.find(s => s._id === 'New')?.count || 0;
+            bookedCount = densityStats.find(s => s._id === 'Booked')?.count || 0;
+            overallConversion = newCount > 0 ? Math.round((bookedCount / newCount) * 100) : 0;
+        }
 
         res.json({
             success: true,
@@ -673,41 +741,45 @@ export const getLeadScores = async (req, res) => {
             let score = 0;
             const leadIdStr = lead._id.toString();
 
-            // Priority 1: ML intent_index (already 0–100)
-            if (lead.intent_index !== undefined && lead.intent_index !== null && lead.intent_index > 0) {
-                score = Math.round(lead.intent_index);
-            } else {
-                // Formula: Stage Weight + Activity Behaviour Score
-                const stageName = lead.stage?.lookup_value || lead.stage || 'New';
-                const stageWeight = STAGE_WEIGHTS[stageName] || 10;
+            // 1. Calculate the core baseline score
+            // Take the best possible base score from either ML engine or Stage pipeline position
+            const intentScore = lead.intent_index || 0;
+            const stageName = lead.stage?.lookup_value || lead.stage || 'New';
+            const stageWeight = STAGE_WEIGHTS[stageName] || 10;
+            const baseScore = Math.max(intentScore, stageWeight);
 
-                // Activity Behaviour Score (Dynamic)
-                let behavioralScore = 0;
-                const leadActivities = activityGroups[leadIdStr] || [];
+            // 2. Activity Behaviour Score (Dynamic)
+            let behavioralScore = 0;
+            const leadActivities = activityGroups[leadIdStr] || [];
 
-                leadActivities.forEach(act => {
-                    const typeConfig = activityConfig.activities?.find(a => a.name === act.type);
-                    if (typeConfig) {
-                        const purpose = act.details?.purpose || '';
-                        const purposeConfig = typeConfig.purposes?.find(p => p.name === purpose);
-                        if (purposeConfig) {
-                            // Find outcome score
-                            const outcomeLabel = act.details?.completionResult || act.details?.meetingOutcomeStatus || act.details?.callOutcome || '';
-                            const outcomeConfig = purposeConfig.outcomes?.find(o => o.label === outcomeLabel);
-                            if (outcomeConfig) {
-                                behavioralScore += (outcomeConfig.score || 0);
-                            }
+            leadActivities.forEach(act => {
+                const typeConfig = activityConfig.activities?.find(a => a.name === act.type);
+                if (typeConfig) {
+                    const purpose = act.details?.purpose || '';
+                    const purposeConfig = typeConfig.purposes?.find(p => p.name === purpose);
+                    if (purposeConfig) {
+                        // Find outcome score
+                        const outcomeLabel = act.details?.completionResult || act.details?.meetingOutcomeStatus || act.details?.callOutcome || '';
+                        const outcomeConfig = purposeConfig.outcomes?.find(o => o.label === outcomeLabel);
+                        if (outcomeConfig) {
+                            behavioralScore += (outcomeConfig.score || 0);
                         }
                     }
-                });
+                }
+            });
 
-                // Recency Bonus
-                const lastActivity = lead.lastActivityAt || lead.stageChangedAt;
-                const daysAgo = lastActivity ? Math.floor((now - new Date(lastActivity)) / 86400000) : 999;
-                const recencyBonus = daysAgo <= 3 ? 10 : daysAgo <= 7 ? 5 : 0;
+            // 3. Recency Bonus
+            const lastActivity = lead.lastActivityAt || lead.stageChangedAt;
+            const daysAgo = lastActivity ? Math.floor((now - new Date(lastActivity)) / 86400000) : 999;
+            const recencyBonus = daysAgo <= 3 ? 10 : daysAgo <= 7 ? 5 : 0;
 
-                score = Math.min(100, stageWeight + behavioralScore + recencyBonus);
-            }
+            // 4. Combine Engines
+            // We cap behavior + recency bonuses to avoid breaking out of 100 max bounds unnecessarily,
+            // while still rewarding engaged sequences.
+            const dynamicBonus = Math.min(30, behavioralScore + recencyBonus);
+
+            // Final clamped blended score
+            score = Math.max(0, Math.min(100, baseScore + dynamicBonus));
 
             // Temperature coding based on research
             // 81+ Super Hot (Purple), 61+ Hot (Red), 31+ Warm (Amber), <31 Cold (Slate)

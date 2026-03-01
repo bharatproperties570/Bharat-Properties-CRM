@@ -890,7 +890,7 @@ function ActivitiesPage() {
                                                 </span>
                                             </div>
 
-                                            {/* Project / Feedback */}
+                                            {/* Project / Feedback / Details */}
                                             <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.5, overflow: 'hidden' }}>
                                                 {activity.details?.visitedProperties?.[0]?.project && (
                                                     <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#0891b2', fontWeight: 600, marginBottom: '4px' }}>
@@ -898,8 +898,17 @@ function ActivitiesPage() {
                                                     </div>
                                                 )}
                                                 {activity.description && (
-                                                    <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600, padding: '4px 8px', background: '#d1fae5', borderRadius: '4px', borderLeft: '3px solid #10b981' }}>
+                                                    <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600, padding: '4px 8px', background: '#d1fae5', borderRadius: '4px', borderLeft: '3px solid #10b981', marginBottom: '4px' }}>
                                                         <i className="fas fa-comment-dots" style={{ marginRight: '4px' }}></i>{activity.description}
+                                                    </div>
+                                                )}
+                                                {activity.details && Object.keys(activity.details).length > 0 && typeof activity.details === 'object' && !Array.isArray(activity.details) && (
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                                        {Object.entries(activity.details).filter(([k, v]) => v && typeof v === 'string' && k !== 'visitedProperties').slice(0, 2).map(([key, value], i) => (
+                                                            <span key={i} title={`${key}: ${value}`} className="text-ellipsis" style={{ maxWidth: '100%', fontSize: '0.65rem', background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                                                                <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{key}</span>: {value}
+                                                            </span>
+                                                        ))}
                                                     </div>
                                                 )}
                                             </div>

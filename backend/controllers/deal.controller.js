@@ -3,6 +3,9 @@ import Activity from "../models/Activity.js";
 import Inventory from "../models/Inventory.js";
 import Lead from "../models/Lead.js";
 import { paginate } from "../utils/pagination.js";
+import smsService from "../src/modules/sms/sms.service.js";
+import Lookup from "../models/Lookup.js";
+import AuditLog from "../models/AuditLog.js";
 
 export const matchDeals = async (req, res) => {
     try {
@@ -262,6 +265,29 @@ export const addDeal = async (req, res) => {
 
         const deal = await Deal.create(sanitizedData);
         await syncInventoryStatus(deal);
+
+        // Audit Log Deal Conversion
+        if (sanitizedData.owner || sanitizedData.partyStructure?.buyer) {
+            await AuditLog.logEntityUpdate(
+                'deal_converted',
+                'deal',
+                deal._id,
+                deal.projectName || 'New Deal',
+                req.user?.id,
+                { before: null, after: deal.stage || 'Open' },
+                `Lead/Contact converted into an active Deal (#${deal.dealId || deal._id}).`
+            );
+        }
+
+        // SMS Trigger: New Deal
+        const dealWithConfig = await Deal.findById(deal._id).populate('owner associatedContact category');
+        const phone = dealWithConfig.owner?.phone || dealWithConfig.associatedContact?.phone;
+        if (phone) {
+            const catName = dealWithConfig.category?.lookup_value || 'Property';
+            smsService.sendSMS(phone, `Bharat Properties: A new deal (${dealWithConfig.dealId}) for ${catName} has been created.`)
+                .catch(e => console.error('[SMS Trigger Error] New Deal failed:', e.message));
+        }
+
         res.status(201).json({ success: true, data: deal });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -310,6 +336,17 @@ export const updateDeal = async (req, res) => {
         const deal = await Deal.findByIdAndUpdate(req.params.id, sanitizedData, { new: true });
         if (!deal) return res.status(404).json({ success: false, error: 'Deal not found' });
         await syncInventoryStatus(deal);
+
+        // SMS Trigger: Stage Change
+        if (sanitizedData.stage) {
+            const dealPop = await Deal.findById(deal._id).populate('owner associatedContact');
+            const phone = dealPop.owner?.phone || dealPop.associatedContact?.phone;
+            if (phone) {
+                smsService.sendSMS(phone, `Bharat Properties: Your deal ${dealPop.dealId} status has been updated to ${dealPop.stage}.`)
+                    .catch(e => console.error('[SMS Trigger Error] Deal stage failed:', e.message));
+            }
+        }
+
         res.json({ success: true, data: deal });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

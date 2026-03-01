@@ -1,11 +1,12 @@
 import mongoose from "mongoose";
+import { invalidateDashboardCache } from "../src/config/redis.js";
 
 const LeadSchema = new mongoose.Schema({
     salutation: { type: String, default: "Mr." },
     firstName: { type: String, required: true },
     lastName: { type: String },
-    mobile: { type: String, required: true, index: true },
-    email: { type: String },
+    mobile: { type: String, required: true, index: true, unique: true },
+    email: { type: String, unique: true, sparse: true },
     requirement: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     subRequirement: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     project: { type: mongoose.Schema.Types.ObjectId, ref: 'Project' },
@@ -128,6 +129,39 @@ const resolveLookupLocal = async (type, value) => {
 
 // Middleware to resolve lookup names to IDs before saving
 LeadSchema.pre('save', async function (next) {
+    // Lead Duplicate Prevention & Merge Strategy
+    if (this.isNew) {
+        const queries = [{ mobile: this.mobile }];
+        if (this.email) {
+            queries.push({ email: this.email });
+        }
+
+        const existingLead = await mongoose.model('Lead').findOne({ $or: queries });
+
+        if (existingLead) {
+            existingLead.intent_index = Math.max(existingLead.intent_index || 0, this.intent_index || 0);
+            existingLead.leadScore = Math.max(existingLead.leadScore || 0, this.leadScore || 0);
+
+            if (this.description) {
+                existingLead.description = (existingLead.description ? existingLead.description + '\n---\n' : '') + this.description;
+            }
+            if (this.notes) {
+                existingLead.notes = (existingLead.notes ? existingLead.notes + '\n---\n' : '') + this.notes;
+            }
+            if (this.tags && this.tags.length > 0) {
+                existingLead.tags = [...new Set([...(existingLead.tags || []), ...this.tags])];
+            }
+
+            existingLead.lastActivityAt = new Date();
+            await existingLead.save();
+
+            const err = new Error('DuplicateLeadExists');
+            err.isDuplicateMerge = true;
+            err.mergedLead = existingLead;
+            return next(err);
+        }
+    }
+
     if (this.requirement && typeof this.requirement === 'string') this.requirement = await resolveLookupLocal('Requirement', this.requirement);
     if (this.subRequirement && typeof this.subRequirement === 'string') this.subRequirement = await resolveLookupLocal('SubRequirement', this.subRequirement);
     if (this.budget && typeof this.budget === 'string') this.budget = await resolveLookupLocal('Budget', this.budget);
@@ -187,5 +221,9 @@ LeadSchema.pre('findOneAndUpdate', async function (next) {
     }
     next();
 });
+
+LeadSchema.post('save', invalidateDashboardCache);
+LeadSchema.post('findOneAndUpdate', invalidateDashboardCache);
+LeadSchema.post('findOneAndDelete', invalidateDashboardCache);
 
 export default mongoose.model("Lead", LeadSchema);

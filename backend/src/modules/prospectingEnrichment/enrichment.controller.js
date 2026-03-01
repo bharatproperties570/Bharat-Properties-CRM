@@ -1,6 +1,7 @@
 import ProspectEnrichmentRule from "../../../models/ProspectEnrichmentRule.js";
 import IntentKeywordRule from "../../../models/IntentKeywordRule.js";
 import EnrichmentLog from "../../../models/EnrichmentLog.js";
+import AuditLog from "../../../models/AuditLog.js";
 import Lead from "../../../models/Lead.js";
 import { scanKeywords, calculateIntentIndex, classifyLead, detectMarginOpportunity } from "../../utils/enrichmentEngine.js";
 import { AppError } from "../../middlewares/error.middleware.js";
@@ -37,7 +38,9 @@ export const saveKeywordRule = async (req, res, next) => {
         const { id, keyword, autoTag, roleType, intentImpact, isActive } = req.body;
 
         let rule;
+        let oldRule = null;
         if (id) {
+            oldRule = await IntentKeywordRule.findById(id).lean();
             rule = await IntentKeywordRule.findByIdAndUpdate(id, {
                 keyword, autoTag, roleType, intentImpact, isActive
             }, { new: true });
@@ -46,6 +49,17 @@ export const saveKeywordRule = async (req, res, next) => {
                 keyword, autoTag, roleType, intentImpact, isActive
             });
         }
+
+        // Audit Rule Modification Track
+        await AuditLog.logEntityUpdate(
+            'rule_modified',
+            'rule',
+            rule._id,
+            `Keyword Rule: ${rule.keyword}`,
+            req.user?.id,
+            { before: oldRule, after: rule },
+            id ? `Keyword rule updated.` : `New keyword rule created.`
+        );
 
         res.status(200).json({ success: true, data: rule });
     } catch (error) {

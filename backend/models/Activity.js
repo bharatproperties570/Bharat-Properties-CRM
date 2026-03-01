@@ -1,10 +1,11 @@
 import mongoose from "mongoose";
+import { invalidateDashboardCache } from "../src/config/redis.js";
 
 const ActivitySchema = new mongoose.Schema({
     type: { type: String, required: true, index: true }, // Call, Meeting, Site Visit, Task, Email
     subject: { type: String, required: true },
     entityType: { type: String, required: true, index: true }, // Lead, Contact, Deal, Project, Company, User
-    entityId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    entityId: { type: mongoose.Schema.Types.ObjectId, required: false, index: true },
     relatedTo: [{
         id: { type: mongoose.Schema.Types.ObjectId },
         name: String,
@@ -39,5 +40,9 @@ const ActivitySchema = new mongoose.Schema({
     completionResult: String,
 
 }, { timestamps: true });
+
+ActivitySchema.post('save', invalidateDashboardCache);
+ActivitySchema.post('findOneAndUpdate', invalidateDashboardCache);
+ActivitySchema.post('findOneAndDelete', invalidateDashboardCache);
 
 export default mongoose.model("Activity", ActivitySchema);

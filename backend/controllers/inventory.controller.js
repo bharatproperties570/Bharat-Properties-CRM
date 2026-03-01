@@ -8,9 +8,19 @@ import mongoose from "mongoose";
 
 export const getInventory = async (req, res) => {
     try {
-        const { page = 1, limit = 10, search = "", category, subCategory, unitType, status, project, contactId } = req.query;
+        const { page = 1, limit = 10, search = "", category, subCategory, unitType, status, project, block, location, area, contactId } = req.query;
 
         let query = {};
+
+        // Support for block/location filtering
+        if (block || location) {
+            query.block = block || location;
+        }
+
+        // Support for project name filtering via 'area' (used in some modals)
+        if (area && !project) {
+            query.projectName = area;
+        }
 
         if (contactId) {
             query.$or = [
@@ -47,13 +57,11 @@ export const getInventory = async (req, res) => {
         if (status) query.status = status;
         if (project) {
             const projectConditions = [
-                { projectId: project },
+                { projectId: mongoose.Types.ObjectId.isValid(project) ? project : undefined },
                 { projectName: project }
-            ];
+            ].filter(c => c.projectId || c.projectName);
 
             if (query.$or) {
-                // If we already have $or (from search or contactId), we need to $and it with project conditions
-                // This is getting complex, let's simplify by pushing to an $and array if multiple $ors exist
                 if (!query.$and) query.$and = [];
                 query.$and.push({ $or: query.$or });
                 query.$and.push({ $or: projectConditions });

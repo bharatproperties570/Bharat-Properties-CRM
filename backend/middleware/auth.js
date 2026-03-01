@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
+import BlacklistedToken from "../models/BlacklistedToken.js";
 
-export const protect = (req, res, next) => {
+export const protect = async (req, res, next) => {
     let token;
     if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
         token = req.headers.authorization.split(" ")[1];
@@ -11,6 +12,11 @@ export const protect = (req, res, next) => {
     }
 
     try {
+        const isBlacklisted = await BlacklistedToken.findOne({ token });
+        if (isBlacklisted) {
+            return res.status(401).json({ success: false, message: "Token has been revoked" });
+        }
+
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         req.user = decoded;
         next();

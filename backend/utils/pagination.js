@@ -42,8 +42,9 @@ export const paginate = async (model, query, page, limit, sort = {}, populate = 
         }
 
         // If population fails, try fetching without population
+        // If population fails, try fetching without population
         if (populate) {
-            console.warn(`[PAGINATION] Retrying without population for ${model.modelName}...`);
+            console.warn(`[PAGINATION] Population failed for ${model.modelName} due to error: ${error.message}. Returning records without population.`);
             try {
                 const [records, total] = await Promise.all([
                     model.find(query).sort(sort).skip(skip).limit(limit).lean(),

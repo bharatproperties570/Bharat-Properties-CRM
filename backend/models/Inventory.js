@@ -6,7 +6,7 @@ const InventorySchema = new mongoose.Schema({
     subCategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup', index: true },
     unitType: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup', index: true },
     project: String,
-    projectId: { type: mongoose.Schema.Types.Mixed, index: true },
+    projectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', index: true },
 
     projectName: String,
     block: { type: String },
@@ -18,34 +18,59 @@ const InventorySchema = new mongoose.Schema({
 
 
     // Pricing
-    price: { type: mongoose.Schema.Types.Mixed, index: true },
-    totalCost: mongoose.Schema.Types.Mixed,
-    allInclusivePrice: mongoose.Schema.Types.Mixed,
+    price: {
+        value: { type: Number },
+        currency: { type: String, default: 'INR' }
+    },
+    totalCost: {
+        value: { type: Number },
+        currency: { type: String, default: 'INR' }
+    },
+    allInclusivePrice: {
+        value: { type: Number },
+        currency: { type: String, default: 'INR' }
+    },
 
     // Size & Specs
-    size: mongoose.Schema.Types.Mixed,
+    size: {
+        value: { type: Number },
+        unit: { type: String, default: 'Sq.Ft.' }
+    },
     sizeUnit: String,
-    floor: { type: mongoose.Schema.Types.Mixed },
+    floor: { type: String },
     facing: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     roadWidth: String,
 
-    builtUpArea: mongoose.Schema.Types.Mixed,
-    carpetArea: mongoose.Schema.Types.Mixed,
+    builtUpArea: {
+        value: { type: Number },
+        unit: { type: String, default: 'Sq.Ft.' }
+    },
+    carpetArea: {
+        value: { type: Number },
+        unit: { type: String, default: 'Sq.Ft.' }
+    },
 
     // Location
     city: { type: String, index: true },
     sector: { type: String, index: true },
-    address: mongoose.Schema.Types.Mixed,
+    address: {
+        street: String,
+        landmark: String,
+        city: String,
+        state: String,
+        pincode: String,
+        country: { type: String, default: 'India' }
+    },
 
     // Ownership & Association
-    owners: [{ type: mongoose.Schema.Types.Mixed, ref: 'Contact' }],
-    associates: [{ type: mongoose.Schema.Types.Mixed, ref: 'Contact' }],
+    owners: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Contact' }],
+    associates: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Contact' }],
 
     // System
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
     assignedTo: String,
     visibleTo: String
-}, { timestamps: true, strict: false });
+}, { timestamps: true, strict: true });
 
 // Permanent Fix: Deep Data Integrity Hooks
 InventorySchema.pre('save', async function (next) {

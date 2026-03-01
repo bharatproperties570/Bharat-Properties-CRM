@@ -28,6 +28,7 @@ import scoringRoutes from "./modules/rules/scoring.routes.js";
 import systemRoutes from "./modules/systemSettings/system.routes.js";
 import parsingRoutes from "./modules/parsing/parsingRule.routes.js";
 import intakeRoutes from "./modules/intake/intake.routes.js";
+import smsRoutes from "./modules/sms/sms.routes.js";
 
 
 // Middleware
@@ -35,7 +36,37 @@ import { errorHandler } from "./middlewares/error.middleware.js";
 
 const app = express();
 
-app.use(cors());
+const allowedOrigins = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:8081",
+    "http://192.168.1.10:3000",
+    "http://192.168.1.10:8081",
+    "https://bharat-properties-crm.vercel.app",
+    "https://api.bharatproperties.co",
+    "https://crm.bharatproperties.com"
+];
+
+app.use(cors({
+    origin: function (origin, callback) {
+        if (!origin) {
+            if (process.env.NODE_ENV !== 'production') {
+                return callback(null, true);
+            }
+            return callback(null, false);
+        }
+        if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+            return callback(null, true);
+        }
+        if (allowedOrigins.indexOf(origin) !== -1 || origin === process.env.FRONTEND_URL) {
+            return callback(null, true);
+        }
+        return callback(null, false);
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    credentials: true
+}));
 app.use(express.json({ limit: "10mb" }));
 
 // Request Logger
@@ -69,6 +100,7 @@ app.use("/scoring-rules", scoringRoutes);
 app.use("/system-settings", systemRoutes);
 app.use("/parsing-rules", parsingRoutes);
 app.use("/intake", intakeRoutes);
+// app.use("/sms-gateway", smsRoutes); (Managed in backend/app.js)
 
 // Error Handling Middleware (must be last)
 app.use(errorHandler);

@@ -8,7 +8,8 @@ import AuditLog from "../models/AuditLog.js";
 import mongoose from "mongoose";
 import { paginate } from "../utils/pagination.js";
 import mockStore from "../utils/mockStore.js";
-import { runFullLeadEnrichment } from "../src/utils/enrichmentEngine.js";
+import { enrichmentQueue } from "../src/queues/queueManager.js";
+import smsService from "../src/modules/sms/sms.service.js";
 
 // Helper to resolve lookup (Find or Create)
 const resolveLookup = async (type, value) => {
@@ -265,6 +266,13 @@ export const addLead = async (req, res, next) => {
         await runFullLeadEnrichment(lead._id);
 
         await lead.populate(leadPopulateFields);
+
+        // SMS Trigger: Welcome Message
+        if (lead.mobile) {
+            smsService.sendSMS(lead.mobile, `Hello ${lead.firstName}, welcome to Bharat Properties! Your lead has been registered.`)
+                .catch(err => console.error('[SMS Trigger Error] Welcome failed:', err.message));
+        }
+
         res.status(201).json({ success: true, data: lead });
     } catch (error) {
         console.error("[ERROR] addLead failed:", error);
@@ -310,7 +318,7 @@ export const updateLead = async (req, res, next) => {
 
                     // Push new history entry
                     const triggeredBy = updateData.triggeredBy || 'activity';
-                    await Lead.findByIdAndUpdate(req.params.id, {
+                    const leadUpdateRes = await Lead.findByIdAndUpdate(req.params.id, {
                         $set: historyUpdate,
                         $push: {
                             stageHistory: {
@@ -322,7 +330,19 @@ export const updateLead = async (req, res, next) => {
                                 reason: updateData.reason || null
                             }
                         }
-                    });
+                    }, { new: true }); // Need new data for AuditLog name
+
+                    // Ensure AuditLog captures this transition for the Timeline
+                    const AuditLog = mongoose.model('AuditLog');
+                    await AuditLog.logEntityUpdate(
+                        'stage_changed',
+                        'lead',
+                        req.params.id,
+                        `${leadUpdateRes?.firstName || ''} ${leadUpdateRes?.lastName || ''}`.trim(),
+                        req.user?.id || null, // Best effort actor
+                        { before: currentStageStr, after: newStageStr },
+                        `Lead stage shifted from ${currentStageStr} to ${newStageStr}${updateData.reason ? ' - ' + updateData.reason : ''}`
+                    );
 
                     // Set stageChangedAt
                     updateData.stageChangedAt = now;
@@ -331,10 +351,16 @@ export const updateLead = async (req, res, next) => {
         }
 
         // Standard update (stage already resolved to ObjectId by resolveAllReferenceFields)
-        const lead = await Lead.findByIdAndUpdate(req.params.id, updateData, { new: true });
         if (lead) {
             await runFullLeadEnrichment(lead._id);
             await lead.populate(leadPopulateFields);
+
+            // SMS Trigger: Stage Change
+            if (lead.mobile && updateData.stage) {
+                const stageName = lead.stage?.lookup_value || 'Updated Stage';
+                smsService.sendSMS(lead.mobile, `Bharat Properties: Your lead status has been updated to ${stageName}.`)
+                    .catch(e => console.error('[SMS Trigger Error] Stage change failed:', e.message));
+            }
         }
         res.json({ success: true, data: lead });
     } catch (error) {

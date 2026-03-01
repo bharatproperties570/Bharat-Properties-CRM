@@ -123,7 +123,7 @@ const ContactSchema = new mongoose.Schema({
     addOn: [String],
     groups: [String],
     isActionable: { type: Boolean, default: false }
-}, { timestamps: true });
+}, { timestamps: true, strict: true });
 
 // Middleware to recursively convert empty strings to null
 const sanitizeData = (obj) => {

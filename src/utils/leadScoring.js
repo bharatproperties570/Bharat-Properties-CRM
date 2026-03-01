@@ -74,7 +74,13 @@ export const calculateLeadScore = (lead, activities = [], config = {}) => {
         'Housing': 'portal',
         'Cold Call': 'coldCall'
     };
-    const srcKey = srcMap[lead.source] || 'coldCall'; // Default to lowest if unknown
+
+    // Normalize source (handle object or string)
+    const sourceVal = (typeof lead.source === 'object' && lead.source)
+        ? (lead.source.lookup_value || lead.source.label || lead.source.name)
+        : lead.source;
+
+    const srcKey = srcMap[sourceVal] || 'coldCall'; // Default to lowest if unknown
     sourceScore += getAttr(sourceQualityScores, srcKey);
     debugLog.source = sourceScore;
 
@@ -99,14 +105,10 @@ export const calculateLeadScore = (lead, activities = [], config = {}) => {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
     if (diffDays >= 30) decayPenalty += getAttr(decayRules, 'inactive30');
-    else if (diffDays >= 14) decayPenalty += getAttr(decayRules, 'inactive14'); // Note: logic might needed to be non-cumulative or cumulative depending on user intent. Usually non-cumulative thresholds.
+    else if (diffDays >= 14) decayPenalty += getAttr(decayRules, 'inactive14');
     else if (diffDays >= 7) decayPenalty += getAttr(decayRules, 'inactive7');
 
-    // Ensure penalty is negative (config usually has negative points, but we add them)
-    // If config has positive numbers for penalty, subtract. Here config has negative usually.
-    // Let's assume config points are negative like -5. So we add.
-
-    debugLog.decay = decayPenalty; // This will Likely be negative
+    debugLog.decay = decayPenalty;
 
     // --- F. STAGE MULTIPLIER ---
     let multiplier = 1.0;
@@ -114,9 +116,17 @@ export const calculateLeadScore = (lead, activities = [], config = {}) => {
         'New': 'incoming',
         'Prospect': 'prospect',
         'Opportunity': 'opportunity',
-        'Negotiation': 'negotiation'
+        'Negotiation': 'negotiation',
+        'Qualified': 'prospect', // Fallback for Qualified
+        'Open': 'prospect'       // Fallback for Open
     };
-    const stageKey = stageKeyMap[lead.stage] || 'prospect';
+
+    // Normalize stage (handle object or string)
+    const stageVal = (typeof lead.stage === 'object' && lead.stage)
+        ? (lead.stage.lookup_value || lead.stage.label || lead.stage.name)
+        : lead.stage;
+
+    const stageKey = stageKeyMap[stageVal] || 'prospect';
     multiplier = getMult(stageMultipliers, stageKey);
 
     // --- FINAL CALCULATION ---

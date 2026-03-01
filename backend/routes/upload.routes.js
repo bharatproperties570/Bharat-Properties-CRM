@@ -1,20 +1,16 @@
 import express from 'express';
-import multer from 'multer';
+import { uploadGeneric } from '../src/middlewares/upload.middleware.js';
 import { uploadFileToDrive } from '../services/drive.service.js';
 import path from 'path';
 
 const router = express.Router();
-
-// Configure multer for temporary memory storage
-// We use a temp directory which is then cleaned up by the service
-const upload = multer({ dest: 'uploads/' });
 
 /**
  * @route   POST /api/upload
  * @desc    Upload documents/images/videos to Google Drive
  * @access  Private
  */
-router.post('/', upload.single('file'), async (req, res) => {
+router.post('/', uploadGeneric.single('file'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ success: false, error: 'No file uploaded.' });
@@ -39,7 +35,7 @@ router.post('/', upload.single('file'), async (req, res) => {
  * @desc    Upload multiple files to Google Drive
  * @access  Private
  */
-router.post('/multiple', upload.array('files', 10), async (req, res) => {
+router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
     try {
         if (!req.files || req.files.length === 0) {
             return res.status(400).json({ success: false, error: 'No files uploaded.' });

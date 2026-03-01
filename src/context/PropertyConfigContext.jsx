@@ -57,8 +57,10 @@ export const PropertyConfigProvider = ({ children }) => {
     const getLookupValue = useCallback((type, id) => {
         if (!id) return id;
 
-        // If it's already a populated object, just return the value
-        if (typeof id === 'object' && id.lookup_value) return id.lookup_value;
+        // If it's already a populated object, extract the displayable value
+        if (typeof id === 'object') {
+            return id.lookup_value || id.name || id.label || id.value || id.displayName || id;
+        }
 
         // 1. Try the specified category first (efficient)
         if (lookups[type]) {
@@ -67,12 +69,17 @@ export const PropertyConfigProvider = ({ children }) => {
         }
 
         // 2. Global Fallback: Search across all categories if ID is not found in specified type
-        // This handles cases where the frontend and backend have mismatched category names
         for (const category in lookups) {
             if (Array.isArray(lookups[category])) {
                 const found = lookups[category].find(l => l._id === id || l.id === id);
                 if (found) return found.lookup_value;
             }
+        }
+
+        // Professional Fix: If it's a string (likely an ID) and we didn't find it, return null 
+        // This allows the component to use its own fallback logic (e.g. lead.sourceFallback)
+        if (typeof id === 'string' && id.match(/^[0-9a-fA-F]{24}$/)) {
+            return null;
         }
 
         return id;
@@ -88,31 +95,21 @@ export const PropertyConfigProvider = ({ children }) => {
 
     const refreshLookups = useCallback(async () => {
         try {
-            const types = [
-                'Category', 'SubCategory', 'PropertyType', 'BuiltupType',
-                'Facing', 'Direction', 'RoadWidth', 'UnitType',
-                'ProjectStatus', 'ParkingType', 'Size', 'Intent', 'Status',
-                'Country', 'State', 'City', 'Location',
-                'Title', 'CountryCode', 'Source', 'SubSource', 'Campaign',
-                'ProfessionalCategory', 'ProfessionalSubCategory', 'ProfessionalDesignation',
-                'Requirement', 'SubRequirement', 'SubType', 'Budget',
-                'DocumentCategory', 'DocumentType', 'DocumentName', 'LoanType', 'IncomeSource', 'SocialPlatform'
-            ];
+            console.log('[PropertyConfigContext] Refreshing all lookups in one call...');
+            const response = await lookupsAPI.getAll();
 
-            const results = await Promise.all(
-                types.map(t => lookupsAPI.getByCategory(t))
-            );
+            let allLookups = [];
+            if (response && response.status === "success" && Array.isArray(response.data)) {
+                allLookups = response.data;
+            } else if (Array.isArray(response)) {
+                allLookups = response;
+            }
 
             const newLookups = {};
-            types.forEach((type, index) => {
-                const res = results[index];
-                if (res && res.status === "success" && Array.isArray(res.data)) {
-                    newLookups[type] = res.data;
-                } else if (Array.isArray(res)) {
-                    newLookups[type] = res;
-                } else {
-                    newLookups[type] = [];
-                }
+            allLookups.forEach(item => {
+                const type = item.lookup_type;
+                if (!newLookups[type]) newLookups[type] = [];
+                newLookups[type].push(item);
             });
 
             setLookups(newLookups);
@@ -154,6 +151,12 @@ export const PropertyConfigProvider = ({ children }) => {
                 // 1. LOAD LOOKUPS FIRST (Primary source for normalized fields)
                 const fetchedLookups = await refreshLookups();
 
+                // Set Company Master Fields from fetched lookups
+                setCompanyMasterFields({
+                    companyTypes: fetchedLookups['CompanyType'] || [],
+                    industries: fetchedLookups['Industry'] || []
+                });
+
                 // 2. LOAD SYSTEM SETTINGS (Secondary source / Remaining configs)
                 const response = await systemSettingsAPI.getAll({ limit: 100 });
                 if (response && response.data) {
@@ -185,18 +188,8 @@ export const PropertyConfigProvider = ({ children }) => {
                     });
                 }
 
-                // FETCH COMPANY LOOKUPS
-                const [cTypes, inds] = await Promise.all([
-                    lookupsAPI.getByCategory('CompanyType'),
-                    lookupsAPI.getByCategory('Industry')
-                ]);
-                setCompanyMasterFields({
-                    companyTypes: (cTypes && Array.isArray(cTypes.data)) ? cTypes.data : (Array.isArray(cTypes) ? cTypes : []),
-                    industries: (inds && Array.isArray(inds.data)) ? inds.data : (Array.isArray(inds) ? inds : [])
-                });
-
-                // FETCH REAL SIZES FROM LOOKUPS
-                await refreshSizes();
+                // REDUNDANT CALLS REMOVED: 
+                // Company lookups and Sizes are now handled within refreshLookups()
 
                 // FETCH REAL PROJECTS FROM BACKEND
                 console.log("[PropertyConfigContext] Fetching projects...");
@@ -1824,35 +1817,6 @@ export const PropertyConfigProvider = ({ children }) => {
         updateProjectAmenities,
         companyMasterFields,
         updateCompanyMasterFields,
-        leadMasterFields,
-        updateLeadMasterFields,
-        scoringAttributes,
-        updateScoringAttributes,
-        scoringConfig,
-        updateScoringConfig,
-        behaviouralSignals,
-        updateBehaviouralSignals,
-        dealFitSignals,
-        updateDealFitSignals,
-        financialSignals,
-        updateFinancialSignals,
-        decayRules,
-        updateDecayRules,
-        aiSignals,
-        updateAiSignals,
-        sourceQualityScores,
-        updateSourceQualityScores,
-        inventoryFitScores,
-        updateInventoryFitScores,
-        stageMultipliers,
-        updateStageMultipliers,
-        dealScoringRules,
-        updateDealScoringRules,
-        scoreBands,
-        updateScoreBands,
-        companyMasterFields,
-        updateCompanyMasterFields,
-        deleteCompanyMasterField,
         leadMasterFields,
         updateLeadMasterFields,
         scoringAttributes,

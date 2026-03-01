@@ -19,6 +19,8 @@ import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
 import { formatIndianCurrency, numberToIndianWords } from '../../utils/numberToWords';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { STAGE_PIPELINE, getStageProbability } from '../../utils/stageEngine';
+import { renderValue } from "../../utils/renderUtils";
+import PipelineDashboard from '../../components/PipelineDashboard';
 
 // Helper: colored stage chip for deals
 const DealStageChip = ({ stage }) => {
@@ -363,13 +365,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                 </div>
 
                 {/* Pipeline Dashboard - Enhanced with Percentages */}
-                <div className="pipeline-dashboard">
-                    <PipelineItem label="OPEN" value="3" percent="45%" />
-                    <PipelineItem label="QUOTE" value="1" percent="15%" />
-                    <PipelineItem label="NEGOTIATION" value="1" percent="15%" />
-                    <PipelineItem label="BOOKED" value="0" percent="0%" />
-                    <ClosedPipelineItem />
-                </div>
+                <PipelineDashboard entityType="deal" refreshTrigger={refreshTrigger} />
 
                 <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0 }}>
                     {/* Toolbar */}
@@ -651,19 +647,19 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                     cursor: 'pointer'
                                                 }}
                                             >
-                                                {deal.unitNo || 'N/A'}
+                                                {renderValue(deal.unitNo, 'N/A')}
                                             </div>
                                             <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                                {deal.unitType || deal.corner || ''}
+                                                {renderValue(deal.unitType || deal.corner, '')}
                                             </div>
                                         </div>
                                         <div style={{ paddingLeft: '2px' }}>
                                             <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>
-                                                {getLookupValue('Category', deal.category) || getLookupValue('PropertyType', deal.propertyType) || 'N/A'}
-                                                {deal.subCategory ? ` - ${getLookupValue('SubCategory', deal.subCategory)}` : ''}
+                                                {renderValue(getLookupValue('Category', deal.category) || getLookupValue('PropertyType', deal.propertyType), 'N/A')}
+                                                {deal.subCategory ? ` - ${renderValue(getLookupValue('SubCategory', deal.subCategory))}` : ''}
                                             </div>
                                             <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>
-                                                {deal.size || 'N/A'}
+                                                {renderValue(deal.size, 'N/A')}
                                             </div>
                                         </div>
                                     </div>
@@ -672,12 +668,12 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                     <div className="super-cell">
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
                                             <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem' }}></i>
-                                            <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{getLookupValue('Location', deal.location)}</span>
+                                            <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{renderValue(getLookupValue('Location', deal.location))}</span>
                                         </div>
                                         {deal.projectName && (
                                             <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px' }}>
                                                 <i className="fas fa-building" style={{ marginRight: '4px', fontSize: '0.7rem' }}></i>
-                                                {deal.projectName}
+                                                {renderValue(deal.projectName)}
                                             </div>
                                         )}
                                         {deal.block && (
@@ -687,7 +683,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
                                     {/* Col 4: Match */}
                                     <div style={{ lineHeight: 1.4, padding: '8px', background: '#f8fafc', borderRadius: '6px' }}>
-                                        <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', marginBottom: '4px' }}>{getLookupValue('Intent', deal.intent)}</div>
+                                        <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', marginBottom: '4px' }}>{renderValue(getLookupValue('Intent', deal.intent))}</div>
                                         <div style={{ fontSize: '0.7rem' }}>
                                             <span style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(102, 126, 234, 0.3)' }}>{deal.matched} Matches</span>
                                         </div>
@@ -703,12 +699,12 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
                                     {/* Col 6: Owner Details */}
                                     <div className="super-cell" style={{ background: '#fefce8', padding: '8px', borderRadius: '6px', borderLeft: '3px solid #eab308' }}>
-                                        <div className="text-ellipsis" style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.8rem', marginBottom: '4px' }}>{deal.owner?.name || 'Unknown'}</div>
+                                        <div className="text-ellipsis" style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.8rem', marginBottom: '4px' }}>{renderValue(deal.owner?.name, 'Unknown')}</div>
                                         <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600, marginBottom: '2px' }}>
-                                            <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>{deal.owner?.phone || 'N/A'}
+                                            <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>{renderValue(deal.owner?.phone, 'N/A')}
                                         </div>
                                         <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                            <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>{deal.owner?.email || 'N/A'}
+                                            <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>{renderValue(deal.owner?.email, 'N/A')}
                                         </div>
                                     </div>
 
@@ -716,12 +712,12 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                                         {deal.associatedContact?.name ? (
                                             <>
-                                                <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.8rem' }}>{deal.associatedContact.name}</div>
+                                                <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.8rem' }}>{renderValue(deal.associatedContact.name)}</div>
                                                 <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600 }}>
-                                                    <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>{deal.associatedContact.phone}
+                                                    <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>{renderValue(deal.associatedContact.phone)}
                                                 </div>
                                                 <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                                    <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>{deal.associatedContact.email}
+                                                    <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>{renderValue(deal.associatedContact.email)}
                                                 </div>
                                             </>
                                         ) : (
@@ -754,10 +750,10 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             <div style={{ background: '#f8fafc', padding: '6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
                                                 <div style={{ fontSize: '0.65rem', color: '#6366f1', fontWeight: 800, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
                                                     <i className="fas fa-history" style={{ fontSize: '0.6rem' }}></i>
-                                                    {deal.lastActivity.type}
+                                                    {renderValue(deal.lastActivity.type)}
                                                 </div>
                                                 <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 500 }}>
-                                                    {deal.lastActivity.content}
+                                                    {renderValue(deal.lastActivity.content)}
                                                 </div>
                                                 <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginTop: '2px' }}>
                                                     {new Date(deal.lastActivity.performedAt).toLocaleDateString()} {new Date(deal.lastActivity.performedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

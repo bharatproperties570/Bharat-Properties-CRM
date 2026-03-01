@@ -1,7 +1,8 @@
 import Activity from "../models/Activity.js";
 import AuditLog from "../models/AuditLog.js";
-import { runFullLeadEnrichment } from "../src/utils/enrichmentEngine.js";
-
+import Lead from "../models/Lead.js";
+import Deal from "../models/Deal.js";
+import { enrichmentQueue } from "../src/queues/queueManager.js";
 // @desc    Get all activities with filtering and pagination
 // @route   GET /api/activities
 export const getActivities = async (req, res) => {
@@ -62,7 +63,7 @@ export const getActivities = async (req, res) => {
             }
         });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        if (error.name === "CastError") return res.status(400).json({ success: false, error: `Invalid ${error.path}: ${error.value}` }); res.status(500).json({ success: false, error: error.message });
     }
 };
 
@@ -102,7 +103,7 @@ export const getUnifiedTimeline = async (req, res) => {
                 _id: a._id,
                 source: 'activity',
                 type: a.type.toLowerCase(),
-                timestamp: a.completedAt || a.dueDate || a.createdAt,
+                timestamp: a.completedAt || a.performedAt || a.createdAt || a.dueDate,
                 title: a.subject,
                 description: a.description,
                 status: a.status,
@@ -155,7 +156,7 @@ export const getActivityById = async (req, res) => {
 
         res.json({ success: true, data: activity });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        if (error.name === "CastError") return res.status(400).json({ success: false, error: `Invalid ${error.path}: ${error.value}` }); res.status(500).json({ success: false, error: error.message });
     }
 };
 
@@ -167,7 +168,12 @@ export const addActivity = async (req, res) => {
 
         // Auto-run Enrichment if entity is a Lead
         if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
-            await runFullLeadEnrichment(activity.entityId);
+            await enrichmentQueue.add('enrichLead', { leadId: activity.entityId });
+            // Update lastActivityAt
+            await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }).catch(() => { });
+        } else if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
+            // Update lastActivityAt for Deal
+            await Deal.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }).catch(() => { });
         }
 
         res.status(201).json({ success: true, data: activity });
@@ -192,7 +198,12 @@ export const updateActivity = async (req, res) => {
 
         // Auto-run Enrichment if entity is a Lead
         if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
-            await runFullLeadEnrichment(activity.entityId);
+            await enrichmentQueue.add('enrichLead', { leadId: activity.entityId });
+            // Update lastActivityAt
+            await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }).catch(() => { });
+        } else if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
+            // Update lastActivityAt for Deal
+            await Deal.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }).catch(() => { });
         }
 
         res.json({ success: true, data: activity });
@@ -210,9 +221,17 @@ export const deleteActivity = async (req, res) => {
         if (!activity) {
             return res.status(404).json({ success: false, error: "Activity not found" });
         }
+        if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
+            // Fetch most recent activity remaining to reset lastActivityAt
+            const lastLog = await Activity.findOne({ entityId: activity.entityId }).sort({ createdAt: -1 });
+            await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: lastLog ? (lastLog.completedAt || lastLog.createdAt) : null }).catch(() => { });
+        } else if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
+            const lastLog = await Activity.findOne({ entityId: activity.entityId }).sort({ createdAt: -1 });
+            await Deal.findByIdAndUpdate(activity.entityId, { lastActivityAt: lastLog ? (lastLog.completedAt || lastLog.createdAt) : null }).catch(() => { });
+        }
 
         res.json({ success: true, message: "Activity deleted successfully" });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        if (error.name === "CastError") return res.status(400).json({ success: false, error: `Invalid ${error.path}: ${error.value}` }); res.status(500).json({ success: false, error: error.message });
     }
 };

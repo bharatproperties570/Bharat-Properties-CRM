@@ -35,11 +35,15 @@ export const ActivityProvider = ({ children }) => {
 
     const addActivity = async (activityData) => {
         try {
+            console.log('[ActivityContext] addActivity Payload:', activityData);
             const response = await activitiesAPI.create(activityData);
+            console.log('[ActivityContext] addActivity Response:', response);
             if (response.success) {
                 // Fetch again to ensure consistency or local update
                 setActivities(prev => [response.data, ...prev]);
                 return response.data;
+            } else {
+                console.error('[ActivityContext] backend returned success: false', response);
             }
         } catch (error) {
             console.error('Failed to add activity:', error);

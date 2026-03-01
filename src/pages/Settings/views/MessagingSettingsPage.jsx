@@ -2,13 +2,14 @@ import React, { useState, useRef, useEffect } from 'react';
 import { whatsappTemplates, smsTemplates, rcsTemplates } from '../../../data/mockData';
 import Swal from 'sweetalert2';
 import { toast } from 'react-hot-toast';
+import smsService from '../../../services/smsService';
 
 // --- Sub-Components ---
 
 const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onSave }) => {
     const [templateData, setTemplateData] = useState({
         name: '',
-        category: 'MARKETING',
+        category: 'Transactional',
         language: 'en_US',
         headerType: 'NONE',
         headerText: '',
@@ -16,7 +17,9 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
         footer: '',
         buttons: [],
         tags: [],
-        shared: true
+        shared: true,
+        dltTemplateId: '',
+        dltHeaderId: ''
     });
     const [tagInput, setTagInput] = useState('');
 
@@ -33,7 +36,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
             } else {
                 setTemplateData({
                     name: '',
-                    category: 'MARKETING',
+                    category: channelType === 'sms' ? 'Transactional' : 'MARKETING',
                     language: 'en_US',
                     headerType: 'NONE',
                     headerText: '',
@@ -41,7 +44,9 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                     footer: '',
                     buttons: [],
                     tags: [],
-                    shared: true
+                    shared: true,
+                    dltTemplateId: '',
+                    dltHeaderId: ''
                 });
             }
         }
@@ -211,6 +216,53 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                     <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
                         Segments: <span style={{ fontWeight: 700, color: segments > 1 ? '#f59e0b' : '#1e293b' }}>{segments}</span> / 160 chars
                     </div>
+                </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '16px' }}>
+                <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '8px' }}>Category</label>
+                    <select
+                        value={templateData.category}
+                        onChange={e => setTemplateData({ ...templateData, category: e.target.value })}
+                        style={{ width: '100%', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '8px' }}
+                    >
+                        {channelType === 'sms' ? (
+                            <>
+                                <option value="Promotional">Promotional</option>
+                                <option value="Transactional">Transactional</option>
+                            </>
+                        ) : (
+                            <>
+                                <option value="MARKETING">Marketing</option>
+                                <option value="UTILITY">Utility</option>
+                                <option value="AUTHENTICATION">Authentication</option>
+                            </>
+                        )}
+                    </select>
+                </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '16px' }}>
+                <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '8px' }}>DLT Template ID</label>
+                    <input
+                        type="text"
+                        placeholder="e.g. 12071234567890"
+                        value={templateData.dltTemplateId || ''}
+                        onChange={e => setTemplateData({ ...templateData, dltTemplateId: e.target.value })}
+                        style={{ width: '100%', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '8px' }}
+                    />
+                </div>
+                <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '8px' }}>DLT Header/Sender ID</label>
+                    <input
+                        type="text"
+                        placeholder="e.g. BHARAT"
+                        value={templateData.dltHeaderId || ''}
+                        onChange={e => setTemplateData({ ...templateData, dltHeaderId: e.target.value })}
+                        style={{ width: '100%', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '8px' }}
+                    />
                 </div>
             </div>
         </div>
@@ -388,13 +440,23 @@ const MessagingSettingsPage = () => {
             confirmButtonColor: 'var(--primary-color)',
             cancelButtonColor: '#64748b',
             confirmButtonText: 'Yes, delete it!'
-        }).then((result) => {
+        }).then(async (result) => {
             if (result.isConfirmed) {
-                setAllTemplates(prev => ({
-                    ...prev,
-                    [templateType]: prev[templateType].filter(t => t.id !== templateId)
-                }));
-                toast.success('Template deleted successfully');
+                if (templateType === 'sms') {
+                    try {
+                        await smsService.deleteTemplate(templateId);
+                        toast.success('Template deleted successfully');
+                        loadSmsTemplates();
+                    } catch (err) {
+                        toast.error('Failed to delete template: ' + err.message);
+                    }
+                } else {
+                    setAllTemplates(prev => ({
+                        ...prev,
+                        [templateType]: prev[templateType].filter(t => t.id !== templateId)
+                    }));
+                    toast.success('Template deleted successfully');
+                }
             }
         });
     };
@@ -409,30 +471,47 @@ const MessagingSettingsPage = () => {
         setIsTemplateModalOpen(true);
     };
 
-    const handleSaveTemplate = (data) => {
-        // For WhatsApp templates, map 'body' back to 'content'
-        const savedData = templateType === 'whatsapp'
-            ? { ...data, content: data.body, body: undefined }
-            : data;
-
-        setAllTemplates(prev => {
-            const currentList = prev[templateType];
-            if (data.id) {
-                // Update
-                return {
-                    ...prev,
-                    [templateType]: currentList.map(t => t.id === data.id ? savedData : t)
-                };
+    const handleSaveTemplate = async (data) => {
+        try {
+            if (templateType === 'sms') {
+                await smsService.saveTemplate(data.id ? { ...data, _id: data.id } : data);
+                loadSmsTemplates();
             } else {
-                // Add
-                return {
-                    ...prev,
-                    [templateType]: [...currentList, { ...savedData, id: Date.now() }]
-                };
+                // For WhatsApp templates, map 'body' back to 'content'
+                const savedData = templateType === 'whatsapp'
+                    ? { ...data, content: data.body, body: undefined }
+                    : data;
+
+                setAllTemplates(prev => {
+                    const currentList = prev[templateType];
+                    if (data.id) {
+                        return { ...prev, [templateType]: currentList.map(t => t.id === data.id ? savedData : t) };
+                    } else {
+                        return { ...prev, [templateType]: [...currentList, { ...savedData, id: Date.now() }] };
+                    }
+                });
             }
-        });
-        toast.success(data.id ? 'Template updated' : 'Template created');
+            toast.success(data.id ? 'Template updated' : 'Template created');
+        } catch (err) {
+            toast.error('Failed to save template: ' + err.message);
+        }
     };
+
+    const loadSmsTemplates = async () => {
+        try {
+            const res = await smsService.getTemplates();
+            setAllTemplates(prev => ({
+                ...prev,
+                sms: res.data.map(t => ({ ...t, id: t._id }))
+            }));
+        } catch (err) {
+            console.error('Failed to load SMS templates', err);
+        }
+    };
+
+    useEffect(() => {
+        loadSmsTemplates();
+    }, []);
 
     const tabs = [
         { id: 'templates', label: 'Templates' },

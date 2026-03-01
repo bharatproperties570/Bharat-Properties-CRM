@@ -11,65 +11,102 @@ export const api = axios.create({
     },
 });
 
+// Add a request interceptor to inject the token
+api.interceptors.request.use(
+    (config) => {
+        const token = localStorage.getItem('authToken');
+        if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+        }
+        return config;
+    },
+    (error) => {
+        return Promise.reject(error);
+    }
+);
+
+// Simple request cache to prevent redundant simultaneous calls
+const pendingRequests = new Map();
+
 // Generic API request handler
 const apiRequest = async (endpoint, options = {}) => {
-    try {
-        const cleanBaseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-        const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-        let url = `${cleanBaseUrl}${cleanEndpoint}`;
+    // Generate a cache key for GET requests to deduplicate simultaneous identical calls
+    const cacheKey = options.method && options.method !== 'GET' ? null : `${endpoint}-${JSON.stringify(options.params || {})}`;
 
-        // Handle query parameters
-        if (options.params) {
-            const queryParams = new URLSearchParams();
-            Object.entries(options.params).forEach(([key, value]) => {
-                if (value !== undefined && value !== null && value !== '') {
-                    queryParams.append(key, value);
-                }
-            });
-            const queryString = queryParams.toString();
-            if (queryString) {
-                url += (url.includes('?') ? '&' : '?') + queryString;
-            }
-            // Remove params from options so it's not passed to fetch
-            delete options.params;
-        }
-
-        // Retrieve token from localStorage
-        const token = localStorage.getItem('authToken');
-
-        const response = await fetch(url, {
-            headers: {
-                ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-                ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-                ...options.headers,
-            },
-            ...options,
-        });
-
-        // Get content type
-        const contentType = response.headers.get("content-type");
-        const isJson = contentType && contentType.includes("application/json");
-
-        if (!response.ok) {
-            let errorMessage = 'API request failed';
-            if (isJson) {
-                const errorData = await response.json();
-                errorMessage = errorData.message || errorMessage;
-            } else {
-                errorMessage = `Error ${response.status}: ${response.statusText}`;
-            }
-            throw new Error(errorMessage);
-        }
-
-        if (isJson) {
-            return await response.json();
-        }
-
-        return await response.text();
-    } catch (error) {
-        console.error(`API Error [${endpoint}]:`, error);
-        throw error;
+    if (cacheKey && pendingRequests.has(cacheKey)) {
+        return pendingRequests.get(cacheKey);
     }
+
+    const requestPromise = (async () => {
+        try {
+            const cleanBaseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+            const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+            let url = `${cleanBaseUrl}${cleanEndpoint}`;
+
+            // Handle query parameters
+            if (options.params) {
+                const queryParams = new URLSearchParams();
+                Object.entries(options.params).forEach(([key, value]) => {
+                    if (value !== undefined && value !== null && value !== '') {
+                        queryParams.append(key, value);
+                    }
+                });
+                const queryString = queryParams.toString();
+                if (queryString) {
+                    url += (url.includes('?') ? '&' : '?') + queryString;
+                }
+                delete options.params;
+            }
+
+            const token = localStorage.getItem('authToken');
+
+            const response = await fetch(url, {
+                headers: {
+                    ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+                    ...options.headers,
+                },
+                ...options,
+            });
+
+            const contentType = response.headers.get("content-type");
+            const isJson = contentType && contentType.includes("application/json");
+
+            if (!response.ok) {
+                if (response.status === 429) {
+                    const error = new Error('Too many requests. Please wait a moment and try again.');
+                    error.status = 429;
+                    throw error;
+                }
+
+                let errorMessage = 'API request failed';
+                if (isJson) {
+                    const errorData = await response.json();
+                    errorMessage = errorData.message || errorMessage;
+                } else {
+                    errorMessage = `Error ${response.status}: ${response.statusText}`;
+                }
+                throw new Error(errorMessage);
+            }
+
+            if (isJson) {
+                return await response.json();
+            }
+
+            return await response.text();
+        } catch (error) {
+            console.error(`API Error [${endpoint}]:`, error);
+            throw error;
+        } finally {
+            if (cacheKey) pendingRequests.delete(cacheKey);
+        }
+    })();
+
+    if (cacheKey) {
+        pendingRequests.set(cacheKey, requestPromise);
+    }
+
+    return requestPromise;
 };
 
 // Lookups API
@@ -202,6 +239,7 @@ export const contactsAPI = {
 export const activitiesAPI = {
     getAll: (params) => apiRequest('/activities', { params }),
     getById: (id) => apiRequest(`/activities/${id}`),
+    getUnified: (type, id) => apiRequest(`/activities/unified/${type}/${id}`),
     create: (data) => apiRequest('/activities', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => apiRequest(`/activities/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => apiRequest(`/activities/${id}`, { method: 'DELETE' }),

@@ -1,5 +1,9 @@
 import express from "express";
 import cors from "cors";
+import compression from "compression";
+import cookieParser from "cookie-parser";
+import mongoSanitize from "express-mongo-sanitize";
+import rateLimit from "express-rate-limit";
 
 import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
@@ -28,6 +32,7 @@ import leadFormRoutes from "./routes/leadForm.routes.js";
 import parsingRoutes from "./src/modules/parsing/parsingRule.routes.js";
 import intakeRoutes from "./src/modules/intake/intake.routes.js";
 import stageEngineRoutes from "./routes/stage.routes.js";
+import smsRoutes from "./src/modules/sms/sms.routes.js";
 
 const app = express();
 
@@ -54,22 +59,52 @@ const allowedOrigins = [
 
 app.use(cors({
     origin: function (origin, callback) {
-        // Allow requests with no origin (native mobile apps, curl)
-        if (!origin) return callback(null, true);
-        // Allow any localhost origin in development (any port)
+        // Strict Policy: No valid origin -> blocked gracefully
+        if (!origin) {
+            // console.warn('CORS: Blocked request missing Origin header');
+            // If running in development via Vite Proxy, the proxy often drops the origin
+            // Since this is required for local dev, let's explicitly permit undefined Origin 
+            // ONLY if in non-production.
+            if (process.env.NODE_ENV !== 'production') {
+                return callback(null, true);
+            }
+            return callback(null, false);
+        }
+
+        // Allow Localhost explicitly for Developers
         if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
             return callback(null, true);
         }
-        if (allowedOrigins.indexOf(origin) !== -1) {
+
+        // Check Whitelist
+        if (allowedOrigins.indexOf(origin) !== -1 || origin === process.env.FRONTEND_URL) {
             return callback(null, true);
         }
-        return callback(new Error(`CORS: Origin ${origin} not allowed`), false);
+
+        console.warn(`CORS: Blocked unknown origin ${origin}`);
+        return callback(null, false);
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     credentials: true
 }));
+app.use(compression());
 app.use(express.json({ limit: "10mb" }));
+app.use(cookieParser());
+
+// Data Sanitization against NoSQL query injection
+app.use(mongoSanitize());
+
+// Global Rate Limiting
+const globalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    limit: 500, // limit each IP to 500 requests per windowMs
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, message: "Too many requests from this IP, please try again after 15 minutes" }
+});
+// Skip rate limiting for static/frontend serving if any, but since it"s an API server, apply globally to /api
+app.use("/api", globalLimiter);
 
 // Concise Request Logger for Performance
 app.use((req, res, next) => {
@@ -111,12 +146,22 @@ app.use("/api/lead-forms", leadFormRoutes);
 app.use("/api/parsing-rules", parsingRoutes);
 app.use("/api/intake", intakeRoutes);
 app.use("/api/stage-engine", stageEngineRoutes);
+app.use("/api/sms-gateway", smsRoutes);
 
 import fs from 'fs';
 import path from 'path';
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {
+    // Catch Duplicate Lead Merges gracefully
+    if (err.isDuplicateMerge) {
+        return res.status(200).json({
+            success: true,
+            message: "Duplicate detected. Incoming data merged into existing lead.",
+            data: err.mergedLead
+        });
+    }
+
     try {
         console.error(err.stack);
     } catch (logErr) {

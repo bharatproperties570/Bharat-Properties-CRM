@@ -244,6 +244,9 @@ export const updateContact = async (req, res, next) => {
             return res.status(400).json({ success: false, error: error.details[0].message });
         }
 
+        // Fetch existing contact to audit stage changes
+        const existingContact = await Contact.findById(req.params.id).select('stage name surname').lean();
+
         // Resolve All Reference Fields
         const cleanEmptyStrings = (obj) => {
             if (!obj || typeof obj !== 'object') return;
@@ -261,6 +264,23 @@ export const updateContact = async (req, res, next) => {
 
         const contact = await Contact.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found" });
+
+        // Emit Stage Changed AuditLog if updated
+        if (existingContact && updateData.stage && String(existingContact.stage) !== String(updateData.stage)) {
+            // Need AuditLog module explicitly imported at top if not present.
+            // Assuming AuditLog is imported at the top of contact.controller.js.
+            const AuditLog = mongoose.model('AuditLog');
+            await AuditLog.logEntityUpdate(
+                'stage_changed',
+                'contact',
+                contact._id,
+                `${contact.name} ${contact.surname || ''}`.trim(),
+                req.user?.id || null, // Best effort actor
+                { before: existingContact.stage || 'New', after: updateData.stage },
+                `Contact stage shifted from ${existingContact.stage || 'New'} to ${updateData.stage}`
+            );
+        }
+
         res.json({ success: true, data: contact });
     } catch (error) {
         console.error("[ERROR] updateContact failed:", error);

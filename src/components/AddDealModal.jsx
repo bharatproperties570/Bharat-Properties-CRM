@@ -9,7 +9,7 @@ import { numberToIndianWords } from '../utils/numberToWords';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 
-const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
+const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToProperties }) => {
     const { getLookupId, getLookupValue } = usePropertyConfig();
     const { validateAsync } = useFieldRules();
     const { fireEvent } = useTriggers();
@@ -134,6 +134,18 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
     // Fetch Projects on Mount
     useEffect(() => {
         const fetchProjects = async () => {
+            if (restrictToProperties && restrictToProperties.length > 0) {
+                // Derive projects from restricted list
+                const projectNames = [...new Set(restrictToProperties.map(p => p.area))].filter(Boolean);
+                const derivedProjects = projectNames.map(name => ({
+                    _id: name,
+                    name: name,
+                    blocks: [...new Set(restrictToProperties.filter(p => p.area === name).map(p => p.location))].filter(Boolean)
+                }));
+                setProjects(derivedProjects);
+                return;
+            }
+
             setIsLoadingProjects(true);
             try {
                 const response = await api.get('/projects');
@@ -148,7 +160,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
             }
         };
         if (isOpen) fetchProjects();
-    }, [isOpen]);
+    }, [isOpen, restrictToProperties]);
 
     // Fetch Units when Project or Block changes
     useEffect(() => {
@@ -157,6 +169,17 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
                 setUnits([]);
                 return;
             }
+
+            if (restrictToProperties && restrictToProperties.length > 0) {
+                // Filter units from restricted list
+                const filteredUnits = restrictToProperties.filter(p =>
+                    p.area === formData.projectName &&
+                    (!formData.block || p.location === formData.block)
+                );
+                setUnits(filteredUnits);
+                return;
+            }
+
             setIsLoadingUnits(true);
             try {
                 const params = new URLSearchParams();
@@ -175,7 +198,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
             }
         };
         if (isOpen) fetchUnits();
-    }, [formData.projectName, formData.block, isOpen]);
+    }, [formData.projectName, formData.block, isOpen, restrictToProperties]);
 
     const handleInputChange = (field, value) => {
         setFormData(prev => ({ ...prev, [field]: value }));
@@ -483,7 +506,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null }) => {
                         </div>
                         <div>
                             <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
-                                {deal ? 'Update Lead' : 'Add New Deal'}
+                                {title || (deal ? 'Update Lead' : 'Add New Deal')}
                             </h2>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
                                 <span style={{ fontSize: '0.8rem', color: '#64748b' }}>

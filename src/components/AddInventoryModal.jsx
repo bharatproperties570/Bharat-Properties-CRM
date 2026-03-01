@@ -146,7 +146,6 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                 locationSearch: property.locationSearch || property.location || '',
                 status: getLookupValue('InventoryStatus', property.status),
                 intent: getLookupValue('Intent', property.intent || 'Sell'),
-                category: getLookupValue('Category', property.category),
                 subCategory: getLookupValue('SubCategory', property.subCategory),
                 facing: getLookupValue('Facing', property.facing),
             }));

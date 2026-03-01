@@ -3,6 +3,7 @@ import Activity from "../../models/Activity.js";
 import IntentKeywordRule from "../../models/IntentKeywordRule.js";
 import ProspectEnrichmentRule from "../../models/ProspectEnrichmentRule.js";
 import EnrichmentLog from "../../models/EnrichmentLog.js";
+import AuditLog from "../../models/AuditLog.js";
 
 /**
  * Scan lead and activities for keywords and apply tags/intent impact
@@ -60,6 +61,18 @@ export const scanKeywords = async (leadId) => {
         intent_index: finalIntentIndex,
         enrichment_last_run: new Date()
     });
+
+    if (oldIntentIndex !== finalIntentIndex) {
+        await AuditLog.logEntityUpdate(
+            'score_changed',
+            'lead',
+            leadId,
+            `${lead.firstName} ${lead.lastName}`,
+            null, // System
+            { before: oldIntentIndex, after: finalIntentIndex },
+            `AI Keyword Engine recalculated score based on triggered tag rules.`
+        );
+    }
 
     return { tags: newTags, roleType, intentIndex: finalIntentIndex };
 };
@@ -136,6 +149,18 @@ export const calculateIntentIndex = async (leadId) => {
         intent_index: finalScore,
         enrichment_last_run: new Date()
     });
+
+    if (lead.intent_index !== finalScore) {
+        await AuditLog.logEntityUpdate(
+            'score_changed',
+            'lead',
+            leadId,
+            `${lead.firstName} ${lead.lastName}`,
+            null, // System
+            { before: lead.intent_index || 0, after: finalScore },
+            `Enrichment formula aggregated a new engagement/requirement depth intent score.`
+        );
+    }
 
     return finalScore;
 };

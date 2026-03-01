@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTriggers } from '../context/TriggersContext';
+import smsService from '../services/smsService';
 
 const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [] }) => {
     const { fireEvent } = useTriggers();
@@ -20,6 +21,10 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [] }) =
     const [referenceType, setReferenceType] = useState(''); // 'property', 'booking', 'invoice'
     const [selectedReference, setSelectedReference] = useState(null);
     const [attachment, setAttachment] = useState(null); // { type: 'pdf'|'image'|'video', name: 'file.pdf', url: '...' }
+
+    // SMS Templates State
+    const [smsTemplates, setSmsTemplates] = useState([]);
+    const [isLoadingSms, setIsLoadingSms] = useState(false);
 
     // Mock Data for References
     const mockReferences = {
@@ -57,9 +62,22 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [] }) =
             setShowSchedule(false);
             setScheduleDate('');
             setScheduleTime('');
+            loadSmsTemplates();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
+
+    const loadSmsTemplates = async () => {
+        setIsLoadingSms(true);
+        try {
+            const res = await smsService.getTemplates();
+            setSmsTemplates(res.data);
+        } catch (err) {
+            console.error('Failed to load SMS templates', err);
+        } finally {
+            setIsLoadingSms(false);
+        }
+    };
 
     const handleAddRecipient = (e) => {
         if (e.key === 'Enter' && recipientInput.trim()) {
@@ -103,10 +121,17 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [] }) =
     const handleTemplateChange = (e) => {
         const val = e.target.value;
         setTemplateId(val);
-        if (val === 'welcome') setMessageBody("Hello {{Name}}, welcome to Bharat Properties! We're glad to have you.");
-        else if (val === 'property_alert') setMessageBody("Hi {{Name}}, a new property matching your criteria in {{Location}} just got listed! Check it now: {{Link}}");
-        else if (val === 'meeting_confirm') setMessageBody("Dear {{Name}}, confirming our meeting at {{Time}} tomorrow. Please reply YES to confirm.");
-        else if (val === '') setMessageBody("");
+
+        if (channel === 'SMS') {
+            const template = smsTemplates.find(t => t._id === val);
+            if (template) setMessageBody(template.body);
+            else if (val === '') setMessageBody('');
+        } else {
+            if (val === 'welcome') setMessageBody("Hello {{Name}}, welcome to Bharat Properties! We're glad to have you.");
+            else if (val === 'property_alert') setMessageBody("Hi {{Name}}, a new property matching your criteria in {{Location}} just got listed! Check it now: {{Link}}");
+            else if (val === 'meeting_confirm') setMessageBody("Dear {{Name}}, confirming our meeting at {{Time}} tomorrow. Please reply YES to confirm.");
+            else if (val === '') setMessageBody("");
+        }
     };
 
     const handleReferenceSelect = (type, id) => {
@@ -258,59 +283,61 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [] }) =
 
 
                     {/* 2.5 Reference / Attachment Selection */}
-                    <div style={{ marginBottom: '32px', padding: '20px', backgroundColor: '#f0f9ff', borderRadius: '16px', border: '1px solid #bae6fd' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                            <i className="fas fa-paperclip" style={{ color: '#0284c7' }}></i>
-                            <label style={{ ...labelStyle, marginBottom: 0, color: '#0369a1' }}>Attach Documents / Media</label>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '16px', marginBottom: attachment ? '16px' : '0' }}>
-                            <div style={{ flex: 1 }}>
-                                <select
-                                    style={inputStyle}
-                                    value={referenceType}
-                                    onChange={(e) => {
-                                        setReferenceType(e.target.value);
-                                        setSelectedReference(null);
-                                        setAttachment(null);
-                                    }}
-                                >
-                                    <option value="">-- Select Type --</option>
-                                    <option value="property">Property Brochure/Video</option>
-                                    <option value="booking">Booking Receipt</option>
-                                    <option value="invoice">Invoice (Signed)</option>
-                                </select>
+                    {channel !== 'SMS' && (
+                        <div style={{ marginBottom: '32px', padding: '20px', backgroundColor: '#f0f9ff', borderRadius: '16px', border: '1px solid #bae6fd' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                                <i className="fas fa-paperclip" style={{ color: '#0284c7' }}></i>
+                                <label style={{ ...labelStyle, marginBottom: 0, color: '#0369a1' }}>Attach Documents / Media</label>
                             </div>
-                            <div style={{ flex: 2 }}>
-                                <select
-                                    style={inputStyle}
-                                    value={selectedReference?.id || ''}
-                                    onChange={(e) => handleReferenceSelect(referenceType, e.target.value)}
-                                    disabled={!referenceType}
-                                >
-                                    <option value="">-- Select Item --</option>
-                                    {referenceType && mockReferences[referenceType].map(item => (
-                                        <option key={item.id} value={item.id}>
-                                            {item.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
 
-                        {attachment && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: '#fff', borderRadius: '8px', border: '1px solid #e0f2fe' }}>
-                                <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#e0f2fe', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0284c7' }}>
-                                    <i className={`fas ${attachment.type === 'pdf' ? 'fa-file-pdf' : attachment.type === 'image' ? 'fa-image' : 'fa-video'}`} style={{ fontSize: '1.2rem' }}></i>
-                                </div>
+                            <div style={{ display: 'flex', gap: '16px', marginBottom: attachment ? '16px' : '0' }}>
                                 <div style={{ flex: 1 }}>
-                                    <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#0f172a' }}>{attachment.name}</div>
-                                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Ready to send • 2.4 MB</div>
+                                    <select
+                                        style={inputStyle}
+                                        value={referenceType}
+                                        onChange={(e) => {
+                                            setReferenceType(e.target.value);
+                                            setSelectedReference(null);
+                                            setAttachment(null);
+                                        }}
+                                    >
+                                        <option value="">-- Select Type --</option>
+                                        <option value="property">Property Brochure/Video</option>
+                                        <option value="booking">Booking Receipt</option>
+                                        <option value="invoice">Invoice (Signed)</option>
+                                    </select>
                                 </div>
-                                <i className="fas fa-check-circle" style={{ color: '#10b981', fontSize: '1.2rem' }}></i>
+                                <div style={{ flex: 2 }}>
+                                    <select
+                                        style={inputStyle}
+                                        value={selectedReference?.id || ''}
+                                        onChange={(e) => handleReferenceSelect(referenceType, e.target.value)}
+                                        disabled={!referenceType}
+                                    >
+                                        <option value="">-- Select Item --</option>
+                                        {referenceType && mockReferences[referenceType].map(item => (
+                                            <option key={item.id} value={item.id}>
+                                                {item.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
                             </div>
-                        )}
-                    </div>
+
+                            {attachment && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: '#fff', borderRadius: '8px', border: '1px solid #e0f2fe' }}>
+                                    <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#e0f2fe', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0284c7' }}>
+                                        <i className={`fas ${attachment.type === 'pdf' ? 'fa-file-pdf' : attachment.type === 'image' ? 'fa-image' : 'fa-video'}`} style={{ fontSize: '1.2rem' }}></i>
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#0f172a' }}>{attachment.name}</div>
+                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Ready to send • 2.4 MB</div>
+                                    </div>
+                                    <i className="fas fa-check-circle" style={{ color: '#10b981', fontSize: '1.2rem' }}></i>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
 
                     {/* 3. Dynamic Fields */}
@@ -319,6 +346,21 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [] }) =
                         {/* ================= SMS VIEW ================= */}
                         {channel === 'SMS' && (
                             <div className="animate-fade-in">
+                                <div style={{ marginBottom: '20px' }}>
+                                    <label style={labelStyle}>Select Template</label>
+                                    <select
+                                        value={templateId}
+                                        onChange={handleTemplateChange}
+                                        style={inputStyle}
+                                        disabled={isLoadingSms}
+                                    >
+                                        <option value="">-- {isLoadingSms ? 'Loading templates...' : 'Choose an SMS Template'} --</option>
+                                        {smsTemplates.map(t => (
+                                            <option key={t._id} value={t._id}>{t.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                                     <label style={labelStyle}>Text Message</label>
                                     <div style={{ fontSize: '0.75rem', color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px' }}>GSM 7-bit</div>

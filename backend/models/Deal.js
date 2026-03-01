@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { invalidateDashboardCache } from "../src/config/redis.js";
 
 const DealSchema = new mongoose.Schema({
     projectName: String,
@@ -179,5 +180,9 @@ const DealSchema = new mongoose.Schema({
         reason: { type: String }
     }]
 }, { timestamps: true, strict: false });
+
+DealSchema.post('save', invalidateDashboardCache);
+DealSchema.post('findOneAndUpdate', invalidateDashboardCache);
+DealSchema.post('findOneAndDelete', invalidateDashboardCache);
 
 export default mongoose.model("Deal", DealSchema);
