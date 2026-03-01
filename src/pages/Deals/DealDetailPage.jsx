@@ -9,6 +9,8 @@ import { STAGE_PIPELINE, getStageProbability } from '../../utils/stageEngine';
 import { computeAging, computeDealDeath, detectCommissionLeakage, computeDealHealth, computeOwnerResponseRate, DEFAULT_AGING_RULES, DEFAULT_FORECAST_CONFIG, DEFAULT_HEALTH_CONFIG } from '../../utils/agingEngine';
 import { computeDealStageFromLeads } from '../../utils/syncEngine';
 import UnifiedActivitySection from '../../components/Activities/UnifiedActivitySection';
+import SingleDealLifecycle from '../../components/SingleDealLifecycle';
+import { activitiesAPI } from '../../utils/api';
 
 
 const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
@@ -21,6 +23,8 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const [valuationData, setValuationData] = useState(null);
     const [valuationLoading, setValuationLoading] = useState(false);
     const [valuationError, setValuationError] = useState(null);
+    const [activities, setActivities] = useState([]);
+    const [loadingActivities, setLoadingActivities] = useState(false);
 
     // State for calculator inputs
     const [govtCharges, setGovtCharges] = useState({
@@ -232,6 +236,25 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         }
     }, []);
 
+    const fetchActivities = useCallback(async () => {
+        if (!dealId) return;
+        setLoadingActivities(true);
+        try {
+            const res = await activitiesAPI.getUnified('deal', dealId);
+            if (res && res.success) {
+                setActivities(res.data || []);
+            }
+        } catch (error) {
+            console.error("Error fetching activities for lifecycle:", error);
+        } finally {
+            setLoadingActivities(false);
+        }
+    }, [dealId]);
+
+    useEffect(() => {
+        fetchActivities();
+    }, [fetchActivities]);
+
     // Audit logs are now handled by UnifiedActivitySection
 
     useEffect(() => {
@@ -340,7 +363,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         borderRadius: '16px',
         border: '1px solid #e2e8f0',
         boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
-        marginBottom: '24px',
+        marginBottom: '16px', // Reduced from 24px
         overflow: 'hidden'
     };
 
@@ -535,8 +558,15 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 </div>
             </header>
 
+            {/* STAGE LIFECYCLE TRACKER */}
+            {!loadingActivities && (
+                <div style={{ marginTop: '16px' }}>
+                    <SingleDealLifecycle deal={deal} activities={activities} />
+                </div>
+            )}
+
             {/* 2️⃣ MAIN CONTENT SPLIT */}
-            <div style={{ maxWidth: '1600px', margin: '32px auto', padding: '0 32px', display: 'flex', gap: '32px' }}>
+            <div style={{ maxWidth: '1600px', margin: '16px auto', padding: '0 24px', display: 'flex', gap: '24px' }}>
 
                 {/* LEFT MAIN TRANSACTION SECTION - Flexible Width */}
                 <div style={{ flex: '1', display: 'flex', flexDirection: 'column', minWidth: 0 }}>

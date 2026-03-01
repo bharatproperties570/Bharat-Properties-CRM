@@ -231,8 +231,8 @@ const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddActivity, onAdd
                                 <DetailItem label="Primary Phone" value={company.phones?.[0] ? `${company.phones[0].phoneCode} ${company.phones[0].phoneNumber}` : 'N/A'} />
                                 <DetailItem label="Primary Email" value={company.emails?.[0]?.address || 'N/A'} />
                                 <DetailItem label="Assigned Owner" value={renderValue(company.owner)} />
-                                <DetailItem label="Team" value={company.team || 'Sales'} />
-                                <DetailItem label="Visibility" value={company.visibleTo || 'Everyone'} />
+                                <DetailItem label="Team" value={renderValue(company.team) || 'Sales'} />
+                                <DetailItem label="Visibility" value={renderValue(company.visibleTo) || 'Everyone'} />
                             </div>
                         </div>
                     </div>
@@ -283,10 +283,10 @@ const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddActivity, onAdd
                                 <tbody>
                                     {projectsData.length > 0 ? projectsData.slice(0, 5).map((p, i) => (
                                         <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                            <td style={tableCellStyle}><strong>{p.name}</strong></td>
+                                            <td style={tableCellStyle}><strong>{renderValue(p.name)}</strong></td>
                                             <td style={tableCellStyle}>{p.address?.locality || p.address?.area || 'N/A'}</td>
                                             <td style={tableCellStyle}>
-                                                <span style={{ padding: '2px 8px', borderRadius: '4px', background: '#ecfdf5', color: '#065f46', fontSize: '0.65rem', fontWeight: 700 }}>{p.status || 'Active'}</span>
+                                                <span style={{ padding: '2px 8px', borderRadius: '4px', background: '#ecfdf5', color: '#065f46', fontSize: '0.65rem', fontWeight: 700 }}>{renderValue(p.status) || 'Active'}</span>
                                             </td>
                                             <td style={tableCellStyle}>
                                                 <button onClick={() => onNavigate('project-detail', p._id)} style={{ border: 'none', background: 'none', color: '#3b82f6', fontWeight: 700, cursor: 'pointer' }}>View</button>
@@ -330,14 +330,14 @@ const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddActivity, onAdd
                                     {inventoryData.slice(0, 5).map((inv, i) => (
                                         <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                             <td style={tableCellStyle}><strong>{inv.unitNo || inv.unitNumber}</strong></td>
-                                            <td style={tableCellStyle}>{inv.projectName}</td>
+                                            <td style={tableCellStyle}>{renderValue(inv.projectName)}</td>
                                             <td style={tableCellStyle}>
                                                 <span style={{
                                                     padding: '2px 6px', borderRadius: '4px',
-                                                    background: inv.status === 'Available' ? '#dcfce7' : '#fee2e2',
-                                                    color: inv.status === 'Available' ? '#166534' : '#991b1b',
+                                                    background: renderValue(inv.status) === 'Available' ? '#dcfce7' : '#fee2e2',
+                                                    color: renderValue(inv.status) === 'Available' ? '#166534' : '#991b1b',
                                                     fontWeight: 700, fontSize: '0.6rem'
-                                                }}>{inv.status}</span>
+                                                }}>{renderValue(inv.status)}</span>
                                             </td>
                                             <td style={tableCellStyle}><strong>{formatIndianCurrency(inv.price)}</strong></td>
                                         </tr>
@@ -384,7 +384,7 @@ const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddActivity, onAdd
                             <h2 style={sectionTitleStyle}><i className="fas fa-brain" style={{ color: '#3b82f6' }}></i> Relationship Intelligence</h2>
                         </div>
                         <div style={{ padding: '24px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '30px' }}>
-                            <DetailItem label="Relationship Type" value={<span style={{ fontWeight: 800, color: '#3b82f6' }}>{company.relationshipType || 'Developer'}</span>} />
+                            <DetailItem label="Relationship Type" value={<span style={{ fontWeight: 800, color: '#3b82f6' }}>{renderValue(company.relationshipType) || 'Developer'}</span>} />
                             <DetailItem label="Commission Agreement" value={company.commissionAgreementStatus || 'Active'} />
                             <DetailItem label="Preferred Partner" value={company.isPreferredPartner ? 'Yes ✅' : 'No'} />
                             <DetailItem label="Credit Limit" value={formatIndianCurrency(company.creditLimit || 0)} />
@@ -527,11 +527,11 @@ const OfficeLocations = ({ addresses }) => {
 const EmployeeCard = ({ employee }) => (
     <div style={{ padding: '16px', border: '1px solid #f1f5f9', borderRadius: '12px', background: '#f8fafc', display: 'flex', alignItems: 'center', gap: '12px' }}>
         <div className="avatar-circle" style={{ width: '40px', height: '40px', background: '#e2e8f0', color: '#475569', fontSize: '0.8rem' }}>
-            {getInitials(employee.name)}
+            {getInitials(renderValue(employee.name))}
         </div>
         <div>
-            <div style={{ fontWeight: 800, color: '#1e293b', fontSize: '0.85rem' }}>{employee.name} {employee.surname}</div>
-            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{employee.phones?.[0]?.phoneNumber || 'No Phone'}</div>
+            <div style={{ fontWeight: 800, color: '#1e293b', fontSize: '0.85rem' }}>{renderValue(employee.name)} {renderValue(employee.surname)}</div>
+            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{renderValue(employee.designation) || 'No Designation'}</div>
             <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
                 <span style={{ fontSize: '0.6rem', color: '#3b82f6', fontWeight: 700, cursor: 'pointer' }}>View Contact</span>
             </div>
@@ -656,11 +656,11 @@ const ContactsList = ({ contacts }) => (
         {contacts.length > 0 ? contacts.map((contact, i) => (
             <div key={i} style={{ padding: '20px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#475569' }}>
-                    {getInitials(contact.name)}
+                    {getInitials(renderValue(contact.name))}
                 </div>
                 <div>
-                    <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#1e293b' }}>{contact.name} {contact.surname}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{contact.designation || 'Contact Person'}</div>
+                    <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#1e293b' }}>{renderValue(contact.name)} {renderValue(contact.surname)}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{renderValue(contact.designation) || 'Contact Person'}</div>
                     <div style={{ fontSize: '0.75rem', color: '#3b82f6', marginTop: '4px' }}>{contact.phones?.[0]?.phoneNumber || 'No Phone'}</div>
                 </div>
             </div>

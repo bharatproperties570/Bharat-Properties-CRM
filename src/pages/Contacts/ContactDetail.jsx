@@ -1384,7 +1384,9 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                             </div>
                                                         )}
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
-                                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}> By {item.actor}</div>
+                                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>
+                                                                By {typeof item.actor === 'object' && item.actor ? (item.actor.fullName || item.actor.name || item.actor.username || 'System') : (item.actor || 'System')}
+                                                            </div>
                                                             {item.status && (
                                                                 <div style={{
                                                                     fontSize: '0.6rem',
@@ -1828,8 +1830,8 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                         activeDeals.map((deal, idx) => (
                                             <div key={idx} style={{ background: '#fff7ed', padding: '12px', borderRadius: '12px', border: '1px solid #ffedd5', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
-                                                    <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#9a3412' }}>
-                                                        ₹{deal.budgetMin || deal.price || 'Price TBA'} Deal
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', marginBottom: '4px' }}>
+                                                        ₹{renderValue(deal.budgetMin) || renderValue(deal.price) || 'Price TBA'} Deal
                                                     </div>
                                                     <span style={{ background: '#ea580c', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '0.6rem', fontWeight: 700 }}>
                                                         {(renderLookup(deal.stage) || 'ACTIVE').toUpperCase()}

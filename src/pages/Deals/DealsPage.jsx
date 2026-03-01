@@ -841,13 +841,13 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                 <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-color)' }}>#{deal.id}</div>
                                             </div>
                                             <div style={{ fontSize: '0.75rem', color: '#0f172a', fontWeight: 600, marginBottom: '4px' }}>
-                                                {deal.location}
+                                                {renderValue(deal.location)}
                                             </div>
                                             <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>
-                                                {deal.propertyType} - {deal.size}
+                                                {renderValue(deal.propertyType)} - {renderValue(deal.size)}
                                             </div>
                                             <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#10b981' }}>
-                                                ₹{deal.price}
+                                                ₹{renderValue(deal.price)}
                                             </div>
                                         </div>
                                     ))}
@@ -885,7 +885,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                 zIndex: 10,
                                                 transition: 'all 0.2s'
                                             }}
-                                            title={`${deal.id} - ${deal.location}`}
+                                            title={`${deal.id} - ${renderValue(deal.location)}`}
                                         >
                                             {/* Pin Marker */}
                                             <div style={{

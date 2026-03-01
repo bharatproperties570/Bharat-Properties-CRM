@@ -57,26 +57,30 @@ const EnterprisePipeline = ({ contact, activities = [] }) => {
 
         stageLogs.forEach(log => {
             const nextStageRaw = log.metadata?.changes?.after || 'Unknown';
-            const nextStage = typeof nextStageRaw === 'object'
-                ? (nextStageRaw.lookup_value || nextStageRaw.name || String(nextStageRaw))
+            const nextStage = typeof nextStageRaw === 'object' && nextStageRaw
+                ? (nextStageRaw.lookup_value || nextStageRaw.name || String(nextStageRaw.id || nextStageRaw._id || nextStageRaw))
                 : String(nextStageRaw);
 
+
+            const actorName = typeof log.actor === 'object' ? (log.actor.fullName || log.actor.name || log.actor.username || 'System') : (log.actor || 'System');
             dynamicStageHistory.push({
                 stage: String(iterStage),
                 enteredAt: lastTime,
                 exitedAt: log.timestamp,
-                agent: log.actor || 'System'
-            });
-            iterStage = nextStage;
+                agent: actorName
+            }); iterStage = nextStage;
             lastTime = log.timestamp;
         });
 
         // Current active stage
+        const lastActor = stageLogs.length > 0 ? stageLogs[stageLogs.length - 1].actor : 'System';
+        const lastActorName = typeof lastActor === 'object' ? (lastActor.fullName || lastActor.name || lastActor.username || 'System') : lastActor;
+
         dynamicStageHistory.push({
             stage: currentStageLabel,
             enteredAt: lastTime,
             exitedAt: null,
-            agent: stageLogs.length > 0 ? stageLogs[stageLogs.length - 1].actor : 'System'
+            agent: lastActorName
         });
 
         // Process Stages
@@ -143,7 +147,7 @@ const EnterprisePipeline = ({ contact, activities = [] }) => {
                     type: a.type || 'Activity',
                     date: dateStr,
                     note: a.title + (a.description ? ` - ${a.description}` : ''),
-                    agent: a.actor || 'System',
+                    agent: typeof a.actor === 'object' ? (a.actor.fullName || a.actor.name || a.actor.username || 'System') : (a.actor || 'System'),
                     icon,
                     color
                 };
