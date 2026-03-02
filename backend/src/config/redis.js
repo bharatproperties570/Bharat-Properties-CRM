@@ -14,9 +14,17 @@ redisConnection.on('error', (err) => {
 
 export const invalidateDashboardCache = async () => {
     try {
-        await redisConnection.del('dashboard_kpis');
+        // Use a short timeout to prevent hanging if Redis is offline
+        const timeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Redis Timeout')), 500)
+        );
+        await Promise.race([
+            redisConnection.del('dashboard_kpis'),
+            timeout
+        ]);
     } catch (err) {
-        // Silently fail
+        // Silently fail if Redis is down
+        // console.warn('⚠️ Cache invalidation skipped: Redis offline or timed out.');
     }
 };
 

@@ -29,6 +29,7 @@ import systemRoutes from "./modules/systemSettings/system.routes.js";
 import parsingRoutes from "./modules/parsing/parsingRule.routes.js";
 import intakeRoutes from "./modules/intake/intake.routes.js";
 import smsRoutes from "./modules/sms/sms.routes.js";
+import enrichmentRoutes from "./modules/prospectingEnrichment/enrichment.routes.js";
 
 
 // Middleware
@@ -100,6 +101,7 @@ app.use("/scoring-rules", scoringRoutes);
 app.use("/system-settings", systemRoutes);
 app.use("/parsing-rules", parsingRoutes);
 app.use("/intake", intakeRoutes);
+app.use("/enrichment", enrichmentRoutes);
 // app.use("/sms-gateway", smsRoutes); (Managed in backend/app.js)
 
 // Error Handling Middleware (must be last)
