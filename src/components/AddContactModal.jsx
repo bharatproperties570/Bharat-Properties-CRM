@@ -238,7 +238,7 @@ const companyList = [
 ];
 
 // Duplicate Popup Component (Restyled for Side Panel)
-const DuplicateResults = ({ contacts, onUpdate, isBlocked }) => {
+const DuplicateResults = ({ contacts, onUpdate, isBlocked, getLookupValue }) => {
   if (!contacts || contacts.length === 0) {
     return (
       <div
@@ -355,7 +355,7 @@ const DuplicateResults = ({ contacts, onUpdate, isBlocked }) => {
             }}
           >
             <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.95rem' }}>
-              {contact.title?.lookup_value || contact.title} {contact.firstName || contact.name} {contact.lastName || contact.surname}
+              {getLookupValue(contact.title) || contact.title?.lookup_value || contact.title} {contact.firstName || contact.name} {contact.lastName || contact.surname}
             </div>
             {contact.matchedEntityType && (
               <span style={{
@@ -1240,7 +1240,19 @@ const AddContactModal = ({
 
   // Placeholder for Populate
   const handlePopulateForm = (data) => {
-    console.log("Populate", data);
+    if (!data) return;
+
+    setFormData(prev => ({
+      ...prev,
+      title: typeof data.title === 'object' ? data.title?._id : data.title,
+      name: data.firstName || data.name || prev.name,
+      surname: data.lastName || data.surname || prev.surname,
+      company: data.company || prev.company,
+      phones: data.phones && data.phones.length > 0 ? data.phones : prev.phones,
+      emails: data.emails && data.emails.length > 0 ? data.emails : prev.emails,
+    }));
+
+    toast.success("Form updated with suggested contact details");
   };
 
   // Styles (Reused from backup)
@@ -2342,6 +2354,36 @@ const AddContactModal = ({
                   >
 
 
+                    {/* Team field added before Assign */}
+                    <div>
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: "0.85rem",
+                          fontWeight: 500,
+                          color: "#64748b",
+                          marginBottom: "8px",
+                        }}
+                      >
+                        Team
+                      </label>
+                      <select
+                        value={formData.team}
+                        onChange={(e) => {
+                          handleInputChange("team", e.target.value);
+                          handleInputChange("owner", ""); // Reset owner when team changes
+                        }}
+                        style={customSelectStyle}
+                      >
+                        <option value="">Select Team</option>
+                        {teams.map((team) => (
+                          <option key={team._id} value={team._id}>
+                            {team.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
                     <div>
                       <label
                         style={{
@@ -2353,7 +2395,6 @@ const AddContactModal = ({
                         }}
                       >
                         Assign <span style={{ color: '#ef4444' }}>*</span>
-
                       </label>
                       <select
                         value={formData.owner}
@@ -2367,8 +2408,7 @@ const AddContactModal = ({
                           .filter(
                             (user) =>
                               !formData.team ||
-                              (user.team && user.team === formData.team) ||
-                              (user.team?._id === formData.team)
+                              (user.team && (user.team === formData.team || user.team._id === formData.team))
                           )
                           .map((user) => (
                             <option key={user._id || user.id} value={user._id || user.id}>
@@ -3626,6 +3666,7 @@ const AddContactModal = ({
                   contacts={similarContacts}
                   onUpdate={handlePopulateForm}
                   isBlocked={isBlocked}
+                  getLookupValue={getLookupValue}
                 />
               </div>
             </div>

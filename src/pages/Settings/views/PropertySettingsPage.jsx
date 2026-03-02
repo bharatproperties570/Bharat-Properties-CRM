@@ -331,6 +331,9 @@ const PropertySettingsPage = () => {
     const [editingSize, setEditingSize] = useState(null);
     const [activeTab, setActiveTab] = useState('Sizes');
     const [searchTerm, setSearchTerm] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [recordsPerPage, setRecordsPerPage] = useState(25);
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
     const context = usePropertyConfig();
 
@@ -395,12 +398,22 @@ const PropertySettingsPage = () => {
     };
 
     // ---------------- EXPORT HANDLERS ----------------
-    const handleExportSizes = () => {
-        if (!sizes || sizes.length === 0) {
-            showToast("No sizes to export", "warning");
+    const handleExportSizes = (filterProject = 'All', filterBlock = 'All') => {
+        let exportData = sizes || [];
+
+        if (filterProject !== 'All') {
+            exportData = exportData.filter(s => s.project === filterProject);
+        }
+        if (filterBlock !== 'All') {
+            exportData = exportData.filter(s => s.block === filterBlock);
+        }
+
+        if (exportData.length === 0) {
+            showToast("No sizes to export for the selected criteria", "warning");
             return;
         }
-        const dataToExport = sizes.map(s => ({
+
+        const dataToExport = exportData.map(s => ({
             ID: s.id || s.name || 'N/A',
             Project: s.project || 'Global',
             Block: s.block || 'N/A',
@@ -410,8 +423,10 @@ const PropertySettingsPage = () => {
             Description: s.description || ''
         }));
         const csvContent = generateCSV(dataToExport);
-        downloadFile(csvContent, `property_sizes_${new Date().toISOString().split('T')[0]}.csv`);
+        const fileName = `property_sizes_${filterProject}_${filterBlock}_${new Date().toISOString().split('T')[0]}.csv`;
+        downloadFile(csvContent, fileName);
         showToast("Export successful!");
+        setIsExportModalOpen(false);
     };
 
     const handleExportConfigHierarchy = (items, type) => {
@@ -721,6 +736,26 @@ const PropertySettingsPage = () => {
 
     const filteredSizes = sizes ? sizes.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase())) : [];
 
+    // Pagination Logic
+    const totalPages = Math.ceil(filteredSizes.length / recordsPerPage);
+    const paginatedSizes = filteredSizes.slice(
+        (currentPage - 1) * recordsPerPage,
+        currentPage * recordsPerPage
+    );
+
+    const goToNextPage = () => {
+        if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+    };
+
+    const goToPreviousPage = () => {
+        if (currentPage > 1) setCurrentPage(currentPage - 1);
+    };
+
+    const handleRecordsPerPageChange = (e) => {
+        setRecordsPerPage(Number(e.target.value));
+        setCurrentPage(1);
+    };
+
     const ActionButtons = ({ onEdit, onDelete }) => (
         <div className="action-buttons" style={{ display: 'flex', gap: '4px' }}>
             <button onClick={(e) => { e.stopPropagation(); onEdit(); }} style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', padding: '4px' }} title="Edit"><i className="fas fa-edit"></i></button>
@@ -759,23 +794,95 @@ const PropertySettingsPage = () => {
 
                 {activeTab === 'Sizes' ? (
                     <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '24px', width: '100%' }}>
+                            {/* Search */}
                             <div style={{ position: 'relative', width: '300px' }}>
                                 <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
-                                <input type="text" placeholder="Search sizes..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ width: '100%', padding: '10px 10px 10px 36px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem', outline: 'none' }} />
+                                <input
+                                    type="text"
+                                    placeholder="Search sizes..."
+                                    value={searchTerm}
+                                    onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                                    style={{ width: '100%', padding: '10px 10px 10px 36px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem', outline: 'none' }}
+                                />
                             </div>
-                            <div style={{ display: 'flex', gap: '12px' }}>
+
+                            {/* Action Buttons */}
+                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                                 <button
-                                    className="btn-outline"
-                                    onClick={handleExportSizes}
-                                    style={{ padding: '10px 16px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #10b981', color: '#10b981', background: '#fff', cursor: 'pointer' }}
-                                    title="Download as CSV"
+                                    className="btn-primary"
+                                    type="button"
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsModalOpen(true); }}
+                                    style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer' }}
                                 >
-                                    <i className="fas fa-download"></i> Download
-                                </button>
-                                <button className="btn-primary" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsModalOpen(true); }} style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer' }}>
                                     <i className="fas fa-plus"></i> Add Size
                                 </button>
+                                <button
+                                    onClick={() => setIsExportModalOpen(true)}
+                                    style={{
+                                        border: 'none',
+                                        background: 'transparent',
+                                        color: '#10b981',
+                                        cursor: 'pointer',
+                                        fontSize: '1.25rem',
+                                        padding: '4px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        transition: 'transform 0.2s'
+                                    }}
+                                    onMouseOver={e => e.currentTarget.style.transform = 'scale(1.1)'}
+                                    onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}
+                                    title="Download as CSV"
+                                >
+                                    <i className="fas fa-file-download"></i>
+                                </button>
+                            </div>
+
+                            {/* Spacer to push pagination to right */}
+                            <div style={{ flex: 1 }}></div>
+
+                            {/* Pagination Controls */}
+                            <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+                                <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
+                                    Showing: <strong>{paginatedSizes.length}</strong> /{" "}
+                                    <strong>{filteredSizes.length}</strong>
+                                </div>
+
+                                {/* Records Per Page */}
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.8rem", color: "#64748b" }}>
+                                    <span>Show:</span>
+                                    <select
+                                        value={recordsPerPage}
+                                        onChange={handleRecordsPerPageChange}
+                                        style={{ padding: "6px 10px", border: "1px solid #e2e8f0", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", outline: "none", cursor: "pointer", background: '#fff' }}
+                                    >
+                                        {[10, 25, 50, 100, 300, 500].map(val => (
+                                            <option key={val} value={val}>{val}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Page Nav */}
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                    <button
+                                        onClick={goToPreviousPage}
+                                        disabled={currentPage === 1}
+                                        style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", background: currentPage === 1 ? "#f8fafc" : "#fff", color: currentPage === 1 ? "#cbd5e1" : "#0f172a", cursor: currentPage === 1 ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}
+                                    >
+                                        <i className="fas fa-chevron-left"></i> Prev
+                                    </button>
+                                    <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", minWidth: "60px", textAlign: "center" }}>
+                                        {currentPage} / {totalPages || 1}
+                                    </span>
+                                    <button
+                                        onClick={goToNextPage}
+                                        disabled={currentPage >= totalPages}
+                                        style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", background: currentPage >= totalPages ? "#f8fafc" : "#fff", color: currentPage >= totalPages ? "#cbd5e1" : "#0f172a", cursor: currentPage >= totalPages ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}
+                                    >
+                                        Next <i className="fas fa-chevron-right"></i>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
@@ -790,8 +897,8 @@ const PropertySettingsPage = () => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredSizes.length > 0 ? (
-                                        filteredSizes.map(size => (
+                                    {paginatedSizes.length > 0 ? (
+                                        paginatedSizes.map(size => (
                                             <SizeItem key={size.id} size={size} onEdit={() => handleEditOpen(size)} onDelete={handleDeleteSize} />
                                         ))
                                     ) : (
@@ -949,6 +1056,83 @@ const PropertySettingsPage = () => {
                     onConfirm={confirmModal.onConfirm}
                     message={confirmModal.message}
                 />
+
+                {/* Export Sizes Modal */}
+                {isExportModalOpen && (
+                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 12000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ background: '#fff', width: '450px', borderRadius: '12px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>Export Property Sizes</h3>
+                                <i className="fas fa-times" onClick={() => setIsExportModalOpen(false)} style={{ cursor: 'pointer', color: '#94a3b8' }}></i>
+                            </div>
+
+                            <div style={{ display: 'grid', gap: '20px' }}>
+                                <div>
+                                    <label style={{ fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px', display: 'block' }}>Select Project</label>
+                                    <select
+                                        id="exportProjectSelect"
+                                        style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none' }}
+                                        defaultValue="All"
+                                        onChange={(e) => {
+                                            const proj = e.target.value;
+                                            const blockSelect = document.getElementById('exportBlockSelect');
+                                            if (proj === 'All') {
+                                                blockSelect.innerHTML = '<option value="All">All Blocks</option>';
+                                                blockSelect.value = 'All';
+                                            } else {
+                                                const projectData = safeProjects.find(p => p.name === proj);
+                                                let options = '<option value="All">All Blocks</option>';
+                                                if (projectData && Array.isArray(projectData.blocks)) {
+                                                    projectData.blocks.forEach(b => {
+                                                        const bName = typeof b === 'object' ? b.name : b;
+                                                        options += `<option value="${bName}">${bName}</option>`;
+                                                    });
+                                                }
+                                                blockSelect.innerHTML = options;
+                                                blockSelect.value = 'All';
+                                            }
+                                        }}
+                                    >
+                                        <option value="All">All Projects</option>
+                                        {safeProjects.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label style={{ fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px', display: 'block' }}>Select Block</label>
+                                    <select
+                                        id="exportBlockSelect"
+                                        style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none' }}
+                                        defaultValue="All"
+                                    >
+                                        <option value="All">All Blocks</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '12px', marginTop: '32px' }}>
+                                <button
+                                    className="btn-primary"
+                                    onClick={() => {
+                                        const proj = document.getElementById('exportProjectSelect').value;
+                                        const block = document.getElementById('exportBlockSelect').value;
+                                        handleExportSizes(proj, block);
+                                    }}
+                                    style={{ padding: '12px 24px', fontSize: '0.95rem', fontWeight: 700, flex: 1, background: '#10b981', border: 'none', color: '#fff', borderRadius: '8px', cursor: 'pointer' }}
+                                >
+                                    Download CSV
+                                </button>
+                                <button
+                                    className="btn-outline"
+                                    onClick={() => setIsExportModalOpen(false)}
+                                    style={{ padding: '12px 24px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '0.95rem', fontWeight: 700, flex: 1, color: '#475569', borderRadius: '8px', cursor: 'pointer' }}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div >
     );
