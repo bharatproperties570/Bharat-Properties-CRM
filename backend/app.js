@@ -54,7 +54,8 @@ const allowedOrigins = [
     "http://192.168.1.10:19006",
     // Production
     "https://bharat-properties-crm.vercel.app",
-    "https://api.bharatproperties.co"
+    "https://api.bharatproperties.co",
+    "https://crm.bharatproperties.co"
 ];
 
 app.use(cors({
