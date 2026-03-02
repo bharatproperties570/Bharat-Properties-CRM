@@ -64,6 +64,19 @@ const smsService = {
     },
 
     /**
+     * Send an actual SMS message (Production)
+     */
+    async sendMessage(payload) {
+        try {
+            const response = await axios.post(`${API_BASE_URL}/send`, payload);
+            return response.data;
+        } catch (error) {
+            console.error(`Error sending message:`, error);
+            throw error;
+        }
+    },
+
+    /**
      * Fetch all SMS templates
      */
     async getTemplates() {

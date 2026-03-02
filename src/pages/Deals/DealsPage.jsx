@@ -995,7 +995,17 @@ function DealsPage({ onNavigate, onAddActivity }) {
             <SendMessageModal
                 isOpen={isSendMessageOpen}
                 onClose={() => setIsSendMessageOpen(false)}
-                selectedContacts={selectedDealsForMessage}
+                initialRecipients={selectedDealsForMessage?.map(deal => ({
+                    ...deal.owner,
+                    name: deal.owner?.name || deal.associatedContact?.name || 'Client',
+                    phone: deal.owner?.phone || deal.associatedContact?.phone,
+                    _id: deal.associatedContact?._id || deal.owner?._id || deal.id
+                })) || []}
+                onSend={(data, res) => {
+                    console.log('Message Data Outbound:', data);
+                    toast.success(res?.message || 'Message Sent Successfully!');
+                    setIsSendMessageOpen(false);
+                }}
             />
 
             <ManageTagsModal

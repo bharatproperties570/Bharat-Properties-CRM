@@ -41,59 +41,37 @@ const DashboardPage = () => {
 
     // --- Live Data Integration & Deep Merging ---
     const data = React.useMemo(() => {
-        const merged = { ...reportsData };
+        // If we have live dashboard data, we use it as the primary source
         if (dashboardData) {
-            // Merge Performance Metrics
-            if (dashboardData.performance) {
-                merged.pipelineMoney = {
-                    ...merged.pipelineMoney,
+            return {
+                ...reportsData, // Keep structure for non-live parts
+                pipelineMoney: {
+                    ...reportsData.pipelineMoney,
                     kpis: [
-                        { label: 'Active Pipeline', value: formatCurrency(dashboardData.performance.achieved || 0), color: 'blue' },
-                        { label: 'Conversion Rate', value: `${dashboardData.performance.conversion}%`, color: 'green' },
-                        { label: 'Revenue (Month)', value: formatCurrency(dashboardData.performance.revenue || 0), color: 'purple' },
-                        { label: 'Pending Target', value: formatCurrency(dashboardData.performance.remaining || 0), color: 'red' }
+                        { label: 'Active Pipeline', value: formatCurrency(dashboardData.performance?.achieved || 0), color: 'blue' },
+                        { label: 'Conversion Rate', value: `${dashboardData.performance?.conversion || 0}%`, color: 'green' },
+                        { label: 'Revenue (Month)', value: formatCurrency(dashboardData.performance?.revenue || 0), color: 'purple' },
+                        { label: 'Pending Target', value: formatCurrency(dashboardData.performance?.remaining || 0), color: 'red' }
                     ]
-                };
-            }
-
-            // Merge Inventory Health
-            if (dashboardData.inventoryHealth) {
-                merged.propertyInventory = {
-                    ...merged.propertyInventory,
-                    kpis: dashboardData.inventoryHealth.map(item => ({
+                },
+                propertyInventory: {
+                    ...reportsData.propertyInventory,
+                    kpis: (dashboardData.inventoryHealth || []).map(item => ({
                         label: item.status,
                         value: item.count,
                         color: item.status.toLowerCase() === 'available' ? 'green' : 'blue'
                     }))
-                };
-            }
-
-            // Merge Agenda (Explicit priority to live data)
-            if (dashboardData.agenda) {
-                merged.agenda = {
-                    ...merged.agenda,
-                    tasks: dashboardData.agenda.tasks || [],
-                    siteVisits: dashboardData.agenda.siteVisits || []
-                };
-            }
-
-            // Merge AI Intelligence Hub
-            if (dashboardData.aiAlertHub) {
-                merged.aiAlertHub = {
-                    ...merged.aiAlertHub,
-                    ...dashboardData.aiAlertHub
-                };
-            }
-
-            // Merge Auto Suggestions
-            if (dashboardData.autoSuggestions) {
-                merged.autoSuggestions = {
-                    ...merged.autoSuggestions,
-                    ...dashboardData.autoSuggestions
-                };
-            }
+                },
+                agenda: {
+                    ...reportsData.agenda,
+                    tasks: dashboardData.agenda?.tasks || [],
+                    siteVisits: dashboardData.agenda?.siteVisits || []
+                },
+                aiAlertHub: dashboardData.aiAlertHub || {},
+                autoSuggestions: dashboardData.autoSuggestions || {}
+            };
         }
-        return merged;
+        return reportsData;
     }, [dashboardData]);
 
     // 1. Pipeline Liquidity

@@ -660,7 +660,14 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
             <SendMessageModal
                 isOpen={isMessageOpen}
                 onClose={() => setIsMessageOpen(false)}
-                selectedContacts={selectedContactsForMessage}
+                initialRecipients={selectedContactsForMessage?.map(contact => ({
+                    ...contact,
+                    phone: contact.phone || contact.mobile
+                })) || []}
+                onSend={(data, res) => {
+                    toast.success(res?.message || 'Message Sent!');
+                    setIsMessageOpen(false);
+                }}
             />
             <CreateActivityModal
                 isOpen={isActivityOpen}

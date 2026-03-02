@@ -1290,11 +1290,11 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 isOpen={isSendMessageOpen}
                 onClose={() => setIsSendMessageOpen(false)}
                 initialRecipients={selectedLeadsForMessage}
-                onSend={(data) => {
-                    console.log('Sending Message to Leads:', data);
-                    // In real app, integrate with message service
-                    // alert('Message Sent Successfully!');
+                onSend={(data, res) => {
+                    console.log('Message Data Outbound:', data);
+                    toast.success(res?.message || 'Message Sent Successfully!');
                     setIsSendMessageOpen(false);
+                    // trigger refresh if needed
                 }}
             />
 

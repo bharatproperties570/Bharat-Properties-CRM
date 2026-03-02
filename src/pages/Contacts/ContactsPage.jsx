@@ -1991,10 +1991,11 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
         isOpen={isSendMessageOpen}
         onClose={() => setIsSendMessageOpen(false)}
         initialRecipients={selectedContactsForMessage}
-        onSend={(data) => {
-          console.log("Sending Message:", data);
-          alert("Message Sent Successfully!");
+        onSend={(data, res) => {
+          console.log("Message Data Outbound:", data);
+          toast.success(res?.message || "Message Sent Successfully!");
           setIsSendMessageOpen(false);
+          setRefreshTrigger(prev => prev + 1);
         }}
       />
 

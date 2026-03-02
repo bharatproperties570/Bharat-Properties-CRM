@@ -27,8 +27,8 @@ export const PropertyConfigProvider = ({ children }) => {
 
     const refreshSizes = useCallback(async () => {
         try {
-            // SINGLE SOURCE OF TRUTH: Fetch from Lookups ('size' category)
-            const sizesResponse = await lookupsAPI.getByCategory('size');
+            // SINGLE SOURCE OF TRUTH: Fetch from Lookups ('Size' category)
+            const sizesResponse = await lookupsAPI.getByCategory('Size');
             let lookupSizes = [];
             if (sizesResponse && sizesResponse.status === "success" && Array.isArray(sizesResponse.data)) {
                 lookupSizes = sizesResponse.data.map(l => ({
@@ -45,9 +45,11 @@ export const PropertyConfigProvider = ({ children }) => {
     }, []);
 
     const getLookupId = useCallback((type, value) => {
-        if (!lookups[type] || !value) return null;
+        // Standardize type (e.g. 'Property Type' -> 'PropertyType')
+        const normalizedType = type ? type.replace(/\s+/g, '') : type;
+        if (!lookups[normalizedType] || !value) return null;
         if (typeof value === 'object' && value._id) return value._id;
-        const found = lookups[type].find(l =>
+        const found = lookups[normalizedType].find(l =>
             l.lookup_value === value ||
             (typeof value === 'string' && value === l._id)
         );
@@ -62,9 +64,12 @@ export const PropertyConfigProvider = ({ children }) => {
             return id.lookup_value || id.name || id.label || id.value || id.displayName || id;
         }
 
+        // Standardize type (e.g. 'Property Type' -> 'PropertyType')
+        const normalizedType = type ? type.replace(/\s+/g, '') : type;
+
         // 1. Try the specified category first (efficient)
-        if (lookups[type]) {
-            const found = lookups[type].find(l => l._id === id || l.id === id);
+        if (lookups[normalizedType]) {
+            const found = lookups[normalizedType].find(l => l._id === id || l.id === id);
             if (found) return found.lookup_value;
         }
 
@@ -86,8 +91,9 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [lookups]);
 
     const findLookup = useCallback((type, value, parentId = null) => {
-        if (!lookups[type]) return null;
-        return lookups[type].find(l =>
+        const normalizedType = type ? type.replace(/\s+/g, '') : type;
+        if (!lookups[normalizedType]) return null;
+        return lookups[normalizedType].find(l =>
             l.lookup_value === value &&
             (!parentId || l.parent_lookup_id === parentId)
         );
@@ -120,7 +126,12 @@ export const PropertyConfigProvider = ({ children }) => {
                 facings: newLookups['Facing']?.map(l => l.lookup_value) || [],
                 directions: newLookups['Direction']?.map(l => l.lookup_value) || [],
                 roadWidths: newLookups['RoadWidth']?.map(l => l.lookup_value) || [],
-                unitTypes: newLookups['UnitType']?.map(l => l.lookup_value) || []
+                unitTypes: newLookups['UnitType']?.map(l => l.lookup_value) || [],
+                sizes: newLookups['Size']?.map(l => ({
+                    id: l._id,
+                    name: l.lookup_value,
+                    ...l.metadata
+                })) || []
             }));
 
             // Reconstruct propertyConfig from Lookups (for compatibility)
@@ -1749,7 +1760,7 @@ export const PropertyConfigProvider = ({ children }) => {
         try {
             const { name, ...metadata } = newSize;
             const res = await lookupsAPI.create({
-                lookup_type: 'size',
+                lookup_type: 'Size',
                 lookup_value: name,
                 metadata: metadata
             });

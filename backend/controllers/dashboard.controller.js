@@ -3,6 +3,7 @@ import Activity from "../models/Activity.js";
 import Deal from "../models/Deal.js";
 import Lookup from "../models/Lookup.js";
 import Inventory from "../models/Inventory.js";
+import Project from "../models/Project.js";
 import redisConnection from "../src/config/redis.js";
 
 export const getDashboardStats = async (req, res) => {
@@ -18,7 +19,7 @@ export const getDashboardStats = async (req, res) => {
         tomorrow.setDate(tomorrow.getDate() + 1);
 
         // Fetch lookups for stage and status mapping
-        const lookups = await Lookup.find({ lookup_type: { $in: ['Stage', 'inventory_status'] } });
+        const lookups = await Lookup.find({ lookup_type: { $in: ['Stage', 'InventoryStatus', 'Status'] } });
         const stageMap = {};
         const lookupMap = {};
         lookups.forEach(l => {
@@ -27,11 +28,11 @@ export const getDashboardStats = async (req, res) => {
         });
 
         const CATEGORY_MAPPING = {
-            'INCOMING': ['New'],
-            'PROSPECT': ['Prospect', 'Qualified'],
-            'OPPORTUNITY': ['Opportunity'],
-            'NEGOTIATION': ['Negotiation', 'Booked'],
-            'CLOSED': ['Closed Won', 'Closed Lost', 'Stalled']
+            'INCOMING': ['New', 'Inbound', 'Incoming', 'Open', 'Lead', 'Unassigned'],
+            'PROSPECT': ['Prospect', 'Qualified', 'Warm', 'Interested', 'Follow-up'],
+            'OPPORTUNITY': ['Opportunity', 'Hot', 'Quote', 'Proposal', 'Presentation', 'Site Visit'],
+            'NEGOTIATION': ['Negotiation', 'Booked', 'Under Review', 'Contract', 'Reserved'],
+            'CLOSED': ['Closed Won', 'Closed Lost', 'Stalled', 'Dead', 'Won', 'Lost', 'Cancelled']
         };
 
         const reverseMapping = {};
@@ -59,7 +60,16 @@ export const getDashboardStats = async (req, res) => {
 
         const leadCategories = { INCOMING: 0, PROSPECT: 0, OPPORTUNITY: 0, NEGOTIATION: 0, CLOSED: 0 };
         leadsByStageRaw.forEach(item => {
-            const stageValue = stageMap[item._id?.toString()] || 'New';
+            // item._id could be an ObjectId (standard) or a String (direct value/legacy)
+            let stageValue = 'New';
+            if (item._id) {
+                if (mongoose.Types.ObjectId.isValid(item._id)) {
+                    stageValue = stageMap[item._id.toString()] || 'New';
+                } else {
+                    stageValue = String(item._id);
+                }
+            }
+
             const cat = reverseMapping[stageValue.toLowerCase()] || 'INCOMING';
             leadCategories[cat] += item.count;
         });
@@ -91,6 +101,10 @@ export const getDashboardStats = async (req, res) => {
             dealCategories[cat].value += (item.value || 0);
         });
 
+        // Debug logging for developers
+        console.log(`[Dashboard] Aggregated ${totalLeads} leads into categories:`, leadCategories);
+        console.log(`[Dashboard] Aggregated deals by stage:`, dealCategories);
+
         const performanceDeals = Object.entries(dealCategories).map(([stage, stats]) => ({
             stage,
             count: stats.count,
@@ -109,14 +123,13 @@ export const getDashboardStats = async (req, res) => {
         const wonLeadsCount = leadCategories['CLOSED'] || 0;
         const conversionRate = (wonLeadsCount / totalLeads) * 100;
 
-        // 5. Inventory Health
-        const inventoryStatsRaw = await Inventory.aggregate([
-            { $group: { _id: "$status", count: { $sum: 1 } } }
-        ]);
         const populatedInventory = (inventoryStatsRaw || []).map(item => ({
             status: lookupMap[item._id?.toString()] || 'Available',
             count: item.count
         }));
+
+        // 6. Project Stats
+        const projectCount = await Project.countDocuments({ status: { $ne: 'Deleted' } });
 
         // 6. High Value Agenda (Live Tasks & Site Visits)
         const agendaActivities = await Activity.find({
@@ -200,11 +213,12 @@ export const getDashboardStats = async (req, res) => {
             },
             leads: populatedLeads,
             deals: performanceDeals,
-            inventoryHealth: populatedInventory
+            inventoryHealth: populatedInventory,
+            projects: projectCount
         };
 
-        // Cache for 1 hour (3600 seconds)
-        await redisConnection.setex('dashboard_kpis', 3600, JSON.stringify(dashboardData)).catch(() => null);
+        // Cache for 1 minute (60 seconds)
+        await redisConnection.setex('dashboard_kpis', 60, JSON.stringify(dashboardData)).catch(() => null);
 
         res.json({
             success: true,

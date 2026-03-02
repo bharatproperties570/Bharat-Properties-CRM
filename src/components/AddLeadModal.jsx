@@ -451,7 +451,7 @@ const BUDGET_VALUES = [
 ];
 
 const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entityType = 'lead', contactData, title = "Add New Lead", saveLabel = "Save" }) => {
-    const { propertyConfig, masterFields, leadMasterFields, getLookupId, getLookupValue } = usePropertyConfig();
+    const { propertyConfig, masterFields, leadMasterFields, getLookupId, getLookupValue, projects: allProjects } = usePropertyConfig();
     const { validate, validateAsync } = useFieldRules(); // Get Validator Engine
     const { executeDistribution } = useDistribution(); // Get Distribution Engine
     const { evaluateAndEnroll } = useSequences();
@@ -555,54 +555,35 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     const [cities, setCities] = useState([]);
 
     useEffect(() => {
-        const fetchProjects = async () => {
-            try {
-                // Fetch projects and city lookups in parallel
-                const [projectRes, cityRes] = await Promise.all([
-                    api.get('/projects'),
-                    api.get('/lookups', { params: { lookup_type: 'City', limit: 1000 } })
-                ]);
+        if (allProjects && allProjects.length > 0) {
+            // Group by city matching the address.city field
+            const grouped = allProjects.reduce((acc, project) => {
+                let cityName = 'Other';
 
-                if (projectRes.data?.success && projectRes.data.data) {
-                    const fetchedProjects = projectRes.data.data;
-                    const cityLookups = cityRes.data?.data || [];
-
-                    // Create a map for quick lookup: cityId -> cityValue
-                    const cityMap = cityLookups.reduce((acc, lookup) => {
-                        acc[lookup._id] = lookup.lookup_value;
-                        return acc;
-                    }, {});
-
-                    // Group by city matching the address.city field
-                    const grouped = fetchedProjects.reduce((acc, project) => {
-                        let cityIdOrName = project.address?.city || 'Other';
-
-                        // If it's an ID, map it to name
-                        const cityName = cityMap[cityIdOrName] || cityIdOrName;
-
-                        if (!acc[cityName]) acc[cityName] = [];
-
-                        // Fix for crash: Ensure blocks are strings
-                        const safeBlocks = (project.blocks || []).map(b =>
-                            typeof b === 'object' ? (b.name || '') : b
-                        ).filter(Boolean);
-
-                        acc[cityName].push({
-                            ...project,
-                            towers: safeBlocks // Backend uses 'blocks', UI uses 'towers'
-                        });
-                        return acc;
-                    }, {});
-
-                    setProjectData(grouped);
-                    setCities(Object.keys(grouped).sort());
+                // Address.city could be a string name or a lookup ID
+                const rawCity = project.address?.city;
+                if (rawCity) {
+                    cityName = getLookupValue('City', rawCity) || rawCity;
                 }
-            } catch (err) {
-                console.error("Error fetching projects from backend:", err);
-            }
-        };
-        fetchProjects();
-    }, []);
+
+                if (!acc[cityName]) acc[cityName] = [];
+
+                // Fix for crash: Ensure towers are strings
+                const safeBlocks = (project.blocks || []).map(b =>
+                    typeof b === 'object' ? (b.name || '') : b
+                ).filter(Boolean);
+
+                acc[cityName].push({
+                    ...project,
+                    towers: safeBlocks // Backend uses 'blocks', UI uses 'towers'
+                });
+                return acc;
+            }, {});
+
+            setProjectData(grouped);
+            setCities(Object.keys(grouped).sort());
+        }
+    }, [allProjects, getLookupValue]);
 
     const [formData, setFormData] = useState({
         // Basic Details
@@ -734,11 +715,11 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 source: normalizeId(initialData.source) || prev.source,
                 status: getLookupValue('Status', initialData.status) || prev.status,
                 budget: getLookupValue('Budget', initialData.budget) || prev.budget,
-                propertyType: Array.isArray(initialData.propertyType) ? initialData.propertyType.map(v => getLookupValue('Property Type', v)).filter(Boolean) : [],
-                subType: Array.isArray(initialData.subType) ? initialData.subType.map(v => getLookupValue('Sub Type', v)).filter(Boolean) : [],
-                unitType: Array.isArray(initialData.unitType) ? initialData.unitType.map(v => getLookupValue('Unit Type', v)).filter(Boolean) : [],
+                propertyType: Array.isArray(initialData.propertyType) ? initialData.propertyType.map(v => getLookupValue('PropertyType', v)).filter(Boolean) : [],
+                subType: Array.isArray(initialData.subType) ? initialData.subType.map(v => getLookupValue('SubType', v)).filter(Boolean) : [],
+                unitType: Array.isArray(initialData.unitType) ? initialData.unitType.map(v => getLookupValue('UnitType', v)).filter(Boolean) : [],
                 facing: Array.isArray(initialData.facing) ? initialData.facing.map(v => getLookupValue('Facing', v)).filter(Boolean) : [],
-                roadWidth: Array.isArray(initialData.roadWidth) ? initialData.roadWidth.map(v => getLookupValue('Road Width', v)).filter(Boolean) : [],
+                roadWidth: Array.isArray(initialData.roadWidth) ? initialData.roadWidth.map(v => getLookupValue('RoadWidth', v)).filter(Boolean) : [],
                 direction: Array.isArray(initialData.direction) ? initialData.direction.map(v => getLookupValue('Direction', v)).filter(Boolean) : [],
                 budgetMin: initialData.budgetMin || '',
                 budgetMax: initialData.budgetMax || '',
@@ -1027,15 +1008,15 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 const transformedData = {
                     ...leadPayload, // Use leadPayload as base
                     requirement: getLookupId('Requirement', leadPayload.requirement) || leadPayload.requirement,
-                    subRequirement: getLookupId('Sub Requirement', leadPayload.subRequirement) || leadPayload.subRequirement,
+                    subRequirement: getLookupId('SubRequirement', leadPayload.subRequirement) || leadPayload.subRequirement,
                     budget: getLookupId('Budget', leadPayload.budget) || leadPayload.budget,
                     source: getLookupId('Source', leadPayload.source) || leadPayload.source,
                     status: getLookupId('Status', leadPayload.status) || leadPayload.status,
-                    propertyType: (leadPayload.propertyType || []).map(v => getLookupId('Property Type', v) || v).filter(Boolean),
-                    subType: (leadPayload.subType || []).map(v => getLookupId('Sub Type', v) || v).filter(Boolean),
-                    unitType: (leadPayload.unitType || []).map(v => getLookupId('Unit Type', v) || v).filter(Boolean),
+                    propertyType: (leadPayload.propertyType || []).map(v => getLookupId('PropertyType', v) || v).filter(Boolean),
+                    subType: (leadPayload.subType || []).map(v => getLookupId('SubType', v) || v).filter(Boolean),
+                    unitType: (leadPayload.unitType || []).map(v => getLookupId('UnitType', v) || v).filter(Boolean),
                     facing: (leadPayload.facing || []).map(v => getLookupId('Facing', v) || v).filter(Boolean),
-                    roadWidth: (leadPayload.roadWidth || []).map(v => getLookupId('Road Width', v) || v).filter(Boolean),
+                    roadWidth: (leadPayload.roadWidth || []).map(v => getLookupId('RoadWidth', v) || v).filter(Boolean),
                     direction: (leadPayload.direction || []).map(v => getLookupId('Direction', v) || v).filter(Boolean),
                     location: getLookupId('Location', leadPayload.location) || leadPayload.location,
                     campaign: getLookupId('Campaign', leadPayload.campaign) || leadPayload.campaign,

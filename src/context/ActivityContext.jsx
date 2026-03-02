@@ -35,8 +35,43 @@ export const ActivityProvider = ({ children }) => {
 
     const addActivity = async (activityData) => {
         try {
-            console.log('[ActivityContext] addActivity Payload:', activityData);
-            const response = await activitiesAPI.create(activityData);
+            // --- Normalization Layer START ---
+            // Handle legacy/inconsistent payloads from various modules
+            const normalizedData = { ...activityData };
+
+            // 1. Normalize relatedTo (handle string or missing model)
+            if (!normalizedData.relatedTo) normalizedData.relatedTo = [];
+
+            // If contactName is provided separately, ensure it's in relatedTo if missing
+            if (activityData.contactName && normalizedData.relatedTo.length === 0) {
+                normalizedData.relatedTo.push({
+                    id: activityData.contactPhone || activityData.mobile || 'Unknown',
+                    name: activityData.contactName,
+                    model: activityData.entityType || 'Lead'
+                });
+            }
+
+            // 2. Normalize participants (handle legacy mobile/phone)
+            if (!normalizedData.participants) normalizedData.participants = [];
+
+            // If a single mobile number is provided as a top-level field, add to participants
+            const mobileNum = activityData.mobile || activityData.contactPhone || activityData.phone;
+            if (mobileNum && normalizedData.participants.length === 0) {
+                normalizedData.participants.push({
+                    name: activityData.contactName || 'Participant',
+                    mobile: mobileNum
+                });
+            }
+
+            // 3. Ensure entityId and entityType are set if possible from relatedTo
+            if (!normalizedData.entityId && normalizedData.relatedTo.length > 0) {
+                normalizedData.entityId = normalizedData.relatedTo[0].id;
+                normalizedData.entityType = normalizedData.relatedTo[0].model || normalizedData.relatedTo[0].type;
+            }
+            // --- Normalization Layer END ---
+
+            console.log('[ActivityContext] addActivity Payload (Normalized):', normalizedData);
+            const response = await activitiesAPI.create(normalizedData);
             console.log('[ActivityContext] addActivity Response:', response);
             if (response.success) {
                 // Fetch again to ensure consistency or local update

@@ -222,18 +222,25 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
                 if (isActive && channelMessages[channel]) {
                     const msgActivity = {
                         type: channel === 'whatsapp' ? 'WhatsApp' : channel === 'sms' ? 'SMS' : 'Email',
-                        contactName: formData.selectedOwner,
-                        contactPhone: '',
-                        scheduledDate: new Date().toISOString(),
-                        agenda: `Automated ${channel.toUpperCase()} message prepared: ${channelMessages[channel].substring(0, 50)}...`,
-                        activityType: 'Message',
-                        scheduledBy: 'System',
-                        scheduledFor: 'Interaction',
-                        stage: '',
-                        status: 'completed',
-                        feedback: channelMessages[channel],
-                        project: inventory.buildingName || '',
-                        automationInfo: `Channels: ${activeTriggersList.join(', ')}`
+                        subject: `Feedback Request sent: ${channel.toUpperCase()}`,
+                        status: 'Completed',
+                        relatedTo: [{
+                            id: inventory.mobile || inventory.phone || 'Unknown',
+                            name: formData.selectedOwner,
+                            model: 'Lead'
+                        }],
+                        participants: [{
+                            name: formData.selectedOwner,
+                            mobile: inventory.mobile || inventory.phone
+                        }],
+                        description: `Automated ${channel.toUpperCase()} message prepared: ${channelMessages[channel].substring(0, 100)}...`,
+                        details: {
+                            feedback: formData.result,
+                            message: channelMessages[channel],
+                            inventoryId: inventory._id,
+                            unitNo: inventory.unitNo,
+                            automationInfo: `Channels: ${activeTriggersList.join(', ')}`
+                        }
                     };
                     addActivity(msgActivity);
                     console.log(`Automated ${channel.toUpperCase()} Dispatched:`, msgActivity);
@@ -244,17 +251,25 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
             if (scheduleFollowUp) {
                 const newActivity = {
                     type: formData.nextActionType || 'Call',
-                    contactName: formData.selectedOwner,
-                    contactPhone: '', // Ideally fetch from contact details if available
+                    subject: `Follow-up: ${formData.nextActionType || 'Call'} for Unit ${inventory.unitNo}`,
+                    status: 'Pending',
+                    priority: 'High',
                     scheduledDate: `${formData.nextActionDate}T${formData.nextActionTime}`,
-                    agenda: `${formData.nextActionType} with ${formData.selectedOwner} for Unit ${inventory.unitNo} - ${inventory.type}`,
-                    activityType: formData.nextActionType || 'Call',
-                    scheduledBy: 'Current User', // Replace with auth user name
-                    scheduledFor: 'Follow Up',
-                    stage: '',
-                    status: 'pending',
-                    feedback: formData.feedback,
-                    project: inventory.buildingName || ''
+                    relatedTo: [{
+                        id: inventory.mobile || inventory.phone || 'Unknown',
+                        name: formData.selectedOwner,
+                        model: 'Lead'
+                    }],
+                    participants: [{
+                        name: formData.selectedOwner,
+                        mobile: inventory.mobile || inventory.phone
+                    }],
+                    description: `Follow up with ${formData.selectedOwner} regarding Unit ${inventory.unitNo} - ${inventory.type}`,
+                    details: {
+                        agenda: `${formData.nextActionType} to discuss ${formData.result} for Unit ${inventory.unitNo}`,
+                        inventoryId: inventory._id,
+                        scheduledFor: 'Follow Up'
+                    }
                 };
                 addActivity(newActivity);
                 console.log("Follow-up Activity Dispatched:", newActivity);

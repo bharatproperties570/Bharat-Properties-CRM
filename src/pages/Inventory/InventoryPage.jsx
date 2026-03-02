@@ -1168,7 +1168,15 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
             <SendMessageModal
                 isOpen={isMessageModalOpen}
                 onClose={() => setIsMessageModalOpen(false)}
-                selectedContacts={modalData}
+                initialRecipients={modalData?.map(item => ({
+                    ...item,
+                    name: item.ownerName || item.owners?.[0]?.name || 'Client',
+                    phone: item.ownerPhone || item.owners?.[0]?.phones?.[0]?.number
+                })) || []}
+                onSend={(data, res) => {
+                    toast.success(res?.message || 'Message Sent Successfully!');
+                    setIsMessageModalOpen(false);
+                }}
             />
 
             {/* Tags Modal */}

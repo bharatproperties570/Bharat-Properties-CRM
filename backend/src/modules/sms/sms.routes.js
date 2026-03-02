@@ -7,7 +7,8 @@ import {
     getSmsTemplates,
     upsertSmsTemplate,
     deleteSmsTemplate,
-    getSmsLogs
+    getSmsLogs,
+    sendSms
 } from './sms.controller.js';
 
 const router = express.Router();
@@ -17,6 +18,7 @@ router.get('/', getSmsProviders);
 router.post('/config', upsertSmsProvider);
 router.patch('/activate/:provider', activateSmsProvider);
 router.post('/test', testSmsConnection);
+router.post('/send', sendSms);
 
 // Templates
 router.get('/templates', getSmsTemplates);

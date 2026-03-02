@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { api, enrichmentAPI } from '../../utils/api';
-import { contactData, leadData, inventoryData } from '../../data/mockData';
+import { contactData, leadData, inventoryData, suggestedTags } from '../../data/mockData';
 import { getInitials } from '../../utils/helpers';
 import LeadConversionService from '../../services/LeadConversionService';
 import { calculateLeadScore, getLeadTemperature } from '../../utils/leadScoring';
+import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { useSequences } from '../../context/SequenceContext';
+import { useUserContext } from '../../context/UserContext';
+import { activitiesAPI, usersAPI } from '../../utils/api';
 import EnrollSequenceModal from '../../components/EnrollSequenceModal';
 import CallModal from '../../components/CallModal';
 import SendMessageModal from '../../components/SendMessageModal';
@@ -18,19 +21,25 @@ import AddInventoryModal from '../../components/AddInventoryModal';
 import AddLeadModal from '../../components/AddLeadModal';
 import AddDealModal from '../../components/AddDealModal';
 import CreateActivityModal from '../../components/CreateActivityModal';
+import { parseBudget, parseSizeSqYard, calculateMatch } from '../../utils/matchingLogic';
 
 
 
-import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import EnterprisePipeline from '../../components/EnterprisePipeline';
+import UnifiedActivitySection from '../../components/Activities/UnifiedActivitySection';
 
 const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
     const { scoringAttributes, activityMasterFields } = usePropertyConfig(); // Inject Context
     const { sequences, enrollments, updateEnrollmentStatus } = useSequences();
+    const { users: contextUsers } = useUserContext();
     const [contact, setContact] = useState(null);
     const [composerTab, setComposerTab] = useState('note');
-    const [expandedSections, setExpandedSections] = useState(['core', 'professional', 'location', 'financial', 'education', 'personal', 'pref', 'journey', 'negotiation', 'ai', 'ownership', 'documents']);
+    const [expandedSections, setExpandedSections] = useState(['core', 'professional', 'location', 'financial', 'education', 'personal', 'pref', 'journey', 'negotiation', 'ai', 'ownership', 'documents', 'matching', 'probability']);
     const [timelineFilter, setTimelineFilter] = useState('all');
+    const [userFilter, setUserFilter] = useState('all');
+    const [tagFilter, setTagFilter] = useState('all');
+    const [allTags, setAllTags] = useState([]);
+    const [showStarredOnly, setShowStarredOnly] = useState(false);
 
     const [showMoreMenu, setShowMoreMenu] = useState(false);
     const [showScoreBreakdown, setShowScoreBreakdown] = useState(false);
@@ -61,6 +70,8 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
     const [historyProperties, setHistoryProperties] = useState([]);
     const [activeDeals, setActiveDeals] = useState([]);
     const [contactDocuments, setContactDocuments] = useState([]);
+    const [matchedDeals, setMatchedDeals] = useState([]);
+    const [loadingMatches, setLoadingMatches] = useState(false);
 
     const showNotification = (message) => {
         setToast(message);
@@ -100,7 +111,16 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
         try {
             const res = await api.get(`activities/unified/${type}/${id}`);
             if (res.data && res.data.success) {
-                setUnifiedTimeline(res.data.data);
+                const timeline = res.data.data || [];
+                setUnifiedTimeline(timeline);
+                // Extract unique tags
+                const tags = new Set(suggestedTags);
+                timeline.forEach(item => {
+                    if (item.tags && Array.isArray(item.tags)) {
+                        item.tags.forEach(t => tags.add(t));
+                    }
+                });
+                setAllTags(Array.from(tags));
             }
         } catch (error) {
             console.error("Error fetching unified timeline:", error);
@@ -109,25 +129,74 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
         }
     };
 
+    const handleToggleStar = async (item) => {
+        if (item.source !== 'activity') return;
+        try {
+            const newStarredStatus = !item.isStarred;
+            const res = await activitiesAPI.update(item._id, { isStarred: newStarredStatus });
+            if (res && res.success) {
+                setUnifiedTimeline(prev => prev.map(t =>
+                    t._id === item._id ? { ...t, isStarred: newStarredStatus } : t
+                ));
+                showNotification(newStarredStatus ? 'Activity starred' : 'Activity unstarred');
+            }
+        } catch (error) {
+            console.error("Error toggling star:", error);
+            showNotification('Failed to update star status');
+        }
+    };
+
     const handleSaveActivity = async () => {
-        if (composerTab === 'task') {
-            const tasksToSave = pendingTasks.filter(t => t.subject.trim());
-            if (tasksToSave.length === 0) {
-                showNotification('Please enter at least one task subject.');
-                return;
+        if (!contactId || !recordType) return;
+
+        try {
+            let type = composerTab.charAt(0).toUpperCase() + composerTab.slice(1);
+            if (composerTab === 'whatsapp') type = 'WhatsApp';
+            if (composerTab === 'call') type = 'Call';
+            if (composerTab === 'note') type = 'Note';
+
+            let backendData = {
+                type: type,
+                subject: composerTab === 'task' ? 'Multiple Tasks Created' : `${type} Logged`,
+                status: 'Completed',
+                priority: 'Normal',
+                entityId: contactId,
+                entityType: recordType.charAt(0).toUpperCase() + recordType.slice(1),
+                relatedTo: [{ id: contactId, name: contact?.fullName || contact?.name || 'Unknown', model: recordType.charAt(0).toUpperCase() + recordType.slice(1) }],
+                description: composerContent,
+                details: {
+                    purpose: composerTab,
+                    content: composerContent
+                }
+            };
+
+            if (composerTab === 'task') {
+                const tasksToSave = pendingTasks.filter(t => t.subject.trim());
+                if (tasksToSave.length === 0) {
+                    showNotification('Please enter at least one task subject.');
+                    return;
+                }
+                backendData.tasks = tasksToSave.map(t => ({
+                    subject: t.subject,
+                    dueDate: t.dueDate,
+                    reminder: t.reminder
+                }));
+                backendData.subject = tasksToSave.length === 1 ? tasksToSave[0].subject : `New Tasks (${tasksToSave.length})`;
+                backendData.status = 'Pending';
             }
-            // In real app: call onAddActivity or API
-            showNotification(`${tasksToSave.length} task(s) saved!`);
-            setPendingTasks([{ id: Date.now(), subject: '', dueDate: '', reminder: false }]);
-            fetchUnifiedTimeline(contactId, recordType);
-        } else {
-            if (!composerContent.trim()) {
-                showNotification('Please enter details.');
-                return;
+
+            const res = await activitiesAPI.create(backendData);
+            if (res && res.success) {
+                showNotification(`${composerTab.charAt(0).toUpperCase() + composerTab.slice(1)} saved successfully!`);
+                setComposerContent('');
+                setPendingTasks([{ id: Date.now(), subject: '', dueDate: new Date().toISOString().slice(0, 16), reminder: false }]);
+                fetchUnifiedTimeline(contactId, recordType);
+            } else {
+                showNotification('Failed to save activity');
             }
-            showNotification(`${composerTab.charAt(0).toUpperCase() + composerTab.slice(1)} logged!`);
-            setComposerContent('');
-            fetchUnifiedTimeline(contactId, recordType);
+        } catch (error) {
+            console.error("Error saving activity:", error);
+            showNotification('Error saving activity');
         }
     };
 
@@ -150,11 +219,20 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                 if (response.data && response.data.success) {
                     const data = response.data.data;
                     setContact(data);
-                    setRecordType(foundType);
-                    fetchUnifiedTimeline(contactId, foundType);
+
+                    // Robust Record Type Detection
+                    let finalType = foundType;
+                    if (data.type === 'Lead' || data.isLead || data.requirement || recordType === 'lead') {
+                        finalType = 'lead';
+                    }
+
+                    setRecordType(finalType);
+                    fetchUnifiedTimeline(contactId, finalType);
+
+                    // Users are now fetched via UserContext
 
                     // Fetch related data
-                    fetchRelatedData(contactId, foundType, data);
+                    fetchRelatedData(contactId, finalType, data);
                 } else {
                     setContact(null);
                 }
@@ -229,6 +307,45 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
 
                     setOwnedProperties(owned);
                     setHistoryProperties(history);
+                }
+
+                // Match Deals Logic for Leads
+                if (type === 'lead') {
+                    setLoadingMatches(true);
+                    try {
+                        const inventoryRes = await api.get('inventory', { params: { limit: 100 } });
+                        if (inventoryRes.data && inventoryRes.data.success) {
+                            const inventoryItems = inventoryRes.data.records || [];
+
+                            const requirementVal = renderLookup(recordData.requirement, "");
+                            const locationVal = renderLookup(recordData.searchLocation || recordData.location, "");
+                            const budgetVal = (recordData.budgetMin || recordData.budgetMax)
+                                ? `₹${recordData.budgetMin} - ₹${recordData.budgetMax}`
+                                : renderLookup(recordData.budget, "");
+                            const sizeVal = `${recordData.areaMin || ""}-${recordData.areaMax || ""} ${renderLookup(recordData.areaMetric, "")}`.trim();
+
+                            const baseBudget = parseBudget(budgetVal);
+                            const leadSize = parseSizeSqYard(sizeVal);
+
+                            const leadContext = {
+                                baseBudget,
+                                leadSize,
+                                leadType: requirementVal.toLowerCase(),
+                                leadLocation: locationVal.toLowerCase(),
+                                leadLocationSectors: locationVal.toLowerCase().split(',').map(s => s.trim()).filter(Boolean)
+                            };
+
+                            const weights = { location: 30, type: 20, budget: 25, size: 25 };
+                            const options = { budgetFlexibility: 20, sizeFlexibility: 20, includeNearby: true, minMatchScore: 40 };
+
+                            const matches = calculateMatch(recordData, leadContext, weights, options, inventoryItems);
+                            setMatchedDeals(matches.slice(0, 5)); // Only show top 5 for the compact view
+                        }
+                    } catch (matchErr) {
+                        console.error("Error matching deals:", matchErr);
+                    } finally {
+                        setLoadingMatches(false);
+                    }
                 }
             } catch (err) {
                 console.error("Error fetching related dynamic data", err);
@@ -397,13 +514,31 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
         };
 
         const preferences = {
-            locations: contact?.location?.lookup_value ? [contact.location.lookup_value] : ['Sector 17', 'Sector 24'],
-            budget: contact?.budget?.lookup_value || '₹1.1 - 1.5 Cr',
-            flexibility: '15%',
-            type: contact?.propertyType?.[0]?.lookup_value || 'Residential Plot',
-            urgency: leadScore.total >= 80 ? 'Extreme' : 'Moderate',
-            dealType: 'Direct Purchase'
+            locations: contact?.searchLocation ? [contact.searchLocation] : (contact?.locations?.length > 0 ? contact.locations.map(l => renderLookup(l)) : []),
+            budget: (contact?.budgetMin || contact?.budgetMax) ?
+                `₹${Number(contact.budgetMin || 0).toLocaleString()} - ${Number(contact.budgetMax || 0).toLocaleString()}` :
+                (renderLookup(contact?.budget) || '-'),
+            flexibility: contact?.whitePortion ? `${contact.whitePortion}%` : '0%',
+            type: contact?.propertyType?.[0] ? renderLookup(contact.propertyType[0]) : (renderLookup(contact?.propertyCategory) || '-'),
+            urgency: renderLookup(contact?.timeline) || (leadScore.total >= 80 ? 'Extreme' : 'Moderate'),
+            dealType: renderLookup(contact?.requirement) || 'Direct Purchase',
+            // Added live fields for the new UI categories
+            source: renderLookup(contact?.source) || '-',
+            subSource: renderLookup(contact?.subSource) || '-',
+            campaign: renderLookup(contact?.campaign) || '-',
+            tags: contact?.tags || [],
+            description: contact?.description || '',
+            subType: (contact?.subType || []).map(s => renderLookup(s)),
+            area: (contact?.areaMin || contact?.areaMax) ? `${contact.areaMin || 0} - ${contact.areaMax || 0} ${renderLookup(contact.areaMetric) || ''}` : '-',
+            unitType: (contact?.unitType || []).map(u => renderLookup(u)),
+            transactionType: renderLookup(contact?.transactionType) || '-',
+            funding: renderLookup(contact?.funding) || '-',
+            furnishing: renderLookup(contact?.furnishing) || '-',
+            range: contact?.range || '-'
         };
+
+
+
 
         const closingProbability = {
             current: dealProbability.score,
@@ -651,7 +786,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                         <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
                                 <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.5px' }}>
-                                    {contact.name ? contact.name : `${contact.firstName || ''} ${contact.lastName || ''}`.trim()}
+                                    {`${contact.title ? renderLookup(contact.title) + ' ' : ''}${contact.name ? contact.name : (contact.firstName || '') + ' ' + (contact.surname || contact.lastName || '')}`.trim()}
                                 </h1>
                                 {recordType === 'lead' && contact && (
                                     <div className={`score-indicator ${aiStats.leadScore.temp.class}`} style={{ width: '32px', height: '32px', fontSize: '0.8rem', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', border: '2px solid #fff', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', background: aiStats.leadScore.temp.color, color: '#fff' }}>
@@ -880,7 +1015,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                         </div>
                     </div>
                 </div>
-            </header >
+            </header>
 
             {/* MAIN CONTENT AREA - STACKED LAYOUT */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -914,11 +1049,11 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
 
 
                     {/* LEFT COLUMN - Primary */}
-                    < div className="detail-left-col no-scrollbar" style={{ flex: '1.5', overflowY: 'auto', padding: '1.5rem 2rem', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                    <div className="detail-left-col no-scrollbar" style={{ flex: '1.5', overflowY: 'auto', padding: '1.5rem 2rem', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
 
                         {/* 1. Unified Profile 360° Dashboard */}
-                        < div className="glass-card" style={{ borderRadius: '16px' }}>
+                        <div className="glass-card" style={{ borderRadius: '16px' }}>
                             <div onClick={() => toggleSection('core')} style={{ padding: '14px 20px', background: 'rgba(248, 250, 252, 0.5)', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
                                 <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#475569', textTransform: 'uppercase', letterSpacing: '1px' }}>{recordType === 'lead' ? 'Lead' : 'Contact'} 360° Unified Dashboard</span>
                                 <i className={`fas fa-chevron-${expandedSections.includes('core') ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#94a3b8' }}></i>
@@ -1120,7 +1255,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                     </div>
                                 )
                             }
-                        </div >
+                        </div>
 
 
 
@@ -1132,150 +1267,202 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                     <i className={`fas fa-chevron-${expandedSections.includes('pref') ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#94a3b8' }}></i>
                                 </div>
                                 {expandedSections.includes('pref') && (
-                                    <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px', background: 'transparent' }}>
+                                    <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '32px', background: 'transparent' }}>
+
+                                        {/* Group 1: Acquisition Intelligence */}
                                         <div>
-                                            <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Preferred Locations</label>
-                                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.locations.join(', ')}</div>
+                                            <h4 style={{ fontSize: '0.7rem', fontWeight: 900, color: '#6366f1', textTransform: 'uppercase', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', letterSpacing: '0.5px' }}>
+                                                <i className="fas fa-bullhorn"></i> Acquisition Intelligence
+                                            </h4>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px' }}>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Lead Source</label>
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.source}</div>
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Sub-Source</label>
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.subSource}</div>
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Campaign</label>
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.campaign}</div>
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Visibility Scope</label>
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{contact.visibleTo || 'Everyone'}</div>
+                                                </div>
+                                                <div style={{ gridColumn: 'span 4' }}>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Lead Description</label>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569', background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
+                                                        {aiStats.preferences.description || 'No description provided.'}
+                                                    </div>
+                                                </div>
+                                                <div style={{ gridColumn: 'span 4' }}>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Lead Tags</label>
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                                        {aiStats.preferences.tags.length > 0 ? aiStats.preferences.tags.map((tag, idx) => (
+                                                            <span key={idx} style={{ padding: '4px 12px', background: '#eff6ff', color: '#3b82f6', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700, border: '1px solid #dbeafe' }}>{tag}</span>
+                                                        )) : <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>No tags assigned</span>}
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
+
+                                        <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+
+                                        {/* Group 2: Property Requirement Details */}
                                         <div>
-                                            <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Budget Range</label>
-                                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.budget} <span style={{ color: '#16a34a', fontSize: '0.75rem' }}>(+{aiStats.preferences.flexibility})</span></div>
+                                            <h4 style={{ fontSize: '0.7rem', fontWeight: 900, color: '#10b981', textTransform: 'uppercase', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', letterSpacing: '0.5px' }}>
+                                                <i className="fas fa-home"></i> Property Requirement
+                                            </h4>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Intent Type</label>
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.dealType}</div>
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Property Category</label>
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.type}</div>
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Sub-Categories</label>
+                                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>{aiStats.preferences.subType.join(', ') || '-'}</div>
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Area Specs</label>
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.area}</div>
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Preferred Sizes</label>
+                                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>{aiStats.preferences.unitType.join(', ') || '-'}</div>
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Furnishing Status</label>
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.furnishing}</div>
+                                                </div>
+                                            </div>
                                         </div>
+
+                                        <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+
+                                        {/* Group 3: Financials & Location Search */}
                                         <div>
-                                            <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Urgency</label>
-                                            <span className="pill" style={{ background: '#fee2e2', color: '#991b1b', fontSize: '0.7rem', fontWeight: 800 }}>{aiStats.preferences.urgency.toUpperCase()}</span>
+                                            <h4 style={{ fontSize: '0.7rem', fontWeight: 900, color: '#f59e0b', textTransform: 'uppercase', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px', letterSpacing: '0.5px' }}>
+                                                <i className="fas fa-coins"></i> Transaction & Geography
+                                            </h4>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Budget Bracket</label>
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.budget}</div>
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Transaction Type</label>
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.transactionType} <span style={{ color: '#6366f1', fontSize: '0.75rem' }}>(W: {aiStats.preferences.flexibility})</span></div>
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Funding</label>
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.funding}</div>
+                                                </div>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Timeline</label>
+                                                    <span className="pill" style={{ background: '#fff7ed', color: '#9a3412', fontSize: '0.7rem', fontWeight: 800 }}>{aiStats.preferences.urgency.toUpperCase()}</span>
+                                                </div>
+                                                <div style={{ gridColumn: 'span 2' }}>
+                                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Search Locations (Radius: {aiStats.preferences.range})</label>
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                        <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.8rem' }}></i>
+                                                        {aiStats.preferences.locations.join(', ') || 'No locations specified'}
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Property Type</label>
-                                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.type}</div>
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Deal Type</label>
-                                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.dealType}</div>
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>AI Rejection Note</label>
-                                            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#ef4444', lineHeight: '1.4' }}>{aiStats.rejectionAlert}</div>
-                                        </div>
+
+                                        {/* AI Rejection Alert Overlay */}
+                                        {aiStats.rejectionAlert && (
+                                            <div style={{ padding: '12px 16px', background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                <i className="fas fa-exclamation-triangle" style={{ color: '#ef4444' }}></i>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 800, color: '#991b1b', textTransform: 'uppercase' }}>AI Constraint Warning</label>
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#ef4444' }}>{aiStats.rejectionAlert}</div>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
+
                             </div>
                         )}
 
-                        {/* 2. Unified Activity Composer */}
-                        <div className="glass-card" style={{ borderRadius: '16px', position: 'relative' }}>
-                            <div style={{ borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', background: 'rgba(248, 250, 252, 0.3)' }}>
-                                {[
-                                    { id: 'email', icon: 'envelope', label: 'Email' },
-                                    { id: 'whatsapp', icon: 'whatsapp', label: 'WhatsApp', isBrand: true },
-                                    { id: 'note', icon: 'sticky-note', label: 'Note' },
-                                    { id: 'call', icon: 'phone-alt', label: 'Call Log' },
-                                    { id: 'task', icon: 'calendar-check', label: 'Task' },
-                                ].map(tab => (
-                                    <button
-                                        key={tab.id}
-                                        onClick={() => setComposerTab(tab.id)}
-                                        style={{
-                                            padding: '14px 20px',
-                                            border: 'none',
-                                            background: composerTab === tab.id ? 'transparent' : 'transparent',
-                                            borderRight: '1px solid rgba(226, 232, 240, 0.5)',
-                                            borderBottom: composerTab === tab.id ? '2px solid var(--premium-blue)' : 'none',
-                                            color: composerTab === tab.id ? 'var(--premium-blue)' : '#64748b',
-                                            fontSize: '0.75rem',
-                                            fontWeight: 800,
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '8px',
-                                            transition: 'all 0.2s'
-                                        }}
-                                    >
-                                        <i className={`${tab.isBrand ? 'fab' : 'fas'} fa-${tab.icon}`}></i>
-                                        {tab.label}
-                                    </button>
-                                ))}
-                            </div>
-                            <div style={{ padding: '20px' }}>
-                                {composerTab === 'task' ? (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                        {pendingTasks.map((task, index) => (
-                                            <div key={task.id} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', background: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                                                <div style={{ flex: 1 }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                                                        <input
-                                                            type="text"
-                                                            placeholder="Task subject..."
-                                                            value={task.subject}
-                                                            onChange={(e) => updateTask(task.id, 'subject', e.target.value)}
-                                                            style={{ flex: 1, padding: '8px 0', border: 'none', background: 'transparent', outline: 'none', fontSize: '0.85rem', fontWeight: 600, borderBottom: '1px solid #e2e8f0' }}
-                                                        />
-                                                        <button onClick={addTask} style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#e0f2fe', color: '#0ea5e9', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
-                                                            <i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i>
-                                                        </button>
-                                                    </div>
-                                                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                                        <input
-                                                            type="datetime-local"
-                                                            value={task.dueDate}
-                                                            onChange={(e) => updateTask(task.id, 'dueDate', e.target.value)}
-                                                            style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.75rem', color: 'var(--premium-blue)', fontWeight: 600, outline: 'none' }}
-                                                        />
-                                                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, color: task.reminder ? 'var(--premium-blue)' : '#64748b' }}>
-                                                            <input type="checkbox" checked={task.reminder} onChange={(e) => updateTask(task.id, 'reminder', e.target.checked)} />
-                                                            <i className={`fas fa-bell${task.reminder ? '' : '-slash'}`}></i> Alert
-                                                        </label>
-                                                    </div>
-                                                </div>
-                                                {pendingTasks.length > 1 && (
-                                                    <button onClick={() => removeTask(task.id)} style={{ padding: '4px', background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.8rem' }}>
-                                                        <i className="fas fa-times"></i>
-                                                    </button>
-                                                )}
-                                            </div>
-                                        ))}
-                                        <button onClick={addTask} style={{ alignSelf: 'flex-start', background: 'transparent', border: '1px dashed #cbd5e1', padding: '8px 16px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', cursor: 'pointer', transition: 'all 0.2s' }}>
-                                            <i className="fas fa-plus" style={{ marginRight: '6px' }}></i> Add Another Task
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <textarea
-                                        placeholder={`Enter ${composerTab} details here...`}
-                                        value={composerContent}
-                                        onChange={(e) => setComposerContent(e.target.value)}
-                                        style={{
-                                            width: '100%',
-                                            minHeight: '120px',
-                                            border: '1px solid rgba(226, 232, 240, 0.8)',
-                                            background: 'rgba(255, 255, 255, 0.5)',
-                                            borderRadius: '12px',
-                                            padding: '14px',
-                                            fontSize: '0.85rem',
-                                            fontWeight: 500,
-                                            outline: 'none',
-                                            resize: 'none',
-                                            fontFamily: 'inherit',
-                                            boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
-                                        }}
-                                    ></textarea>
-                                )}
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
-                                    <button
-                                        onClick={handleSaveActivity}
-                                        className="btn-primary"
-                                        style={{ padding: '10px 20px', fontSize: '0.75rem', borderRadius: '10px', background: 'var(--premium-blue)' }}
-                                    >
-                                        Save {composerTab === 'task' ? 'Tasks' : (composerTab.charAt(0).toUpperCase() + composerTab.slice(1))}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
 
                         {/* 3. Omnichannel Timeline */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e293b' }}>Unified Timeline</h3>
-                                <div style={{ position: 'relative' }}>
+                                <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e293b' }}>Activities Timeline</h3>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button
+                                        onClick={() => setShowStarredOnly(!showStarredOnly)}
+                                        style={{
+                                            background: showStarredOnly ? '#fef3c7' : 'transparent',
+                                            border: showStarredOnly ? '1px solid #fde68a' : '1px solid #e2e8f0',
+                                            color: showStarredOnly ? '#d97706' : '#94a3b8',
+                                            borderRadius: '6px',
+                                            padding: '4px 10px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            transition: 'all 0.2s',
+                                            outline: 'none'
+                                        }}
+                                        title={showStarredOnly ? "Clear Starred Filter" : "Show Starred Only"}
+                                    >
+                                        <i className={`${showStarredOnly ? 'fas' : 'far'} fa-star`} style={{ fontSize: '0.8rem' }}></i>
+                                    </button>
+                                    <select
+                                        value={userFilter}
+                                        onChange={(e) => setUserFilter(e.target.value)}
+                                        style={{
+                                            padding: '4px 10px',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 700,
+                                            color: '#3b82f6',
+                                            background: 'transparent',
+                                            border: '1px solid #dbeafe',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            outline: 'none'
+                                        }}
+                                    >
+                                        <option value="all">All Users</option>
+                                        {contextUsers.map(u => {
+                                            const fullName = `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.name;
+                                            return (
+                                                <option key={u._id || u.id} value={fullName}>
+                                                    {u.name || fullName} ({u.role?.name || u.role || 'Member'})
+                                                </option>
+                                            );
+                                        })}
+                                    </select>
+                                    <select
+                                        value={tagFilter}
+                                        onChange={(e) => setTagFilter(e.target.value)}
+                                        style={{
+                                            padding: '4px 10px',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 700,
+                                            color: '#3b82f6',
+                                            background: 'transparent',
+                                            border: '1px solid #dbeafe',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            outline: 'none'
+                                        }}
+                                    >
+                                        <option value="all">All Tags</option>
+                                        {allTags.map(tag => (
+                                            <option key={tag} value={tag}>{tag}</option>
+                                        ))}
+                                    </select>
                                     <select
                                         value={timelineFilter}
                                         onChange={(e) => setTimelineFilter(e.target.value)}
@@ -1308,43 +1495,54 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                 ) : unifiedTimeline.length > 0 ? (
                                     unifiedTimeline
                                         .filter(item => {
-                                            if (timelineFilter === 'all') return true;
-                                            if (timelineFilter === 'call') return item.type.includes('call');
-                                            if (timelineFilter === 'whatsapp') return item.type.includes('whatsapp');
-                                            if (timelineFilter === 'email') return item.type.includes('email');
-                                            if (timelineFilter === 'ai') return item.source === 'ai'; // Placeholder if source is AI
-                                            return true;
+                                            const matchesType = timelineFilter === 'all' ||
+                                                (timelineFilter === 'call' && item.type.toLowerCase().includes('call')) ||
+                                                (timelineFilter === 'whatsapp' && item.type.toLowerCase().includes('whatsapp')) ||
+                                                (timelineFilter === 'email' && item.type.toLowerCase().includes('email')) ||
+                                                (timelineFilter === 'ai' && item.source === 'ai');
+
+                                            const matchesUser = userFilter === 'all' || item.actor === userFilter;
+                                            const matchesTag = tagFilter === 'all' || (item.tags && item.tags.includes(tagFilter));
+                                            const matchesStarred = !showStarredOnly || item.isStarred;
+
+                                            return matchesType && matchesUser && matchesTag && matchesStarred;
                                         })
                                         .map((item, idx) => {
                                             // Determine icon and color based on type
                                             let icon = 'clock';
                                             let color = '#64748b';
                                             let bg = '#f8fafc';
+                                            let isBrand = false;
 
                                             if (item.source === 'audit') {
                                                 icon = 'history';
                                                 color = '#8b5cf6';
                                                 bg = '#f5f3ff';
-                                            } else if (item.type.includes('call')) {
+                                            } else if (item.type.toLowerCase().includes('call')) {
                                                 icon = 'phone-alt';
                                                 color = '#3b82f6';
                                                 bg = '#eff6ff';
-                                            } else if (item.type.includes('meeting')) {
+                                            } else if (item.type.toLowerCase().includes('whatsapp')) {
+                                                icon = 'whatsapp';
+                                                color = '#25d366';
+                                                bg = '#f0fdf4';
+                                                isBrand = true;
+                                            } else if (item.type.toLowerCase().includes('meeting')) {
                                                 icon = 'users';
                                                 color = '#10b981';
                                                 bg = '#f0fdf4';
-                                            } else if (item.type.includes('task')) {
+                                            } else if (item.type.toLowerCase().includes('task')) {
                                                 icon = 'tasks';
                                                 color = '#f59e0b';
                                                 bg = '#fffbeb';
-                                            } else if (item.type.includes('email')) {
+                                            } else if (item.type.toLowerCase().includes('email')) {
                                                 icon = 'envelope';
                                                 color = '#ef4444';
                                                 bg = '#fef2f2';
                                             }
 
                                             return (
-                                                <div key={idx} style={{ position: 'relative' }}>
+                                                <div key={item._id} style={{ position: 'relative' }}>
                                                     <div style={{
                                                         position: 'absolute',
                                                         left: '-36px',
@@ -1362,7 +1560,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                         boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
                                                         zIndex: 2
                                                     }}>
-                                                        <i className={`fas fa-${icon}`}></i>
+                                                        <i className={`${isBrand ? 'fab' : 'fas'} fa-${icon}`}></i>
                                                     </div>
                                                     <div className="glass-card" style={{
                                                         borderRadius: '14px',
@@ -1371,8 +1569,18 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                         background: bg
                                                     }}>
                                                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', alignItems: 'center', gap: '8px' }}>
-                                                            <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#1e293b', flex: 1 }}>
-                                                                {item.title}
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+                                                                <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#1e293b' }}>
+                                                                    {item.title}
+                                                                </div>
+                                                                {item.source === 'activity' && (
+                                                                    <button
+                                                                        onClick={() => handleToggleStar(item)}
+                                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: item.isStarred ? '#f59e0b' : '#cbd5e1', fontSize: '0.85rem' }}
+                                                                    >
+                                                                        <i className={`${item.isStarred ? 'fas' : 'far'} fa-star`}></i>
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                             <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, whiteSpace: 'nowrap' }}>
                                                                 {new Date(item.timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
@@ -1400,11 +1608,6 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                                 </div>
                                                             )}
                                                         </div>
-                                                        {item.metadata?.completionResult && (
-                                                            <div style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 800, marginTop: '4px', borderTop: '1px dashed #dcfce7', paddingTop: '4px' }}>
-                                                                Result: {item.metadata.completionResult}
-                                                            </div>
-                                                        )}
                                                     </div>
                                                 </div>
                                             );
@@ -1416,10 +1619,21 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                 )}
                             </div>
                         </div>
-                    </div >
 
-                    {/* RIGHT COLUMN - Secondary */}
-                    < div className="detail-right-col no-scrollbar" style={{ flex: '1', overflowY: 'auto', background: '#fff', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                    </div>{/* End detail-left-col */}
+
+                    {/* RIGHT COLUMN - Secondary Dashboard */}
+                    <div className="detail-right-col no-scrollbar" style={{
+                        flex: '1',
+                        background: '#fff',
+                        padding: '1.5rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '1.5rem',
+                        borderLeft: '1px solid #e2e8f0',
+                        height: '100%'
+                    }}>
+
                         {/* 1. AI Closing Probability Timeline - Visible only for leads */}
                         {
                             recordType === 'lead' && (
@@ -1472,6 +1686,105 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                 </div>
                             )
                         }
+
+                        {/* Match Deal Section - Primary Visibility for Requirements */}
+                        {(recordType === 'lead' || contact?.requirement || contact?.searchLocation || (matchedDeals && matchedDeals.length > 0)) && (
+                            <div className="glass-card" style={{
+                                borderRadius: '16px',
+                                border: '2px solid #10b981', // More prominent border
+                                boxShadow: '0 12px 40px rgba(16, 185, 129, 0.15)',
+                                overflow: 'hidden',
+                                minHeight: '120px' // Ensure it occupies space
+                            }}>
+                                <div onClick={() => toggleSection('matching')} style={{
+                                    padding: '14px 20px',
+                                    background: 'rgba(16, 185, 129, 0.05)',
+                                    borderBottom: '1px solid rgba(16, 185, 129, 0.1)',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    cursor: 'pointer'
+                                }}>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#059669', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-bullseye"></i> Match Deal Center
+                                    </span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        {matchedDeals.length > 0 && (
+                                            <span style={{ background: '#10b981', color: '#fff', fontSize: '0.65rem', padding: '2px 8px', borderRadius: '10px', fontWeight: 800 }}>
+                                                {matchedDeals.length} MATCHES
+                                            </span>
+                                        )}
+                                        <i className={`fas fa-chevron-${expandedSections.includes('matching') ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#059669' }}></i>
+                                    </div>
+                                </div>
+                                {expandedSections.includes('matching') && (
+                                    <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        {loadingMatches ? (
+                                            <div style={{ textAlign: 'center', padding: '20px', color: '#64748b', fontSize: '0.8rem' }}>
+                                                <i className="fas fa-spinner fa-spin"></i> Calculating matches...
+                                            </div>
+                                        ) : matchedDeals.length > 0 ? (
+                                            <>
+                                                {matchedDeals.map((deal, idx) => (
+                                                    <div key={idx} style={{
+                                                        background: '#f8fafc',
+                                                        borderRadius: '12px',
+                                                        padding: '12px',
+                                                        border: '1px solid #e2e8f0',
+                                                        display: 'flex',
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center',
+                                                        transition: 'all 0.2s'
+                                                    }}>
+                                                        <div style={{ flex: 1 }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                                                <span style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a' }}>{deal.unitNo || 'Unit'}</span>
+                                                                <span style={{ fontSize: '0.65rem', background: '#ecfdf5', color: '#059669', padding: '1px 6px', borderRadius: '4px', fontWeight: 800 }}>
+                                                                    {deal.matchPercentage}% MATCH
+                                                                </span>
+                                                            </div>
+                                                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                <i className="fas fa-building" style={{ fontSize: '0.6rem' }}></i> {deal.projectName || 'Project'}
+                                                                <span style={{ color: '#cbd5e1' }}>|</span>
+                                                                <i className="fas fa-layer-group" style={{ fontSize: '0.6rem' }}></i> {deal.location || 'Block'}
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ textAlign: 'right' }}>
+                                                            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#10b981' }}>₹{deal.price}</div>
+                                                            <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 700 }}>{deal.size}</div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                <button
+                                                    onClick={() => showNotification('Redirecting to Match Center...')}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '10px',
+                                                        borderRadius: '10px',
+                                                        border: '1px solid #d1fae5',
+                                                        background: '#ecfdf5',
+                                                        color: '#059669',
+                                                        fontSize: '0.75rem',
+                                                        fontWeight: 800,
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: '8px'
+                                                    }}
+                                                >
+                                                    View Match Center <i className="fas fa-external-link-alt" style={{ fontSize: '0.65rem' }}></i>
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8', fontSize: '0.8rem' }}>
+                                                No matches found for this lead.
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         {/* AI Deal Loss Analysis Module - Visible only when deal is lost and only for leads */}
                         {
@@ -2191,8 +2504,8 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                 </div>
                             )}
                         </div>
-                    </div >
-                </div >
+                    </div>
+                </div>
 
                 <EnrollSequenceModal
                     isOpen={isEnrollModalOpen}
@@ -2418,9 +2731,13 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                     <SendMessageModal
                         isOpen={isMessageModalOpen}
                         onClose={() => setIsMessageModalOpen(false)}
-                        contacts={[contact]}
-                        onSend={(res) => {
-                            showNotification('Message sent successfully!');
+                        initialRecipients={contact ? [{
+                            ...contact,
+                            name: contact.name,
+                            phone: contact.mobile || contact.phone
+                        }] : []}
+                        onSend={(data, res) => {
+                            showNotification(res?.message || 'Message sent successfully!');
                             setIsMessageModalOpen(false);
                         }}
                     />
@@ -2447,6 +2764,5 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
         </div>
     );
 };
-
 
 export default ContactDetail;

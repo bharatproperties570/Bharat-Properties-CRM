@@ -144,7 +144,7 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                 block: property.block || '',
                 size: property.size || '',
                 locationSearch: property.locationSearch || property.location || '',
-                status: getLookupValue('InventoryStatus', property.status),
+                status: getLookupValue('Status', property.status),
                 intent: getLookupValue('Intent', property.intent || 'Sell'),
                 subCategory: getLookupValue('SubCategory', property.subCategory),
                 facing: getLookupValue('Facing', property.facing),
@@ -702,7 +702,9 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                             onChange={e => setFormData({ ...formData, unitType: e.target.value })}
                         >
                             <option value="">Select Type</option>
-                            {(masterFields?.unitTypes || []).map(t => <option key={t}>{t}</option>)}
+                            {['ordinary', 'corner', 'two side open', 'three side open'].map(t => (
+                                <option key={t} value={t}>{t.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}</option>
+                            ))}
                         </select>
                     </div>
                 </div>

@@ -415,12 +415,13 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
             </header>
 
             <div className="detail-content-grid" style={{
-                display: 'grid', gridTemplateColumns: '1fr 350px',
-                gap: '24px', padding: '24px', maxWidth: '1600px', margin: '0 auto'
+                display: 'flex',
+                gap: '24px', padding: '24px', maxWidth: '1600px', margin: '0 auto',
+                alignItems: 'flex-start'
             }}>
 
                 {/* LEFT MAIN SECTION */}
-                <main style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <main style={{ flex: '1.5', display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
                     {/* DEAL CONTROL CARD */}
                     <section className="detail-card" style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
@@ -792,12 +793,13 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                             entityId={inventoryId}
                             entityType="Inventory"
                             entityData={inventory}
+                            hideComposer={true}
                         />
                     </section>
                 </main>
 
                 {/* RIGHT SIDEBAR */}
-                <aside style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <aside style={{ flex: '1', display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
                     {/* CONSOLIDATED CONTACT INFO */}
                     <section className="detail-card" style={glassCardStyle}>
@@ -1076,7 +1078,15 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
             <SendMessageModal
                 isOpen={isMessageModalOpen}
                 onClose={() => setIsMessageModalOpen(false)}
-                initialRecipients={modalData}
+                initialRecipients={modalData?.map(item => ({
+                    ...item,
+                    name: item.name || item.ownerName || item.associatedContact || 'Client',
+                    phone: item.phone || item.mobile || item.ownerPhone || item.associatedPhone
+                })) || []}
+                onSend={(data, res) => {
+                    toast.success(res?.message || 'Message Sent!');
+                    setIsMessageModalOpen(false);
+                }}
             />
 
             <InventoryFeedbackModal

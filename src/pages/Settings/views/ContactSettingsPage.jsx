@@ -46,7 +46,6 @@ const FLAT_CONFIG = {
     { title: "Title", lookup_type: "Title" },
     { title: "Country Code", lookup_type: "Country-Code" },
     // { title: "Source", lookup_type: "Source" }, // REMOVED: Now part of Campaign Hierarchy
-    { title: "Team", lookup_type: "Team" },
     { title: "Visible To", lookup_type: "Visibility" },
     // Education Level & Degree moved to Hierarchy
     { title: "Income Source", lookup_type: "Income-Source" },

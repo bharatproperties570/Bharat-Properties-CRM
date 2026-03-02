@@ -80,10 +80,17 @@ class SmsService {
      * @param {object} variables - Key-value pairs to replace in template
      * @param {object} context - { entityType, entityId }
      */
-    async sendSMSWithTemplate(to, templateName, variables = {}, context = {}) {
-        const template = await SmsTemplate.findOne({ name: templateName, isActive: true });
+    async sendSMSWithTemplate(to, templateIdOrName, variables = {}, context = {}) {
+        let query;
+        if (templateIdOrName.match(/^[0-9a-fA-F]{24}$/)) {
+            query = { _id: templateIdOrName, isActive: true };
+        } else {
+            query = { name: templateIdOrName, isActive: true };
+        }
+
+        const template = await SmsTemplate.findOne(query);
         if (!template) {
-            throw new Error(`Template '${templateName}' not found or inactive`);
+            throw new Error(`Template '${templateIdOrName}' not found or inactive`);
         }
 
         let message = template.body;
@@ -139,16 +146,19 @@ class SmsService {
      */
     async sendViaSMSGatewayHub(to, message, config, context = {}) {
         const { apiKey, senderId, channel = 2, dcs = 0, flash = 0, baseUrl } = config;
-        const url = baseUrl || 'https://login.smsgatewayhub.com/api/mt/SendSMS';
+        let url = baseUrl || 'https://login.smsgatewayhub.com/api/mt/SendSMS';
+        if (url.includes('?')) {
+            url = url.split('?')[0];
+        }
+        let params = {};
 
         try {
-            const params = {
+            params = {
                 APIKey: apiKey,
                 senderid: senderId,
                 channel: context.category === 'Promotional' ? 1 : (context.category === 'Transactional' ? 2 : (Number(channel) || 2)),
                 DCS: Number(dcs) || 0,
-                FlashSms: Number(flash) ? 1 : 0, // Requested by server error message
-                flashsms: Number(flash) ? 1 : 0, // Matching user provided URL
+                flashsms: Number(flash) ? 1 : 0,
                 number: to.replace('+', ''),
                 text: message,
                 route: config.route || 'clickhere'
@@ -165,6 +175,7 @@ class SmsService {
                 params.dlttemplateid = context.dltTemplateId;
             }
 
+            console.log('--- SMSGatewayHub Request ---', url, params);
             const response = await axios.get(url, { params });
 
             // SMSGatewayHub returns 200 even on functional failure.
@@ -177,7 +188,7 @@ class SmsService {
         } catch (error) {
             const errorMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;
             console.error('[SMSGatewayHub Error]', errorMsg);
-            throw new Error(`SMSGatewayHub failed: ${errorMsg}`);
+            throw new Error(`SMSGatewayHub failed: ${errorMsg} | URL: ${url} | Params: ${JSON.stringify(params)}`);
         }
     }
 

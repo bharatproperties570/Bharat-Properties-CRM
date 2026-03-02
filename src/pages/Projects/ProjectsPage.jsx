@@ -695,23 +695,23 @@ function ProjectsPage({ onNavigate, onAddProject }) {
                 <div style={{ display: 'flex', gap: '15px' }}>
                     <div className="stat-pill">
                         <span style={{ color: '#6366f1' }}><i className="fas fa-th-list"></i> TOTAL</span>
-                        <span className="stat-val-bold">40</span>
+                        <span className="stat-val-bold">{projectsData.length}</span>
                     </div>
                     <div className="stat-pill">
                         <span style={{ color: 'var(--success-color)' }}><i className="fas fa-house-user"></i> READY</span>
-                        <span className="stat-val-bold">12</span>
+                        <span className="stat-val-bold">{projectsData.filter(p => getLookupValue('ProjectStatus', p.status) === 'Ready to Move').length}</span>
                     </div>
                     <div className="stat-pill">
                         <span style={{ color: 'var(--danger-color)' }}><i className="fas fa-tools"></i> BUILDING</span>
-                        <span className="stat-val-bold">8</span>
+                        <span className="stat-val-bold">{projectsData.filter(p => getLookupValue('ProjectStatus', p.status) === 'Under Construction').length}</span>
                     </div>
                     <div className="stat-pill">
                         <span style={{ color: 'var(--primary-color)' }}><i className="fas fa-rocket"></i> PRE-LAUNCH</span>
-                        <span className="stat-val-bold">4</span>
+                        <span className="stat-val-bold">{projectsData.filter(p => getLookupValue('ProjectStatus', p.status) === 'Pre-Launch').length}</span>
                     </div>
                     <div className="stat-pill">
                         <span style={{ color: '#f59e0b' }}><i className="fas fa-hourglass-start"></i> UPCOMING</span>
-                        <span className="stat-val-bold">3</span>
+                        <span className="stat-val-bold">{projectsData.filter(p => getLookupValue('ProjectStatus', p.status) === 'Upcoming').length}</span>
                     </div>
                 </div>
             </footer>

@@ -363,7 +363,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         borderRadius: '16px',
         border: '1px solid #e2e8f0',
         boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
-        marginBottom: '16px', // Reduced from 24px
+        marginBottom: '12px',
         overflow: 'hidden'
     };
 
@@ -560,16 +560,16 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
 
             {/* STAGE LIFECYCLE TRACKER */}
             {!loadingActivities && (
-                <div style={{ marginTop: '16px' }}>
+                <div style={{ marginTop: '12px' }}>
                     <SingleDealLifecycle deal={deal} activities={activities} />
                 </div>
             )}
 
             {/* 2️⃣ MAIN CONTENT SPLIT */}
-            <div style={{ maxWidth: '1600px', margin: '16px auto', padding: '0 24px', display: 'flex', gap: '24px' }}>
+            <div style={{ maxWidth: '1600px', margin: '12px auto', padding: '0 24px', display: 'flex', gap: '16px' }}>
 
                 {/* LEFT MAIN TRANSACTION SECTION - Flexible Width */}
-                <div style={{ flex: '1', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <div style={{ flex: '1.5', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
 
                     {/* 💰 PRICING & FINANCIAL INTELLIGENCE */}
                     <div style={cardStyle}>
@@ -810,9 +810,11 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                         <div style={{ minHeight: '300px' }}>
                             {activeTab === 'activity' && (
                                 <UnifiedActivitySection
-                                    entityId={deal._id}
+                                    entityId={dealId}
                                     entityType="Deal"
                                     entityData={deal}
+                                    onActivitySaved={fetchDealDetails}
+                                    hideComposer={true}
                                 />
                             )}
 
@@ -827,8 +829,8 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
 
 
 
-                {/* 🛡️ MISSION CONTROL SIDEBAR (Fixed 400px) */}
-                <div style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                {/* 🛡️ MISSION CONTROL SIDEBAR (Flexible) */}
+                <div style={{ flex: '1', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
                     {/* 🎯 MATCHED LEADS - TOP PRIORITY */}
                     <div style={cardStyle}>

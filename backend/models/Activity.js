@@ -39,6 +39,9 @@ const ActivitySchema = new mongoose.Schema({
     completedAt: Date,
     completionResult: String,
 
+    tags: [{ type: String }],
+    isStarred: { type: Boolean, default: false },
+
 }, { timestamps: true });
 
 ActivitySchema.post('save', invalidateDashboardCache);

@@ -108,6 +108,8 @@ export const getUnifiedTimeline = async (req, res) => {
                 description: a.description,
                 status: a.status,
                 actor: a.assignedTo ? `${a.assignedTo.firstName} ${a.assignedTo.lastName}` : (a.performedBy || 'System'),
+                isStarred: a.isStarred || false,
+                tags: a.tags || [],
                 metadata: {
                     details: a.details,
                     completionResult: a.completionResult,

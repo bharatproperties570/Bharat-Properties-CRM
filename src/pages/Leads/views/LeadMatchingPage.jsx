@@ -654,7 +654,15 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             <SendMessageModal
                 isOpen={isMessageOpen}
                 onClose={() => setIsMessageOpen(false)}
-                selectedContacts={[lead]}
+                initialRecipients={[{
+                    ...lead,
+                    name: lead.name || 'Lead',
+                    phone: lead.mobile || lead.phone
+                }]}
+                onSend={(data, res) => {
+                    toast.success(res?.message || 'Message Sent!');
+                    setIsMessageOpen(false);
+                }}
             />
             <AlgorithmSettingsModal
                 isOpen={isSettingsOpen}

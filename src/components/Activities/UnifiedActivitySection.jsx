@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { api, activitiesAPI } from '../../utils/api';
-import { renderValue } from '../../utils/renderUtils';
+import { activitiesAPI, usersAPI } from '../../utils/api';
+import { useActivities } from '../../context/ActivityContext';
 import './UnifiedActivitySection.css';
 
 /**
@@ -12,13 +12,19 @@ import './UnifiedActivitySection.css';
  * @param {string} entityType - The type of record ('Contact', 'Lead', 'Deal', 'Inventory')
  * @param {object} entityData - Optional initial data for context
  * @param {function} onActivitySaved - Callback after successful save
+ * @param {boolean} hideComposer - Whether to hide the activity composer section
  */
-const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySaved }) => {
+const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySaved, hideComposer = false }) => {
+    const { addActivity } = useActivities();
     const [composerTab, setComposerTab] = useState('note');
     const [composerContent, setComposerContent] = useState('');
     const [composerLoading, setComposerLoading] = useState(false);
 
     const [timelineFilter, setTimelineFilter] = useState('all');
+    const [userFilter, setUserFilter] = useState('all');
+    const [tagFilter, setTagFilter] = useState('all');
+    const [allUsers, setAllUsers] = useState([]);
+    const [allTags, setAllTags] = useState([]);
     const [unifiedTimeline, setUnifiedTimeline] = useState([]);
     const [loadingTimeline, setLoadingTimeline] = useState(false);
 
@@ -26,13 +32,33 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
         { id: Date.now(), subject: '', dueDate: new Date().toISOString().slice(0, 16), reminder: false }
     ]);
 
+    const fetchUsers = useCallback(async () => {
+        try {
+            const res = await usersAPI.getAll();
+            if (res && res.success) {
+                setAllUsers(res.data || []);
+            }
+        } catch (error) {
+            console.error("Error fetching users:", error);
+        }
+    }, []);
+
     const fetchUnifiedTimeline = useCallback(async () => {
         if (!entityId || !entityType) return;
         setLoadingTimeline(true);
         try {
             const res = await activitiesAPI.getUnified(entityType.toLowerCase(), entityId);
             if (res && res.success) {
-                setUnifiedTimeline(res.data || []);
+                const timeline = res.data || [];
+                setUnifiedTimeline(timeline);
+                // Extract unique tags
+                const tags = new Set();
+                timeline.forEach(item => {
+                    if (item.tags && Array.isArray(item.tags)) {
+                        item.tags.forEach(t => tags.add(t));
+                    }
+                });
+                setAllTags(Array.from(tags));
             }
         } catch (error) {
             console.error("Error fetching unified timeline:", error);
@@ -42,8 +68,9 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
     }, [entityId, entityType]);
 
     useEffect(() => {
+        fetchUsers();
         fetchUnifiedTimeline();
-    }, [fetchUnifiedTimeline]);
+    }, [fetchUsers, fetchUnifiedTimeline]);
 
     const addTask = () => {
         setPendingTasks([...pendingTasks, {
@@ -64,6 +91,23 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
         setPendingTasks(pendingTasks.map(t =>
             t.id === id ? { ...t, [field]: value } : t
         ));
+    };
+
+    const handleToggleStar = async (item) => {
+        if (item.source !== 'activity') return;
+        try {
+            const newStarredStatus = !item.isStarred;
+            const res = await activitiesAPI.update(item._id, { isStarred: newStarredStatus });
+            if (res && res.success) {
+                setUnifiedTimeline(prev => prev.map(t =>
+                    t._id === item._id ? { ...t, isStarred: newStarredStatus } : t
+                ));
+                toast.success(newStarredStatus ? 'Activity starred' : 'Activity unstarred');
+            }
+        } catch (error) {
+            console.error("Error toggling star:", error);
+            toast.error('Failed to update star status');
+        }
     };
 
     const handleSaveActivity = async () => {
@@ -102,8 +146,8 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                 backendData.status = 'Pending'; // Tasks are usually pending
             }
 
-            const res = await activitiesAPI.create(backendData);
-            if (res && res.success) {
+            const res = await addActivity(backendData);
+            if (res) {
                 toast.success(`${composerTab.charAt(0).toUpperCase() + composerTab.slice(1)} saved successfully!`);
                 setComposerContent('');
                 setPendingTasks([{ id: Date.now(), subject: '', dueDate: new Date().toISOString().slice(0, 16), reminder: false }]);
@@ -137,131 +181,173 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
         <div className="unified-activity-section" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
             {/* 1. Activity Composer */}
-            <div className="glass-card" style={{ borderRadius: '16px', overflow: 'hidden' }}>
-                <div style={{ borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', background: 'rgba(248, 250, 252, 0.3)' }}>
-                    {[
-                        { id: 'email', icon: 'envelope', label: 'Email' },
-                        { id: 'whatsapp', icon: 'whatsapp', label: 'WhatsApp', isBrand: true },
-                        { id: 'note', icon: 'sticky-note', label: 'Note' },
-                        { id: 'call', icon: 'phone-alt', label: 'Call Log' },
-                        { id: 'task', icon: 'calendar-check', label: 'Task' },
-                    ].map(tab => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setComposerTab(tab.id)}
-                            style={{
-                                padding: '14px 20px',
-                                border: 'none',
-                                background: 'transparent',
-                                borderRight: '1px solid rgba(226, 232, 240, 0.5)',
-                                borderBottom: composerTab === tab.id ? '3px solid var(--premium-blue)' : 'none',
-                                color: composerTab === tab.id ? 'var(--premium-blue)' : '#64748b',
-                                fontSize: '0.75rem',
-                                fontWeight: 800,
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                transition: 'all 0.2s'
-                            }}
-                        >
-                            <i className={`${tab.isBrand ? 'fab' : 'fas'} fa-${tab.icon}`}></i>
-                            {tab.label}
-                        </button>
-                    ))}
-                </div>
+            {!hideComposer && (
+                <div className="glass-card" style={{ borderRadius: '16px', overflow: 'hidden' }}>
+                    <div style={{ borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', background: 'rgba(248, 250, 252, 0.3)' }}>
+                        {[
+                            { id: 'email', icon: 'envelope', label: 'Email' },
+                            { id: 'whatsapp', icon: 'whatsapp', label: 'WhatsApp', isBrand: true },
+                            { id: 'note', icon: 'sticky-note', label: 'Note' },
+                            { id: 'call', icon: 'phone-alt', label: 'Call Log' },
+                            { id: 'task', icon: 'calendar-check', label: 'Task' },
+                        ].map(tab => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setComposerTab(tab.id)}
+                                style={{
+                                    padding: '14px 20px',
+                                    border: 'none',
+                                    background: 'transparent',
+                                    borderRight: '1px solid rgba(226, 232, 240, 0.5)',
+                                    borderBottom: composerTab === tab.id ? '3px solid var(--premium-blue)' : 'none',
+                                    color: composerTab === tab.id ? 'var(--premium-blue)' : '#64748b',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                <i className={`${tab.isBrand ? 'fab' : 'fas'} fa-${tab.icon}`}></i>
+                                {tab.label}
+                            </button>
+                        ))}
+                    </div>
 
-                <div style={{ padding: '20px' }}>
-                    {composerTab === 'task' ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            {pendingTasks.map((task) => (
-                                <div key={task.id} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', background: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                                    <div style={{ flex: 1 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                                            <input
-                                                type="text"
-                                                placeholder="What needs to be done?"
-                                                value={task.subject}
-                                                onChange={(e) => updateTask(task.id, 'subject', e.target.value)}
-                                                style={{ flex: 1, padding: '8px 0', border: 'none', background: 'transparent', outline: 'none', fontSize: '0.85rem', fontWeight: 600, borderBottom: '1px solid #e2e8f0' }}
-                                            />
+                    <div style={{ padding: '20px' }}>
+                        {composerTab === 'task' ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {pendingTasks.map((task) => (
+                                    <div key={task.id} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', background: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                                <input
+                                                    type="text"
+                                                    placeholder="What needs to be done?"
+                                                    value={task.subject}
+                                                    onChange={(e) => updateTask(task.id, 'subject', e.target.value)}
+                                                    style={{ flex: 1, padding: '8px 0', border: 'none', background: 'transparent', outline: 'none', fontSize: '0.85rem', fontWeight: 600, borderBottom: '1px solid #e2e8f0' }}
+                                                />
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                                <input
+                                                    type="datetime-local"
+                                                    value={task.dueDate}
+                                                    onChange={(e) => updateTask(task.id, 'dueDate', e.target.value)}
+                                                    style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.75rem', color: 'var(--premium-blue)', fontWeight: 600, outline: 'none' }}
+                                                />
+                                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, color: task.reminder ? 'var(--premium-blue)' : '#64748b' }}>
+                                                    <input type="checkbox" checked={task.reminder} onChange={(e) => updateTask(task.id, 'reminder', e.target.checked)} />
+                                                    <i className={`fas fa-bell${task.reminder ? '' : '-slash'}`}></i> Remind Me
+                                                </label>
+                                            </div>
                                         </div>
-                                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                            <input
-                                                type="datetime-local"
-                                                value={task.dueDate}
-                                                onChange={(e) => updateTask(task.id, 'dueDate', e.target.value)}
-                                                style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.75rem', color: 'var(--premium-blue)', fontWeight: 600, outline: 'none' }}
-                                            />
-                                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, color: task.reminder ? 'var(--premium-blue)' : '#64748b' }}>
-                                                <input type="checkbox" checked={task.reminder} onChange={(e) => updateTask(task.id, 'reminder', e.target.checked)} />
-                                                <i className={`fas fa-bell${task.reminder ? '' : '-slash'}`}></i> Remind Me
-                                            </label>
-                                        </div>
+                                        {pendingTasks.length > 1 && (
+                                            <button onClick={() => removeTask(task.id)} style={{ padding: '4px', background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.8rem' }}>
+                                                <i className="fas fa-trash-alt"></i>
+                                            </button>
+                                        )}
                                     </div>
-                                    {pendingTasks.length > 1 && (
-                                        <button onClick={() => removeTask(task.id)} style={{ padding: '4px', background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.8rem' }}>
-                                            <i className="fas fa-trash-alt"></i>
-                                        </button>
-                                    )}
-                                </div>
-                            ))}
-                            <button onClick={addTask} style={{ alignSelf: 'flex-start', background: 'transparent', border: '1px dashed #cbd5e1', padding: '8px 16px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', cursor: 'pointer', transition: 'all 0.2s', marginTop: '4px' }}>
-                                <i className="fas fa-plus" style={{ marginRight: '6px' }}></i> Add Another Task
+                                ))}
+                                <button onClick={addTask} style={{ alignSelf: 'flex-start', background: 'transparent', border: '1px dashed #cbd5e1', padding: '8px 16px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', cursor: 'pointer', transition: 'all 0.2s', marginTop: '4px' }}>
+                                    <i className="fas fa-plus" style={{ marginRight: '6px' }}></i> Add Another Task
+                                </button>
+                            </div>
+                        ) : (
+                            <textarea
+                                placeholder={`Type your ${composerTab} details here...`}
+                                value={composerContent}
+                                onChange={(e) => setComposerContent(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    minHeight: '100px',
+                                    border: '1px solid rgba(226, 232, 240, 0.8)',
+                                    background: 'rgba(255, 255, 255, 0.5)',
+                                    borderRadius: '12px',
+                                    padding: '14px',
+                                    fontSize: '0.9rem',
+                                    fontWeight: 500,
+                                    outline: 'none',
+                                    resize: 'none',
+                                    fontFamily: 'inherit'
+                                }}
+                            ></textarea>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+                            <button
+                                onClick={handleSaveActivity}
+                                disabled={composerLoading}
+                                style={{
+                                    padding: '10px 24px',
+                                    fontSize: '0.8rem',
+                                    borderRadius: '10px',
+                                    background: 'var(--premium-blue)',
+                                    color: '#fff',
+                                    border: 'none',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                }}
+                            >
+                                {composerLoading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
+                                Save {composerTab === 'task' ? 'Tasks' : (composerTab.charAt(0).toUpperCase() + composerTab.slice(1))}
                             </button>
                         </div>
-                    ) : (
-                        <textarea
-                            placeholder={`Type your ${composerTab} details here...`}
-                            value={composerContent}
-                            onChange={(e) => setComposerContent(e.target.value)}
-                            style={{
-                                width: '100%',
-                                minHeight: '100px',
-                                border: '1px solid rgba(226, 232, 240, 0.8)',
-                                background: 'rgba(255, 255, 255, 0.5)',
-                                borderRadius: '12px',
-                                padding: '14px',
-                                fontSize: '0.9rem',
-                                fontWeight: 500,
-                                outline: 'none',
-                                resize: 'none',
-                                fontFamily: 'inherit'
-                            }}
-                        ></textarea>
-                    )}
-
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
-                        <button
-                            onClick={handleSaveActivity}
-                            disabled={composerLoading}
-                            style={{
-                                padding: '10px 24px',
-                                fontSize: '0.8rem',
-                                borderRadius: '10px',
-                                background: 'var(--premium-blue)',
-                                color: '#fff',
-                                border: 'none',
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px'
-                            }}
-                        >
-                            {composerLoading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
-                            Save {composerTab === 'task' ? 'Tasks' : (composerTab.charAt(0).toUpperCase() + composerTab.slice(1))}
-                        </button>
                     </div>
                 </div>
-            </div>
+            )}
 
             {/* 2. Timeline Section */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#1e293b', margin: 0 }}>Unified Timeline</h3>
+                    <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#1e293b', margin: 0 }}>Activities Timeline</h3>
                     <div style={{ display: 'flex', gap: '8px' }}>
+                        <select
+                            value={userFilter}
+                            onChange={(e) => setUserFilter(e.target.value)}
+                            style={{
+                                padding: '6px 12px',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                color: '#4f46e5',
+                                background: '#f5f3ff',
+                                border: '1px solid #ddd6fe',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                outline: 'none'
+                            }}
+                        >
+                            <option value="all">All Users</option>
+                            {allUsers.map(u => (
+                                <option key={u._id} value={`${u.firstName} ${u.lastName}`}>{u.firstName} {u.lastName}</option>
+                            ))}
+                        </select>
+                        <select
+                            value={tagFilter}
+                            onChange={(e) => setTagFilter(e.target.value)}
+                            style={{
+                                padding: '6px 12px',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                color: '#4f46e5',
+                                background: '#f5f3ff',
+                                border: '1px solid #ddd6fe',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                outline: 'none'
+                            }}
+                        >
+                            <option value="all">All Tags</option>
+                            {allTags.map(tag => (
+                                <option key={tag} value={tag}>{tag}</option>
+                            ))}
+                        </select>
                         <select
                             value={timelineFilter}
                             onChange={(e) => setTimelineFilter(e.target.value)}
@@ -297,9 +383,10 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                             {unifiedTimeline
                                 .filter(item => {
-                                    if (timelineFilter === 'all') return true;
-                                    const type = (item.type || '').toLowerCase();
-                                    return type.includes(timelineFilter);
+                                    const matchesType = timelineFilter === 'all' || (item.type || '').toLowerCase().includes(timelineFilter);
+                                    const matchesUser = userFilter === 'all' || item.actor === userFilter;
+                                    const matchesTag = tagFilter === 'all' || (item.tags && item.tags.includes(tagFilter));
+                                    return matchesType && matchesUser && matchesTag;
                                 })
                                 .map((item, idx) => {
                                     const style = getTimelineIcon(item);
@@ -332,8 +419,18 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                 background: style.bg
                                             }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', alignItems: 'center', gap: '12px' }}>
-                                                    <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#0f172a', flex: 1 }}>
-                                                        {item.title}
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+                                                        <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#0f172a' }}>
+                                                            {item.title}
+                                                        </div>
+                                                        {item.source === 'activity' && (
+                                                            <button
+                                                                onClick={() => handleToggleStar(item)}
+                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: item.isStarred ? '#f59e0b' : '#cbd5e1', fontSize: '0.9rem', transition: 'all 0.2s' }}
+                                                            >
+                                                                <i className={`${item.isStarred ? 'fas' : 'far'} fa-star`}></i>
+                                                            </button>
+                                                        )}
                                                     </div>
                                                     <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, whiteSpace: 'nowrap', background: 'rgba(255,255,255,0.5)', padding: '2px 8px', borderRadius: '6px' }}>
                                                         {new Date(item.timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} • {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

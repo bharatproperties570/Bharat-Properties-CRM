@@ -1151,7 +1151,7 @@ const AddContactModal = ({
 
       const lookupMapping = {
         title: 'Title',
-        countryCode: 'CountryCode',
+        countryCode: 'Country-Code',
         campaign: 'Campaign',
         source: 'Source',
         subSource: 'SubSource',
@@ -2341,39 +2341,7 @@ const AddContactModal = ({
                     }}
                   >
 
-                    <div>
-                      <label
-                        style={{
-                          display: "block",
-                          fontSize: "0.85rem",
-                          fontWeight: 500,
-                          color: "#64748b",
-                          marginBottom: "8px",
-                        }}
-                      >
-                        Team <span style={{ color: '#ef4444' }}>*</span>
 
-                      </label>
-                      <select
-                        value={formData.team}
-                        onChange={(e) => {
-                          const newTeam = e.target.value;
-                          setFormData((prev) => ({
-                            ...prev,
-                            team: newTeam,
-                            owner: "", // Reset owner when team changes
-                          }));
-                        }}
-                        style={customSelectStyle}
-                      >
-                        <option value="">Select Team</option>
-                        {teams.map((c) => (
-                          <option key={c._id} value={c._id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
                     <div>
                       <label
                         style={{

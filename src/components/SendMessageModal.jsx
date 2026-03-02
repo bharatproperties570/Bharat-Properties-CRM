@@ -154,7 +154,7 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [] }) =
         }
     };
 
-    const handleSend = (isScheduled) => {
+    const handleSend = async (isScheduled) => {
         const data = {
             channel,
             recipients,
@@ -165,12 +165,25 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [] }) =
             },
             schedule: isScheduled && showSchedule ? { date: scheduleDate, time: scheduleTime } : null
         };
-        if (onSend) onSend(data);
 
-        // Fire Triggers
-        fireEvent('message_sent', data, { entityType: 'communication' });
+        try {
+            // Optional: Show loading toast here if needed
+            const res = await smsService.sendMessage(data);
+            if (res && res.success) {
+                // If the parent provided an onSend callback, tell it we succeeded
+                if (onSend) onSend(data, res);
 
-        onClose();
+                // Fire Triggers
+                fireEvent('message_sent', data, { entityType: 'communication' });
+
+                onClose();
+            } else {
+                throw new Error("Failed to send message: Success flag false");
+            }
+        } catch (error) {
+            console.error("SMS Sending Error:", error);
+            alert(`Failed to send message: ${error.message}`);
+        }
     };
 
     if (!isOpen) return null;

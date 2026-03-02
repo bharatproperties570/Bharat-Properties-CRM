@@ -228,9 +228,9 @@ const FormsPage = () => {
             <SendMessageModal
                 isOpen={isSendMessageOpen}
                 onClose={() => setIsSendMessageOpen(false)}
-                onSend={(data) => {
+                onSend={(data, res) => {
                     console.log('Message Sent:', data);
-                    alert(`${data.channel} campaign sent successfully!`);
+                    toast.success(res?.message || `${data.channel} campaign sent successfully!`);
                 }}
             />
 
