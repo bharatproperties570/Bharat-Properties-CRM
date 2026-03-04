@@ -10,7 +10,13 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
     const documentConfig = config?.documentConfig || {};
 
     const [formData, setFormData] = useState({
-        inventoryDocuments: [{ documentName: '', documentType: '', linkedContactMobile: '', file: null }],
+        inventoryDocuments: [{
+            documentName: '',
+            documentType: '',
+            documentNumber: '', // New field
+            linkedContactMobile: '',
+            file: null
+        }],
         owners: []
     });
 
@@ -47,7 +53,7 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
             }));
         } else if (isOpen) {
             setFormData({
-                inventoryDocuments: [{ documentName: '', documentType: '', linkedContactMobile: '', file: null }],
+                inventoryDocuments: [{ documentName: '', documentType: '', documentNumber: '', linkedContactMobile: '', file: null }],
                 owners: []
             });
         }
@@ -102,10 +108,14 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
     // --- Safety Getters ---
     const getDocCategories = () => {
         try {
+            // Enhanced version to support hyphenated and non-hyphenated types if they exist
+            // and handle both object structure or flat array if needed
+            if (!documentConfig) return [];
+
             return Object.values(documentConfig).map(cat => ({
-                id: cat.id,
-                lookup_value: cat.name,
-                subCategories: cat.subCategories
+                id: cat.id || cat._id,
+                lookup_value: cat.name || cat.lookup_value,
+                subCategories: cat.subCategories || []
             }));
         } catch (e) {
             console.error("Error getting doc categories", e);
@@ -116,7 +126,7 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
     const getDocTypes = (catName, categories) => {
         if (!catName || !Array.isArray(categories)) return [];
         try {
-            const cat = categories.find(c => c && (c.name === catName || c.lookup_value === catName));
+            const cat = categories.find(c => c && (c.name === catName || c.lookup_value === catName || c.id === catName));
             const types = cat?.subCategories || [];
             return Array.isArray(types) ? types : [];
         } catch (e) {
@@ -165,7 +175,7 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
                                 const availableDocTypes = getDocTypes(doc.documentName, docCategories);
                                 return (
                                     <div key={idx} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px', marginBottom: '12px', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 32px', gap: '8px', marginBottom: '12px' }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr) 32px', gap: '8px', marginBottom: '12px' }}>
                                             {/* Category Select */}
                                             <div>
                                                 <label style={labelStyle}>Category</label>
@@ -211,13 +221,28 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
                                                     })}
                                                 </select>
                                             </div>
+                                            {/* New: Document Number Field */}
+                                            <div>
+                                                <label style={labelStyle}>Document Number</label>
+                                                <input
+                                                    type="text"
+                                                    style={{ ...inputStyle, fontSize: '0.85rem', padding: '8px' }}
+                                                    placeholder="Enter Number"
+                                                    value={doc.documentNumber || ''}
+                                                    onChange={e => {
+                                                        const newDocs = [...formData.inventoryDocuments];
+                                                        newDocs[idx].documentNumber = e.target.value;
+                                                        setFormData({ ...formData, inventoryDocuments: newDocs });
+                                                    }}
+                                                />
+                                            </div>
 
                                             {/* Add/Remove Button */}
                                             <div style={{ display: 'flex', alignItems: 'end' }}>
                                                 <button
                                                     onClick={() => {
                                                         if (idx === 0) {
-                                                            setFormData({ ...formData, inventoryDocuments: [...formData.inventoryDocuments, { documentName: '', documentType: '', registrationNo: '', linkedContactMobile: '', file: null }] });
+                                                            setFormData({ ...formData, inventoryDocuments: [...formData.inventoryDocuments, { documentName: '', documentType: '', documentNumber: '', linkedContactMobile: '', file: null }] });
                                                         } else {
                                                             const newDocs = formData.inventoryDocuments.filter((_, i) => i !== idx);
                                                             setFormData({ ...formData, inventoryDocuments: newDocs });

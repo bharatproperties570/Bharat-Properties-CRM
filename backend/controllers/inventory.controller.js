@@ -130,7 +130,8 @@ export const getInventoryById = async (req, res) => {
             { path: "unitType" },
             { path: "facing" },
             { path: "intent" },
-            { path: "team", select: "name" }
+            { path: "team", select: "name" },
+            { path: "assignedTo", select: "name team" }
         ];
 
         const inventory = await Inventory.findById(req.params.id).populate(populateFields);

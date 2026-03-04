@@ -59,7 +59,7 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
             case 'contact-detail':
                 return <ContactDetail
                     contactId={currentContactId}
-                    onBack={() => onNavigate('contacts')}
+                    onBack={(type) => onNavigate(type === 'lead' ? 'leads' : 'contacts')}
                     onAddActivity={onAddActivity}
                 />;
             case 'company':

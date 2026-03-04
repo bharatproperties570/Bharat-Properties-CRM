@@ -68,8 +68,9 @@ const InventorySchema = new mongoose.Schema({
 
     // System
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
-    assignedTo: String,
-    visibleTo: String
+    assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+    visibleTo: String,
+    tags: { type: String, default: '-' }
 }, { timestamps: true, strict: true });
 
 // Permanent Fix: Deep Data Integrity Hooks

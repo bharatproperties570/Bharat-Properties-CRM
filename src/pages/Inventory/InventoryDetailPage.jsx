@@ -12,6 +12,7 @@ import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../components/SendMessageModal';
 import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
 import UnifiedActivitySection from '../../components/Activities/UnifiedActivitySection';
+import ManageTagsModal from '../../components/ManageTagsModal';
 
 
 export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, onAddActivity, onAddDeal, onEditInventory }) {
@@ -34,6 +35,8 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
     const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+    const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
+    const [showMoreMenu, setShowMoreMenu] = useState(false);
     const [modalData, setModalData] = useState([]);
 
     const fetchInventoryDetails = useCallback(async () => {
@@ -329,88 +332,150 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '10px' }}>
-                    <button
-                        className="toolbar-btn"
-                        onClick={handleCopyDetails}
-                        title="Copy Listing Details"
-                        style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', width: '40px', height: '40px', padding: 0, borderRadius: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
-                    >
-                        <i className={isCopying ? "fas fa-check" : "fas fa-copy"}></i>
-                    </button>
-                    <button
-                        className="toolbar-btn"
-                        onClick={handleWhatsAppShare}
-                        title="Share on WhatsApp"
-                        style={{ background: '#25D366', color: '#fff', border: 'none', width: '40px', height: '40px', padding: 0, borderRadius: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
-                    >
-                        <i className="fab fa-whatsapp" style={{ fontSize: '1.2rem' }}></i>
-                    </button>
-                    <div style={{ width: '1px', height: '30px', background: '#e2e8f0', margin: 'auto 4px' }}></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: 'auto' }}>
+                    {/* Communication Actions */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                            onClick={() => {
+                                const targets = getTargetContacts();
+                                if (targets.length > 0) {
+                                    startCall({
+                                        name: targets[0].name || 'Unknown Owner',
+                                        mobile: targets[0].mobile
+                                    }, {
+                                        purpose: 'Owner Update',
+                                        entityId: inventory._id,
+                                        entityType: 'inventory'
+                                    });
+                                } else {
+                                    toast.error("No contact information available");
+                                }
+                            }}
+                            style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 12px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                            className="hover:bg-slate-50 transition-all"
+                        >
+                            <i className="fas fa-phone-alt" style={{ color: '#10b981' }}></i> Call
+                        </button>
+                        <button
+                            onClick={handleMessageClick}
+                            style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 12px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                            className="hover:bg-slate-50 transition-all"
+                        >
+                            <i className="fas fa-comment-dots" style={{ color: '#3b82f6' }}></i> SMS
+                        </button>
+                        <button
+                            onClick={handleEmailClick}
+                            style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 12px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                            className="hover:bg-slate-50 transition-all"
+                        >
+                            <i className="fas fa-envelope" style={{ color: '#f59e0b' }}></i> Email
+                        </button>
+                    </div>
 
-                    {/* Action Buttons */}
-                    <button
-                        className="toolbar-btn"
-                        onClick={() => {
-                            const targets = getTargetContacts();
-                            if (targets.length > 0) {
-                                startCall({
-                                    name: targets[0].name || 'Unknown Owner',
-                                    mobile: targets[0].mobile
-                                }, {
-                                    purpose: 'Owner Update',
-                                    entityId: inventory._id,
-                                    entityType: 'inventory'
-                                });
-                            } else {
-                                toast.error("No contact information available");
-                            }
-                        }}
-                        style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', padding: '8px 16px', borderRadius: '10px', fontWeight: 600, transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}
-                    >
-                        <i className="fas fa-phone-alt" style={{ color: '#2563eb' }}></i> Call
-                    </button>
-                    <button
-                        className="toolbar-btn"
-                        onClick={handleEmailClick}
-                        style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', padding: '8px 16px', borderRadius: '10px', fontWeight: 600, transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}
-                    >
-                        <i className="fas fa-envelope" style={{ color: '#ea580c' }}></i> Email
-                    </button>
-                    <button
-                        className="toolbar-btn"
-                        onClick={handleMessageClick}
-                        style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', padding: '8px 16px', borderRadius: '10px', fontWeight: 600, transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}
-                    >
-                        <i className="fas fa-comment-alt" style={{ color: '#8b5cf6' }}></i> Message
-                    </button>
+                    {/* Three-Dot More Menu */}
+                    <div style={{ position: 'relative' }}>
+                        <button
+                            onClick={() => setShowMoreMenu(!showMoreMenu)}
+                            style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}
+                            className="hover:bg-slate-50 transition-all"
+                        >
+                            <i className="fas fa-ellipsis-v"></i>
+                        </button>
 
-                    <button
-                        className="toolbar-btn"
-                        onClick={handleFeedbackClick}
-                        style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', padding: '8px 16px', borderRadius: '10px', fontWeight: 600, transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}
-                    >
-                        <i className="fas fa-comment-dots" style={{ color: '#f59e0b' }}></i> Feedback
-                    </button>
+                        {showMoreMenu && (
+                            <div style={{
+                                position: 'absolute', top: '100%', right: 0, marginTop: '8px',
+                                background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px',
+                                boxShadow: '0 10px 25px rgba(0,0,0,0.1)', zIndex: 1000, minWidth: '200px',
+                                padding: '8px 0', overflow: 'hidden'
+                            }}>
+                                <button
+                                    onClick={() => { onAddActivity([{ type: 'Inventory', id: inventory._id, name: inventory.unitNo, model: 'Inventory' }], { inventory }); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-calendar-plus" style={{ color: '#ec4899', width: '16px' }}></i> Create Activity
+                                </button>
+                                <button
+                                    onClick={() => { setIsDocumentModalOpen(true); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-file-alt" style={{ color: '#64748b', width: '16px' }}></i> Document
+                                </button>
+                                <button
+                                    onClick={() => { setIsUploadModalOpen(true); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-cloud-upload-alt" style={{ color: '#f59e0b', width: '16px' }}></i> Upload
+                                </button>
+                                <button
+                                    onClick={() => { handleFeedbackClick(); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-comment-dots" style={{ color: '#f59e0b', width: '16px' }}></i> Feedback
+                                </button>
+                                <button
+                                    onClick={() => { setIsTagsModalOpen(true); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-tags" style={{ color: '#8b5cf6', width: '16px' }}></i> Manage Tags
+                                </button>
+                                <div style={{ height: '1px', background: '#e2e8f0', margin: '4px 0' }}></div>
+                                <button
+                                    onClick={() => { handleWhatsAppShare(); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fab fa-whatsapp" style={{ color: '#25D366', width: '16px' }}></i> Share on WhatsApp
+                                </button>
+                                <button
+                                    onClick={() => { handleCopyDetails(); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className={isCopying ? "fas fa-check" : "fas fa-copy"} style={{ color: '#64748b', width: '16px' }}></i> {isCopying ? 'Copied!' : 'Copy Details'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
 
-                    <button
-                        className="primary-btn"
-                        onClick={() => onAddActivity([{ type: 'Inventory', id: inventory._id, name: inventory.unitNo, model: 'Inventory' }], { inventory })}
-                        style={{
-                            background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
-                            color: '#fff',
-                            border: 'none',
-                            padding: '8px 16px',
-                            borderRadius: '10px',
-                            fontWeight: 600,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.2)'
-                        }}
-                    >
-                        <i className="fas fa-plus"></i> Activity
-                    </button>
+                    {/* Refined Assignment Plate - Matching Deal Detail Style */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        padding: '4px 12px',
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px'
+                    }}>
+                        {/* Name Stack */}
+                        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap' }}>
+                                {inventory.assignedTo?.name || 'Unassigned'}
+                            </span>
+                            <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>
+                                {inventory.team?.name || 'Standard Team'}
+                            </span>
+                        </div>
+
+                        {/* Divider */}
+                        <div style={{ width: '1px', height: '18px', background: '#cbd5e1' }}></div>
+
+                        {/* Visibility Icon */}
+                        <div title={`Visibility: ${inventory.visibleTo || 'Everyone'}`} style={{ display: 'flex', alignItems: 'center' }}>
+                            {(() => {
+                                const v = (inventory.visibleTo || 'Everyone').toLowerCase();
+                                if (v === 'private') return <i className="fas fa-lock" style={{ color: '#ef4444', fontSize: '0.85rem' }}></i>;
+                                if (v === 'team') return <i className="fas fa-users" style={{ color: '#3b82f6', fontSize: '0.85rem' }}></i>;
+                                return <i className="fas fa-globe" style={{ color: '#10b981', fontSize: '0.85rem' }}></i>;
+                            })()}
+                        </div>
+                    </div>
                 </div>
             </header>
 
@@ -1096,6 +1161,27 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                 onSave={handleSaveFeedback}
             />
 
+            <ManageTagsModal
+                isOpen={isTagsModalOpen}
+                onClose={() => setIsTagsModalOpen(false)}
+                selectedContacts={[{ id: inventory._id, tags: inventory.tags || '-' }]}
+                onUpdateTags={async (data) => {
+                    try {
+                        const response = await api.put(`inventory/${inventoryId}`, {
+                            tags: data.tags.join(', ')
+                        });
+                        if (response.data && response.data.success) {
+                            toast.success("Tags updated successfully");
+                            fetchInventoryDetails();
+                        } else {
+                            toast.error("Failed to update tags");
+                        }
+                    } catch (error) {
+                        console.error("Error updating tags:", error);
+                        toast.error("Error updating tags");
+                    }
+                }}
+            />
         </div >
     );
 }

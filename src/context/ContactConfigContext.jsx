@@ -26,12 +26,14 @@ export const ContactConfigProvider = ({ children }) => {
             const response = await api.get('/lookups');
 
             let allLookups = [];
-            if (response && response.status === 'success' && Array.isArray(response.data)) {
-                allLookups = response.data;
-            } else if (Array.isArray(response)) {
-                allLookups = response;
+            // Axios response stores the server's JSON in response.data
+            const serverData = response.data;
+            if (serverData && serverData.status === 'success' && Array.isArray(serverData.data)) {
+                allLookups = serverData.data;
+            } else if (Array.isArray(serverData)) {
+                // Fallback if the backend returns the array directly
+                allLookups = serverData;
             }
-
             // Group by lookup_type
             const grouped = {};
             allLookups.forEach(item => {
@@ -107,23 +109,40 @@ export const ContactConfigProvider = ({ children }) => {
     };
 
     const buildDocHierarchy = (flatList) => {
-        const categories = flatList.filter(item => item.lookup_type === 'Document-Category');
+        // Supporting both versions (hyphenated and non-hyphenated) to ensure data is found
+        const categories = flatList.filter(item =>
+            item.lookup_type === 'Document-Category' || item.lookup_type === 'DocumentCategory'
+        );
         const hierarchy = {};
 
         categories.forEach(cat => {
             const types = flatList.filter(item =>
-                item.lookup_type === 'Document-Type' &&
-                (item.parent_lookup_id === cat._id || item.parent_lookup_id?._id === cat._id)
+                (item.lookup_type === 'Document-Type' || item.lookup_type === 'DocumentType') &&
+                (item.parent_lookup_id === cat._id || item.parent_lookup_id?._id === cat._id ||
+                    item.parent_lookup_value === cat.lookup_value)
             );
 
-            hierarchy[cat.lookup_value] = {
-                id: cat._id,
-                name: cat.lookup_value,
-                subCategories: types.map(t => ({
-                    id: t._id,
-                    name: t.lookup_value
-                }))
-            };
+            // If we already have this category name, merge subCategories
+            if (hierarchy[cat.lookup_value]) {
+                const existingSubNames = new Set(hierarchy[cat.lookup_value].subCategories.map(s => s.name));
+                types.forEach(t => {
+                    if (!existingSubNames.has(t.lookup_value)) {
+                        hierarchy[cat.lookup_value].subCategories.push({
+                            id: t._id,
+                            name: t.lookup_value
+                        });
+                    }
+                });
+            } else {
+                hierarchy[cat.lookup_value] = {
+                    id: cat._id,
+                    name: cat.lookup_value,
+                    subCategories: types.map(t => ({
+                        id: t._id,
+                        name: t.lookup_value
+                    }))
+                };
+            }
         });
 
         return hierarchy;

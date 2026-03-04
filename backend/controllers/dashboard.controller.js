@@ -111,7 +111,82 @@ export const getDashboardStats = async (req, res) => {
             value: stats.value
         }));
 
-        // 4. Performance Metrics
+        // 4. Inventory Health & Stats
+        const inventoryStatsRaw = await Inventory.aggregate([
+            { $group: { _id: "$status", count: { $sum: 1 } } }
+        ]);
+
+        const populatedInventory = (inventoryStatsRaw || []).map(item => ({
+            status: lookupMap[item._id?.toString()] || 'Available',
+            count: item.count
+        }));
+
+        // 5. Financial Intelligence (Aggregated)
+        // A. Portfolio Mix (Inventory by Category)
+        const portfolioRaw = await Inventory.aggregate([
+            { $group: { _id: "$category", count: { $sum: 1 } } }
+        ]);
+        const portfolioMix = {
+            labels: portfolioRaw.map(p => lookupMap[p._id?.toString()] || 'Uncategorized'),
+            series: portfolioRaw.map(p => p.count)
+        };
+
+        // B. Revenue Origin (Deals by Source)
+        const revenueBySourceRaw = await Deal.aggregate([
+            { $group: { _id: "$source", count: { $sum: 1 }, total: { $sum: "$commission.actualAmount" } } }
+        ]);
+        const revenueBySource = {
+            categories: revenueBySourceRaw.map(r => r._id || 'Walk-in'),
+            series: [{
+                name: 'Revenue',
+                data: revenueBySourceRaw.map(r => r.total || 0)
+            }]
+        };
+
+        // C. Cash Flow Projection (Last 6 Months of Closed Deals)
+        const sixMonthsAgo = new Date();
+        sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+        const cashFlowRaw = await Deal.aggregate([
+            {
+                $match: {
+                    "closingDetails.isClosed": true,
+                    "closingDetails.closingDate": { $gte: sixMonthsAgo }
+                }
+            },
+            {
+                $group: {
+                    _id: {
+                        month: { $month: "$closingDetails.closingDate" },
+                        year: { $year: "$closingDetails.closingDate" }
+                    },
+                    total: { $sum: "$commission.actualAmount" }
+                }
+            },
+            { $sort: { "_id.year": 1, "_id.month": 1 } }
+        ]);
+
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const cashFlowProjection = {
+            categories: cashFlowRaw.map(c => `${monthNames[c._id.month - 1]} ${c._id.year}`),
+            series: [{
+                name: 'Collections',
+                data: cashFlowRaw.map(c => c.total || 0)
+            }]
+        };
+
+        const financialIntelligence = {
+            portfolioMix,
+            revenueBySource,
+            cashFlowProjection
+        };
+
+        // 6. Performance Metrics
+        const totalLeads = leadsByStageRaw.reduce((sum, l) => sum + l.count, 0) || 1;
+
+        // Debug logging for developers
+        console.log(`[Dashboard] Aggregated ${totalLeads} leads into categories:`, leadCategories);
+        console.log(`[Dashboard] Aggregated deals by stage:`, dealCategories);
+
         const achievedAmount = dealCategories['CLOSED'].value || 0;
         const targetAmount = 50000000; // Target: ₹5Cr
         const revenueAggregation = await Deal.aggregate([
@@ -119,19 +194,13 @@ export const getDashboardStats = async (req, res) => {
         ]);
         const totalRevenue = revenueAggregation[0]?.total || 0;
 
-        const totalLeads = leadsByStageRaw.reduce((sum, l) => sum + l.count, 0) || 1;
         const wonLeadsCount = leadCategories['CLOSED'] || 0;
         const conversionRate = (wonLeadsCount / totalLeads) * 100;
 
-        const populatedInventory = (inventoryStatsRaw || []).map(item => ({
-            status: lookupMap[item._id?.toString()] || 'Available',
-            count: item.count
-        }));
-
-        // 6. Project Stats
+        // 7. Project Stats
         const projectCount = await Project.countDocuments({ status: { $ne: 'Deleted' } });
 
-        // 6. High Value Agenda (Live Tasks & Site Visits)
+        // 8. High Value Agenda (Live Tasks & Site Visits)
         const agendaActivities = await Activity.find({
             $or: [
                 { dueDate: { $lt: tomorrow }, status: { $regex: /pending|in progress/i } },
@@ -158,9 +227,7 @@ export const getDashboardStats = async (req, res) => {
                 time: a.dueTime || 'Planned'
             })).slice(0, 5);
 
-        // 7. Contextual AI Smart Insights
-        // 7. Contextual AI Smart Insights
-
+        // 9. Contextual AI Smart Insights
         const aiAlertHub = {
             followupFailure: activityCounts.overdue?.[0]?.count > 0 ? [{
                 id: 'fail-1',
@@ -203,6 +270,7 @@ export const getDashboardStats = async (req, res) => {
             },
             aiAlertHub,
             autoSuggestions,
+            financialIntelligence,
             performance: {
                 target: targetAmount,
                 achieved: achievedAmount,

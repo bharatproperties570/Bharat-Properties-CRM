@@ -656,7 +656,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                 <i className="fas fa-search-plus" style={{ fontSize: '3rem', marginBottom: '1.5rem', color: 'var(--primary-color)', opacity: 0.5 }}></i>
                 <h2 style={{ color: 'var(--text-main)', marginBottom: '0.5rem' }}>Record Not Found</h2>
                 <p>No contact or lead found with ID: {contactId}</p>
-                <button onClick={onBack} className="btn-primary" style={{ marginTop: '20px' }}>Back to Sales Pipeline</button>
+                <button onClick={() => onBack(recordType)} className="btn-primary" style={{ marginTop: '20px' }}>Back to Sales Pipeline</button>
             </div>
         );
     }
@@ -803,7 +803,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                 boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                    <button onClick={onBack} style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', width: '36px', height: '36px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s' }}>
+                    <button onClick={() => onBack(recordType)} style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', width: '36px', height: '36px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s' }}>
                         <i className="fas fa-arrow-left"></i>
                     </button>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>

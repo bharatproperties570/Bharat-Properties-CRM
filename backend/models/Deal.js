@@ -154,7 +154,8 @@ const DealSchema = new mongoose.Schema({
             buyerContacted: { type: Boolean, default: false },
             sellerContacted: { type: Boolean, default: false }
         },
-        remarks: String
+        remarks: String,
+        lossReasons: [String]
     },
     negotiation_window: { type: Boolean, default: false },
 

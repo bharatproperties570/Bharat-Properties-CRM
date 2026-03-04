@@ -664,17 +664,14 @@ function ProjectsPage({ onNavigate, onAddProject }) {
 
                                             {/* Col 7: Assignment */}
                                             <div className="col-assignment">
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                    <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
-                                                        {getInitials(getUserName(project.owner))}
+                                                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', gap: '4px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                        <i className="fas fa-users" style={{ fontSize: '0.75rem', color: '#64748b' }}></i>
+                                                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{getTeamName(project.team || project.assignment?.team)}</div>
                                                     </div>
-                                                    <div style={{ lineHeight: 1.2 }}>
-                                                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{getUserName(project.owner)}</div>
-                                                        <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{getTeamName(project.team || project.assignment?.team)}</div>
-                                                        <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginTop: '2px' }}>
-                                                            <i className="far fa-clock" style={{ fontSize: '0.6rem', marginRight: '4px' }}></i>
-                                                            {project.createdAt ? new Date(project.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : (project.date || 'N/A')}
-                                                        </div>
+                                                    <div style={{ fontSize: '0.62rem', color: '#94a3b8', display: 'flex', alignItems: 'center' }}>
+                                                        <i className="far fa-clock" style={{ fontSize: '0.6rem', marginRight: '4px' }}></i>
+                                                        {project.createdAt ? new Date(project.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : (project.date || 'N/A')}
                                                     </div>
                                                 </div>
                                             </div>

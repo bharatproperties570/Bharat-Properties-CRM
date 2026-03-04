@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { usePropertyConfig } from '../context/PropertyConfigContext';
 
 function AddDocumentModal({ isOpen, onClose, onSave, project }) {
+    const { projectMasterFields } = usePropertyConfig();
     const [documents, setDocuments] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
 
@@ -134,31 +136,37 @@ function AddDocumentModal({ isOpen, onClose, onSave, project }) {
                             <div key={index} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1.5fr 1fr 1fr 1fr 40px', gap: '16px', marginBottom: '16px', alignItems: 'end' }}>
                                 <div>
                                     <label style={labelStyle}>Document Name</label>
-                                    <input
-                                        type="text"
+                                    <select
                                         value={doc.documentName}
-                                        placeholder="e.g. RERA Approval"
                                         onChange={(e) => {
                                             const newDocs = [...documents];
                                             newDocs[index].documentName = e.target.value;
                                             setDocuments(newDocs);
                                         }}
                                         style={inputStyle}
-                                    />
+                                    >
+                                        <option value="">Select Document</option>
+                                        {projectMasterFields?.approvals?.map(app => (
+                                            <option key={app} value={app}>{app}</option>
+                                        ))}
+                                    </select>
                                 </div>
                                 <div>
                                     <label style={labelStyle}>Approval Authority</label>
-                                    <input
-                                        type="text"
+                                    <select
                                         value={doc.approvalAuthority}
-                                        placeholder="Authority Name"
                                         onChange={(e) => {
                                             const newDocs = [...documents];
                                             newDocs[index].approvalAuthority = e.target.value;
                                             setDocuments(newDocs);
                                         }}
                                         style={inputStyle}
-                                    />
+                                    >
+                                        <option value="">Select Authority</option>
+                                        {projectMasterFields?.approvalAuthorities?.map(auth => (
+                                            <option key={auth} value={auth}>{auth}</option>
+                                        ))}
+                                    </select>
                                 </div>
                                 <div>
                                     <label style={labelStyle}>Registration No.</label>

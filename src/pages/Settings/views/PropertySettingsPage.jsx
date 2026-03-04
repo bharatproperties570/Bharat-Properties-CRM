@@ -1003,11 +1003,13 @@ const PropertySettingsPage = () => {
                             <div style={{ width: '280px', borderRight: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem' }}>Field Name</div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
-                                    {masterFields && Object.keys(masterFields).map(field => (
-                                        <div key={field} onClick={() => setActiveOrientationField(field)} style={{ padding: '16px', cursor: 'pointer', fontWeight: activeOrientationField === field ? 700 : 500, color: activeOrientationField === field ? '#2563eb' : '#334155', background: activeOrientationField === field ? '#fff' : 'transparent', borderLeft: activeOrientationField === field ? '4px solid #2563eb' : '4px solid transparent', textTransform: 'capitalize' }}>
-                                            {field.replace(/([A-Z])/g, ' $1').trim()}
-                                        </div>
-                                    ))}
+                                    {masterFields && Object.keys(masterFields)
+                                        .filter(field => field !== 'documents')
+                                        .map(field => (
+                                            <div key={field} onClick={() => setActiveOrientationField(field)} style={{ padding: '16px', cursor: 'pointer', fontWeight: activeOrientationField === field ? 700 : 500, color: activeOrientationField === field ? '#2563eb' : '#334155', background: activeOrientationField === field ? '#fff' : 'transparent', borderLeft: activeOrientationField === field ? '4px solid #2563eb' : '4px solid transparent', textTransform: 'capitalize' }}>
+                                                {field.replace(/([A-Z])/g, ' $1').trim()}
+                                            </div>
+                                        ))}
                                 </div>
                             </div>
                             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#fff' }}>

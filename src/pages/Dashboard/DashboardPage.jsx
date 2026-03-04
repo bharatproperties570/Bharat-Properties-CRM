@@ -237,13 +237,13 @@ const DashboardPage = () => {
                                             chart: { toolbar: { show: false } },
                                             plotOptions: { bar: { borderRadius: 4, horizontal: true, barHeight: '70%' } },
                                             colors: ['var(--primary-color)'],
-                                            xaxis: { categories: (dashboardData?.leads || []).length > 0 ? dashboardData.leads.map(l => l.status) : ['Incoming', 'Prospect', 'Opp.', 'Neg.', 'Won'] },
+                                            xaxis: { categories: (dashboardData?.leads || []).map(l => l.status) },
                                             grid: { borderColor: '#f1f5f9' },
                                             dataLabels: { enabled: false }
                                         }}
                                         series={[{
                                             name: 'Leads',
-                                            data: (dashboardData?.leads || []).length > 0 ? dashboardData.leads.map(l => l.count) : [0, 0, 0, 0, 0]
+                                            data: (dashboardData?.leads || []).map(l => l.count)
                                         }]}
                                         type="bar" height={200}
                                     />
@@ -269,13 +269,13 @@ const DashboardPage = () => {
                                 <Suspense fallback={<ChartPlaceholder />}>
                                     <Chart
                                         options={{
-                                            labels: (data.financialIntelligence?.portfolioMix?.labels || []).length > 0 ? data.financialIntelligence.portfolioMix.labels : ['Plots', 'Villas', 'Industrial'],
+                                            labels: data.financialIntelligence?.portfolioMix?.labels || [],
                                             colors: ['var(--primary-color)', 'var(--success-color)', 'var(--marketing-orange)', '#8b5cf6'],
                                             legend: { position: 'bottom', fontSize: '11px', fontWeight: 600 },
                                             stroke: { width: 0 },
                                             plotOptions: { pie: { donut: { size: '75%' } } }
                                         }}
-                                        series={(data.financialIntelligence?.portfolioMix?.series || []).length > 0 ? data.financialIntelligence.portfolioMix.series : [0, 0, 0]}
+                                        series={data.financialIntelligence?.portfolioMix?.series || []}
                                         type="donut" height={200}
                                     />
                                 </Suspense>

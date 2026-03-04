@@ -941,13 +941,6 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                         />
                     </div>
                     <div>
-                        <label style={labelStyle}>Owner</label>
-                        <select style={customSelectStyle} value={formData.owner} onChange={e => setFormData({ ...formData, owner: e.target.value })}>
-                            <option value="">Select Owner</option>
-                            {userOptions.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
-                        </select>
-                    </div>
-                    <div>
                         <label style={labelStyle}>Visibility</label>
                         <select style={customSelectStyle} value={formData.visibleTo} onChange={e => setFormData({ ...formData, visibleTo: e.target.value })}>
                             <option value="Private">Private</option>

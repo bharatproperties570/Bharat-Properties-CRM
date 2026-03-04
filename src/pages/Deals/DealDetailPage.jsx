@@ -227,14 +227,16 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     }, [dealId]);
 
     const handleMarkAsLost = async (reasons = null) => {
+        // If clicking from the main header button without reasons, just toggle the sidebar
         if (!reasons && !isMarkingLost) {
             setIsMarkingLost(true);
             return;
         }
 
+        // If 'reasons' is provided (from the sidebar), proceed with confirmation
         const result = await Swal.fire({
-            title: reasons ? 'Confirm Deal Loss?' : 'Mark Deal as Lost?',
-            text: reasons ? "This will permanently record the loss reasons." : "This will move the deal to 'Closed Lost' stage.",
+            title: 'Confirm Deal Loss?',
+            text: "This will move the deal to 'Closed Lost' stage and record the reasons.",
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#ef4444',
@@ -252,8 +254,8 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                     closingDetails: {
                         isClosed: true,
                         closingDate: new Date(),
-                        remarks: reasons?.remarks || '',
-                        lossReasons: reasons?.primaryReasons || []
+                        remarks: reasons?.remarks || deal.closingDetails?.remarks || '',
+                        lossReasons: reasons?.primaryReasons || deal.closingDetails?.lossReasons || []
                     }
                 });
                 if (res.data && (res.data.success || res.data.status === 'success')) {
@@ -261,11 +263,12 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                     setIsMarkingLost(false);
                     fetchDealDetails(); // Refresh data
                 } else {
-                    toast.error('Failed to update deal status');
+                    toast.error(res.data?.message || res.data?.error || 'Failed to update deal status');
                 }
             } catch (error) {
                 console.error("Error marking deal as lost:", error);
-                toast.error('Error updating status');
+                const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Error updating status';
+                toast.error(errorMsg);
             }
         }
     };
@@ -481,7 +484,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
                     <button onClick={onBack} style={{
-                        background: '#fff', border: '1px solid #e2e8h0',
+                        background: '#fff', border: '1px solid #e2e8f0',
                         borderRadius: '12px', width: '40px', height: '40px',
                         cursor: 'pointer', color: '#64748b', transition: 'all 0.2s',
                         display: 'flex', alignItems: 'center', justifyContent: 'center'
@@ -583,6 +586,8 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                     </div>
                 </div>
 
+                {/* Action Buttons Group */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: 'auto', marginRight: '20px' }}>
                     {/* Mark as Lost Button (Visible only for non-terminal stages) */}
                     {deal.stage !== 'Closed Won' && deal.stage !== 'Closed Lost' && deal.stage !== 'Cancelled' && (
                         <button
@@ -603,25 +608,41 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                             }}
                             className="hover:scale-105 transition-all"
                         >
-                            <i className={`fas ${isMarkingLost ? 'fa-times' : 'fa-handshake-slash'}`}></i> 
+                            <i className={`fas ${isMarkingLost ? 'fa-times' : 'fa-handshake-slash'}`}></i>
                             {isMarkingLost ? 'Cancel Loss' : 'Mark as Lost'}
                         </button>
                     )}
 
-                    {/* Communication Buttons */}
-                    <button
-                        onClick={() => setIsCallModalOpen(true)}
-                        style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 12px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-                        className="hover:bg-slate-50 transition-all"
-                    >
-                        <i className="fas fa-phone-alt" style={{ color: '#10b981' }}></i> Call
-                    </button>
+                    {/* Communication Actions */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                            onClick={() => setIsCallModalOpen(true)}
+                            style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 12px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                            className="hover:bg-slate-50 transition-all"
+                        >
+                            <i className="fas fa-phone-alt" style={{ color: '#10b981' }}></i> Call
+                        </button>
+                        <button
+                            onClick={() => setIsMessageModalOpen(true)}
+                            style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 12px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                            className="hover:bg-slate-50 transition-all"
+                        >
+                            <i className="fas fa-comment-dots" style={{ color: '#3b82f6' }}></i> SMS
+                        </button>
+                        <button
+                            onClick={() => setIsEmailModalOpen(true)}
+                            style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 12px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                            className="hover:bg-slate-50 transition-all"
+                        >
+                            <i className="fas fa-envelope" style={{ color: '#f59e0b' }}></i> Email
+                        </button>
+                    </div>
 
                     {/* Three-Dot More Menu */}
                     <div style={{ position: 'relative' }}>
                         <button
                             onClick={() => setShowMoreMenu(!showMoreMenu)}
-                            style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyCenter: 'center', cursor: 'pointer', color: '#64748b' }}
+                            style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}
                             className="hover:bg-slate-50 transition-all"
                         >
                             <i className="fas fa-ellipsis-v"></i>
@@ -705,40 +726,40 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                             </div>
                         )}
                     </div>
+                </div>
 
 
-                    {/* Refined Assignment Plate - Matching Lead Detail Style */}
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '12px',
-                        padding: '4px 12px',
-                        background: '#f8fafc',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '8px'
-                    }}>
-                        {/* Name Stack */}
-                        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap' }}>
-                                {deal.assignedTo?.name || deal.partyStructure?.internalRM?.name || 'Unassigned'}
-                            </span>
-                            <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>
-                                {deal.team?.name || getLookupValue('Team', deal.assignedTo?.team) || 'Standard Team'}
-                            </span>
-                        </div>
+                {/* Refined Assignment Plate - Matching Lead Detail Style */}
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '4px 12px',
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px'
+                }}>
+                    {/* Name Stack */}
+                    <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap' }}>
+                            {deal.assignedTo?.name || deal.partyStructure?.internalRM?.name || 'Unassigned'}
+                        </span>
+                        <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>
+                            {deal.team?.name || getLookupValue('Team', deal.assignedTo?.team) || 'Standard Team'}
+                        </span>
+                    </div>
 
-                        {/* Divider */}
-                        <div style={{ width: '1px', height: '18px', background: '#cbd5e1' }}></div>
+                    {/* Divider */}
+                    <div style={{ width: '1px', height: '18px', background: '#cbd5e1' }}></div>
 
-                        {/* Visibility Icon */}
-                        <div title={`Visibility: ${deal.visibleTo || 'Everyone'}`} style={{ display: 'flex', alignItems: 'center' }}>
-                            {(() => {
-                                const v = (deal.visibleTo || 'Everyone').toLowerCase();
-                                if (v === 'private') return <i className="fas fa-lock" style={{ color: '#ef4444', fontSize: '0.85rem' }}></i>;
-                                if (v === 'team') return <i className="fas fa-users" style={{ color: '#3b82f6', fontSize: '0.85rem' }}></i>;
-                                return <i className="fas fa-globe" style={{ color: '#10b981', fontSize: '0.85rem' }}></i>;
-                            })()}
-                        </div>
+                    {/* Visibility Icon */}
+                    <div title={`Visibility: ${deal.visibleTo || 'Everyone'}`} style={{ display: 'flex', alignItems: 'center' }}>
+                        {(() => {
+                            const v = (deal.visibleTo || 'Everyone').toLowerCase();
+                            if (v === 'private') return <i className="fas fa-lock" style={{ color: '#ef4444', fontSize: '0.85rem' }}></i>;
+                            if (v === 'team') return <i className="fas fa-users" style={{ color: '#3b82f6', fontSize: '0.85rem' }}></i>;
+                            return <i className="fas fa-globe" style={{ color: '#10b981', fontSize: '0.85rem' }}></i>;
+                        })()}
                     </div>
                 </div>
             </header>
@@ -788,7 +809,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 <div style={{ flex: '1.5', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
 
                     {/* 💰 PRICING & FINANCIAL INTELLIGENCE */}
-                    <div style={cardStyle}>
+                    <div style={cardStyle} >
                         <div style={sectionHeaderStyle}>
                             <h3 style={sectionTitleStyle}>
                                 <div style={{ width: '32px', height: '32px', background: '#ecfdf5', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
@@ -921,7 +942,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                     </div>
 
                     {/* UNIT SPECIFICATIONS */}
-                    <div style={cardStyle}>
+                    <div style={cardStyle} >
                         <div style={sectionHeaderStyle}>
                             <h3 style={sectionTitleStyle}>
                                 <div style={{ width: '32px', height: '32px', background: '#f0f9ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
@@ -964,7 +985,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                     </div>
 
                     {/* LOCATION DETAILS */}
-                    <div style={cardStyle}>
+                    <div style={cardStyle} >
                         <div style={sectionHeaderStyle}>
                             <h3 style={sectionTitleStyle}>
                                 <div style={{ width: '32px', height: '32px', background: '#fffbeb', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
@@ -994,7 +1015,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                     </div>
 
                     {/* BUILTUP DETAILS */}
-                    <div style={cardStyle}>
+                    <div style={cardStyle} >
                         <div style={sectionHeaderStyle}>
                             <h3 style={sectionTitleStyle}>
                                 <div style={{ width: '32px', height: '32px', background: '#f3e8ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
@@ -1049,127 +1070,129 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 <div style={{ flex: '1', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
                     {/* 🔴 DEAL LOSS ANALYSIS (Conditional) */}
-                    {(isMarkingLost || deal.stage === 'Closed Lost') && (
-                        <div style={{
-                            background: '#fff',
-                            borderRadius: '16px',
-                            border: '1px solid #fee2e2',
-                            boxShadow: '0 8px 32px rgba(239, 68, 68, 0.08)',
-                            overflow: 'hidden',
-                            marginBottom: '16px',
-                            animation: 'slideInRight 0.3s ease'
-                        }}>
+                    {
+                        (isMarkingLost || deal.stage === 'Closed Lost') && (
                             <div style={{
-                                padding: '14px 20px',
-                                background: '#fef2f2',
-                                borderBottom: '1px solid #fee2e2',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center'
+                                background: '#fff',
+                                borderRadius: '16px',
+                                border: '1px solid #fee2e2',
+                                boxShadow: '0 8px 32px rgba(239, 68, 68, 0.08)',
+                                overflow: 'hidden',
+                                marginBottom: '16px',
+                                animation: 'slideInRight 0.3s ease'
                             }}>
-                                <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <i className="fas fa-exclamation-triangle"></i> Loss Analysis
-                                </span>
-                                <span style={{ background: '#ef4444', color: '#fff', fontSize: '0.65rem', fontWeight: 900, padding: '2px 8px', borderRadius: '4px' }}>LOST</span>
-                            </div>
+                                <div style={{
+                                    padding: '14px 20px',
+                                    background: '#fef2f2',
+                                    borderBottom: '1px solid #fee2e2',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center'
+                                }}>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-exclamation-triangle"></i> Loss Analysis
+                                    </span>
+                                    <span style={{ background: '#ef4444', color: '#fff', fontSize: '0.65rem', fontWeight: 900, padding: '2px 8px', borderRadius: '4px' }}>LOST</span>
+                                </div>
 
-                            <div style={{ padding: '20px' }}>
-                                {deal.stage === 'Closed Lost' ? (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Selected Reasons</div>
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                            {(deal.closingDetails?.lossReasons || ['Price Issue']).map((r, i) => (
-                                                <span key={i} style={{ padding: '4px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, color: '#475569' }}>
-                                                    {r}
-                                                </span>
-                                            ))}
-                                        </div>
-                                        {deal.closingDetails?.remarks && (
-                                            <div style={{ marginTop: '8px' }}>
-                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Closure Remarks</div>
-                                                <p style={{ fontSize: '0.8rem', color: '#1e293b', background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', margin: 0 }}>
-                                                    {deal.closingDetails.remarks}
-                                                </p>
-                                            </div>
-                                        )}
-                                    </div>
-                                ) : (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                                        <div>
-                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', marginBottom: '10px' }}>Primary Reasons (Select)</div>
-                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                                                {['Price Mismatch', 'Location Issue', 'Lost to Competitor', 'Budget Constraints', 'Regulatory Issues', 'Delayed Decision'].map((reason) => (
-                                                    <button
-                                                        key={reason}
-                                                        onClick={() => {
-                                                            const current = deal.closingDetails?.lossReasons || [];
-                                                            const next = current.includes(reason) ? current.filter(r => r !== reason) : [...current, reason];
-                                                            setDeal(prev => ({
-                                                                ...prev,
-                                                                closingDetails: { ...prev.closingDetails, lossReasons: next }
-                                                            }));
-                                                        }}
-                                                        style={{
-                                                            padding: '8px',
-                                                            background: (deal.closingDetails?.lossReasons || []).includes(reason) ? '#ef4444' : '#fff',
-                                                            border: `1px solid ${(deal.closingDetails?.lossReasons || []).includes(reason) ? '#ef4444' : '#e2e8f0'}`,
-                                                            color: (deal.closingDetails?.lossReasons || []).includes(reason) ? '#fff' : '#475569',
-                                                            borderRadius: '8px',
-                                                            fontSize: '0.7rem',
-                                                            fontWeight: 700,
-                                                            cursor: 'pointer',
-                                                            transition: 'all 0.2s'
-                                                        }}
-                                                    >
-                                                        {reason}
-                                                    </button>
+                                <div style={{ padding: '20px' }}>
+                                    {deal.stage === 'Closed Lost' ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Selected Reasons</div>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                                {(deal.closingDetails?.lossReasons || ['Price Issue']).map((r, i) => (
+                                                    <span key={i} style={{ padding: '4px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, color: '#475569' }}>
+                                                        {r}
+                                                    </span>
                                                 ))}
                                             </div>
+                                            {deal.closingDetails?.remarks && (
+                                                <div style={{ marginTop: '8px' }}>
+                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Closure Remarks</div>
+                                                    <p style={{ fontSize: '0.8rem', color: '#1e293b', background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', margin: 0 }}>
+                                                        {deal.closingDetails.remarks}
+                                                    </p>
+                                                </div>
+                                            )}
                                         </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                            <div>
+                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', marginBottom: '10px' }}>Primary Reasons (Select)</div>
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                                    {['Price Mismatch', 'Location Issue', 'Lost to Competitor', 'Budget Constraints', 'Regulatory Issues', 'Delayed Decision'].map((reason) => (
+                                                        <button
+                                                            key={reason}
+                                                            onClick={() => {
+                                                                const current = deal.closingDetails?.lossReasons || [];
+                                                                const next = current.includes(reason) ? current.filter(r => r !== reason) : [...current, reason];
+                                                                setDeal(prev => ({
+                                                                    ...prev,
+                                                                    closingDetails: { ...prev.closingDetails, lossReasons: next }
+                                                                }));
+                                                            }}
+                                                            style={{
+                                                                padding: '8px',
+                                                                background: (deal.closingDetails?.lossReasons || []).includes(reason) ? '#ef4444' : '#fff',
+                                                                border: `1px solid ${(deal.closingDetails?.lossReasons || []).includes(reason) ? '#ef4444' : '#e2e8f0'}`,
+                                                                color: (deal.closingDetails?.lossReasons || []).includes(reason) ? '#fff' : '#475569',
+                                                                borderRadius: '8px',
+                                                                fontSize: '0.7rem',
+                                                                fontWeight: 700,
+                                                                cursor: 'pointer',
+                                                                transition: 'all 0.2s'
+                                                            }}
+                                                        >
+                                                            {reason}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
 
-                                        <div>
-                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', marginBottom: '8px' }}>Manual Remarks</div>
-                                            <textarea
-                                                placeholder="Add detailed reason for loss..."
-                                                value={deal.closingDetails?.remarks || ''}
-                                                onChange={(e) => setDeal(prev => ({
-                                                    ...prev,
-                                                    closingDetails: { ...prev.closingDetails, remarks: e.target.value }
-                                                }))}
+                                            <div>
+                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', marginBottom: '8px' }}>Manual Remarks</div>
+                                                <textarea
+                                                    placeholder="Add detailed reason for loss..."
+                                                    value={deal.closingDetails?.remarks || ''}
+                                                    onChange={(e) => setDeal(prev => ({
+                                                        ...prev,
+                                                        closingDetails: { ...prev.closingDetails, remarks: e.target.value }
+                                                    }))}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '12px',
+                                                        borderRadius: '12px',
+                                                        border: '1px solid #e2e8f0',
+                                                        fontSize: '0.8rem',
+                                                        minHeight: '80px',
+                                                        outline: 'none',
+                                                        resize: 'none'
+                                                    }}
+                                                />
+                                            </div>
+
+                                            <button
+                                                onClick={() => handleMarkAsLost({ primaryReasons: deal.closingDetails?.lossReasons, remarks: deal.closingDetails?.remarks })}
                                                 style={{
-                                                    width: '100%',
                                                     padding: '12px',
+                                                    background: '#ef4444',
+                                                    color: '#fff',
+                                                    border: 'none',
                                                     borderRadius: '12px',
-                                                    border: '1px solid #e2e8f0',
                                                     fontSize: '0.8rem',
-                                                    minHeight: '80px',
-                                                    outline: 'none',
-                                                    resize: 'none'
+                                                    fontWeight: 800,
+                                                    cursor: 'pointer',
+                                                    boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)'
                                                 }}
-                                            />
+                                            >
+                                                CONFIRM DEAL LOSS
+                                            </button>
                                         </div>
-
-                                        <button
-                                            onClick={() => handleMarkAsLost({ primaryReasons: deal.closingDetails?.lossReasons, remarks: deal.closingDetails?.remarks })}
-                                            style={{
-                                                padding: '12px',
-                                                background: '#ef4444',
-                                                color: '#fff',
-                                                border: 'none',
-                                                borderRadius: '12px',
-                                                fontSize: '0.8rem',
-                                                fontWeight: 800,
-                                                cursor: 'pointer',
-                                                boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)'
-                                            }}
-                                        >
-                                            CONFIRM DEAL LOSS
-                                        </button>
-                                    </div>
-                                )}
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    )}
+                        )
+                    }
 
                     {/* 🎯 MATCHED LEADS - TOP PRIORITY */}
                     <div style={cardStyle}>

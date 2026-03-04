@@ -1,34 +1,29 @@
 
 import mongoose from 'mongoose';
+import Lookup from './models/Lookup.js';
 import dotenv from 'dotenv';
 
-dotenv.config();
-
-const LookupSchema = new mongoose.Schema({
-    lookup_type: String,
-    lookup_value: String,
-    is_active: Boolean
-}, { timestamps: true });
-
-const Lookup = mongoose.model('Lookup', LookupSchema);
+dotenv.config({ path: './.env' });
 
 async function checkLookups() {
     try {
-        console.log('Connecting to MongoDB...');
         await mongoose.connect(process.env.MONGODB_URI);
-        console.log('Connected.');
 
-        const lookups = await Lookup.find({ lookup_type: 'Category' });
-        console.log(`Found ${lookups.length} Category lookups.`);
+        const typesToCheck = ['Document-Category', 'Document-Type', 'DocumentCategory', 'DocumentType'];
+        const results = {};
 
-        lookups.forEach(l => {
-            console.log(`Value: ${l.lookup_value}, Created At: ${l.createdAt}`);
-        });
+        for (const type of typesToCheck) {
+            results[type] = await Lookup.countDocuments({ lookup_type: type });
+        }
 
-        process.exit(0);
+        console.log('Lookup Counts:', JSON.stringify(results, null, 2));
+
+        const categories = await Lookup.find({ lookup_type: { $in: ['Document-Category', 'DocumentCategory'] } });
+        console.log('All Categories:', JSON.stringify(categories.map(c => ({ _id: c._id, value: c.lookup_value, type: c.lookup_type })), null, 2));
+
+        await mongoose.disconnect();
     } catch (error) {
         console.error('Error:', error);
-        process.exit(1);
     }
 }
 
