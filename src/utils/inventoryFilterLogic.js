@@ -86,7 +86,7 @@ export const applyInventoryFilters = (items, filters) => {
         if (filters.project) {
             // Loose matching: check if item project matches or if area string contains the project name
             if (item.project && item.project !== filters.project) return false;
-            if (!item.project && !item.area.includes(filters.project)) return false;
+            if (!item.project && (!item.area || !item.area.includes(filters.project))) return false;
         }
 
         // 8. Orientation Filters (Facing, Direction, Road Width)
