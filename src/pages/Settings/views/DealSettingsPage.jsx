@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { api, lookupsAPI } from '../../../utils/api';
 import toast from 'react-hot-toast';
 import CreateGlobalConfigModal from '../../../components/CreateGlobalConfigModal';
-import { PROPERTY_CATEGORIES, ROAD_WIDTH_OPTIONS } from '../../../data/propertyData';
+import { PROPERTY_CATEGORIES, ROAD_WIDTH_OPTIONS } from '../../../constants/propertyConstants';
 
 // --- Helper Components ---
 const LiveClock = () => {

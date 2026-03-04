@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { api, enrichmentAPI } from '../../utils/api';
-import { contactData, leadData, inventoryData, suggestedTags } from '../../data/mockData';
+// Mock data removed
+const contactData = [];
+const leadData = [];
+const inventoryData = [];
+const suggestedTags = [];
 import { getInitials } from '../../utils/helpers';
 import LeadConversionService from '../../services/LeadConversionService';
 import { calculateLeadScore, getLeadTemperature } from '../../utils/leadScoring';
@@ -29,7 +33,7 @@ import EnterprisePipeline from '../../components/EnterprisePipeline';
 import UnifiedActivitySection from '../../components/Activities/UnifiedActivitySection';
 
 const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
-    const { scoringAttributes, activityMasterFields } = usePropertyConfig(); // Inject Context
+    const { scoringAttributes, activityMasterFields, scoreBands } = usePropertyConfig(); // Inject Context
     const { sequences, enrollments, updateEnrollmentStatus } = useSequences();
     const { users: contextUsers } = useUserContext();
     const [contact, setContact] = useState(null);
@@ -72,6 +76,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
     const [contactDocuments, setContactDocuments] = useState([]);
     const [matchedDeals, setMatchedDeals] = useState([]);
     const [loadingMatches, setLoadingMatches] = useState(false);
+    const [liveScoreData, setLiveScoreData] = useState({ score: 0, label: 'Cold', color: '#94a3b8', tempClass: 'cold' });
 
     const showNotification = (message) => {
         setToast(message);
@@ -201,159 +206,181 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
     };
 
 
-    useEffect(() => {
-        const fetchData = async () => {
-            if (!contactId) return;
+    const fetchRelatedData = async (id, type, recordData) => {
+        try {
+            // Fetch Documents
+            if (recordData.documents && Array.isArray(recordData.documents)) {
+                setContactDocuments(recordData.documents);
+            }
 
-            try {
-                // Try fetching as contact first
-                let response = await api.get(`contacts/${contactId}`);
-                let foundType = 'contact';
+            // Fetch Deals where contact is involved
+            const dealsRes = await api.get(`deals?contactId=${id}`);
+            if (dealsRes.data && dealsRes.data.success) {
+                const deals = dealsRes.data.records || [];
+                setActiveDeals(deals.filter(d => {
+                    if (d.stage === 'lost' || d.stage === 'won' || d.stage === 'Cancelled') return false;
+                    const isOwner = (d.owner && (d.owner._id === id || d.owner === id)) ||
+                        (d.partyStructure?.owner && (d.partyStructure.owner._id === id || d.partyStructure.owner === id));
+                    const isAssociate = d.associatedContact && (d.associatedContact._id === id || d.associatedContact === id);
+                    return isOwner || isAssociate;
+                }));
+            }
 
-                if (!response.data || !response.data.success) {
-                    // Try fetching as lead
-                    response = await api.get(`leads/${contactId}`);
-                    foundType = 'lead';
+            // Fetch Inventory where contact is owner
+            const invRes = await api.get(`inventory?search=${recordData.mobile || recordData.name || ''}`);
+            if (invRes.data && invRes.data.success) {
+                const inventory = invRes.data.records || [];
+                const owned = [];
+                const history = [];
+                const normalize = (phone) => phone?.toString()?.replace(/\D/g, '')?.slice(-10);
+                const contactPhone = normalize(recordData?.mobile);
+
+                inventory.forEach(item => {
+                    const ownerPhone = normalize(item.ownerPhone);
+                    const prevOwnerPhone = normalize(item.previousOwnerPhone);
+                    if (ownerPhone === contactPhone) owned.push(item);
+                    else if (prevOwnerPhone === contactPhone) history.push(item);
+                });
+                setOwnedProperties(owned);
+                setHistoryProperties(history);
+            }
+
+            // Match Deals Logic for Leads
+            if (type === 'lead') {
+                setLoadingMatches(true);
+                try {
+                    const inventoryRes = await api.get('inventory', { params: { limit: 100 } });
+                    if (inventoryRes.data && inventoryRes.data.success) {
+                        const inventoryItems = inventoryRes.data.records || [];
+                        const requirementVal = renderLookup(recordData.requirement, "");
+                        const locationVal = renderLookup(recordData.searchLocation || recordData.location, "");
+                        const budgetVal = (recordData.budgetMin || recordData.budgetMax)
+                            ? `₹${recordData.budgetMin} - ₹${recordData.budgetMax}`
+                            : renderLookup(recordData.budget, "");
+                        const sizeVal = `${recordData.areaMin || ""}-${recordData.areaMax || ""} ${renderLookup(recordData.areaMetric, "")}`.trim();
+
+                        const baseBudget = parseBudget(budgetVal);
+                        const leadSize = parseSizeSqYard(sizeVal);
+                        const leadContext = {
+                            baseBudget,
+                            leadSize,
+                            leadType: requirementVal.toLowerCase(),
+                            leadLocation: locationVal.toLowerCase(),
+                            leadLocationSectors: locationVal.toLowerCase().split(',').map(s => s.trim()).filter(Boolean)
+                        };
+
+                        const weights = { location: 30, type: 20, budget: 25, size: 25 };
+                        const options = { budgetFlexibility: 20, sizeFlexibility: 20, includeNearby: true, minMatchScore: 40 };
+                        const matches = calculateMatch(recordData, leadContext, weights, options, inventoryItems);
+                        setMatchedDeals(matches.slice(0, 5));
+                    }
+                } catch (matchErr) {
+                    console.error("Error matching deals:", matchErr);
+                } finally {
+                    setLoadingMatches(false);
+                }
+            }
+        } catch (err) {
+            console.error("Error fetching related dynamic data", err);
+        }
+    };
+
+    const fetchLiveScore = async (id) => {
+        try {
+            const res = await api.get(`stage-engine/leads/scores?leadId=${id}`);
+            if (res.data && res.data.success) {
+                // More robust lookup: find any key that matches or just take the first entry if filtering by leadId
+                const scores = res.data.scores || {};
+                const live = scores[id] || Object.values(scores)[0];
+
+                if (live) {
+                    setLiveScoreData({
+                        score: Math.round(live.score || 0),
+                        label: live.label || 'Unknown',
+                        color: live.color || '#94a3b8',
+                        tempClass: live.tempClass || 'cold'
+                    });
+                }
+            }
+        } catch (err) {
+            console.error("Error fetching live score:", err);
+        }
+    };
+
+    const fetchData = React.useCallback(async () => {
+        if (!contactId) return;
+
+        try {
+            // Try fetching as contact first
+            let response = await api.get(`contacts/${contactId}`);
+            let foundType = 'contact';
+
+            if (!response.data || !response.data.success) {
+                // Try fetching as lead
+                response = await api.get(`leads/${contactId}`);
+                foundType = 'lead';
+            }
+
+            if (response.data && response.data.success) {
+                const data = response.data.data;
+                setContact(data);
+
+                // Robust Record Type Detection
+                let finalType = foundType;
+                if (data.type === 'Lead' || data.isLead || data.requirement || recordType === 'lead') {
+                    finalType = 'lead';
                 }
 
-                if (response.data && response.data.success) {
-                    const data = response.data.data;
-                    setContact(data);
+                setRecordType(finalType);
+                fetchUnifiedTimeline(contactId, finalType);
 
-                    // Robust Record Type Detection
-                    let finalType = foundType;
-                    if (data.type === 'Lead' || data.isLead || data.requirement || recordType === 'lead') {
-                        finalType = 'lead';
-                    }
+                // Fetch live score for leads
+                if (finalType === 'lead') {
+                    fetchLiveScore(contactId);
+                }
 
-                    setRecordType(finalType);
-                    fetchUnifiedTimeline(contactId, finalType);
-
-                    // Users are now fetched via UserContext
-
-                    // Fetch related data
-                    fetchRelatedData(contactId, finalType, data);
+                // Fetch related data
+                fetchRelatedData(contactId, finalType, data);
+            } else {
+                setContact(null);
+            }
+        } catch (error) {
+            // Fallback
+            try {
+                const leadRes = await api.get(`leads/${contactId}`);
+                if (leadRes.data && leadRes.data.success) {
+                    const leadData = leadRes.data.data;
+                    setContact(leadData);
+                    setRecordType('lead');
+                    fetchUnifiedTimeline(contactId, 'lead');
+                    fetchRelatedData(contactId, 'lead', leadData);
                 } else {
                     setContact(null);
                 }
-            } catch (error) {
-                // If it fails, try lead if it was contact or vice versa
-                try {
-                    const leadRes = await api.get(`leads/${contactId}`);
-                    if (leadRes.data && leadRes.data.success) {
-                        const leadData = leadRes.data.data;
-                        setContact(leadData);
-                        setRecordType('lead');
-                        fetchUnifiedTimeline(contactId, 'lead');
-
-                        // Fetch related data
-                        fetchRelatedData(contactId, 'lead', leadData);
-                    } else {
-                        setContact(null);
-                    }
-                } catch (e) {
-                    console.error("Error fetching record details:", e);
-                    setContact(null);
-                }
+            } catch (e) {
+                console.error("Error fetching record details:", e);
+                setContact(null);
             }
-        };
-
-        const fetchRelatedData = async (id, type, recordData) => {
-            try {
-                // Fetch Documents (already in recordData.documents typically, but if not we can set it)
-                if (recordData.documents && Array.isArray(recordData.documents)) {
-                    setContactDocuments(recordData.documents);
-                }
-
-                // Fetch Deals where contact is involved
-                const dealsRes = await api.get(`deals?contactId=${id}`);
-                if (dealsRes.data && dealsRes.data.success) {
-                    // Filter active deals specifically to owner or associate roles
-                    const deals = dealsRes.data.records || [];
-                    setActiveDeals(deals.filter(d => {
-                        // Skip inactive/closed
-                        if (d.stage === 'lost' || d.stage === 'won' || d.stage === 'Cancelled') return false;
-
-                        // Check if contact acts as owner or associate
-                        const isOwner = (d.owner && (d.owner._id === id || d.owner === id)) ||
-                            (d.partyStructure?.owner && (d.partyStructure.owner._id === id || d.partyStructure.owner === id));
-                        const isAssociate = d.associatedContact && (d.associatedContact._id === id || d.associatedContact === id);
-
-                        return isOwner || isAssociate;
-                    }));
-                }
-
-                // Fetch Inventory where contact is owner
-                const invRes = await api.get(`inventory?search=${recordData.mobile || recordData.name || ''}`);
-                if (invRes.data && invRes.data.success) {
-                    const inventory = invRes.data.records || [];
-
-                    const owned = [];
-                    const history = [];
-
-                    const normalize = (phone) => phone?.toString()?.replace(/\D/g, '')?.slice(-10);
-                    const contactPhone = normalize(recordData?.mobile);
-
-                    inventory.forEach(item => {
-                        const ownerPhone = normalize(item.ownerPhone);
-                        const prevOwnerPhone = normalize(item.previousOwnerPhone);
-
-                        if (ownerPhone === contactPhone) {
-                            owned.push(item);
-                        } else if (prevOwnerPhone === contactPhone) {
-                            history.push(item);
-                        }
-                    });
-
-                    setOwnedProperties(owned);
-                    setHistoryProperties(history);
-                }
-
-                // Match Deals Logic for Leads
-                if (type === 'lead') {
-                    setLoadingMatches(true);
-                    try {
-                        const inventoryRes = await api.get('inventory', { params: { limit: 100 } });
-                        if (inventoryRes.data && inventoryRes.data.success) {
-                            const inventoryItems = inventoryRes.data.records || [];
-
-                            const requirementVal = renderLookup(recordData.requirement, "");
-                            const locationVal = renderLookup(recordData.searchLocation || recordData.location, "");
-                            const budgetVal = (recordData.budgetMin || recordData.budgetMax)
-                                ? `₹${recordData.budgetMin} - ₹${recordData.budgetMax}`
-                                : renderLookup(recordData.budget, "");
-                            const sizeVal = `${recordData.areaMin || ""}-${recordData.areaMax || ""} ${renderLookup(recordData.areaMetric, "")}`.trim();
-
-                            const baseBudget = parseBudget(budgetVal);
-                            const leadSize = parseSizeSqYard(sizeVal);
-
-                            const leadContext = {
-                                baseBudget,
-                                leadSize,
-                                leadType: requirementVal.toLowerCase(),
-                                leadLocation: locationVal.toLowerCase(),
-                                leadLocationSectors: locationVal.toLowerCase().split(',').map(s => s.trim()).filter(Boolean)
-                            };
-
-                            const weights = { location: 30, type: 20, budget: 25, size: 25 };
-                            const options = { budgetFlexibility: 20, sizeFlexibility: 20, includeNearby: true, minMatchScore: 40 };
-
-                            const matches = calculateMatch(recordData, leadContext, weights, options, inventoryItems);
-                            setMatchedDeals(matches.slice(0, 5)); // Only show top 5 for the compact view
-                        }
-                    } catch (matchErr) {
-                        console.error("Error matching deals:", matchErr);
-                    } finally {
-                        setLoadingMatches(false);
-                    }
-                }
-            } catch (err) {
-                console.error("Error fetching related dynamic data", err);
-            }
-        };
-
-        fetchData();
+        }
     }, [contactId]);
+
+    useEffect(() => {
+        fetchData();
+
+        // ── LIVE REFRESH LISTENER ───────────────────────────────────────────
+        // Triggered by ActivityOutcomeModal after stage updates
+        const handleRefresh = (e) => {
+            const { entityId } = e.detail;
+            if (entityId === contactId) {
+                console.info('[ContactDetail] Activity completed event caught. Refreshing live stage...');
+                fetchData();
+                fetchLiveScore(contactId);
+            }
+        };
+
+        window.addEventListener('activity-completed', handleRefresh);
+        return () => window.removeEventListener('activity-completed', handleRefresh);
+    }, [contactId, fetchData]);
 
     const toggleSection = (section) => {
         setExpandedSections(prev =>
@@ -378,7 +405,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
             return acc;
         }, { due: [], upcoming: [], completed: [] });
 
-        const scoring = calculateLeadScore(contact || {}, activities, { scoringAttributes, activityMasterFields });
+        const scoring = calculateLeadScore(contact || {}, activities, { scoringAttributes, activityMasterFields, scoreBands });
 
         // Smart Property Ownership Matching
         const normalize = (phone) => phone?.toString()?.replace(/\D/g, '')?.slice(-10);
@@ -421,12 +448,12 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
         });
 
         const leadScore = {
-            total: contact?.leadScore || scoring.total,
+            total: Math.max(scoring.total || 0, contact?.intent_index || 0, contact?.leadScore || 0),
             formScore: scoring.formScore,
             activityScore: scoring.activityScore,
             detail: scoring.breakdown,
             intent: scoring.intent,
-            temp: scoring.temperature,
+            temp: scoring.temperature || { label: 'COLD', class: 'cold', color: '#94a3b8' },
             categorized,
             ownedProperties: ownedProperties || [] // Injected from useEffect fetch
         };
@@ -789,13 +816,25 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                     {`${contact.title ? renderLookup(contact.title) + ' ' : ''}${contact.name ? contact.name : (contact.firstName || '') + ' ' + (contact.surname || contact.lastName || '')}`.trim()}
                                 </h1>
                                 {recordType === 'lead' && contact && (
-                                    <div className={`score-indicator ${aiStats.leadScore.temp.class}`} style={{ width: '32px', height: '32px', fontSize: '0.8rem', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', border: '2px solid #fff', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', background: aiStats.leadScore.temp.color, color: '#fff' }}>
-                                        {aiStats.leadScore.total}
-                                    </div>
-                                )}
-                                {recordType === 'lead' && contact.intent_index > 0 && (
-                                    <div title="Intent Index" style={{ width: '32px', height: '32px', fontSize: '0.8rem', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '900', border: '2px solid #fff', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', background: contact.intent_index >= 70 ? '#10b981' : contact.intent_index >= 40 ? '#f59e0b' : '#ef4444', color: '#fff' }}>
-                                        {contact.intent_index}
+                                    <div
+                                        className={`score-indicator ${(liveScoreData.score > 0 && liveScoreData.tempClass) ? liveScoreData.tempClass : (aiStats.leadScore.temp?.class || 'cold')}`}
+                                        style={{
+                                            width: '32px',
+                                            height: '32px',
+                                            fontSize: '0.8rem',
+                                            borderRadius: '50%',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontWeight: '800',
+                                            border: '2px solid #fff',
+                                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                                            background: liveScoreData.score > 0 ? liveScoreData.color : (aiStats.leadScore.temp?.color || '#94a3b8'),
+                                            color: '#fff'
+                                        }}
+                                        title={`Live Score: ${liveScoreData.score || aiStats.leadScore.total}`}
+                                    >
+                                        {liveScoreData.score > 0 ? liveScoreData.score : aiStats.leadScore.total}
                                     </div>
                                 )}
                                 <div style={{ display: 'flex', gap: '4px' }}>

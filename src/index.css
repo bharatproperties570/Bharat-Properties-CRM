@@ -2008,12 +2008,15 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: #fff !important;
+    font-size: 0.85rem;
+    font-weight: 900;
+    color: #ffffff !important;
     /* Always white text */
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     border: 2px solid #fff;
+    z-index: 2;
+    position: relative;
+    flex-shrink: 0;
 }
 
 .score-indicator.high,

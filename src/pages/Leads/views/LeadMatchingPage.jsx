@@ -1,10 +1,9 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { whatsappTemplates } from '../../../data/mockData';
+import { whatsappTemplates } from '../../../constants/templates';
 import ComposeEmailModal from '../../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../../components/SendMessageModal';
 import CreateActivityModal from '../../../components/CreateActivityModal';
 import AlgorithmSettingsModal from '../components/AlgorithmSettingsModal';
-import { PROJECTS_LIST } from '../../../data/projectData';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
 import { parseBudget, parseSizeSqYard, calculateMatch } from '../../../utils/matchingLogic';
@@ -559,7 +558,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     onClick={() => {
                                         // Improved project matching logic
                                         const areaText = (item.area || item.location || '').toLowerCase();
-                                        const matchingProject = PROJECTS_LIST.find(p =>
+                                        const matchingProject = [].find(p =>
                                             areaText.includes(p.name.toLowerCase()) ||
                                             p.name.toLowerCase().includes(areaText)
                                         );

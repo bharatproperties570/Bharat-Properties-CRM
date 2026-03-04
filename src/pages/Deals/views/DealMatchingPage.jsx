@@ -156,17 +156,13 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                 }
             }
 
-            // Add mock stage and score if missing for professional feel
-            const mockScores = [92, 78, 45, 88, 62, 35];
-            const mockStages = ['Site Visit', 'Follow-up', 'Negotiation', 'Prospect', 'Initial Contact', 'Closure'];
-
             return {
                 ...lead,
                 matchPercentage: Math.round(score),
                 matchDetails: details,
                 gaps,
-                leadScore: lead.score?.val || mockScores[index % mockScores.length],
-                leadStage: lead.stage || mockStages[index % mockStages.length]
+                leadScore: lead.score?.val || 0,
+                leadStage: lead.stage || 'Prospect'
             };
         })
             .filter(l => l.matchPercentage > 10)

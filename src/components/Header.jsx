@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { contactData, leadData, inventoryData } from '../data/mockData';
+// Mock data removed
+const contactData = [];
+const leadData = [];
+const inventoryData = [];
 
 function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompany, onAddProject, onAddInventory, onAddDeal }) {
     const [showNotifications, setShowNotifications] = useState(false);

@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { bookingData } from '../../data/bookingData';
 import AccountPage from '../Account/AccountPage'; // Import AccountPage as a sub-view
 import AddBookingModal from '../../components/AddBookingModal';
 import { api } from '../../utils/api';
@@ -80,13 +79,12 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         nextAction: null
                     }
                 }));
-                // We show mock data along with real data for development/visualization if requested, 
-                // but usually we should just show real data. For now, let's show real data and fallback to mock if empty.
-                setBookings(mapped.length > 0 ? mapped : bookingData);
+
+                setBookings(mapped);
             }
         } catch (error) {
             console.error("Error fetching bookings:", error);
-            setBookings(bookingData); // Fallback
+            setBookings([]);
         } finally {
             setIsLoading(false);
         }
@@ -312,7 +310,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
 
     // --- Stats Calculation ---
     const stats = useMemo(() => {
-        const data = bookings.length > 0 ? bookings : bookingData;
+        const data = bookings;
         const totalDeals = data.length;
         const totalValue = data.reduce((sum, b) => b.stage !== 'Cancelled' ? sum + b.financials.dealValue : sum, 0);
         const pendingComm = data.reduce((sum, b) => b.stage !== 'Cancelled' ? sum + b.financials.commissionPending : sum, 0);
@@ -322,7 +320,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
 
     // --- Filtering ---
     const filteredData = useMemo(() => {
-        const data = bookings.length > 0 ? bookings : bookingData;
+        const data = bookings;
         return data.filter(item => {
             const matchesTab = activeTab === 'All' || item.stage === activeTab;
             const searchLower = searchTerm.toLowerCase();

@@ -12,7 +12,9 @@ const connectDB = async () => {
         if (config.mockMode) {
             mongoose.set('bufferCommands', false);
         }
-        const conn = await mongoose.connect(config.mongoUri);
+        const conn = await mongoose.connect(config.mongoUri, {
+            autoIndex: false // Prevent startup hang during index building
+        });
         console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
     } catch (error) {
         console.error(`❌ MongoDB Connection Error: ${error.message}`);

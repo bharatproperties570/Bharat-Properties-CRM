@@ -1,18 +1,19 @@
-import app from "../app.js";
 import connectDB from "./config/db.js";
 import config from "./config/env.js";
+import mongoose from "mongoose";
+import fs from 'fs';
+import path from 'path';
 
 // Initialize BullMQ Queues and Workers
 import { cronQueue } from "./queues/queueManager.js";
 import "./workers/enrichmentWorker.js";
 import "./workers/cronWorker.js";
 
-import fs from 'fs';
-import path from 'path';
-
 const logStartup = (msg) => {
     const logPath = path.join(process.cwd(), 'startup.log');
-    fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${msg}\n`);
+    try {
+        fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${msg}\n`);
+    } catch (e) { }
 };
 
 process.on('uncaughtException', (err) => {
@@ -29,28 +30,43 @@ process.on('unhandledRejection', (reason, promise) => {
     }
 });
 
-connectDB().then(async () => {
-    app.listen(config.port, () => {
-        const msg = `🚀 CRM Backend running on port ${config.port}\n📊 Environment: ${config.nodeEnv}\n🔧 Mock Mode: ${config.mockMode ? 'Enabled' : 'Disabled'}`;
-        console.log(msg);
-        logStartup(msg);
-    });
-
+/**
+ * CRM Backend Startup Logic
+ * We connect to MongoDB before loading the application modules (app.js)
+ * to prevent hangs during index building and model registration in ESM.
+ */
+async function startServer() {
     try {
-        // Schedule repeatable background jobs without blocking the event loop
-        cronQueue.add('dailyInactivityCheck', {}, {
-            repeat: { pattern: '0 2 * * *' } // Every day at 2:00 AM
-        }).catch(e => console.warn("⚠️ Cron job failed to schedule: Redis offline."));
+        // Connect to MongoDB
+        await connectDB();
 
-        cronQueue.add('followUpReminders', {}, {
-            repeat: { pattern: '0 * * * *' } // Every hour, on the hour
-        }).catch(e => console.warn("⚠️ Cron job failed to schedule: Redis offline."));
-    } catch (queueErr) {
-        console.warn("⚠️  Redis/BullMQ not available locally. Background Cron jobs skipped.");
+        // Dynamically load app to ensure DB is connected first
+        const { default: app } = await import("../app.js");
+
+        app.listen(config.port, () => {
+            const msg = `🚀 CRM Backend running on port ${config.port} (Env: ${config.nodeEnv})`;
+            console.log(msg);
+            logStartup(msg);
+        });
+
+        // Schedule background jobs
+        try {
+            cronQueue.add('dailyInactivityCheck', {}, {
+                repeat: { pattern: '0 2 * * *' }
+            }).catch(() => { });
+
+            cronQueue.add('followUpReminders', {}, {
+                repeat: { pattern: '0 * * * *' }
+            }).catch(() => { });
+        } catch (queueErr) {
+            console.warn("⚠️  BullMQ/Redis not fully available locally.");
+        }
+
+    } catch (err) {
+        console.error("❌ Critical Startup Error:", err);
+        logStartup(`❌ Critical Startup Error: ${err.message}`);
+        process.exit(1);
     }
+}
 
-}).catch(err => {
-    console.error("❌ Failed to connect to MongoDB", err);
-    logStartup(`❌ Failed to connect to DB: ${err.message}\n${err.stack}`);
-    process.exit(1);
-});
+startServer();

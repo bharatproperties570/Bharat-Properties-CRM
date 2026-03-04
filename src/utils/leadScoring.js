@@ -12,15 +12,28 @@ export const calculateLeadScore = (lead, activities = [], config = {}) => {
         sourceQualityScores = {},
         inventoryFitScores = {},
         decayRules = {},
-        stageMultipliers = {}
+        stageMultipliers = {},
+        scoreBands = {}
     } = config;
 
     // Safety check for activities
     if (!Array.isArray(activities)) activities = [];
 
-    // Helper: Safely get points
-    const getAttr = (obj, key) => obj?.[key]?.points || 0;
-    const getMult = (obj, key) => obj?.[key]?.value || 1.0;
+    // Helper: Safely get points (Case-insensitive)
+    const getAttr = (obj, key) => {
+        if (!obj || !key) return 0;
+        const normalizedKey = key.toLowerCase();
+        // Find key in object regardless of case
+        const actualKey = Object.keys(obj).find(k => k.toLowerCase() === normalizedKey);
+        return actualKey ? (obj[actualKey]?.points || 0) : 0;
+    };
+
+    const getMult = (obj, key) => {
+        if (!obj || !key) return 1.0;
+        const normalizedKey = key.toLowerCase();
+        const actualKey = Object.keys(obj).find(k => k.toLowerCase() === normalizedKey);
+        return actualKey ? (obj[actualKey]?.value || 1.0) : 1.0;
+    };
 
     let debugLog = {}; // For Explainability
 
@@ -48,13 +61,32 @@ export const calculateLeadScore = (lead, activities = [], config = {}) => {
     // --- B. ACTIVITY SCORE (Dynamic Behaviour) ---
     let activityScore = 0;
     activities.forEach(act => {
-        // Find matching activity definition
-        const actDef = activityMasterFields?.activities?.find(a => a.name === act.type);
+        // Find matching activity definition (Case-insensitive)
+        const actName = (act.type || act.activityType || '').toLowerCase();
+        const actDef = activityMasterFields?.activities?.find(a => (a.name || '').toLowerCase() === actName);
+
         if (actDef) {
-            const purpDef = actDef.purposes?.find(p => p.name === act.purpose);
+            const purpName = (act.purpose || act.details?.purpose || act.subject || '').toLowerCase();
+            const purpDef = actDef.purposes?.find(p => (p.name || '').toLowerCase() === purpName);
+
             if (purpDef) {
-                // Check mapped outcome
-                const outcome = purpDef.outcomes?.find(o => o.label === act.outcome);
+                // Check mapped outcome (Case-insensitive) - check completions from modal specifically
+                let outcomeLabel = (act.outcome || act.details?.completionResult || act.details?.outcome || '').toLowerCase();
+
+                // Professional Fix: Scan nested properties for Site Visits
+                if (!outcomeLabel && actName === 'site visit' && Array.isArray(act.details?.visitedProperties)) {
+                    const priority = { 'very interested': 1, 'shortlisted': 2, 'somewhat interested': 3 };
+                    const foundResult = act.details.visitedProperties
+                        .map(p => (p.result || '').toLowerCase())
+                        .filter(r => r)
+                        .sort((a, b) => (priority[a] || 99) - (priority[b] || 99))[0];
+                    if (foundResult) outcomeLabel = foundResult;
+                }
+
+                const outcome = purpDef.outcomes?.find(o => {
+                    const label = (o.label || '').toLowerCase();
+                    return label === outcomeLabel || outcomeLabel.includes(label) || label.includes(outcomeLabel);
+                });
                 if (outcome) activityScore += (outcome.score || 0);
             }
         }
@@ -64,32 +96,44 @@ export const calculateLeadScore = (lead, activities = [], config = {}) => {
     // --- C. SOURCE QUALITY SCORE ---
     let sourceScore = 0;
     const srcMap = {
-        'Referral': 'referral',
-        'Direct': 'walkIn', // Example mapping
-        'Google': 'google',
-        'Facebook': 'socialMedia',
-        'Instagram': 'socialMedia',
-        '99Acres': 'portal',
-        'MagicBricks': 'portal',
-        'Housing': 'portal',
-        'Cold Call': 'coldCall'
+        'referral': 'referral',
+        'reference': 'referral',
+        'direct': 'walkIn',
+        'walk-in': 'walkIn',
+        'walk in': 'walkIn',
+        'google': 'google',
+        'google ads': 'google',
+        'fb': 'socialMedia',
+        'facebook': 'socialMedia',
+        'instagram': 'socialMedia',
+        'ig': 'socialMedia',
+        'social': 'socialMedia',
+        '99acres': 'portal',
+        'magicbricks': 'portal',
+        'housing': 'portal',
+        'portal': 'portal',
+        'cold call': 'coldCall'
     };
 
     // Normalize source (handle object or string)
     const sourceVal = (typeof lead.source === 'object' && lead.source)
-        ? (lead.source.lookup_value || lead.source.label || lead.source.name)
-        : lead.source;
+        ? (lead.source.lookup_value || lead.source.label || lead.source.name || '')
+        : (lead.source || '');
 
-    const srcKey = srcMap[sourceVal] || 'coldCall'; // Default to lowest if unknown
+    const normalizedSourceVal = sourceVal.toString().toLowerCase().trim();
+    const srcKey = srcMap[normalizedSourceVal] || 'coldCall';
+
     sourceScore += getAttr(sourceQualityScores, srcKey);
     debugLog.source = sourceScore;
 
     // --- D. INVENTORY FIT SCORE ---
     let fitScore = 0;
-    // Mock logic: assume 'matched' count is on lead object
     const matchCount = parseInt(lead.matched || 0);
     if (matchCount >= 5) fitScore += getAttr(inventoryFitScores, 'match5Plus');
-    else if (matchCount === 0) fitScore += getAttr(inventoryFitScores, 'none');
+    else if (matchCount === 0) {
+        // Only penalize if they've been active but found nothing
+        if (activities.length > 0) fitScore += getAttr(inventoryFitScores, 'none');
+    }
 
     // Price deviation (Mock: checking a flag)
     if (lead.priceFit === 'good') fitScore += getAttr(inventoryFitScores, 'priceDev5');
@@ -98,8 +142,7 @@ export const calculateLeadScore = (lead, activities = [], config = {}) => {
 
     // --- E. TIME DECAY PENALTY ---
     let decayPenalty = 0;
-    // Calculate days since last activity
-    const lastActDate = new Date(lead.lastActivityDate || new Date());
+    const lastActDate = new Date(lead.lastActivityDate || lead.updatedAt || new Date());
     const now = new Date();
     const diffTime = Math.abs(now - lastActDate);
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -113,23 +156,32 @@ export const calculateLeadScore = (lead, activities = [], config = {}) => {
     // --- F. STAGE MULTIPLIER ---
     let multiplier = 1.0;
     const stageKeyMap = {
-        'New': 'incoming',
-        'Prospect': 'prospect',
-        'Opportunity': 'opportunity',
-        'Negotiation': 'negotiation',
-        'Qualified': 'prospect', // Fallback for Qualified
-        'Open': 'prospect'       // Fallback for Open
+        'new': 'incoming',
+        'incoming': 'incoming',
+        'prospect': 'prospect',
+        'contacted': 'prospect',
+        'interested': 'prospect',
+        'qualified': 'prospect',
+        'opportunity': 'opportunity',
+        'meeting scheduled': 'opportunity',
+        'negotiation': 'negotiation',
+        'booked': 'negotiation', // Cap at negotiation multiplier
+        'closed won': 'negotiation',
+        'won': 'negotiation',
+        'stalled': 'incoming'
     };
 
     // Normalize stage (handle object or string)
     const stageVal = (typeof lead.stage === 'object' && lead.stage)
-        ? (lead.stage.lookup_value || lead.stage.label || lead.stage.name)
-        : lead.stage;
+        ? (lead.stage.lookup_value || lead.stage.label || lead.stage.name || 'New')
+        : (lead.stage || 'New');
 
-    const stageKey = stageKeyMap[stageVal] || 'prospect';
+    const normalizedStageVal = stageVal.toString().toLowerCase().trim();
+    const stageKey = stageKeyMap[normalizedStageVal] || 'prospect';
     multiplier = getMult(stageMultipliers, stageKey);
 
     // --- FINAL CALCULATION ---
+    // (A + B + C + D + E) * Multiplier
     let rawScore = (attributeScore + activityScore + sourceScore + fitScore + decayPenalty) * multiplier;
 
     // Round and Cap
@@ -140,16 +192,30 @@ export const calculateLeadScore = (lead, activities = [], config = {}) => {
     return {
         total: finalScore,
         breakdown: debugLog,
-        temperature: getLeadTemperature(finalScore),
+        temperature: getLeadTemperature(finalScore, scoreBands),
         intent: getAIIntent(finalScore)
     };
 };
 
-export const getLeadTemperature = (score) => {
-    if (score >= 81) return { label: 'SUPER HOT', class: 'super-hot', color: '#7c3aed' };
-    if (score >= 61) return { label: 'HOT', class: 'hot', color: '#ef4444' };
-    if (score >= 31) return { label: 'WARM', class: 'warm', color: '#f59e0b' };
-    return { label: 'COLD', class: 'cold', color: '#64748b' };
+export const getLeadTemperature = (score, scoreBands = {}) => {
+    // Priority 1: User defined Scoring Bands from Settings
+    if (scoreBands.superHot && score >= (scoreBands.superHot.min || 81)) {
+        return { label: scoreBands.superHot.label || 'SUPER HOT', class: 'super-hot', color: scoreBands.superHot.color || '#7c3aed' };
+    }
+    if (scoreBands.hot && score >= (scoreBands.hot.min || 61)) {
+        return { label: scoreBands.hot.label || 'HOT', class: 'hot', color: scoreBands.hot.color || '#ef4444' };
+    }
+    if (scoreBands.warm && score >= (scoreBands.warm.min || 31)) {
+        return { label: scoreBands.warm.label || 'WARM', class: 'warm', color: scoreBands.warm.color || '#f59e0b' };
+    }
+
+    // Fallback: Default Cold
+    const cold = scoreBands.cold || {};
+    return {
+        label: cold.label || 'COLD',
+        class: 'cold',
+        color: cold.color || '#64748b'
+    };
 };
 
 export const getAIIntent = (score) => {

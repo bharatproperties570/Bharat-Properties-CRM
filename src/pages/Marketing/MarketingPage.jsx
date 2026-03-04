@@ -1,7 +1,10 @@
-import React, { useState, useMemo } from 'react';
-import { marketingData, calculateGlobalKPIs, generateAIInsights } from '../../data/marketingData';
+import React, { useState, useMemo, useEffect } from 'react';
+import { api } from '../../utils/api';
+import toast from 'react-hot-toast';
 
 function MarketingPage({ onNavigate }) {
+    const [forms, setForms] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('online');
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const [showAIInsights, setShowAIInsights] = useState(true);
@@ -9,6 +12,96 @@ function MarketingPage({ onNavigate }) {
     const [searchQuery, setSearchQuery] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(10);
+
+    useEffect(() => {
+        fetchForms();
+    }, []);
+
+    const fetchForms = async () => {
+        try {
+            setLoading(true);
+            const response = await api.get('/lead-forms');
+            if (response.data && response.data.success) {
+                setForms(response.data.data);
+            }
+        } catch (error) {
+            console.error('Error fetching marketing data:', error);
+            toast.error('Failed to load marketing campaigns');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Mapping forms to marketingData structure
+    const marketingData = useMemo(() => {
+        const data = { online: [], offline: [], organic: [], intelligenceProspects: [] };
+        forms.forEach(form => {
+            const analytics = form.analytics || { views: 0, submissions: 0, conversions: 0 };
+            const campaign = {
+                id: form._id,
+                name: form.formTitle,
+                platform: form.type === 'Online' ? 'Form Engine' : 'Offline Engine',
+                totalSpend: 0,
+                budgetUtilization: 0,
+                leadsGenerated: analytics.submissions,
+                qualificationRate: analytics.submissions > 0 ? Math.round((analytics.conversions / analytics.submissions) * 100) : 0,
+                mqlCount: analytics.submissions,
+                sqlCount: analytics.conversions,
+                costPerLead: 0,
+                benchmarkCPL: 500,
+                cac: 0,
+                ltv: 0,
+                ltvCacRatio: 0,
+                dealsClosed: analytics.conversions,
+                conversionRate: analytics.views > 0 ? ((analytics.submissions / analytics.views) * 100).toFixed(1) : 0,
+                roi: 0,
+                healthStatus: { label: 'Active', color: '#10b981', bg: '#dcfce7' },
+                performanceScore: 85,
+                propertyPerformance: [],
+                type: form.type,
+                source: 'CRM Builder',
+                views: analytics.views,
+                clicks: analytics.views,
+                assistedDeals: analytics.conversions
+            };
+
+            if (form.type === 'Online') data.online.push(campaign);
+            else if (form.type === 'Offline') data.offline.push(campaign);
+            else data.organic.push(campaign);
+        });
+        return data;
+    }, [forms]);
+
+    if (loading) {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc', color: '#64748b' }}>
+                <div style={{ width: '40px', height: '40px', border: '4px solid #f3f3f3', borderTop: '4px solid #0ea5e9', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '16px' }}></div>
+                <p style={{ fontWeight: 600 }}>Syncing Marketing Analytics...</p>
+                <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+            </div>
+        );
+    }
+
+    const calculateGlobalKPIs = () => {
+        const totalLeads = forms.reduce((sum, f) => sum + (f.analytics?.submissions || 0), 0);
+        const totalVisits = forms.reduce((sum, f) => sum + (f.analytics?.views || 0), 0);
+        const totalDeals = forms.reduce((sum, f) => sum + (f.analytics?.conversions || 0), 0);
+        return {
+            totalSpend: 0,
+            totalRevenue: 0,
+            roi: 0,
+            globalCAC: 0,
+            ltvCacRatio: '0.0',
+            totalLeads,
+            avgCPL: 0,
+            totalSiteVisits: totalVisits,
+            totalDeals,
+            budgetRemaining: 0
+        };
+    };
+    const generateAIInsights = () => [
+        { campaign: 'Live Feed', message: `Total ${forms.length} active campaigns monitored.`, type: 'info', action: 'Optimize higher converting forms.' }
+    ];
 
     const globalKPIs = useMemo(() =>
         calculateGlobalKPIs(marketingData.online, marketingData.offline, marketingData.organic),

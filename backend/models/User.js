@@ -12,8 +12,7 @@ const UserSchema = new mongoose.Schema({
         required: [true, 'Email is required'],
         unique: true,
         lowercase: true,
-        trim: true,
-        index: true
+        trim: true
     },
     mobile: {
         type: String,
@@ -166,7 +165,6 @@ const UserSchema = new mongoose.Schema({
 });
 
 // ========== Indexes ==========
-UserSchema.index({ department: 1, status: 1 });
 UserSchema.index({ department: 1, status: 1 });
 UserSchema.index({ reportingTo: 1 });
 UserSchema.index({ team: 1 });

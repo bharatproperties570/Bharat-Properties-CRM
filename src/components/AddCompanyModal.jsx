@@ -4,7 +4,8 @@ import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useUserContext } from '../context/UserContext';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
-import { contactData } from '../data/mockData';
+// Mock data removed
+const contactData = [];
 
 const COUNTRY_CODES = [
     { name: 'India', dial_code: '+91', code: 'IN' },

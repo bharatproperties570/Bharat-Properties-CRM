@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { PROPERTY_CATEGORIES } from '../data/propertyData';
-import { INDIAN_ADDRESS_DATA } from '../data/locationData';
+import { PROPERTY_CATEGORIES } from '../constants/propertyConstants';
+import { INDIAN_ADDRESS_DATA } from '../constants/locationConstants';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useUserContext } from '../context/UserContext';
 import AddressDetailsForm from './common/AddressDetailsForm';
@@ -145,6 +145,7 @@ const DEFAULT_FORM_DATA = {
 
     // System Details
     visibleTo: 'All Users',
+    owner: '',
 
     // Location
     locationSearch: '',
@@ -938,6 +939,13 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                             onChange={(val) => setFormData({ ...formData, assign: val })}
                             placeholder="Assign User(s)"
                         />
+                    </div>
+                    <div>
+                        <label style={labelStyle}>Owner</label>
+                        <select style={customSelectStyle} value={formData.owner} onChange={e => setFormData({ ...formData, owner: e.target.value })}>
+                            <option value="">Select Owner</option>
+                            {userOptions.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
+                        </select>
                     </div>
                     <div>
                         <label style={labelStyle}>Visibility</label>

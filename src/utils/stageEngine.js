@@ -122,15 +122,19 @@ export const validateStageTransition = (
  * @returns {string} computed stage label
  */
 export const computeStage = (activityType, purpose, outcome, stageMappingRules = [], activityMasterFields = {}) => {
+    const actLower = (activityType || '').toLowerCase();
+    const purpLower = (purpose || '').toLowerCase();
+    const outLower = (outcome || '').toLowerCase();
+
     // 1. Check explicit override rules (ordered by priority ascending — lower number = higher priority)
     const sortedRules = [...stageMappingRules]
         .filter(r => r.isActive)
         .sort((a, b) => (a.priority || 99) - (b.priority || 99));
 
     for (const rule of sortedRules) {
-        const typeMatch = !rule.activityType || rule.activityType === activityType;
-        const purpMatch = !rule.purpose || rule.purpose === purpose;
-        const outcMatch = !rule.outcome || rule.outcome === outcome;
+        const typeMatch = !rule.activityType || rule.activityType.toLowerCase() === actLower;
+        const purpMatch = !rule.purpose || rule.purpose.toLowerCase() === purpLower;
+        const outcMatch = !rule.outcome || rule.outcome.toLowerCase() === outLower;
         if (typeMatch && purpMatch && outcMatch) {
             return rule.stage;
         }
@@ -138,11 +142,11 @@ export const computeStage = (activityType, purpose, outcome, stageMappingRules =
 
     // 2. Fall back to outcome.stage in activityMasterFields
     const activities = activityMasterFields?.activities || [];
-    const act = activities.find(a => a.name === activityType);
+    const act = activities.find(a => (a.name || '').toLowerCase() === actLower);
     if (act) {
-        const purp = act.purposes?.find(p => p.name === purpose);
+        const purp = act.purposes?.find(p => (p.name || '').toLowerCase() === purpLower);
         if (purp) {
-            const out = purp.outcomes?.find(o => o.label === outcome);
+            const out = purp.outcomes?.find(o => (o.label || '').toLowerCase() === outLower);
             if (out?.stage) return out.stage;
         }
     }

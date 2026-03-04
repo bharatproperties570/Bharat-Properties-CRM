@@ -1,4 +1,4 @@
-import { contactData, leadData } from '../data/mockData';
+// Mock data removed
 import { calculateLeadScore } from '../utils/leadScoring';
 
 /**
@@ -51,6 +51,10 @@ class LeadConversionService {
             };
         }
 
+        // Preparation for scoring with normalized labels (IDs to Labels)
+        // Since we don't have getLookupValue here easily, we rely on the lead object
+        // having lookup_value if it's an object, or we assume it's already a label
+        // if passed from UI. However, for robustness, we use a simple check.
         const scoring = calculateLeadScore(lead, lead.activities || [], config);
 
         // Prepare new contact data

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ChevronRight, Home, Building2, User, FileText, Calendar, Wallet, CheckCircle, Clock, Search, Filter, Plus, Phone, Mail, MoreVertical, Edit, Trash2, X, AlertCircle, FileCheck, DollarSign, Percent, Calculator, Printer, Settings } from 'lucide-react';
-import { api, lookupsAPI, dealsAPI, contactsAPI, usersAPI, enrichmentAPI } from '../../utils/api';
+import Swal from 'sweetalert2';
+import { api, lookupsAPI, dealsAPI, contactsAPI, usersAPI, enrichmentAPI, activitiesAPI } from '../../utils/api';
 import toast from 'react-hot-toast';
 import { formatIndianCurrency, numberToIndianWords } from '../../utils/numberToWords';
 import { renderValue } from '../../utils/renderUtils';
@@ -10,10 +11,17 @@ import { computeAging, computeDealDeath, detectCommissionLeakage, computeDealHea
 import { computeDealStageFromLeads } from '../../utils/syncEngine';
 import UnifiedActivitySection from '../../components/Activities/UnifiedActivitySection';
 import SingleDealLifecycle from '../../components/SingleDealLifecycle';
-import { activitiesAPI } from '../../utils/api';
+import CallModal from '../../components/CallModal';
+import SendMessageModal from '../../components/SendMessageModal';
+import ManageTagsModal from '../../components/ManageTagsModal';
+import DocumentUploadModal from '../../components/DocumentUploadModal';
+import AddBookingModal from '../../components/AddBookingModal';
+import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
+import { usePropertyConfig } from '../../context/PropertyConfigContext';
 
 
 const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
+    const { getLookupValue } = usePropertyConfig();
     const [deal, setDeal] = useState(null);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('activity');
@@ -25,6 +33,14 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const [valuationError, setValuationError] = useState(null);
     const [activities, setActivities] = useState([]);
     const [loadingActivities, setLoadingActivities] = useState(false);
+    const [liveScoreData, setLiveScoreData] = useState({ score: 0, color: '#94a3b8', label: 'Warm' });
+    const [showMoreMenu, setShowMoreMenu] = useState(false);
+    const [isCallModalOpen, setIsCallModalOpen] = useState(false);
+    const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
+    const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+    const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
+    const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+    const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
     // State for calculator inputs
     const [govtCharges, setGovtCharges] = useState({
@@ -209,6 +225,58 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         }
     }, [dealId]);
 
+    const handleMarkAsLost = async () => {
+        const result = await Swal.fire({
+            title: 'Mark Deal as Lost?',
+            text: "This will move the deal to 'Closed Lost' stage.",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#ef4444',
+            cancelButtonColor: '#64748b',
+            confirmButtonText: 'Yes, mark as lost',
+            background: '#fff',
+            borderRadius: '16px'
+        });
+
+        if (result.isConfirmed) {
+            try {
+                const res = await api.put(`deals/${dealId}`, {
+                    stage: 'Closed Lost',
+                    triggeredBy: 'manual_override'
+                });
+                if (res.data && (res.data.success || res.data.status === 'success')) {
+                    toast.success('Deal marked as LOST');
+                    fetchDealDetails(); // Refresh data
+                } else {
+                    toast.error('Failed to update deal status');
+                }
+            } catch (error) {
+                console.error("Error marking deal as lost:", error);
+                toast.error('Error updating status');
+            }
+        }
+    };
+
+    const fetchLiveScore = useCallback(async () => {
+        if (!dealId) return;
+        try {
+            const res = await api.get(`stage-engine/deals/scores?dealId=${dealId}`);
+            if (res.data && res.data.success) {
+                const scores = res.data.scores || {};
+                const live = scores[dealId] || Object.values(scores)[0];
+                if (live) {
+                    setLiveScoreData({
+                        score: Math.round(live.score || 0),
+                        color: live.color || '#94a3b8',
+                        label: live.label || 'Warm'
+                    });
+                }
+            }
+        } catch (err) {
+            console.error("Error fetching live score for deal:", err);
+        }
+    }, [dealId]);
+
     const fetchMatchingLeads = useCallback(async (inventoryId) => {
         try {
             const response = await api.get(`inventory/match?inventoryId=${inventoryId}`);
@@ -259,7 +327,8 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
 
     useEffect(() => {
         fetchDealDetails();
-    }, [fetchDealDetails]);
+        fetchLiveScore();
+    }, [fetchDealDetails, fetchLiveScore]);
 
     useEffect(() => {
         if (deal?.inventoryId?._id || deal?.inventoryId) {
@@ -399,13 +468,28 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
                     <button onClick={onBack} style={{
-                        background: '#fff', border: '1px solid #e2e8f0',
+                        background: '#fff', border: '1px solid #e2e8h0',
                         borderRadius: '12px', width: '40px', height: '40px',
                         cursor: 'pointer', color: '#64748b', transition: 'all 0.2s',
                         display: 'flex', alignItems: 'center', justifyContent: 'center'
                     }} className="hover:border-blue-400 hover:text-blue-500">
                         <i className="fas fa-chevron-left"></i>
                     </button>
+
+                    {/* Deal Score Indicator */}
+                    <div className={`score-indicator ${liveScoreData.score >= 80 ? 'super-hot' : liveScoreData.score >= 55 ? 'hot' : liveScoreData.score >= 30 ? 'warm' : 'cold'}`}
+                        style={{
+                            background: liveScoreData.color,
+                            width: '44px', height: '44px', borderRadius: '50%',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '0.9rem', fontWeight: 900, color: '#fff',
+                            boxShadow: `0 4px 12px ${liveScoreData.color}44`,
+                            border: '3px solid #fff'
+                        }}
+                        title={`Live Deal Score: ${liveScoreData.score}% (${liveScoreData.label})`}
+                    >
+                        {liveScoreData.score || '0'}
+                    </div>
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
                             <h1 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a', margin: 0, letterSpacing: '-0.02em', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
@@ -414,20 +498,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                     ({renderValue(deal.unitType) || 'Unit'})
                                 </span>
                             </h1>
-                            {/* Stage Badge with probability */}
-                            <span style={{
-                                backgroundColor: stageStyle.bg, color: stageStyle.text,
-                                padding: '4px 12px', borderRadius: '6px',
-                                fontSize: '0.7rem', fontWeight: 800,
-                                display: 'flex', alignItems: 'center', gap: '6px',
-                                textTransform: 'uppercase', letterSpacing: '0.05em', border: `1px solid ${stageStyle.dot}33`
-                            }}>
-                                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: stageStyle.dot }}></span>
-                                {currentStage}
-                                <span style={{ opacity: 0.6, fontSize: '0.6rem' }}>
-                                    {getStageProbability(stageAlerts.stageInfo?.label || currentStage)}% win
-                                </span>
-                            </span>
+                            {/* Stage Badge moved to pipeline */}
 
                             {/* Deal Death Alert */}
                             {stageAlerts.dealDeath?.stalled && (
@@ -494,76 +565,221 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                             <span className="mx-2 opacity-30">|</span>
                             <i className="fas fa-calendar-alt mr-1 opacity-50"></i> Created on {new Date(deal.createdAt || deal.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                             <span className="mx-2 opacity-30">|</span>
-                            Source: <span style={{ color: '#1e293b', fontWeight: 700 }}>{deal.source || 'Walk-in'}</span>
+                            Source: <span style={{ color: '#1e293b', fontWeight: 700 }}>{getLookupValue('Source', deal.source) || deal.source || 'Walk-in'}</span>
                         </p>
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '12px' }}>
-                    <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '12px' }}>
-                        <button style={{
-                            background: 'transparent', border: 'none', padding: '8px 14px', borderRadius: '8px',
-                            fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer'
-                        }} className="hover:bg-white hover:text-blue-600 transition-all">
-                            <i className="fas fa-share-alt mr-2"></i>Share
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    {/* Communication Buttons */}
+                    <button
+                        onClick={() => setIsCallModalOpen(true)}
+                        style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 12px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                        className="hover:bg-slate-50 transition-all"
+                    >
+                        <i className="fas fa-phone-alt" style={{ color: '#10b981' }}></i> Call
+                    </button>
+                    <button
+                        onClick={() => setIsMessageModalOpen(true)}
+                        style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 12px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                        className="hover:bg-slate-50 transition-all"
+                    >
+                        <i className="fas fa-comment-alt" style={{ color: '#3b82f6' }}></i> Message
+                    </button>
+                    <button
+                        onClick={() => setIsEmailModalOpen(true)}
+                        style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 12px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                        className="hover:bg-slate-50 transition-all"
+                    >
+                        <i className="fas fa-envelope" style={{ color: '#8b5cf6' }}></i> Email
+                    </button>
+
+                    {/* Mark as Lost Button (Visible only for non-terminal stages) */}
+                    {deal.stage !== 'Closed Won' && deal.stage !== 'Closed Lost' && deal.stage !== 'Cancelled' && (
+                        <button
+                            onClick={handleMarkAsLost}
+                            style={{
+                                background: '#fef2f2',
+                                color: '#ef4444',
+                                border: '1px solid #fee2e2',
+                                padding: '8px 12px',
+                                borderRadius: '10px',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}
+                            className="hover:bg-red-100 transition-all"
+                        >
+                            <i className="fas fa-times-circle"></i> Mark as Lost
                         </button>
-                        <button style={{
-                            background: 'transparent', border: 'none', padding: '8px 14px', borderRadius: '8px',
-                            fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer'
-                        }} className="hover:bg-white hover:text-blue-600 transition-all">
-                            <i className="fas fa-file-invoice-dollar mr-2"></i>Invoice
+                    )}
+
+                    {/* Three-Dot More Menu */}
+                    <div style={{ position: 'relative' }}>
+                        <button
+                            onClick={() => setShowMoreMenu(!showMoreMenu)}
+                            style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyCenter: 'center', cursor: 'pointer', color: '#64748b' }}
+                            className="hover:bg-slate-50 transition-all"
+                        >
+                            <i className="fas fa-ellipsis-v"></i>
                         </button>
+
+                        {showMoreMenu && (
+                            <div style={{
+                                position: 'absolute', top: '100%', right: 0, marginTop: '8px',
+                                background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px',
+                                boxShadow: '0 10px 25px rgba(0,0,0,0.1)', zIndex: 1000, minWidth: '200px',
+                                padding: '8px 0', overflow: 'hidden'
+                            }}>
+                                <button
+                                    onClick={() => { onAddActivity([{ type: 'Deal', id: deal._id, name: deal.dealId || 'Deal', model: 'Deal' }], { deal }); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-calendar-plus" style={{ color: '#ec4899', width: '16px' }}></i> Create Activity
+                                </button>
+                                <button
+                                    onClick={() => { toast.success("Generating Invoice..."); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-file-invoice-dollar" style={{ color: '#2563eb', width: '16px' }}></i> Invoice
+                                </button>
+                                <button
+                                    onClick={() => { setIsBookingModalOpen(true); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-book-medical" style={{ color: '#10b981', width: '16px' }}></i> Create Booking
+                                </button>
+                                <button
+                                    onClick={() => { setIsTagsModalOpen(true); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-tags" style={{ color: '#8b5cf6', width: '16px' }}></i> Manage Tags
+                                </button>
+                                <button
+                                    onClick={() => { setIsUploadModalOpen(true); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-cloud-upload-alt" style={{ color: '#f59e0b', width: '16px' }}></i> Upload
+                                </button>
+                                <button
+                                    onClick={() => { setIsUploadModalOpen(true); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-file-alt" style={{ color: '#64748b', width: '16px' }}></i> Document
+                                </button>
+                                <button
+                                    onClick={() => { onAddActivity([{ type: 'Deal', id: deal._id, name: deal.dealId || 'Deal', model: 'Deal' }], { deal, defaultType: 'Note' }); setShowMoreMenu(false); }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-slate-50"
+                                >
+                                    <i className="fas fa-sticky-note" style={{ color: '#facc15', width: '16px' }}></i> Note
+                                </button>
+                                <div style={{ height: '1px', background: '#e2e8f0', margin: '4px 0' }}></div>
+                                <button
+                                    onClick={async () => {
+                                        setShowMoreMenu(false);
+                                        try {
+                                            const res = await enrichmentAPI.runDeal(dealId);
+                                            if (res.success) {
+                                                toast.success('Deal Intelligence Enriched!');
+                                                fetchDealDetails();
+                                            }
+                                        } catch (e) {
+                                            toast.error('Enrichment failed');
+                                        }
+                                    }}
+                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 700, color: '#16a34a', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                    className="hover:bg-green-50"
+                                >
+                                    <i className="fas fa-magic" style={{ width: '16px' }}></i> Enrichment Intelligence
+                                </button>
+                            </div>
+                        )}
                     </div>
-                    <button
-                        onClick={() => onAddActivity([{ type: 'Deal', id: deal._id, name: deal.dealId || 'Deal', model: 'Deal' }], { deal })}
-                        style={{
-                            background: '#2563eb', color: '#fff', border: 'none',
-                            padding: '10px 20px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 800,
-                            cursor: 'pointer', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)',
-                            display: 'flex', alignItems: 'center', gap: '10px'
-                        }} className="hover:bg-blue-700 transition-all"
-                    >
-                        <i className="fas fa-plus"></i> NEW ACTIVITY
-                    </button>
-                    <button style={{
-                        background: '#fff', color: '#1e293b', border: '1px solid #e2e8f0',
-                        width: '44px', height: '44px', borderRadius: '12px',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer'
-                    }} className="hover:bg-slate-50">
-                        <i className="fas fa-ellipsis-v"></i>
-                    </button>
-                    <button
-                        onClick={async () => {
-                            try {
-                                const res = await enrichmentAPI.runDeal(dealId);
-                                if (res.success) {
-                                    toast.success('Deal Intelligence Enriched!');
-                                    fetchDealDetails();
-                                }
-                            } catch (e) {
-                                toast.error('Enrichment failed');
-                            }
-                        }}
-                        style={{
-                            background: '#fff', color: '#16a34a', border: '1px solid #dcfce7',
-                            width: '44px', height: '44px', borderRadius: '12px',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
-                        }}
-                        title="Run Enrichment Intelligence"
-                        className="hover:bg-green-50"
-                    >
-                        <i className="fas fa-magic"></i>
-                    </button>
+
+
+                    {/* Refined Assignment Plate - Matching Lead Detail Style */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        padding: '4px 12px',
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px'
+                    }}>
+                        {/* Name Stack */}
+                        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap' }}>
+                                {deal.assignedTo?.name || deal.partyStructure?.internalRM?.name || 'Unassigned'}
+                            </span>
+                            <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>
+                                {deal.team?.name || getLookupValue('Team', deal.assignedTo?.team) || 'Standard Team'}
+                            </span>
+                        </div>
+
+                        {/* Divider */}
+                        <div style={{ width: '1px', height: '18px', background: '#cbd5e1' }}></div>
+
+                        {/* Visibility Icon */}
+                        <div title={`Visibility: ${deal.visibleTo || 'Everyone'}`} style={{ display: 'flex', alignItems: 'center' }}>
+                            {(() => {
+                                const v = (deal.visibleTo || 'Everyone').toLowerCase();
+                                if (v === 'private') return <i className="fas fa-lock" style={{ color: '#ef4444', fontSize: '0.85rem' }}></i>;
+                                if (v === 'team') return <i className="fas fa-users" style={{ color: '#3b82f6', fontSize: '0.85rem' }}></i>;
+                                return <i className="fas fa-globe" style={{ color: '#10b981', fontSize: '0.85rem' }}></i>;
+                            })()}
+                        </div>
+                    </div>
                 </div>
             </header>
 
             {/* STAGE LIFECYCLE TRACKER */}
-            {!loadingActivities && (
-                <div style={{ marginTop: '12px' }}>
-                    <SingleDealLifecycle deal={deal} activities={activities} />
+            <div className="no-scrollbar" style={{
+                width: '100%',
+                padding: '1.5rem 2rem 0.5rem 2rem',
+                borderBottom: '1px solid #e2e8f0',
+                background: '#fff',
+                zIndex: 40
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <i className="fas fa-route" style={{ color: '#4f46e5' }}></i> Deal Stage Pipeline
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>
+                            CURRENT STATUS: <span style={{ color: '#4f46e5', fontWeight: 900 }}>{String(deal.stage || 'Open').toUpperCase()}</span>
+                        </span>
+                        {/* Stage Badge with probability */}
+                        <span style={{
+                            backgroundColor: stageStyle.bg, color: stageStyle.text,
+                            padding: '4px 10px', borderRadius: '6px',
+                            fontSize: '0.65rem', fontWeight: 800,
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                            textTransform: 'uppercase', letterSpacing: '0.05em', border: `1px solid ${stageStyle.dot}33`
+                        }}>
+                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: stageStyle.dot }}></span>
+                            {currentStage}
+                            <span style={{ opacity: 0.6, fontSize: '0.6rem' }}>
+                                {getStageProbability(stageAlerts.stageInfo?.label || currentStage)}% win
+                            </span>
+                        </span>
+                    </div>
                 </div>
-            )}
+                <SingleDealLifecycle
+                    deal={deal}
+                    activities={activities}
+                />
+            </div>
 
             {/* 2️⃣ MAIN CONTENT SPLIT */}
             <div style={{ maxWidth: '1600px', margin: '12px auto', padding: '0 24px', display: 'flex', gap: '16px' }}>
@@ -949,17 +1165,6 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                         </div>
                     </div>
 
-                    {/* DEAL LIFECYCLE (Pipeline Status) */}
-                    <div style={cardStyle}>
-                        <div style={{ ...sectionHeaderStyle, background: '#f8fafc' }}>
-                            <h3 style={sectionTitleStyle}>
-                                <i className="fas fa-route text-blue-500 mr-2"></i> Deal Lifecycle
-                            </h3>
-                        </div>
-                        <div style={{ padding: '24px 16px' }}>
-                            <HorizontalStepper currentStage={deal.stage} />
-                        </div>
-                    </div>
 
 
                     {/* ASSIGNMENT */}
@@ -970,9 +1175,8 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                             </h3>
                         </div>
                         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            <SidebarStat label="Assigned To" value={deal.assignedTo?.name || 'Unassigned'} />
-                            <SidebarStat label="Visible To" value={deal.visibleTo || 'Public'} />
-                            <SidebarStat label="Team" value={deal.assignedTo?.team || 'Sales'} />
+                            <SidebarStat label="Assigned To" value={deal.assignedTo?.name || deal.partyStructure?.internalRM?.name || 'Unassigned'} />
+                            <SidebarStat label="Team" value={deal.assignedTo?.team || 'Standard Team'} />
                         </div>
                     </div>
 
@@ -1017,6 +1221,49 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                     });
                     return combined;
                 })()}
+            />
+
+            <CallModal
+                isOpen={isCallModalOpen}
+                onClose={() => setIsCallModalOpen(false)}
+                contact={deal?.associatedContact || { name: deal?.owner?.name, phone: deal?.owner?.phone }}
+            />
+
+            <SendMessageModal
+                isOpen={isMessageModalOpen}
+                onClose={() => setIsMessageModalOpen(false)}
+                contact={deal?.associatedContact || { name: deal?.owner?.name, phone: deal?.owner?.phone }}
+            />
+
+            <ComposeEmailModal
+                isOpen={isEmailModalOpen}
+                onClose={() => setIsEmailModalOpen(false)}
+                contact={deal?.associatedContact || { name: deal?.owner?.name, email: deal?.owner?.email }}
+            />
+
+            <ManageTagsModal
+                isOpen={isTagsModalOpen}
+                onClose={() => setIsTagsModalOpen(false)}
+                entityId={dealId}
+                entityType="Deal"
+                currentTags={deal?.tags || []}
+                onTagsUpdated={fetchDealDetails}
+            />
+
+            <DocumentUploadModal
+                isOpen={isUploadModalOpen}
+                onClose={() => setIsUploadModalOpen(false)}
+                entityId={dealId}
+                entityType="Deal"
+                onUploadSuccess={fetchDealDetails}
+            />
+
+            <AddBookingModal
+                isOpen={isBookingModalOpen}
+                onClose={() => setIsBookingModalOpen(false)}
+                dealId={dealId}
+                dealData={deal}
+                onSave={fetchDealDetails}
             />
 
         </div>

@@ -213,31 +213,33 @@ export const getLeads = async (req, res, next) => {
         // Enable population for key fields
         const results = await paginate(Lead, query, Number(page), Number(limit), { createdAt: -1 }, leadPopulateFields);
 
-        // Attach Interaction Data (Latest Activity)
+        // Attach Interaction Data (Recent Activities for scoring)
         if (results.records && results.records.length > 0) {
             const leadIds = results.records.map(r => r._id);
-            const latestActivities = await Activity.aggregate([
-                { $match: { entityId: { $in: leadIds.map(id => id.toString()) } } },
-                { $sort: { createdAt: -1 } },
-                {
-                    $group: {
-                        _id: "$entityId",
-                        latestActivity: { $first: "$$ROOT" }
-                    }
-                }
-            ]);
+            // Fetch last 10 activities for each lead in the list
+            const allActivities = await Activity.find({
+                entityId: { $in: leadIds.map(id => id.toString()) },
+                status: 'Completed'
+            }).sort({ createdAt: -1 }).lean();
 
-            const activityMap = new Map();
-            latestActivities.forEach(item => {
-                activityMap.set(item._id, item.latestActivity);
+            const activityGroup = new Map();
+            allActivities.forEach(act => {
+                const id = act.entityId.toString();
+                if (!activityGroup.has(id)) activityGroup.set(id, []);
+                if (activityGroup.get(id).length < 10) {
+                    activityGroup.get(id).push(act);
+                }
             });
 
             results.records = results.records.map(lead => {
-                const activity = activityMap.get(lead._id.toString());
+                const leadId = lead._id.toString();
+                const leadActs = activityGroup.get(leadId) || [];
+                const latest = leadActs[0];
                 return {
                     ...lead,
-                    activity: activity ? activity.subject : "None",
-                    lastAct: activity ? new Date(activity.createdAt).toLocaleDateString() : "Today"
+                    activities: leadActs, // For frontend scoring engine
+                    activity: latest ? latest.subject : "None",
+                    lastAct: latest ? new Date(latest.createdAt).toLocaleDateString() : "Today"
                 };
             });
         }
@@ -406,10 +408,22 @@ export const getLeadById = async (req, res, next) => {
             return res.status(404).json({ success: false, message: "Lead not found" });
         }
 
-        // Populate lead before returning
+        // Populate lead
         await lead.populate(leadPopulateFields);
 
-        res.json({ success: true, data: lead });
+        // Attach Recent Activities (Consistent with getLeads)
+        const recentActivities = await Activity.find({
+            entityId: id.toString(),
+            status: 'Completed'
+        }).sort({ createdAt: -1 }).limit(10).lean();
+
+        const leadData = lead.toObject();
+        leadData.activities = recentActivities;
+        const latest = recentActivities[0];
+        leadData.activity = latest ? latest.subject : "None";
+        leadData.lastAct = latest ? new Date(latest.createdAt).toLocaleDateString() : "Today";
+
+        res.json({ success: true, data: leadData });
     } catch (error) {
         console.error("[ERROR] getLeadById failed:", error);
         next(error);

@@ -3,16 +3,18 @@ import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useUserContext } from '../context/UserContext';
 import { useContactConfig } from '../context/ContactConfigContext';
 import { useFieldRules } from '../context/FieldRulesContext';
-import { INDIAN_ADDRESS_DATA } from '../data/locationData';
 import AddressDetailsForm from './common/AddressDetailsForm';
 import { useTriggers } from '../context/TriggersContext';
 import { useDistribution } from '../context/DistributionContext';
 import { useSequences } from '../context/SequenceContext';
+import { INDIAN_ADDRESS_DATA } from '../constants/locationConstants';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
+import { getInitials } from '../utils/helpers';
 
 import AddSizeModal from './modals/AddSizeModal';
-import { contactData } from '../data/mockData';
+// Mock data removed
+const contactData = [];
 
 // Helper: Get YouTube Thumbnail
 const getYouTubeThumbnail = (url) => {

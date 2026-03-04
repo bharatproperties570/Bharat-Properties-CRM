@@ -6,7 +6,7 @@ import { useStageEngine } from '../hooks/useStageEngine';
 const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
     const { activityMasterFields } = usePropertyConfig();
     const { updateActivity } = useActivities();
-    const { triggerStageUpdate, syncDealStage } = useStageEngine();
+    const { triggerStageUpdate, syncDealStage, extractOutcome } = useStageEngine();
     const [stageToast, setStageToast] = useState(null);
 
     const showStageToast = (msg) => {
@@ -54,9 +54,18 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
     };
 
     const getDynamicResults = () => {
-        const typeSettings = activityMasterFields?.activities?.find(a => a.name === activity.type);
-        const purposeName = activity.details?.purpose || activity.subject;
-        const purposeObj = typeSettings?.purposes?.find(p => p.name === purposeName);
+        if (!activityMasterFields?.activities) return [];
+        const actType = (activity.type || '').toLowerCase();
+        const typeSettings = activityMasterFields.activities.find(a => (a.name || '').toLowerCase() === actType);
+        if (!typeSettings) return [];
+
+        const purposeSearch = (activity.details?.purpose || activity.subject || '').toLowerCase();
+
+        // Robust matching: exact or partial
+        const purposeObj = typeSettings.purposes?.find(p => {
+            const pName = (p.name || '').toLowerCase();
+            return pName && (purposeSearch.includes(pName) || pName.includes(purposeSearch));
+        });
 
         if (purposeObj?.outcomes) return purposeObj.outcomes;
         return [];
@@ -93,8 +102,13 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
 
             if (leadRelation?.id) {
                 // Activity on a Lead → recompute lead stage
-                const purpose = activity.details?.purpose || '';
-                const outcome = formData.outcomeStatus || formData.completionResult || '';
+                // Professional Fix: Use the new extractOutcome logic to find nested results
+                const outcome = formData.completionResult || extractOutcome(activity.type, payload.details) || formData.outcomeStatus || '';
+
+                const results = getDynamicResults();
+                const purposeObj = results.length > 0 ? { outcomes: results } : null;
+                const purpose = activity.details?.purpose || (purposeObj ? 'Matched Purpose' : '');
+
                 const result = await triggerStageUpdate(leadRelation.id, activity.type, purpose, outcome);
                 if (result.stage) showStageToast(`✅ Lead stage → ${result.stage}`);
 
@@ -117,14 +131,14 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
                 }).catch(err => console.warn('[StageEngine] direct deal sync from modal:', err));
             }
             // ───────────────────────────────────────────────────────────────────────────
-            
+
             // Dispatch global event for list views to refresh
-            window.dispatchEvent(new CustomEvent('activity-completed', { 
-                detail: { 
-                    activityType: activity.type, 
+            window.dispatchEvent(new CustomEvent('activity-completed', {
+                detail: {
+                    activityType: activity.type,
                     entityId: activity.entityId || leadRelation?.id || dealRelation?.id,
                     entityType: leadRelation ? 'lead' : (dealRelation ? 'deal' : 'general')
-                } 
+                }
             }));
 
             if (onClose) onClose();

@@ -9,7 +9,6 @@ const ChartPlaceholder = () => (
         <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>CALCULATING METRICS...</div>
     </div>
 );
-import { reportsData } from '../../data/reportsData';
 import { api } from '../../utils/api';
 
 const DashboardPage = () => {
@@ -39,39 +38,33 @@ const DashboardPage = () => {
         return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
     };
 
-    // --- Live Data Integration & Deep Merging ---
+    // --- Live Data Integration ---
     const data = React.useMemo(() => {
-        // If we have live dashboard data, we use it as the primary source
-        if (dashboardData) {
-            return {
-                ...reportsData, // Keep structure for non-live parts
-                pipelineMoney: {
-                    ...reportsData.pipelineMoney,
-                    kpis: [
-                        { label: 'Active Pipeline', value: formatCurrency(dashboardData.performance?.achieved || 0), color: 'blue' },
-                        { label: 'Conversion Rate', value: `${dashboardData.performance?.conversion || 0}%`, color: 'green' },
-                        { label: 'Revenue (Month)', value: formatCurrency(dashboardData.performance?.revenue || 0), color: 'purple' },
-                        { label: 'Pending Target', value: formatCurrency(dashboardData.performance?.remaining || 0), color: 'red' }
-                    ]
-                },
-                propertyInventory: {
-                    ...reportsData.propertyInventory,
-                    kpis: (dashboardData.inventoryHealth || []).map(item => ({
-                        label: item.status,
-                        value: item.count,
-                        color: item.status.toLowerCase() === 'available' ? 'green' : 'blue'
-                    }))
-                },
-                agenda: {
-                    ...reportsData.agenda,
-                    tasks: dashboardData.agenda?.tasks || [],
-                    siteVisits: dashboardData.agenda?.siteVisits || []
-                },
-                aiAlertHub: dashboardData.aiAlertHub || {},
-                autoSuggestions: dashboardData.autoSuggestions || {}
-            };
-        }
-        return reportsData;
+        if (!dashboardData) return {};
+        return {
+            pipelineMoney: {
+                kpis: [
+                    { label: 'Active Pipeline', value: formatCurrency(dashboardData.performance?.achieved || 0), color: 'blue' },
+                    { label: 'Conversion Rate', value: `${dashboardData.performance?.conversion || 0}%`, color: 'green' },
+                    { label: 'Revenue (Month)', value: formatCurrency(dashboardData.performance?.revenue || 0), color: 'purple' },
+                    { label: 'Pending Target', value: formatCurrency(dashboardData.performance?.remaining || 0), color: 'red' }
+                ]
+            },
+            propertyInventory: {
+                kpis: (dashboardData.inventoryHealth || []).map(item => ({
+                    label: item.status,
+                    value: item.count,
+                    color: item.status.toLowerCase() === 'available' ? 'green' : 'blue'
+                }))
+            },
+            agenda: {
+                tasks: dashboardData.agenda?.tasks || [],
+                siteVisits: dashboardData.agenda?.siteVisits || []
+            },
+            aiAlertHub: dashboardData.aiAlertHub || {},
+            autoSuggestions: dashboardData.autoSuggestions || {},
+            financialIntelligence: dashboardData.financialIntelligence || {}
+        };
     }, [dashboardData]);
 
     // 1. Pipeline Liquidity
@@ -203,13 +196,11 @@ const DashboardPage = () => {
                                         <div style={{ fontSize: '0.6rem', fontWeight: 600, color: 'var(--text-muted)' }}>{alert.desc}</div>
                                     </div>
                                 </div>
-                            )) : (data.priorityAlerts || []).slice(0, 4).map((alert, i) => (
-                                <div key={i} className="dashboard-card" style={{ padding: '16px', background: '#fff', borderRadius: '16px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
-                                    <i className={`fas ${alert.icon}`} style={{ fontSize: '1.2rem', color: 'var(--primary-color)', marginBottom: '8px' }}></i>
-                                    <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)' }}>{alert.value}</div>
-                                    <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{alert.label}</div>
+                            )) : (
+                                <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
+                                    No priority alerts found.
                                 </div>
-                            ))}
+                            )}
                         </div>
 
                         {/* 2. CORE PERFORMANCE WINDOWS */}

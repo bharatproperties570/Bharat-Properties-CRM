@@ -1,5 +1,5 @@
 
-import { sizeData } from '../data/sizeData';
+import { sizeData } from '../constants/sizeConstants';
 
 // Helper: Convert degrees to radians
 function deg2rad(deg) {

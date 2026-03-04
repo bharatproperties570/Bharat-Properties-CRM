@@ -1,352 +1,216 @@
-import React, { useState, useMemo } from 'react';
-import { accountData, accountStats } from '../../data/accountData';
+import React, { useState, useEffect } from 'react';
+import { api } from '../../utils/api';
+import toast from 'react-hot-toast';
 
-const AccountPage = ({ onNavigate, initialContextId, isEmbedded }) => {
-    const [activeTab, setActiveTab] = useState('All Payments');
+const AccountPage = ({ onNavigate, initialContextId }) => {
+    const [bookings, setBookings] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [filter, setFilter] = useState('All');
     const [searchTerm, setSearchTerm] = useState(initialContextId || '');
-    const [selectedIds, setSelectedIds] = useState([]);
 
-    // --- Filtering ---
-    const filteredData = useMemo(() => {
-        if (!accountData) return [];
-        return accountData.filter(item => {
-            const matchesSearch =
-                item.bookingSnapshot.customer.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.receiptId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.bookingSnapshot.id.toLowerCase().includes(searchTerm.toLowerCase());
+    useEffect(() => {
+        fetchAccounts();
+    }, []);
 
-            if (activeTab === 'Overdue') return item.health.status !== 'On Track' && matchesSearch;
-            if (activeTab === 'Commission Pending') return item.liabilityType === 'Commission' && item.health.status !== 'On Track' && matchesSearch;
-            if (activeTab === 'High Value Pending') return item.financials.pending > 1000000 && matchesSearch;
-
-            return matchesSearch;
-        });
-    }, [activeTab, searchTerm]);
-
-    const toggleSelect = (id) => {
-        setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
-    };
-
-    const toggleSelectAll = () => {
-        if (selectedIds.length === filteredData.length) setSelectedIds([]);
-        else setSelectedIds(filteredData.map(d => d.receiptId));
-    };
-
-    const selectedCount = selectedIds.length;
-
-    // --- Helpers ---
-    const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
-    };
-
-    const getHealthColor = (status) => {
-        switch (status) {
-            case 'On Track': return '#10b981'; // Green
-            case 'Warning': return '#f59e0b'; // Yellow
-            case 'Critical': return '#ef4444'; // Red
-            default: return '#cbd5e1';
+    const fetchAccounts = async () => {
+        try {
+            setLoading(true);
+            const response = await api.get('/bookings');
+            if (response.data && response.data.success) {
+                setBookings(response.data.data);
+            }
+        } catch (error) {
+            console.error('Error fetching accounts:', error);
+            toast.error('Failed to load financial records');
+        } finally {
+            setLoading(false);
         }
     };
 
-    const getLiabilityBadge = (type) => {
-        switch (type) {
-            case 'Booking Amount': return { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' }; // Blue
-            case 'Commission': return { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' }; // Green
-            case 'Government Charges': return { bg: '#faf5ff', color: '#7e22ce', border: '#e9d5ff' }; // Purple
-            default: return { bg: '#f8fafc', color: '#64748b', border: '#e2e8f0' };
-        }
+    // Calculate aggregated stats from live bookings
+    const stats = {
+        receivables: bookings.reduce((sum, b) => sum + (b.totalDealAmount || 0), 0),
+        received: bookings.reduce((sum, b) => sum + (b.tokenAmount || 0) + (b.partPaymentAmount || 0), 0),
+        pending: bookings.reduce((sum, b) => sum + ((b.totalDealAmount || 0) - (b.tokenAmount || 0) - (b.partPaymentAmount || 0)), 0),
+        commissions: bookings.reduce((sum, b) => sum + (b.sellerBrokerageAmount || 0) + (b.buyerBrokerageAmount || 0), 0)
     };
 
-    const handlePrintReceipt = () => {
-        if (selectedIds.length !== 1) return;
-        const receipt = filteredData.find(d => d.receiptId === selectedIds[0]);
-        if (!receipt) return;
+    const filteredBookings = bookings.filter(b => {
+        const matchesSearch =
+            (b.property?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (b.lead?.firstName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (b.lead?.lastName || '').toLowerCase().includes(searchTerm.toLowerCase());
 
-        const printWindow = window.open('', '_blank', 'width=800,height=600');
-        if (printWindow) {
-            printWindow.document.write(`
-                <html>
-                    <head>
-                        <title>Receipt - ${receipt.receiptId}</title>
-                        <style>
-                            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap');
-                            body { font-family: 'Inter', sans-serif; padding: 40px; color: #1e293b; -webkit-print-color-adjust: exact; }
-                            .header { text-align: center; margin-bottom: 40px; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; }
-                            .logo { font-size: 24px; font-weight: 800; color: #0f172a; margin-bottom: 8px; letter-spacing: -0.5px; }
-                            .sub-text { font-size: 14px; color: #64748b; }
-                            .receipt-box { border: 1px solid #e2e8f0; border-radius: 12px; padding: 40px; max-width: 600px; margin: 0 auto; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
-                            .title { text-align: center; margin-bottom: 32px; font-size: 18px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 1px; }
-                            .row { display: flex; justify-content: space-between; margin-bottom: 16px; font-size: 14px; align-items: center; }
-                            .label { color: #64748b; font-weight: 500; }
-                            .value { font-weight: 600; color: #0f172a; text-align: right; }
-                            .total-row { margin-top: 32px; padding-top: 24px; border-top: 2px dashed #e2e8f0; font-size: 18px; }
-                            .total-row .value { color: #10b981; font-weight: 800; }
-                            .footer { margin-top: 60px; text-align: center; font-size: 12px; color: #94a3b8; line-height: 1.5; }
-                            .stamp { margin-top: 40px; text-align: right; font-size: 12px; color: #cbd5e1; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; }
-                        </style>
-                    </head>
-                    <body>
-                        <div class="header">
-                            <div class="logo">BHARAT PROPERTIES</div>
-                            <div class="sub-text">Premium Real Estate Consultancy</div>
+        if (!matchesSearch) return false;
+
+        if (filter === 'All') return true;
+        if (filter === 'Receivables') return b.status !== 'Cancelled';
+        if (filter === 'Payables') return b.sellerBrokerageAmount > 0;
+        return true;
+    });
+
+    const renderHeader = () => (
+        <div className="page-header" style={{ padding: '20px 2rem', background: '#fff', borderBottom: '1px solid #eef2f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="page-title-group" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                <div style={{ background: '#0ea5e9', color: '#fff', width: '48px', height: '48px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', boxShadow: '0 4px 12px rgba(14, 165, 233, 0.2)' }}>
+                    <i className="fas fa-file-invoice-dollar"></i>
+                </div>
+                <div>
+                    <span className="working-list-label" style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Financial Intelligence</span>
+                    <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Accounts & Ledgers</h1>
+                </div>
+            </div>
+            <div style={{ display: 'flex', gap: '12px' }}>
+                <button className="btn-outline" style={{ borderRadius: '8px', fontWeight: 600 }}>
+                    <i className="fas fa-download" style={{ marginRight: '8px' }}></i> Export Tally
+                </button>
+                <button className="btn-primary" style={{ borderRadius: '8px', fontWeight: 600, background: '#0f172a' }}>
+                    <i className="fas fa-plus" style={{ marginRight: '8px' }}></i> New Receipt
+                </button>
+            </div>
+        </div>
+    );
+
+    const renderStats = () => (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px', padding: '24px 2rem' }}>
+            {[
+                { label: 'Total Receivables', value: `₹${(stats.receivables / 10000000).toFixed(2)} Cr`, icon: 'fa-hand-holding-usd', color: '#3b82f6', trend: '+12%' },
+                { label: 'Collections Done', value: `₹${(stats.received / 10000000).toFixed(2)} Cr`, icon: 'fa-check-circle', color: '#10b981', trend: '+8.4%' },
+                { label: 'Pending Dues', value: `₹${(stats.pending / 10000000).toFixed(2)} Cr`, icon: 'fa-clock', color: '#f59e0b', trend: '-2.1%' },
+                { label: 'Agency Commission', value: `₹${(stats.commissions / 100000).toFixed(2)} L`, icon: 'fa-percentage', color: '#8b5cf6', trend: '+15%' }
+            ].map((s, i) => (
+                <div key={i} className="stat-card" style={{ background: '#fff', padding: '24px', borderRadius: '16px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', position: 'relative', overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                        <div style={{ background: `${s.color}10`, color: s.color, width: '40px', height: '40px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <i className={`fas ${s.icon}`}></i>
                         </div>
-                        <div class="receipt-box">
-                            <div class="title">Payment Receipt</div>
-                            <div class="row">
-                                <span class="label">Receipt No</span>
-                                <span class="value" style="font-family: monospace; background: #f1f5f9; padding: 4px 8px; border-radius: 4px;">${receipt.receiptId}</span>
-                            </div>
-                            <div class="row">
-                                <span class="label">Date</span>
-                                <span class="value">${receipt.paymentDate}</span>
-                            </div>
-                            <div style="height: 1px; background: #f1f5f9; margin: 16px 0;"></div>
-                            <div class="row">
-                                <span class="label">Received From</span>
-                                <span class="value">${receipt.bookingSnapshot.customer}</span>
-                            </div>
-                            <div class="row">
-                                <span class="label">Booking Reference</span>
-                                <span class="value">${receipt.bookingSnapshot.id}</span>
-                            </div>
-                            <div class="row">
-                                <span class="label">Property Detail</span>
-                                <span class="value">${receipt.bookingSnapshot.property}</span>
-                            </div>
-                            <div style="height: 1px; background: #f1f5f9; margin: 16px 0;"></div>
-                            <div class="row">
-                                <span class="label">Payment Mode</span>
-                                <span class="value">${receipt.paymentMode} (${receipt.paymentCategory})</span>
-                            </div>
-                            <div class="row">
-                                <span class="label">Payment Towards</span>
-                                <span class="value">${receipt.liabilityType}</span>
-                            </div>
-                            <div class="row total-row">
-                                <span class="label">Amount Paid</span>
-                                <span class="value">${new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(receipt.amount)}</span>
-                            </div>
-                        </div>
-                        <div class="stamp">Authorized Signatory</div>
-                        <div class="footer">
-                            <p>This receipt is computer generated and valid without signature.</p>
-                            <p>Thank you for choosing Bharat Properties.</p>
-                        </div>
-                        <script>
-                            window.onload = function() { window.print(); }
-                        </script>
-                    </body>
-                </html>
-            `);
-            printWindow.document.close();
-        }
-    };
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: s.trend.startsWith('+') ? '#10b981' : '#ef4444' }}>{s.trend}</span>
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>{s.label}</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b', marginTop: '4px' }}>{s.value}</div>
+                </div>
+            ))}
+        </div>
+    );
 
     return (
-        <section className="main-content" style={{ background: '#f8fafc', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <section className="view-section active" style={{ background: '#f8fafc', minHeight: '100vh' }}>
+            {renderHeader()}
+            {renderStats()}
 
-            {/* Header: Hide if embedded, only show KPIs optionally or simpler view */}
-            {!isEmbedded && (
-                <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '20px 32px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                        <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-                                <i className="fas fa-wallet" style={{ color: '#0ea5e9', fontSize: '1.2rem' }}></i>
-                                <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Financial Control Center</h1>
-                            </div>
-                            <p style={{ margin: 0, color: '#64748b', fontSize: '0.9rem' }}>Cash-flow monitoring, liability tracking & commission control.</p>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Smart Tabs Toolbar / Bulk Action Bar */}
-            <div style={{ padding: '16px 32px', background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: '72px' }}>
-                {selectedCount > 0 ? (
-                    // Bulk Action Mode
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%', animation: 'fadeIn 0.2s ease-in-out' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '8px' }}>
-                            <input type="checkbox" checked={selectedCount > 0} onChange={toggleSelectAll} style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
-                            <span style={{ fontWeight: 700, color: '#6366f1', fontSize: '0.9rem' }}>{selectedCount} Selected</span>
-                        </div>
-                        <div style={{ height: '24px', width: '1px', background: '#e2e8f0' }}></div>
-
-                        {/* Specific Actions */}
-                        {selectedCount === 1 && (
-                            <button
-                                onClick={() => {
-                                    const item = filteredData.find(d => d.receiptId === selectedIds[0]);
-                                    if (item) onNavigate('booking', item.bookingSnapshot.id);
-                                }}
-                                className="action-btn"
-                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.85rem', cursor: 'pointer' }}
-                            >
-                                <i className="fas fa-external-link-alt"></i> View Booking
-                            </button>
-                        )}
-                        <button
-                            onClick={handlePrintReceipt}
-                            title="Print Receipt"
-                            className="action-btn"
-                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.85rem', cursor: 'pointer' }}
-                        >
-                            <i className="fas fa-print"></i> Receipt
-                        </button>
-                        <button title="Reminder" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.85rem', cursor: 'pointer' }}>
-                            <i className="fas fa-bell"></i> Reminder
-                        </button>
-                    </div>
-                ) : (
-                    // Default Search Mode
-                    <>
-                        <div style={{ display: 'flex', gap: '2px', background: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
-                            {['All Payments', 'Overdue', 'Due This Week', 'High Value Pending', 'Commission Pending'].map(tab => (
+            <div style={{ padding: '0 2rem 24px' }}>
+                <div style={{ background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                    <div style={{ padding: '20px', borderBottom: '1px solid #eef2f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            {['All', 'Receivables', 'Payables'].map(t => (
                                 <button
-                                    key={tab}
-                                    onClick={() => setActiveTab(tab)}
+                                    key={t}
+                                    onClick={() => setFilter(t)}
                                     style={{
                                         padding: '8px 16px',
-                                        border: 'none',
-                                        background: activeTab === tab ? '#fff' : 'transparent',
-                                        color: activeTab === tab ? (tab === 'Overdue' ? '#ef4444' : '#0f172a') : '#64748b',
-                                        fontWeight: 700,
-                                        borderRadius: '6px',
-                                        cursor: 'pointer',
+                                        borderRadius: '8px',
+                                        border: '1px solid',
+                                        borderColor: filter === t ? '#0ea5e9' : '#e2e8f0',
+                                        background: filter === t ? '#f0f9ff' : 'transparent',
+                                        color: filter === t ? '#0ea5e9' : '#64748b',
                                         fontSize: '0.85rem',
-                                        boxShadow: activeTab === tab ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                                        transition: 'all 0.2s',
-                                        display: 'flex', alignItems: 'center', gap: '6px'
+                                        fontWeight: 600,
+                                        cursor: 'pointer'
                                     }}
                                 >
-                                    {tab === 'Overdue' && <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444' }}></span>}
-                                    {tab}
+                                    {t}
                                 </button>
                             ))}
                         </div>
-                        <div style={{ position: 'relative', width: '280px' }}>
-                            <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
+                        <div className="search-box" style={{ width: '300px' }}>
+                            <i className="fas fa-search"></i>
                             <input
                                 type="text"
-                                placeholder="Search receipt, customer..."
+                                placeholder="Search by Project or Client..."
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                style={{ width: '100%', padding: '10px 10px 10px 36px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
                             />
                         </div>
-                    </>
-                )}
-            </div>
-
-            {/* Advanced Table */}
-            <div style={{ flex: 1, overflow: 'auto', padding: '20px 32px' }}>
-                <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
-                    {/* Header - ACTIONS COLUMN REMOVED */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '40px 1.5fr 1.8fr 1.2fr 1.2fr 1.5fr 1.2fr', background: '#f8fafc', padding: '16px 20px', borderBottom: '1px solid #e2e8f0', fontWeight: 600, color: '#475569', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        <div><input type="checkbox" onChange={toggleSelectAll} checked={selectedIds.length === filteredData.length && filteredData.length > 0} /></div>
-                        <div>Receipt & Date</div>
-                        <div>Booking Context</div>
-                        <div>Liability Type</div>
-                        <div>Payment</div>
-                        <div>Amount & Status</div>
-                        <div>Health / Due</div>
                     </div>
 
-                    {/* Rows */}
-                    {filteredData.map(item => {
-                        const healthColor = getHealthColor(item.health.status);
-                        const liabilityStyle = getLiabilityBadge(item.liabilityType);
-                        const isSelected = selectedIds.includes(item.receiptId);
-
-                        return (
-                            <div key={item.receiptId} style={{
-                                display: 'grid',
-                                gridTemplateColumns: '40px 1.5fr 1.8fr 1.2fr 1.2fr 1.5fr 1.2fr',
-                                padding: '18px 20px',
-                                borderBottom: '1px solid #f1f5f9',
-                                alignItems: 'center', // Align items to center vertically
-                                fontSize: '0.9rem',
-                                background: isSelected ? '#f0f9ff' : '#fff',
-                                transition: 'background 0.2s',
-                                cursor: 'pointer'
-                            }}
-                                onClick={(e) => {
-                                    if (e.target.type !== 'checkbox') toggleSelect(item.receiptId);
-                                }}
-                            >
-                                <div onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={isSelected} onChange={() => toggleSelect(item.receiptId)} /></div>
-
-                                {/* Receipt & Date */}
-                                <div>
-                                    <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.9rem', marginBottom: '2px' }}>{item.receiptId}</div>
-                                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}><i className="far fa-calendar-alt" style={{ marginRight: '4px' }}></i>{item.paymentDate}</div>
-                                </div>
-
-                                {/* Booking Context */}
-                                <div>
-                                    <div style={{ fontWeight: 700, color: '#334155' }}>To: {item.bookingSnapshot.customer}</div>
-                                    <div style={{ fontSize: '0.8rem', color: '#0ea5e9', fontWeight: 500, margin: '2px 0' }}>{item.bookingSnapshot.id}</div>
-                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{item.bookingSnapshot.property}</div>
-                                </div>
-
-                                {/* Liability Type */}
-                                <div>
-                                    <span style={{
-                                        background: liabilityStyle.bg, color: liabilityStyle.color, border: `1px solid ${liabilityStyle.border}`,
-                                        fontSize: '0.7rem', padding: '4px 8px', borderRadius: '6px', fontWeight: 700
-                                    }}>
-                                        {item.liabilityType}
-                                    </span>
-                                </div>
-
-                                {/* Payment */}
-                                <div>
-                                    <div style={{ fontWeight: 600, color: '#475569' }}>{item.paymentCategory}</div>
-                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Via {item.paymentMode}</div>
-                                </div>
-
-                                {/* Amount & Status */}
-                                <div>
-                                    <div style={{ fontSize: '0.95rem', fontWeight: 800, color: item.amount > 0 ? '#10b981' : '#ef4444' }}>
-                                        {formatCurrency(Math.max(item.amount, item.commission.pending))}
-                                    </div>
-                                    <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '2px' }}>
-                                        {item.amount > 0 ? 'Received' : 'Pending'} • Bal: {formatCurrency(item.financials.pending || item.commission.pending)}
-                                    </div>
-                                    {/* Mini Logic for Comm Breakdown if Applicable */}
-                                    {item.liabilityType === 'Commission' && (
-                                        <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
-                                            <div style={{ height: '4px', width: '50%', background: '#bfdbfe', borderRadius: '2px' }} title="Company"></div>
-                                            <div style={{ height: '4px', width: '30%', background: '#bbf7d0', borderRadius: '2px' }} title="Exec"></div>
-                                            <div style={{ height: '4px', width: '20%', background: '#fde047', borderRadius: '2px' }} title="Partner"></div>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Health */}
-                                <div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: healthColor }}></div>
-                                        <span style={{ fontWeight: 600, color: healthColor, fontSize: '0.8rem' }}>{item.health.status}</span>
-                                    </div>
-                                    {item.health.daysOverdue > 0 && (
-                                        <div style={{ fontSize: '0.75rem', color: '#ef4444', fontWeight: 700 }}>
-                                            {item.health.daysOverdue} Days Late
-                                        </div>
-                                    )}
-                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Due: {item.health.dueDate}</div>
-                                </div>
-                            </div>
-                        );
-                    })}
-
-                    {filteredData.length === 0 && (
-                        <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
-                            <i className="fas fa-search-dollar" style={{ fontSize: '2.5rem', marginBottom: '16px', color: '#cbd5e1' }}></i>
-                            <p style={{ margin: 0 }}>No payments found matching your criteria.</p>
-                        </div>
-                    )}
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                            <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+                                <th style={{ padding: '15px 20px', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Project & Unit</th>
+                                <th style={{ padding: '15px 20px', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Client Name</th>
+                                <th style={{ padding: '15px 20px', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Deal Value</th>
+                                <th style={{ padding: '15px 20px', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Received</th>
+                                <th style={{ padding: '15px 20px', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Balance</th>
+                                <th style={{ padding: '15px 20px', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Status</th>
+                                <th style={{ padding: '15px 20px', fontSize: '0.75rem', textTransform: 'uppercase', color: '#64748b' }}>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {loading ? (
+                                <tr>
+                                    <td colSpan="7" style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                                        <div style={{ width: '30px', height: '30px', border: '3px solid #f3f3f3', borderTop: '3px solid #0ea5e9', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 10px' }}></div>
+                                        Fetching financial records...
+                                    </td>
+                                </tr>
+                            ) : filteredBookings.length === 0 ? (
+                                <tr>
+                                    <td colSpan="7" style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>No financial records found.</td>
+                                </tr>
+                            ) : filteredBookings.map((item, i) => {
+                                const received = (item.tokenAmount || 0) + (item.partPaymentAmount || 0);
+                                const balance = (item.totalDealAmount || 0) - received;
+                                return (
+                                    <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                        <td style={{ padding: '15px 20px' }}>
+                                            <div style={{ fontWeight: 700, color: '#0f172a' }}>{item.property?.name || 'N/A'}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Unit: {item.property?.unitNumber || 'N/A'}</div>
+                                        </td>
+                                        <td style={{ padding: '15px 20px' }}>
+                                            <div style={{ fontWeight: 600, color: '#334155' }}>{(item.lead?.firstName || 'N/A')} {(item.lead?.lastName || '')}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{item.lead?.mobile || 'N/A'}</div>
+                                        </td>
+                                        <td style={{ padding: '15px 20px', fontWeight: 700, color: '#0f172a' }}>₹{(item.totalDealAmount || 0).toLocaleString()}</td>
+                                        <td style={{ padding: '15px 20px', fontWeight: 700, color: '#10b981' }}>₹{received.toLocaleString()}</td>
+                                        <td style={{ padding: '15px 20px', fontWeight: 700, color: '#ef4444' }}>₹{balance.toLocaleString()}</td>
+                                        <td style={{ padding: '15px 20px' }}>
+                                            <span style={{
+                                                padding: '4px 10px',
+                                                borderRadius: '12px',
+                                                fontSize: '0.7rem',
+                                                fontWeight: 800,
+                                                textTransform: 'uppercase',
+                                                background: item.status === 'Registry' ? '#dcfce7' : item.status === 'Booked' ? '#dbeafe' : '#fef3c7',
+                                                color: item.status === 'Registry' ? '#166534' : item.status === 'Booked' ? '#1e40af' : '#92400e'
+                                            }}>
+                                                {item.status}
+                                            </span>
+                                        </td>
+                                        <td style={{ padding: '15px 20px' }}>
+                                            <button
+                                                onClick={() => onNavigate('booking', item._id)}
+                                                className="btn-icon"
+                                                title="View Ledger"
+                                            >
+                                                <i className="fas fa-eye"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
                 </div>
             </div>
+            <style>{`
+                @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                .search-box { position: relative; }
+                .search-box i { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #94a3b8; }
+                .search-box input { width: 100%; padding: 8px 12px 8px 35px; border: 1px solid #e2e8f0; borderRadius: 8px; fontSize: 0.85rem; outline: none; transition: border 0.2s; }
+                .search-box input:focus { border-color: #0ea5e9; }
+                .btn-icon { background: #f8fafc; border: 1px solid #e2e8f0; width: 32px; height: 32px; borderRadius: 8px; color: #64748b; cursor: pointer; transition: all 0.2s; }
+                .btn-icon:hover { background: #0ea5e9; color: #fff; border-color: #0ea5e9; }
+            `}</style>
         </section>
     );
 };

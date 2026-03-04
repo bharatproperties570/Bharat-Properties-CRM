@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
-import { PROPERTY_CATEGORIES } from '../../../data/propertyData';
+import { PROPERTY_CATEGORIES } from '../../../constants/propertyConstants';
 
 // ==================================================================================
 // STYLES (Standardized Premium Side Panel)

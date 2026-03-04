@@ -178,6 +178,32 @@ export const addActivity = async (req, res) => {
             await Deal.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }).catch(() => { });
         }
 
+        // 🚀 Professionals Fix: Site Visit Sync to Deal
+        if (activity.type === 'Site Visit' && activity.status === 'Completed') {
+            const dealRelation = activity.relatedTo?.find(r => r.model === 'Deal');
+            const dealId = dealRelation?.id || (activity.entityType?.toLowerCase() === 'deal' ? activity.entityId : null);
+
+            if (dealId) {
+                const updateData = {};
+                // Extract unit number from visitedProperties if available
+                const properties = activity.details?.visitedProperties || [];
+                if (properties.length > 0 && properties[0].property) {
+                    updateData.unitNo = properties[0].property;
+                    if (properties[0].project) updateData.projectName = properties[0].project;
+                    if (properties[0].block) updateData.block = properties[0].block;
+                }
+
+                // Increment deal score for successful site visit
+                if (activity.details?.meetingOutcomeStatus === 'Conducted') {
+                    updateData.$inc = { dealScore: 15 }; // Boost score by 15 points
+                }
+
+                if (Object.keys(updateData).length > 0) {
+                    await Deal.findByIdAndUpdate(dealId, updateData).catch(err => console.error("Score/Unit sync failed:", err));
+                }
+            }
+        }
+
         res.status(201).json({ success: true, data: activity });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });

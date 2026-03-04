@@ -26,7 +26,7 @@ const parseSize = (sizeStr) => {
 // This function takes the full list of inventory items and the active filters object
 // and returns the filtered list.
 // ==================================================================================
-export const applyInventoryFilters = (items, filters, PROJECTS_LIST) => {
+export const applyInventoryFilters = (items, filters) => {
     if (!items) return [];
 
     return items.filter(item => {

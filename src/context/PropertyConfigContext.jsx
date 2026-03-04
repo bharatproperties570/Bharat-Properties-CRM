@@ -1,6 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import { PROPERTY_CATEGORIES } from '../data/propertyData';
-import { PROJECTS_LIST } from '../data/projectData';
+import { PROPERTY_CATEGORIES } from '../constants/propertyConstants';
+import { PROJECTS_LIST } from '../constants/projectConstants';
 
 import { api, lookupsAPI, systemSettingsAPI } from '../utils/api';
 
@@ -15,8 +15,43 @@ export const usePropertyConfig = () => {
 };
 
 export const PropertyConfigProvider = ({ children }) => {
-    // Initialize state with the static data
-    const [propertyConfig, setPropertyConfig] = useState(PROPERTY_CATEGORIES);
+    // Professional Hook for MongoDB Sync + Local Persistence (Moved to Top for hoisting)
+    const useSystemSetting = (key, initialValue) => {
+        const [storedValue, setStoredValue] = useState(() => {
+            try {
+                const item = window.localStorage.getItem(key);
+                return item ? JSON.parse(item) : initialValue;
+            } catch (error) {
+                console.error(error);
+                return initialValue;
+            }
+        });
+
+        const setValue = useCallback((value) => {
+            try {
+                setStoredValue(prev => {
+                    const valueToStore = value instanceof Function ? value(prev) : value;
+                    window.localStorage.setItem(key, JSON.stringify(valueToStore));
+
+                    // Professional Fix: Sync to Backend
+                    systemSettingsAPI.upsert(key, {
+                        value: valueToStore,
+                        category: 'crm_config'
+                    }).catch(err => console.error(`[useSystemSetting] Push failed for ${key}:`, err));
+
+                    return valueToStore;
+                });
+            } catch (error) {
+                console.error(error);
+            }
+        }, [key]);
+
+        return [storedValue, setValue];
+    };
+
+    // --- PROFESSIONAL STATE MANAGEMENT ---
+    // Initialize state with useSystemSetting (Local Persistence + Backend Sync)
+    const [propertyConfig, setPropertyConfig] = useSystemSetting('propertyConfig', PROPERTY_CATEGORIES);
     const [isLoading, setIsLoading] = useState(true);
 
     // Initialize Projects State (Dynamic)
@@ -174,27 +209,60 @@ export const PropertyConfigProvider = ({ children }) => {
                     const settings = response.data;
                     const settingsList = Array.isArray(settings) ? settings : (settings.docs || []);
 
-                    // Map settings to state
+                    // Map settings to state (Aligned with useSystemSetting camelCase keys)
+                    const foundKeys = new Set();
                     settingsList.forEach(setting => {
+                        foundKeys.add(setting.key);
                         switch (setting.key) {
-                            case 'property_config': setPropertyConfig(setting.value); break;
-                            case 'project_master_fields': setProjectMasterFields(setting.value); break;
-                            case 'project_amenities': setProjectAmenities(setting.value); break;
-                            case 'lead_master_fields': setLeadMasterFields(setting.value); break;
-                            case 'scoring_attributes': setScoringAttributes(setting.value); break;
-                            case 'scoring_config': setScoringConfig(setting.value); break;
-                            case 'behavioural_signals': setBehaviouralSignals(setting.value); break;
-                            case 'deal_fit_signals': setDealFitSignals(setting.value); break;
-                            case 'financial_signals': setFinancialSignals(setting.value); break;
-                            case 'decay_rules': setDecayRules(setting.value); break;
-                            case 'ai_signals': setAiSignals(setting.value); break;
-                            case 'source_quality_scores': setSourceQualityScores(setting.value); break;
-                            case 'inventory_fit_scores': setInventoryFitScores(setting.value); break;
-                            case 'stage_multipliers': setStageMultipliers(setting.value); break;
-                            case 'deal_scoring_rules': setDealScoringRules(setting.value); break;
-                            case 'score_bands': setScoreBands(setting.value); break;
-                            case 'activity_master_fields': setActivityMasterFields(setting.value); break;
+                            case 'propertyConfig': setPropertyConfig(setting.value); break;
+                            case 'masterFields': setMasterFields(setting.value); break;
+                            case 'projectMasterFields': setProjectMasterFields(setting.value); break;
+                            case 'projectAmenities': setProjectAmenities(setting.value); break;
+                            case 'leadMasterFields': setLeadMasterFields(setting.value); break;
+                            case 'scoringAttributes': setScoringAttributes(setting.value); break;
+                            case 'scoringConfig': setScoringConfig(setting.value); break;
+                            case 'behaviouralSignals': setBehaviouralSignals(setting.value); break;
+                            case 'dealFitSignals': setDealFitSignals(setting.value); break;
+                            case 'financialSignals': setFinancialSignals(setting.value); break;
+                            case 'decayRules': setDecayRules(setting.value); break;
+                            case 'aiSignals': setAiSignals(setting.value); break;
+                            case 'sourceQualityScores': setSourceQualityScores(setting.value); break;
+                            case 'inventoryFitScores': setInventoryFitScores(setting.value); break;
+                            case 'stageMultipliers': setStageMultipliers(setting.value); break;
+                            case 'dealScoringRules': setDealScoringRules(setting.value); break;
+                            case 'scoreBands': setScoreBands(setting.value); break;
+                            case 'activityMasterFields': setActivityMasterFields(setting.value); break;
+                            case 'stageMappingRules': setStageMappingRules(setting.value); break;
+                            case 'syncRules': setSyncRules(setting.value); break;
+                            case 'sequenceConfig': setSequenceConfig(setting.value); break;
+                            case 'agingRules': setAgingRules(setting.value); break;
+                            case 'forecastConfig': setForecastConfig(setting.value); break;
+                            case 'dealHealthConfig': setDealHealthConfig(setting.value); break;
+                            case 'intentSignals': setIntentSignals(setting.value); break;
+
+                            // Backward compatibility (Migrated in DB, but handled here for safety)
+                            case 'property_config': if (!foundKeys.has('propertyConfig')) setPropertyConfig(setting.value); break;
+                            case 'master_fields': if (!foundKeys.has('masterFields')) setMasterFields(setting.value); break;
+                            case 'activity_master_fields': if (!foundKeys.has('activityMasterFields')) setActivityMasterFields(setting.value); break;
+                            case 'lead_master_fields': if (!foundKeys.has('leadMasterFields')) setLeadMasterFields(setting.value); break;
+                            case 'score_bands': if (!foundKeys.has('scoreBands')) setScoreBands(setting.value); break;
+
                             default: break;
+                        }
+                    });
+
+                    // Professional Fix: Backfill missing settings to MongoDB
+                    // If a key is expected but not found in backend, push the current frontend value (defaults/localStorage)
+                    const expectedKeys = ['propertyConfig', 'activityMasterFields', 'leadMasterFields', 'stageMultipliers', 'scoreBands', 'masterFields'];
+                    expectedKeys.forEach(k => {
+                        if (!foundKeys.has(k)) {
+                            console.log(`[PropertyConfigContext] Backfilling missing setting to MongoDB: ${k}`);
+                            // We use a small delay to ensure states are initialized or use localStorage directly for backfill
+                            const localVal = window.localStorage.getItem(k);
+                            if (localVal) {
+                                systemSettingsAPI.upsert(k, { value: JSON.parse(localVal), category: 'crm_config' })
+                                    .catch(e => console.error(`Backfill failed for ${k}:`, e));
+                            }
                         }
                     });
                 }
@@ -287,49 +355,10 @@ export const PropertyConfigProvider = ({ children }) => {
         }
     };
 
-    // Helper Hook for Persistence
-    const useLocalStorage = (key, initialValue) => {
-        const [storedValue, setStoredValue] = useState(() => {
-            try {
-                const item = window.localStorage.getItem(key);
-                return item ? JSON.parse(item) : initialValue;
-            } catch (error) {
-                console.error(error);
-                return initialValue;
-            }
-        });
-
-        const setValue = useCallback((value) => {
-            try {
-                const valueToStore = value instanceof Function ? value(storedValue) : value;
-                setStoredValue(valueToStore);
-                window.localStorage.setItem(key, JSON.stringify(valueToStore));
-            } catch (error) {
-                console.error(error);
-            }
-        }, [key, storedValue]); // storedValue dependency is needed for functional updates, but might cause instability?
-        // Actually, for functional updates, we should use setStoredValue(prev => ...)
-        // Let's refactor slightly to avoid storedValue dependency if possible.
-
-        /* Refactored setValue to be stable */
-        const setValueStable = useCallback((value) => {
-            try {
-                setStoredValue(prev => {
-                    const valueToStore = value instanceof Function ? value(prev) : value;
-                    window.localStorage.setItem(key, JSON.stringify(valueToStore));
-                    return valueToStore;
-                });
-            } catch (error) {
-                console.error(error);
-            }
-        }, [key]);
-
-        return [storedValue, setValueStable];
-    };
 
     // Master Fields State (Property Specific)
     // Initialized from LocalStorage or empty arrays; populated on load from Lookups
-    const [masterFields, setMasterFields] = useLocalStorage('masterFields', {
+    const [masterFields, setMasterFields] = useSystemSetting('masterFields', {
         facings: [],
         roadWidths: [],
         directions: [],
@@ -418,7 +447,7 @@ export const PropertyConfigProvider = ({ children }) => {
     });
 
     // Project Master Fields (Moved/Copied from Property)
-    const [projectMasterFields, setProjectMasterFields] = useLocalStorage('projectMasterFields', {
+    const [projectMasterFields, setProjectMasterFields] = useSystemSetting('projectMasterFields', {
         approvals: [
             'RERA', 'DTCP', 'TCP', 'CLU', 'OC', 'CC'
         ],
@@ -440,7 +469,7 @@ export const PropertyConfigProvider = ({ children }) => {
     });
 
     // Dynamic Amenities Configuration
-    const [projectAmenities, setProjectAmenities] = useLocalStorage('projectAmenities', {
+    const [projectAmenities, setProjectAmenities] = useSystemSetting('projectAmenities', {
         'Basic': [
             { id: 'bp1', name: 'Car Parking', icon: 'fa-car' },
             { id: 'bp2', name: 'Intercom', icon: 'fa-phone-alt' },
@@ -505,20 +534,21 @@ export const PropertyConfigProvider = ({ children }) => {
         }
 
         setPropertyConfig(newConfig);
-        localStorage.setItem('propertyConfig', JSON.stringify(newConfig));
 
         if (!isValid) return; // Block backend save if invalid
 
+        // Professional Fix: Saving is now automatically handled by useSystemSetting's setValue (setPropertyConfig)
+        // However, we explicitly upsert here to ensure immediate sync and validation feedback if needed.
         try {
-            await systemSettingsAPI.upsert('property_config', {
-                category: 'property',
+            await systemSettingsAPI.upsert('propertyConfig', {
+                category: 'crm_config',
                 value: newConfig,
                 isPublic: true,
                 description: 'Global property configuration (Validated)'
             });
         } catch (error) {
-            console.error('Failed to save property config:', error);
-            throw error;
+            console.error('[PropertyConfigContext] Explicit save failed:', error);
+            // We don't throw here to avoid breaking UI if localStorage version succeeded
         }
     }, [setPropertyConfig]);
 
@@ -565,10 +595,10 @@ export const PropertyConfigProvider = ({ children }) => {
                 updated = { ...prevFields, [field]: newValuesOrValue };
             }
 
-            // Professional cleanup: Only upsert to master_fields if it's NOT a lookup-driven field
+            // Professional cleanup: Only upsert to masterFields if it's NOT a lookup-driven field
             if (!lookupType) {
-                systemSettingsAPI.upsert('master_fields', {
-                    category: 'property',
+                systemSettingsAPI.upsert('masterFields', {
+                    category: 'crm_config',
                     value: updated,
                     isPublic: true
                 }).catch(e => console.error('Failed to save master fields:', e));
@@ -608,8 +638,8 @@ export const PropertyConfigProvider = ({ children }) => {
 
         setProjectMasterFields(prevFields => {
             const updated = mode === 'update' ? { ...prevFields, [field]: newValuesOrValue } : prevFields;
-            systemSettingsAPI.upsert('project_master_fields', {
-                category: 'property',
+            systemSettingsAPI.upsert('projectMasterFields', {
+                category: 'crm_config',
                 value: updated,
                 isPublic: true
             }).catch(e => console.error('Failed to save project master fields:', e));
@@ -703,8 +733,8 @@ export const PropertyConfigProvider = ({ children }) => {
     const updateProjectAmenities = useCallback(async (category, newAmenities) => {
         setProjectAmenities(prevAmenities => {
             const updated = { ...prevAmenities, [category]: newAmenities };
-            systemSettingsAPI.upsert('project_amenities', {
-                category: 'property',
+            systemSettingsAPI.upsert('projectAmenities', {
+                category: 'crm_config',
                 value: updated,
                 isPublic: true
             }).catch(e => console.error('Failed to save project amenities:', e));
@@ -758,7 +788,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, []);
 
     // Lead & Campaign Master Fields
-    const [leadMasterFields, setLeadMasterFields] = useLocalStorage('leadMasterFields', {
+    const [leadMasterFields, setLeadMasterFields] = useSystemSetting('leadMasterFields', {
         transactionTypes: ['Collector Rate', 'Full White', 'Flexible'],
         fundingTypes: ['Home Loan', 'Self Funding', 'Loan Against Property', 'Personal Loan', 'Business Loan'],
         furnishingStatuses: ['Unfurnished', 'Semi-Furnished', 'Fully-Furnished'],
@@ -793,7 +823,7 @@ export const PropertyConfigProvider = ({ children }) => {
     });
 
     // Scoring Attributes State (Static Weights)
-    const [scoringAttributes, setScoringAttributes] = useLocalStorage('scoringAttributes', {
+    const [scoringAttributes, setScoringAttributes] = useSystemSetting('scoringAttributes', {
         requirement: { label: 'Detailed Requirement', points: 32 },
         budget: { label: 'Budget Match', points: 10 },
         location: { label: 'Location Match', points: 10 },
@@ -815,7 +845,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setScoringAttributes]);
 
     // --- NEW: Phased Scoring Configuration ---
-    const [scoringConfig, setScoringConfig] = useLocalStorage('scoringConfig', {
+    const [scoringConfig, setScoringConfig] = useSystemSetting('scoringConfig', {
         behavioural: { enabled: false },
         dealFit: { enabled: false },
         financial: { enabled: false },
@@ -839,7 +869,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setScoringConfig]);
 
     // Phase 1: Behavioural Scoring Signals
-    const [behaviouralSignals, setBehaviouralSignals] = useLocalStorage('behaviouralSignals', {
+    const [behaviouralSignals, setBehaviouralSignals] = useSystemSetting('behaviouralSignals', {
         propertyMatchOpened: { label: 'Property Match Opened', points: 5 },
         sameLocationRepeated: { label: 'Same Location Repeatedly', points: 10 },
         fastReply: { label: 'WhatsApp Reply < 5 min', points: 8 },
@@ -860,7 +890,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setBehaviouralSignals]);
 
     // Phase 2: Deal-Fit Intelligence (Skeleton)
-    const [dealFitSignals, setDealFitSignals] = useLocalStorage('dealFitSignals', {
+    const [dealFitSignals, setDealFitSignals] = useSystemSetting('dealFitSignals', {
         activeProperty: { label: 'Property Active', points: 10 },
         priceGapSmall: { label: 'Price Gap < 5%', points: 15 },
         exactMatch: { label: 'Exact Facing/Size', points: 10 },
@@ -881,7 +911,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setDealFitSignals]);
 
     // Phase 3: Financial Readiness (Skeleton)
-    const [financialSignals, setFinancialSignals] = useLocalStorage('financialSignals', {
+    const [financialSignals, setFinancialSignals] = useSystemSetting('financialSignals', {
         cashBuyer: { label: 'Cash Buyer', points: 25 },
         loanApproved: { label: 'Loan Pre-approved', points: 15 },
         sellerFirst: { label: 'Needs to Sell First', points: -15 },
@@ -902,7 +932,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setFinancialSignals]);
 
     // Phase 4: Time Decay Rules (Skeleton)
-    const [decayRules, setDecayRules] = useLocalStorage('decayRules', {
+    const [decayRules, setDecayRules] = useSystemSetting('decayRules', {
         inactive7: { label: '7 Days Inactivity', points: -5 },
         inactive14: { label: '14 Days Inactivity', points: -10 },
         inactive30: { label: '30 Days Inactivity (Auto-Dormant)', points: -20 } // -20 effectively kills the score usually
@@ -921,7 +951,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setDecayRules]);
 
     // Phase 5: AI Interpretation (Skeleton)
-    const [aiSignals, setAiSignals] = useLocalStorage('aiSignals', {
+    const [aiSignals, setAiSignals] = useSystemSetting('aiSignals', {
         sentimentPositive: { label: 'Positive Sentiment Analysis', points: 20 },
         highIntentKeywords: { label: 'High Intent Keywords', points: 15 },
         competitorMention: { label: 'Competitor Mentioned', points: -5 },
@@ -941,7 +971,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setAiSignals]);
 
     // --- C. SOURCE QUALITY SCORES ---
-    const [sourceQualityScores, setSourceQualityScores] = useLocalStorage('sourceQualityScores', {
+    const [sourceQualityScores, setSourceQualityScores] = useSystemSetting('sourceQualityScores', {
         referral: { label: 'Referral', points: 20 },
         walkIn: { label: 'Walk-in', points: 15 },
         google: { label: 'Google Search', points: 12 },
@@ -962,7 +992,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setSourceQualityScores]);
 
     // --- D. INVENTORY FIT SCORES ---
-    const [inventoryFitScores, setInventoryFitScores] = useLocalStorage('inventoryFitScores', {
+    const [inventoryFitScores, setInventoryFitScores] = useSystemSetting('inventoryFitScores', {
         match5Plus: { label: 'Matching inventory \u2265 5', points: 10 },
         priceDev5: { label: 'Price deviation < 5%', points: 10 },
         exactSize: { label: 'Exact size match', points: 5 },
@@ -982,7 +1012,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setInventoryFitScores]);
 
     // --- F. STAGE MULTIPLIERS ---
-    const [stageMultipliers, setStageMultipliers] = useLocalStorage('stageMultipliers', {
+    const [stageMultipliers, setStageMultipliers] = useSystemSetting('stageMultipliers', {
         incoming: { label: 'Incoming', value: 0.7 },
         prospect: { label: 'Prospect', value: 1.0 },
         opportunity: { label: 'Opportunity', value: 1.3 },
@@ -1001,7 +1031,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setStageMultipliers]);
 
     // --- DEAL SCORING ENGINE ---
-    const [dealScoringRules, setDealScoringRules] = useLocalStorage('dealScoringRules', {
+    const [dealScoringRules, setDealScoringRules] = useSystemSetting('dealScoringRules', {
         stages: {
             open: { label: 'Open', points: 10 },
             quote: { label: 'Quote', points: 20 },
@@ -1037,7 +1067,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setDealScoringRules]);
 
     // --- SCORE BANDS ---
-    const [scoreBands, setScoreBands] = useLocalStorage('scoreBands', {
+    const [scoreBands, setScoreBands] = useSystemSetting('scoreBands', {
         cold: { label: 'Cold', min: 0, max: 30, color: '#64748b' },
         warm: { label: 'Warm', min: 31, max: 60, color: '#f59e0b' },
         hot: { label: 'Hot', min: 61, max: 80, color: '#ef4444' },
@@ -1055,8 +1085,8 @@ export const PropertyConfigProvider = ({ children }) => {
     const updateLeadMasterFields = useCallback(async (field, newValues) => {
         setLeadMasterFields(prevFields => {
             const updated = { ...prevFields, [field]: newValues };
-            systemSettingsAPI.upsert('lead_master_fields', {
-                category: 'general',
+            systemSettingsAPI.upsert('leadMasterFields', {
+                category: 'crm_config',
                 value: updated,
                 isPublic: true
             }).catch(e => console.error('Failed to save lead master fields:', e));
@@ -1065,7 +1095,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setLeadMasterFields]);
 
     // Activity Master Fields (Hierarchical: Activity -> Purpose -> Outcome { label, score })
-    const [activityMasterFields, setActivityMasterFields] = useLocalStorage('activityMasterFields', {
+    const [activityMasterFields, setActivityMasterFields] = useSystemSetting('activityMasterFields', {
         activities: [
             // ─────────────────────────────────────────────────────────────────────
             // 1. CALL
@@ -1644,7 +1674,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setActivityMasterFields]);
 
     // --- STAGE MAPPING RULES (Explicit Override Rules) ---
-    const [stageMappingRules, setStageMappingRules] = useLocalStorage('stageMappingRules', []);
+    const [stageMappingRules, setStageMappingRules] = useSystemSetting('stageMappingRules', []);
 
     const addStageMappingRule = useCallback((rule) => {
         setStageMappingRules(prev => [
@@ -1684,7 +1714,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setActivityMasterFields]);
 
     // ─── STEP 7: Lead ↔ Deal Sync Rules ───
-    const [syncRules, setSyncRules] = useLocalStorage('syncRules', [
+    const [syncRules, setSyncRules] = useSystemSetting('syncRules', [
         { id: 'rule_booked', priority: 1, label: 'Any lead Booked → Deal Booked', condition: 'ANY_LEAD', conditionStage: 'Booked', dealStage: 'Booked', isActive: true, isLocked: true },
         { id: 'rule_closed_won', priority: 2, label: 'Any lead Closed Won → Deal Closed Won', condition: 'ANY_LEAD', conditionStage: 'Closed Won', dealStage: 'Closed Won', isActive: true, isLocked: true },
         { id: 'rule_all_lost', priority: 3, label: 'All leads Closed Lost → Deal Open', condition: 'ALL_LEADS', conditionStage: 'Closed Lost', dealStage: 'Open', isActive: true, isLocked: true },
@@ -1695,7 +1725,7 @@ export const PropertyConfigProvider = ({ children }) => {
     const deleteSyncRule = useCallback((id) => setSyncRules(prev => prev.filter(r => r.id !== id)), [setSyncRules]);
 
     // ─── STEP 8: Activity Sequence Guard ───
-    const [sequenceConfig, setSequenceConfig] = useLocalStorage('sequenceConfig', {
+    const [sequenceConfig, setSequenceConfig] = useSystemSetting('sequenceConfig', {
         enforcementMode: 'warn', // 'off' | 'warn' | 'block'
         sequence: [
             { stage: 'New', order: 0, requiredActivity: null, icon: 'fa-star' },
@@ -1710,7 +1740,7 @@ export const PropertyConfigProvider = ({ children }) => {
     const updateSequenceConfig = useCallback((changes) => setSequenceConfig(prev => ({ ...prev, ...changes })), [setSequenceConfig]);
 
     // ─── STEP 9: Pipeline Ageing Rules ───
-    const [agingRules, setAgingRules] = useLocalStorage('agingRules', {
+    const [agingRules, setAgingRules] = useSystemSetting('agingRules', {
         negotiationMaxDays: { value: 15, label: 'Negotiation Risk Threshold (days)', action: 'Risk Flag' },
         activityGapDays: { value: 7, label: 'Activity Gap Warning (days)', action: 'Score Penalty' },
         bookedNoAgreementDays: { value: 10, label: 'Booked → Agreement Max Days', action: 'Admin Alert' },
@@ -1720,7 +1750,7 @@ export const PropertyConfigProvider = ({ children }) => {
     const updateAgingRule = useCallback((key, changes) => setAgingRules(prev => ({ ...prev, [key]: { ...prev[key], ...changes } })), [setAgingRules]);
 
     // ─── STEP 10: Revenue Forecast Config ───
-    const [forecastConfig, setForecastConfig] = useLocalStorage('forecastConfig', {
+    const [forecastConfig, setForecastConfig] = useSystemSetting('forecastConfig', {
         commissionRate: { value: 2.0, label: 'Commission Rate (%)' },
         showWeighted: { value: true, label: 'Show Weighted Pipeline Value' },
         showExpected: { value: true, label: 'Show Expected Commission' },
@@ -1729,7 +1759,7 @@ export const PropertyConfigProvider = ({ children }) => {
     const updateForecastConfig = useCallback((key, changes) => setForecastConfig(prev => ({ ...prev, [key]: { ...prev[key], ...changes } })), [setForecastConfig]);
 
     // ─── STEP 11: Deal Health Config ───
-    const [dealHealthConfig, setDealHealthConfig] = useLocalStorage('dealHealthConfig', {
+    const [dealHealthConfig, setDealHealthConfig] = useSystemSetting('dealHealthConfig', {
         stageWeight: { weight: 40, label: 'Stage Weight' },
         scoreWeight: { weight: 35, label: 'Lead Score Weight' },
         agePenalty: { weight: 15, label: 'Age Penalty' },
@@ -1743,7 +1773,7 @@ export const PropertyConfigProvider = ({ children }) => {
     const updateDealHealthConfig = useCallback((changes) => setDealHealthConfig(prev => ({ ...prev, ...changes })), [setDealHealthConfig]);
 
     // ─── STEP 12: Intent Signals ───
-    const [intentSignals, setIntentSignals] = useLocalStorage('intentSignals', {
+    const [intentSignals, setIntentSignals] = useSystemSetting('intentSignals', {
         visitRepeat: { weight: 15, label: 'Repeat Site Visit', icon: 'fa-redo', isActive: true },
         offerRevisions: { weight: 12, label: 'Offer Revisions Count', icon: 'fa-file-invoice', isActive: true },
         legalDocRequest: { weight: 18, label: 'Legal Doc Requested', icon: 'fa-file-contract', isActive: true },

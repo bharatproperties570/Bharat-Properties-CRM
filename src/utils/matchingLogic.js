@@ -1,4 +1,6 @@
-import { dealsData, inventoryData } from '../data/mockData';
+// Mock data removed
+const dealsData = [];
+const inventoryData = [];
 
 export const parsePrice = (priceStr) => {
     if (!priceStr && priceStr !== 0) return 0;

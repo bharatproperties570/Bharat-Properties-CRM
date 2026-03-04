@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { companyTypes, companyCategories } from '../../../data/companyData';
+import { companyTypes, companyCategories } from '../../../constants/companyConstants';
 
 // ==================================================================================
 // STYLES (Standardized Premium Side Panel)

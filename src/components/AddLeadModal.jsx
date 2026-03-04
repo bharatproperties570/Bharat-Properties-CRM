@@ -10,8 +10,8 @@ import { useTriggers } from '../context/TriggersContext';
 import { useUserContext } from '../context/UserContext';
 
 // 3.4 MB Unused data removed for performance
-import { LOCATION_DATA } from '../data/locationData';
-import { PROPERTY_CATEGORIES, DIRECTION_OPTIONS } from '../data/propertyData';
+import { LOCATION_DATA } from '../constants/locationConstants';
+import { PROPERTY_CATEGORIES, DIRECTION_OPTIONS } from '../constants/propertyConstants';
 
 // Simple Custom Multi-Select Component
 const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled }) => {

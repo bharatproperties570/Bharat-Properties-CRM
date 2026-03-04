@@ -5,6 +5,7 @@ import cookieParser from "cookie-parser";
 import mongoSanitize from "express-mongo-sanitize";
 import rateLimit from "express-rate-limit";
 
+// Route Imports
 import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import leadRoutes from "./routes/lead.routes.js";
@@ -36,89 +37,40 @@ import smsRoutes from "./src/modules/sms/sms.routes.js";
 
 const app = express();
 
-const allowedOrigins = [
-    // Web CRM (React dev server)
-    "http://localhost:3000",
-    "http://localhost:3001",
-    // Expo Web (various ports)
-    "http://localhost:8081",
-    "http://localhost:8082",
-    "http://localhost:8083",
-    "http://localhost:19006",
-    "http://localhost:19000",
-    "http://localhost:19001",
-    // LAN access from device
-    "http://192.168.1.10:3000",
-    "http://192.168.1.10:8081",
-    "http://192.168.1.10:8082",
-    "http://192.168.1.10:19006",
-    // Production
-    "https://bharat-properties-crm.vercel.app",
-    "https://api.bharatproperties.co",
-    "https://crm.bharatproperties.co"
-];
-
+// Simple CORS for development/production
 app.use(cors({
-    origin: function (origin, callback) {
-        // Strict Policy: No valid origin -> blocked gracefully
-        if (!origin) {
-            // console.warn('CORS: Blocked request missing Origin header');
-            // If running in development via Vite Proxy, the proxy often drops the origin
-            // Since this is required for local dev, let's explicitly permit undefined Origin 
-            // ONLY if in non-production.
-            if (process.env.NODE_ENV !== 'production') {
-                return callback(null, true);
-            }
-            return callback(null, false);
-        }
-
-        // Allow Localhost explicitly for Developers
-        if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
-            return callback(null, true);
-        }
-
-        // Check Whitelist
-        if (allowedOrigins.indexOf(origin) !== -1 || origin === process.env.FRONTEND_URL) {
-            return callback(null, true);
-        }
-
-        console.warn(`CORS: Blocked unknown origin ${origin}`);
-        return callback(null, false);
-    },
+    origin: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     credentials: true
 }));
+
 app.use(compression());
 app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser());
-
-// Data Sanitization against NoSQL query injection
 app.use(mongoSanitize());
 
 // Global Rate Limiting
 const globalLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    limit: 500, // limit each IP to 500 requests per windowMs
+    windowMs: 15 * 60 * 1000,
+    limit: 1000,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { success: false, message: "Too many requests from this IP, please try again after 15 minutes" }
+    message: { success: false, message: "Too many requests from this IP, please try again later." }
 });
-// Skip rate limiting for static/frontend serving if any, but since it"s an API server, apply globally to /api
 app.use("/api", globalLimiter);
 
-// Concise Request Logger for Performance
+// Request Logger
 app.use((req, res, next) => {
     if (process.env.NODE_ENV !== 'production') {
         try {
             console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url.split('?')[0]}`);
-        } catch (err) {
-            // Silently ignore logging errors to prevent server crash (e.g. EPIPE)
-        }
+        } catch (err) { }
     }
     next();
 });
 
+// Route Definitions
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/teams", teamRoutes);
@@ -128,8 +80,8 @@ app.use("/api/contacts", contactRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/deals", dealRoutes);
-app.use("/api/lookup", lookupRoutes); // This now supports legacy query params
-app.use("/api/lookups", lookupRoutes); // Alias for RESTful style
+app.use("/api/lookup", lookupRoutes);
+app.use("/api/lookups", lookupRoutes);
 app.use("/api/activities", activityRoutes);
 app.use("/api/field-rules", fieldRuleRoutes);
 app.use("/api/distribution-rules", distributionRuleRoutes);
@@ -152,9 +104,8 @@ app.use("/api/sms-gateway", smsRoutes);
 import fs from 'fs';
 import path from 'path';
 
-// Error Handling Middleware
+// Error Handling
 app.use((err, req, res, next) => {
-    // Catch Duplicate Lead Merges gracefully
     if (err.isDuplicateMerge) {
         return res.status(200).json({
             success: true,
@@ -162,19 +113,11 @@ app.use((err, req, res, next) => {
             data: err.mergedLead
         });
     }
-
-    try {
-        console.error(err.stack);
-    } catch (logErr) {
-        // Ignore logging errors
-    }
+    console.error(err.stack);
     const logPath = path.join(process.cwd(), 'error.log');
-    const logMessage = `[${new Date().toISOString()}] ${req.method} ${req.url}\n${err.stack}\n\n`;
     try {
-        fs.appendFileSync(logPath, logMessage);
-    } catch (fsErr) {
-        // Ignore file system errors
-    }
+        fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${req.method} ${req.url}\n${err.stack}\n\n`);
+    } catch (fsErr) { }
     res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
 });
 

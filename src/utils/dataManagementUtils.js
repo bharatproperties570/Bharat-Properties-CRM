@@ -1,8 +1,12 @@
 
-import { leadData, contactData, inventoryData, users } from '../data/mockData';
-import { companyData } from '../data/companyData';
-import { PROJECTS_LIST } from '../data/projectData';
-import { sizeData } from '../data/sizeData';
+// Mock data removed
+const leadData = [];
+const contactData = [];
+const inventoryData = [];
+const users = [];
+import { companyData } from '../constants/companyConstants';
+import { PROJECTS_LIST } from '../constants/projectConstants';
+import { sizeData } from '../constants/sizeConstants';
 
 // --- Configuration ---
 

@@ -12,7 +12,8 @@
  * 8. Intent (Strict Buyer vs Seller)
  */
 
-import { contactData } from '../data/mockData';
+// Mock data removed
+const contactData = [];
 
 // --- REGEX PATTERNS ---
 

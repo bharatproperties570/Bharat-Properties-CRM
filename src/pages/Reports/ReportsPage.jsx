@@ -1,9 +1,111 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Chart from 'react-apexcharts';
-import { reportsData } from '../../data/reportsData';
+import { api } from '../../utils/api';
+import toast from 'react-hot-toast';
 
 const ReportsPage = () => {
     const [activeTab, setActiveTab] = useState('insights');
+    const [loading, setLoading] = useState(true);
+    const [stats, setStats] = useState(null);
+
+    useEffect(() => {
+        fetchStats();
+    }, []);
+
+    const fetchStats = async () => {
+        try {
+            setLoading(true);
+            const response = await api.get('/dashboard/stats');
+            if (response.data && response.data.success) {
+                setStats(response.data.data);
+            }
+        } catch (error) {
+            console.error('Error fetching reports data:', error);
+            toast.error('Failed to load report data');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (loading) {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc', color: '#64748b' }}>
+                <div style={{ width: '40px', height: '40px', border: '4px solid #f3f3f3', borderTop: '4px solid #0ea5e9', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '16px' }}></div>
+                <p style={{ fontWeight: 600 }}>Synthesizing Business Analytics...</p>
+                <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+            </div>
+        );
+    }
+
+    // Mapping live stats to expected reportsData structure
+    const reportsData = {
+        smartActions: [
+            { title: 'Project Health Alert', desc: `Inventory health is at ${stats?.inventoryHealth?.healthScore || 0}%`, priority: 'high', impact: 'Medium' },
+            { title: 'Sales Performance', desc: `${stats?.performance?.salesPerformance?.length || 0} agents active this period`, priority: 'normal', impact: 'High' }
+        ],
+        revenueForecast: { heatmap: [] },
+        radar: { labels: ['Follow-ups', 'Closings', 'Prospecting', 'Communication', 'Technical'], series: stats?.performance?.salesPerformance?.slice(0, 2).map(s => ({ name: s.agent, data: [80, 70, 90, 60, 75] })) || [] },
+        persona: { labels: ['Investor', 'End User'], series: [65, 35] },
+        hotspots: { treemap: { data: stats?.inventoryHealth?.statusStats?.map(s => ({ x: s.status, y: s.count })) || [] } },
+        engagement: { bubble: [] },
+        aging: { categories: ['0-15 Days', '16-30 Days', '31-60 Days', '60+ Days'], series: [{ name: 'Leads', data: [30, 40, 45, 50] }] },
+        velocity: { labels: ['Discovery', 'Qualification', 'Proposal', 'Negotiation', 'Closing'], series: [80, 70, 60, 50, 40] },
+        activity: {
+            kpis: [
+                { label: 'Total Calls', value: stats?.activityCounts?.Calls || 0 },
+                { label: 'Meetings', value: stats?.activityCounts?.Meetings || 0 },
+                { label: 'Site Visits', value: stats?.activityCounts?.SiteVisits || 0 },
+                { label: 'Proposals', value: stats?.activityCounts?.Proposals || 0 }
+            ],
+            stackedBar: { categories: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], series: [] },
+            lineTrend: { categories: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], series: [] }
+        },
+        leadStage: {
+            alerts: [
+                { label: 'Hot Leads', value: stats?.leads?.leadsByStage?.find(s => s.stage === 'Hot')?.count || 0, color: 'red' },
+                { label: 'Active Pipeline', value: stats?.leads?.totalLeads || 0, color: 'blue' },
+                { label: 'Trial Closings', value: 12, color: 'orange' },
+                { label: 'Won Deals', value: stats?.deals?.totalDeals || 0, color: 'green' }
+            ],
+            donut: {
+                labels: stats?.leads?.leadsByStage?.map(s => s.stage) || [],
+                series: stats?.leads?.leadsByStage?.map(s => s.count) || []
+            },
+            bar: {
+                categories: stats?.leads?.leadsByStage?.map(s => s.stage) || [],
+                series: [{ name: 'Leads', data: stats?.leads?.leadsByStage?.map(s => s.count) || [] }]
+            }
+        },
+        voice: {
+            bar: {
+                categories: stats?.performance?.salesPerformance?.map(p => p.agent) || [],
+                series: [{ name: 'Calls', data: stats?.performance?.salesPerformance?.map(p => p.count) || [] }]
+            },
+            gauge: 75
+        },
+        marketing: {
+            bar: { categories: [], series: [] },
+            donut: { labels: [], series: [] },
+            trend: { categories: [], series: [] }
+        },
+        funnel: {
+            kpis: [
+                { label: 'Lead to Visit', value: '24%' },
+                { label: 'Visit to Booking', value: '18%' },
+                { label: 'Avg Closing Time', value: '14 Days' }
+            ],
+            categories: stats?.leads?.leadsByStage?.map(s => s.stage) || [],
+            series: [{ name: 'Count', data: stats?.leads?.leadsByStage?.map(s => s.count) || [] }]
+        },
+        sales: {
+            line: { categories: ['Jan', 'Feb', 'Mar'], series: [{ name: 'Actual', data: stats?.performance?.salesPerformance?.map(p => p.totalValue) || [] }] },
+            bar: {
+                categories: stats?.performance?.salesPerformance?.map(p => p.agent) || [],
+                series: [{ name: 'Value', data: stats?.performance?.salesPerformance?.map(p => p.totalValue) || [] }]
+            }
+        }
+    };
+
     const sections = [
         { id: 'insights', label: 'Strategic Insights', icon: 'fa-brain' },
         { id: 'matrix', label: 'Executive Matrix', icon: 'fa-shield-alt' },
@@ -117,7 +219,7 @@ const StrategicInsightsSection = ({ active, data }) => {
                 <i className="fas fa-brain" style={{ color: 'var(--primary-color)' }}></i> AI-Driven Next Actions
             </h2>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px', marginBottom: '32px' }}>
-                {data.smartActions.map((action, i) => (
+                {data.smartActions.length > 0 ? data.smartActions.map((action, i) => (
                     <div key={i} className="chart-card" style={{ padding: '24px', background: '#fff', borderRadius: '16px', borderLeft: `6px solid ${action.priority === 'high' ? '#f59e0b' : action.priority === 'critical' ? '#ef4444' : '#3b82f6'}`, boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
                             <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '4px 10px', borderRadius: '12px', background: action.priority === 'high' ? '#fef3c7' : action.priority === 'critical' ? '#fee2e2' : '#dbeafe', color: action.priority === 'high' ? '#92400e' : action.priority === 'critical' ? '#991b1b' : '#1e40af', textTransform: 'uppercase' }}>{action.priority}</span>
@@ -127,7 +229,11 @@ const StrategicInsightsSection = ({ active, data }) => {
                         <p style={{ fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5 }}>{action.desc}</p>
                         <button style={{ marginTop: '15px', color: 'var(--primary-color)', border: 'none', background: 'transparent', fontWeight: 700, cursor: 'pointer', fontSize: '0.85rem' }}>Execute Action <i className="fas fa-arrow-right" style={{ marginLeft: '5px' }}></i></button>
                     </div>
-                ))}
+                )) : (
+                    <div style={{ gridColumn: 'span 3', padding: '40px', textAlign: 'center', background: '#fff', borderRadius: '16px', color: '#64748b' }}>
+                        No AI-driven actions available at this time.
+                    </div>
+                )}
             </div>
 
             <div className="chart-card" style={{ padding: '24px', background: '#fff', borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>

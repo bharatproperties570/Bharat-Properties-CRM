@@ -701,18 +701,56 @@ export const bulkRecalcStages = async (req, res) => {
  */
 export const getLeadScores = async (req, res) => {
     try {
-        // 1. Fetch System Settings for Activity Master Fields (Source of Truth for Scores)
+        // 1. Fetch System Settings (Source of Truth for Scores)
         const SystemSetting = mongoose.model('SystemSetting');
-        const setting = await SystemSetting.findOne({ key: 'activity_master_fields' }).lean();
-        const activityConfig = setting?.value || {};
+        const settings = await SystemSetting.find({
+            key: { $in: ['activityMasterFields', 'stageMultipliers', 'scoreBands'] }
+        }).lean();
 
+        const activityConfig = settings.find(s => s.key === 'activityMasterFields')?.value || {};
+        const multipliersConfig = settings.find(s => s.key === 'stageMultipliers')?.value || {};
+        const scoreBands = settings.find(s => s.key === 'scoreBands')?.value || {};
+
+        // Helper to get multiplier safely (default 1.0)
+        const getMultiplier = (stage) => {
+            if (!stage) return 1.0;
+            const key = (typeof stage === 'string' ? stage : (stage.lookup_value || 'New')).toLowerCase();
+            const foundKey = Object.keys(multipliersConfig).find(k => k.toLowerCase() === key);
+            return foundKey ? (multipliersConfig[foundKey]?.value || 1.0) : 1.0;
+        };
+
+        // Fallback weights if multipliers are missing (scaled to 100)
         const STAGE_WEIGHTS = {
             'New': 10, 'Prospect': 20, 'Qualified': 40, 'Opportunity': 55,
             'Negotiation': 70, 'Booked': 85, 'Closed Won': 100, 'Closed Lost': 5, 'Stalled': 15
         };
 
-        // 2. Fetch all leads with their basic data
-        const leads = await Lead.find({})
+        // Professional Fix: Helper to find purpose config robustly
+        const findPurposeConfig = (typeConfig, activity) => {
+            if (!typeConfig || !typeConfig.purposes) return null;
+            const purposeStr = (activity.details?.purpose || activity.purpose || '').toLowerCase();
+            const subjectStr = (activity.subject || '').toLowerCase();
+
+            // 1. Try exact purpose name match
+            let found = typeConfig.purposes.find(p => (p.name || '').toLowerCase() === purposeStr);
+            if (found) return found;
+
+            // 2. Try matching purpose name within subject (e.g. "Presentation" in "Sales Presentation with Amit")
+            found = typeConfig.purposes.find(p => {
+                const pName = (p.name || '').toLowerCase();
+                return pName && (subjectStr.includes(pName) || pName.includes(subjectStr));
+            });
+
+            return found;
+        };
+
+        // 2. Fetch leads with their basic data (Support single-lead filter)
+        const leadQuery = {};
+        if (req.query.leadId && mongoose.Types.ObjectId.isValid(req.query.leadId)) {
+            leadQuery._id = req.query.leadId;
+        }
+
+        const leads = await Lead.find(leadQuery)
             .select('_id intent_index leadScore stage stageHistory lastActivityAt stageChangedAt')
             .populate('stage', 'lookup_value')
             .lean();
@@ -724,7 +762,7 @@ export const getLeadScores = async (req, res) => {
             entityId: { $in: leadIds },
             entityType: { $regex: /lead/i },
             status: { $regex: /completed/i }
-        }).select('entityId type details completionResult createdAt').sort({ createdAt: -1 }).lean();
+        }).select('entityId type details subject completionResult createdAt').sort({ createdAt: -1 }).lean();
 
         // 4. Group activities by lead
         const activityGroups = activities.reduce((acc, act) => {
@@ -745,7 +783,8 @@ export const getLeadScores = async (req, res) => {
             // Take the best possible base score from either ML engine or Stage pipeline position
             const intentScore = lead.intent_index || 0;
             const stageName = lead.stage?.lookup_value || lead.stage || 'New';
-            const stageWeight = STAGE_WEIGHTS[stageName] || 10;
+            const multiplier = getMultiplier(stageName);
+            const stageWeight = (STAGE_WEIGHTS[stageName] || 10) * multiplier;
             const baseScore = Math.max(intentScore, stageWeight);
 
             // 2. Activity Behaviour Score (Dynamic)
@@ -753,14 +792,40 @@ export const getLeadScores = async (req, res) => {
             const leadActivities = activityGroups[leadIdStr] || [];
 
             leadActivities.forEach(act => {
-                const typeConfig = activityConfig.activities?.find(a => a.name === act.type);
+                const actType = (act.type || '').toLowerCase();
+                const typeConfig = activityConfig.activities?.find(a => (a.name || '').toLowerCase() === actType);
                 if (typeConfig) {
-                    const purpose = act.details?.purpose || '';
-                    const purposeConfig = typeConfig.purposes?.find(p => p.name === purpose);
+                    const purposeConfig = findPurposeConfig(typeConfig, act);
                     if (purposeConfig) {
-                        // Find outcome score
-                        const outcomeLabel = act.details?.completionResult || act.details?.meetingOutcomeStatus || act.details?.callOutcome || '';
-                        const outcomeConfig = purposeConfig.outcomes?.find(o => o.label === outcomeLabel);
+                        // Find outcome score - Case-insensitive and robust check
+                        let outcomeLabel = (
+                            act.details?.completionResult ||
+                            act.details?.meetingOutcomeStatus ||
+                            act.details?.callOutcome ||
+                            act.details?.outcome ||
+                            act.completionResult ||
+                            ''
+                        );
+
+                        // Professional Fix: Scan nested properties for Site Visits
+                        if (!outcomeLabel && actType === 'site visit' && Array.isArray(act.details?.visitedProperties)) {
+                            // Find the most significant business result (Very Interested > Somewhat > etc)
+                            const priority = { 'very interested': 1, 'shortlisted': 2, 'somewhat interested': 3 };
+                            const foundResult = act.details.visitedProperties
+                                .map(p => (p.result || '').toLowerCase())
+                                .filter(r => r)
+                                .sort((a, b) => (priority[a] || 99) - (priority[b] || 99))[0];
+
+                            if (foundResult) outcomeLabel = foundResult;
+                        }
+
+                        outcomeLabel = outcomeLabel.toLowerCase();
+
+                        const outcomeConfig = purposeConfig.outcomes?.find(o => {
+                            const label = (o.label || '').toLowerCase();
+                            return label === outcomeLabel || outcomeLabel.includes(label) || label.includes(outcomeLabel);
+                        });
+
                         if (outcomeConfig) {
                             behavioralScore += (outcomeConfig.score || 0);
                         }
@@ -776,28 +841,34 @@ export const getLeadScores = async (req, res) => {
             // 4. Combine Engines
             // We cap behavior + recency bonuses to avoid breaking out of 100 max bounds unnecessarily,
             // while still rewarding engaged sequences.
-            const dynamicBonus = Math.min(30, behavioralScore + recencyBonus);
+            const dynamicBonus = behavioralScore + recencyBonus;
 
             // Final clamped blended score
             score = Math.max(0, Math.min(100, baseScore + dynamicBonus));
 
-            // Temperature coding based on research
-            // 81+ Super Hot (Purple), 61+ Hot (Red), 31+ Warm (Amber), <31 Cold (Slate)
-            let color = '#94A3B8'; // Cold
-            let label = 'Cold';
+            // Temperature coding based on Dynamic Score Bands
+            let color = scoreBands.cold?.color || '#94A3B8';
+            let label = scoreBands.cold?.label || 'Cold';
 
-            if (score >= 81) {
-                color = '#7C3AED'; // Super Hot
-                label = 'Super Hot';
-            } else if (score >= 61) {
-                color = '#EF4444'; // Hot
-                label = 'Hot';
-            } else if (score >= 31) {
-                color = '#F59E0B'; // Warm
-                label = 'Warm';
+            if (score >= (scoreBands.superHot?.min || 81)) {
+                color = scoreBands.superHot?.color || '#7C3AED';
+                label = scoreBands.superHot?.label || 'Super Hot';
+            } else if (score >= (scoreBands.hot?.min || 61)) {
+                color = scoreBands.hot?.color || '#EF4444';
+                label = scoreBands.hot?.label || 'Hot';
+            } else if (score >= (scoreBands.warm?.min || 31)) {
+                color = scoreBands.warm?.color || '#F59E0B';
+                label = scoreBands.warm?.label || 'Warm';
             }
 
-            scores[leadIdStr] = { score, color, label };
+            const tempClass = score >= (scoreBands.superHot?.min || 81) ? 'super-hot' :
+                score >= (scoreBands.hot?.min || 61) ? 'hot' :
+                    score >= (scoreBands.warm?.min || 31) ? 'warm' : 'cold';
+
+            // 5. Get Live Stage String
+            const liveStage = await resolveStageValue(lead.stage);
+
+            scores[leadIdStr] = { score, color, label, tempClass, stage: liveStage };
         }
 
         res.json({ success: true, count: leads.length, scores });
@@ -816,14 +887,31 @@ export const getLeadScores = async (req, res) => {
  */
 export const getDealScores = async (req, res) => {
     try {
+        const SystemSetting = mongoose.model('SystemSetting');
+        const dealRulesSetting = await SystemSetting.findOne({ key: 'dealScoringRules' }).lean();
+        const dealRules = dealRulesSetting?.value || {};
+        const stageRules = dealRules.stages || {};
+
+        const getDealStageWeight = (stage) => {
+            const key = (stage || 'Open').toLowerCase();
+            const foundKey = Object.keys(stageRules).find(k => k.toLowerCase() === key);
+            return foundKey ? (stageRules[foundKey]?.points || 20) : 20;
+        };
+
         const STAGE_WEIGHTS = {
             'Open': 20, 'Quote': 35, 'Opportunity': 45, 'Negotiation': 60,
             'Booked': 85, 'Closed Won': 100, 'Closed': 90,
             'Closed Lost': 5, 'Stalled': 15
         };
 
+        // Populate STAGE_WEIGHTS from dealRules if available
+        Object.keys(STAGE_WEIGHTS).forEach(key => {
+            const points = getDealStageWeight(key);
+            if (points) STAGE_WEIGHTS[key] = points;
+        });
+
         const deals = await Deal.find({})
-            .select('_id stage stageHistory lastActivityAt stageChangedAt dealProbability')
+            .select('_id stage stageHistory lastActivityAt stageChangedAt dealProbability dealScore')
             .lean();
 
         const scores = {};
@@ -839,10 +927,11 @@ export const getDealScores = async (req, res) => {
 
             const historyDepth = Math.min(10, (deal.stageHistory?.length || 0) * 2);
 
-            // Also blend in dealProbability if set
+            // Also blend in dealProbability and dealScore (persistent boost)
             const probBonus = deal.dealProbability ? Math.round(deal.dealProbability * 0.1) : 0;
+            const persistenceBonus = deal.dealScore || 0;
 
-            const score = Math.min(100, stageWeight + activityBonus + historyDepth + probBonus);
+            const score = Math.min(100, stageWeight + activityBonus + historyDepth + probBonus + persistenceBonus);
 
             const color = score >= 80 ? '#10B981'   // Healthy / Booked
                 : score >= 55 ? '#F59E0B'            // Watch / Negotiation

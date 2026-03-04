@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { suggestedTags } from '../data/mockData';
+// Mock data removed
+const suggestedTags = [];
 
 const ManageTagsModal = ({ isOpen, onClose, selectedContacts = [], onUpdateTags }) => {
     const isBulk = selectedContacts.length > 1;

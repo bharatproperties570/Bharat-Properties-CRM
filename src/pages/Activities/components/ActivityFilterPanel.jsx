@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ACTIVITY_TYPES, ACTIVITY_STATUSES, PRIORITIES } from '../../../utils/activityFilterLogic';
-import { users } from '../../../data/mockData';
+// Mock data removed
 
 const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset }) => {
     // Local state for temporary filter changes before applying (if we wanted "Apply" button)

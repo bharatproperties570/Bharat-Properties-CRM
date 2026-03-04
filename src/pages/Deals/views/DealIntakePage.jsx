@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { inventoryData, contactData, leadData, dealData } from '../../../data/mockData';
-import { dealIntakeData } from '../../../data/dealIntakeData';
+// Mock data removed
 import { parseWhatsAppZip, parseTribunePdf } from '../../../utils/importParsers';
 import { parseDealContent, splitIntakeMessage } from '../../../utils/dealParser';
 import toast from 'react-hot-toast';

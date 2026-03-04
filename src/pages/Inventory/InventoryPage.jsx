@@ -5,9 +5,7 @@ import toast from 'react-hot-toast';
 import { useTriggers } from '../../context/TriggersContext';
 import { useCall } from '../../context/CallContext';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
-import { PROJECTS_LIST } from '../../data/projectData';
 import { renderValue } from '../../utils/renderUtils';
-import { dealIntakeData } from '../../data/dealIntakeData';
 import { api } from "../../utils/api";
 
 import UploadModal from '../../components/UploadModal';
@@ -150,7 +148,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     };
 
     // Use the extracted filter logic
-    const filteredInventory = applyInventoryFilters(inventoryItems, filters, PROJECTS_LIST);
+    const filteredInventory = applyInventoryFilters(inventoryItems, filters);
 
 
     const getSelectedProperty = () => inventoryItems.find(p => p._id === selectedIds[0]);
@@ -531,11 +529,6 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                             <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#fff', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
                                 <i className="fas fa-inbox" style={{ color: '#64748b', fontSize: '1.1rem' }}></i>
                             </div>
-                            {dealIntakeData && dealIntakeData.length > 0 && (
-                                <div style={{ position: 'absolute', top: '-6px', right: '-6px', background: '#ef4444', color: '#fff', fontSize: '0.7rem', fontWeight: 800, width: '20px', height: '20px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #fff' }}>
-                                    {dealIntakeData.length}
-                                </div>
-                            )}
                         </div>
                     </div>
 

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { emailTemplates } from '../../../data/mockData';
+import { emailTemplates } from '../../../constants/templates';
 import { systemSettingsAPI, emailAPI } from '../../../utils/api';
 import Toast from '../../../components/Toast';
 

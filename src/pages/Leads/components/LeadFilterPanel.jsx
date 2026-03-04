@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { PROPERTY_CATEGORIES } from '../../../data/propertyData';
-import { PROJECTS_LIST } from '../../../data/projectData';
+import { PROPERTY_CATEGORIES } from '../../../constants/propertyConstants';
+import { PROJECTS_LIST } from '../../../constants/projectConstants';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { calculateDistance } from '../../../utils/inventoryFilterLogic';
 

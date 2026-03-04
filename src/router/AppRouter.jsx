@@ -38,7 +38,7 @@ const EnrichmentSettingsPage = lazy(() => import('../pages/Settings/views/Enrich
 
 const ContactDetail = lazy(() => import('../pages/Contacts/ContactDetail'));
 
-import { leadData } from '../data/mockData';
+// Mock data removed
 
 // Premium Loading State for Suspense
 const RouteLoading = () => (
@@ -57,10 +57,9 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
             case 'contacts':
                 return <ContactsPage onEdit={onEditContact} onAddActivity={onAddActivity} onNavigate={onNavigate} />;
             case 'contact-detail':
-                const isLead = leadData.some(l => l.mobile === currentContactId);
                 return <ContactDetail
                     contactId={currentContactId}
-                    onBack={() => onNavigate(isLead ? 'leads' : 'contacts')}
+                    onBack={() => onNavigate('contacts')}
                     onAddActivity={onAddActivity}
                 />;
             case 'company':

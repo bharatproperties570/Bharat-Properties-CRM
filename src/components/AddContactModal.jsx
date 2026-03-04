@@ -8,7 +8,7 @@ import { usePropertyConfig } from "../context/PropertyConfigContext";
 import { useContactConfig } from "../context/ContactConfigContext";
 import { useFieldRules } from "../context/FieldRulesContext";
 import AddressDetailsForm from "./common/AddressDetailsForm";
-import { PROJECTS_LIST, PROJECT_DATA, CITIES } from "../data/projectData";
+import { PROJECTS_LIST, PROJECT_DATA, CITIES } from "../constants/projectConstants";
 import { fetchLookup } from "../utils/fetchLookup";
 import { useUserContext } from '../context/UserContext';
 

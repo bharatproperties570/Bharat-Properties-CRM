@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useUserContext } from '../../context/UserContext';
-import { PROJECTS_LIST } from '../../data/projectData';
-import AddProjectModal from '../../components/AddProjectModal';
-import AddProjectPriceModal from '../../components/AddProjectPriceModal';
 import { api } from '../../utils/api';
 import { getInitials } from '../../utils/helpers';
+import AddProjectModal from '../../components/AddProjectModal';
+import AddProjectPriceModal from '../../components/AddProjectPriceModal';
+// Mock data removed
 
 import UploadModal from '../../components/UploadModal';
 import AddDocumentModal from '../../components/AddDocumentModal';
@@ -38,22 +38,22 @@ function ProjectsPage({ onNavigate, onAddProject }) {
 
     const getTeamName = useCallback((teamValue) => {
         const value = Array.isArray(teamValue) ? teamValue[0] : teamValue;
-        if (!value) return "General Team";
+        if (!value) return "-";
         if (typeof value === 'object') {
-            return value.name || value.lookup_value || "General Team";
+            return value.name || value.lookup_value || "-";
         }
         const found = teams.find(t => (t._id === value) || (t.id === value));
-        return found ? (found.name || found.lookup_value) : value;
+        return found ? (found.name || found.lookup_value) : "-";
     }, [teams]);
 
     const getUserName = useCallback((ownerValue) => {
         const value = Array.isArray(ownerValue) ? ownerValue[0] : ownerValue;
-        if (!value) return "Admin";
+        if (!value) return "-";
         if (typeof value === 'object') {
-            return value.fullName || value.name || value.lookup_value || "Admin";
+            return value.fullName || value.name || value.lookup_value || "-";
         }
         const found = users.find(u => (u._id === value) || (u.id === value));
-        return found ? (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username))) : value;
+        return found ? (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username))) : "-";
     }, [users]);
 
     useEffect(() => {
@@ -151,7 +151,7 @@ function ProjectsPage({ onNavigate, onAddProject }) {
             console.error("Error saving project:", error);
             alert("Failed to save project. Please check backend.");
         } finally {
-            setLoading(true);
+            setLoading(false);
             // Re-fetch to be safe and update counts
             fetchProjects();
         }

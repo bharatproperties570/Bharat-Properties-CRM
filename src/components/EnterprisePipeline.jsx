@@ -43,45 +43,64 @@ const EnterprisePipeline = ({ contact, activities = [] }) => {
     const lifecycle = useMemo(() => {
         if (!contact) return null;
 
-        const currentStageValue = contact.stage?.name || contact.stage || 'New';
+        const currentStageValue = contact.stage?.lookup_value || contact.stage?.name || contact.stage || 'New';
         const currentStageLabel = String(currentStageValue).toLowerCase();
 
-        // 1. Recover sequence of stage changes from unified timeline Audit Logs
+        // 1. Recover sequence of stage changes from contact.stageHistory (Direct Backend Schema)
+        const schemaHistory = (contact.stageHistory || []).map(sh => ({
+            stage: sh.stage || 'New',
+            enteredAt: sh.enteredAt,
+            exitedAt: sh.exitedAt,
+            agent: sh.triggeredByUser ? (sh.triggeredByUser.fullName || sh.triggeredByUser.name || 'System') : 'System'
+        }));
+
+        // 2. Recover sequence of stage changes from unified timeline Audit Logs (Redundancy check)
         const stageLogs = activities
             .filter(a => a.source === 'audit' && a.metadata?.eventType === 'stage_changed')
             .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-        const dynamicStageHistory = [];
+        const dynamicStageHistory = [...schemaHistory];
         let lastTime = contact.createdAt ? new Date(contact.createdAt).toISOString() : new Date().toISOString();
         let iterStage = 'New';
 
-        stageLogs.forEach(log => {
-            const nextStageRaw = log.metadata?.changes?.after || 'Unknown';
-            const nextStage = typeof nextStageRaw === 'object' && nextStageRaw
-                ? (nextStageRaw.lookup_value || nextStageRaw.name || String(nextStageRaw.id || nextStageRaw._id || nextStageRaw))
-                : String(nextStageRaw);
+        if (dynamicStageHistory.length > 0) {
+            const last = dynamicStageHistory[dynamicStageHistory.length - 1];
+            if (last.exitedAt) lastTime = last.exitedAt;
+        }
+
+        // If schema history is empty, try to fallback to audit logs
+        if (dynamicStageHistory.length === 0) {
+            stageLogs.forEach(log => {
+                const nextStageRaw = log.metadata?.changes?.after || 'Unknown';
+                const nextStage = typeof nextStageRaw === 'object' && nextStageRaw
+                    ? (nextStageRaw.lookup_value || nextStageRaw.name || String(nextStageRaw.id || nextStageRaw._id || nextStageRaw))
+                    : String(nextStageRaw);
 
 
-            const actorName = typeof log.actor === 'object' ? (log.actor.fullName || log.actor.name || log.actor.username || 'System') : (log.actor || 'System');
+                const actorName = typeof log.actor === 'object' ? (log.actor.fullName || log.actor.name || log.actor.username || 'System') : (log.actor || 'System');
+                dynamicStageHistory.push({
+                    stage: String(iterStage),
+                    enteredAt: lastTime,
+                    exitedAt: log.timestamp,
+                    agent: actorName
+                }); iterStage = nextStage;
+                lastTime = log.timestamp;
+            });
+        }
+
+        // 3. Current active stage (if not already represented)
+        const hasActiveStage = dynamicStageHistory.some(h => !h.exitedAt);
+        if (!hasActiveStage) {
+            const lastActor = stageLogs.length > 0 ? stageLogs[stageLogs.length - 1].actor : 'System';
+            const lastActorName = typeof lastActor === 'object' ? (lastActor.fullName || lastActor.name || lastActor.username || 'System') : lastActor;
+
             dynamicStageHistory.push({
-                stage: String(iterStage),
+                stage: currentStageLabel,
                 enteredAt: lastTime,
-                exitedAt: log.timestamp,
-                agent: actorName
-            }); iterStage = nextStage;
-            lastTime = log.timestamp;
-        });
-
-        // Current active stage
-        const lastActor = stageLogs.length > 0 ? stageLogs[stageLogs.length - 1].actor : 'System';
-        const lastActorName = typeof lastActor === 'object' ? (lastActor.fullName || lastActor.name || lastActor.username || 'System') : lastActor;
-
-        dynamicStageHistory.push({
-            stage: currentStageLabel,
-            enteredAt: lastTime,
-            exitedAt: null,
-            agent: lastActorName
-        });
+                exitedAt: null,
+                agent: lastActorName
+            });
+        }
 
         // Process Stages
         let activeIdx = -1;
@@ -372,19 +391,27 @@ const EnterprisePipeline = ({ contact, activities = [] }) => {
                             </button>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '16px', marginBottom: '40px' }}>
-                            <div style={{ flex: 1, padding: '20px', background: '#f8fafc', borderRadius: '18px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ display: 'flex', gap: '16px', marginBottom: '40px', flexWrap: 'wrap' }}>
+                            <div style={{ flex: 1, minWidth: '150px', padding: '20px', background: '#f8fafc', borderRadius: '18px', border: '1px solid #e2e8f0' }}>
                                 <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '6px' }}>Current Owner</div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 950, color: '#1e293b' }}>
                                     <User size={16} /> {selectedStage.agent}
                                 </div>
                             </div>
-                            <div style={{ flex: 1, padding: '20px', background: '#f8fafc', borderRadius: '18px', border: '1px solid #e2e8f0' }}>
+                            <div style={{ flex: 1, minWidth: '150px', padding: '20px', background: '#f8fafc', borderRadius: '18px', border: '1px solid #e2e8f0' }}>
                                 <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '6px' }}>Time in Stage</div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 950, color: '#4f46e5' }}>
                                     <Clock size={16} /> {selectedStage.timeSpentLabel}
                                 </div>
                             </div>
+                            {contact.unitNo && (
+                                <div style={{ flex: 1, minWidth: '150px', padding: '20px', background: '#eff6ff', borderRadius: '18px', border: '1px solid #bfdbfe' }}>
+                                    <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#3b82f6', textTransform: 'uppercase', marginBottom: '6px' }}>Selected Unit</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 950, color: '#1d4ed8' }}>
+                                        <Home size={16} /> #{contact.unitNo}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         <div style={{ flex: 1, overflowY: 'auto', paddingRight: '15px' }} className="no-scrollbar">

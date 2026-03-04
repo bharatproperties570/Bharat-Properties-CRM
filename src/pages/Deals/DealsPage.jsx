@@ -6,7 +6,7 @@ import AddBookingModal from '../../components/AddBookingModal';
 import DealsFilterPanel from './components/DealsFilterPanel';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 import { useCall } from '../../context/CallContext';
-import { sizeData } from '../../data/sizeData';
+import { sizeData } from '../../constants/sizeConstants';
 import { applyDealsFilters } from '../../utils/dealsFilterLogic';
 import UploadModal from '../../components/UploadModal';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';

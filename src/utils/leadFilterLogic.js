@@ -1,6 +1,6 @@
 
 import { calculateDistance } from './inventoryFilterLogic';
-import { PROJECTS_LIST } from '../data/projectData';
+import { PROJECTS_LIST } from '../constants/projectConstants';
 
 // ==================================================================================
 // LEAD FILTERING LOGIC

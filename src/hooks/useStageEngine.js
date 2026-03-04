@@ -154,7 +154,7 @@ export const useStageEngine = () => {
                 leadStages,
                 stage: computedDealStage,
                 reason,
-                userId: opts?.userId || null,
+                userId: null, // opts not defined in this scope
             });
             const changed = response?.data?.changed === true;
             const finalStage = response?.data?.stage || computedDealStage;
@@ -189,9 +189,21 @@ export const useStageEngine = () => {
      * Extract outcome string from activity details.
      */
     const extractOutcome = useCallback((activityType, details = {}) => {
-        if (activityType === 'Call') return details.callOutcome || '';
-        if (activityType === 'Meeting') return details.meetingOutcomeStatus || details.completionResult || '';
-        if (activityType === 'Site Visit') return details.meetingOutcomeStatus || '';
+        if (activityType === 'Call') return details.callOutcome || details.completionResult || '';
+        if (activityType === 'Meeting') return details.completionResult || details.meetingOutcomeStatus || '';
+        if (activityType === 'Site Visit') {
+            let outcome = details.completionResult || details.meetingOutcomeStatus || '';
+            // Professional Fix: Extract from nested properties if top-level is empty
+            if (!outcome && Array.isArray(details.visitedProperties)) {
+                const priority = { 'very interested': 1, 'shortlisted': 2, 'somewhat interested': 3 };
+                const foundResult = details.visitedProperties
+                    .map(p => (p.result || '').toLowerCase())
+                    .filter(r => r)
+                    .sort((a, b) => (priority[a] || 99) - (priority[b] || 99))[0];
+                if (foundResult) outcome = foundResult;
+            }
+            return outcome;
+        }
         if (activityType === 'Email') return details.mailStatus || '';
         return details.completionResult || '';
     }, []);

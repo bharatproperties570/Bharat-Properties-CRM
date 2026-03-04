@@ -39,6 +39,7 @@ const DealSchema = new mongoose.Schema({
         default: 'Open'
     },
     dealProbability: { type: Number, default: 50 },
+    dealScore: { type: Number, default: 0, min: 0, max: 100 },
 
     // Financials & Pricing Panels
     offerHistory: [{

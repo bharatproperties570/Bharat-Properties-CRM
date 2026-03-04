@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { emailAPI } from '../../../utils/api';
-import { emailTemplates } from '../../../data/mockData';
+import { emailTemplates } from '../../../constants/templates';
 import { getInitials } from '../../../utils/helpers';
 import toast from 'react-hot-toast';
 
