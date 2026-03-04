@@ -170,7 +170,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
 };
 
 const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
-    const { masterFields = {} } = usePropertyConfig();
+    const { masterFields = {}, propertyConfig = {}, projects: dynamicProjects = [] } = usePropertyConfig();
     const [isVisible, setIsVisible] = useState(false);
     const [sizeMode, setSizeMode] = useState('type'); // 'type' | 'range'
 
@@ -197,6 +197,7 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
         if (isOpen && searchInputRef.current && window.google) {
             const autocomplete = new window.google.maps.places.Autocomplete(searchInputRef.current, {
                 types: ['geocode'],
+                componentRestrictions: { country: 'in' },
                 fields: ['formatted_address', 'geometry']
             });
 
@@ -228,14 +229,14 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
     const selectedSubCategories = filters.subCategory || [];
 
     const availableSubCategories = selectedCategories.length > 0
-        ? selectedCategories.reduce((acc, cat) => PROPERTY_CATEGORIES[cat] ? [...acc, ...PROPERTY_CATEGORIES[cat].subCategories.map(sc => sc.name)] : acc, [])
+        ? selectedCategories.reduce((acc, cat) => propertyConfig[cat] ? [...acc, ...propertyConfig[cat].subCategories.map(sc => sc.name)] : acc, [])
         : [];
 
     const availableSizeTypes = selectedSubCategories.length > 0
         ? selectedCategories.reduce((acc, cat) => {
-            if (PROPERTY_CATEGORIES[cat]) {
-                const matchingSubs = PROPERTY_CATEGORIES[cat].subCategories.filter(sc => selectedSubCategories.includes(sc.name));
-                const types = matchingSubs.reduce((tAcc, sub) => [...tAcc, ...sub.types.map(t => t.name)], []);
+            if (propertyConfig[cat]) {
+                const matchingSubs = propertyConfig[cat].subCategories.filter(sc => selectedSubCategories.includes(sc.name));
+                const types = matchingSubs.reduce((tAcc, sub) => [...tAcc, ...(sub.types || []).map(t => t.name)], []);
                 return [...acc, ...types];
             }
             return acc;
@@ -246,17 +247,22 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
     const uniqueSizeTypes = [...new Set(availableSizeTypes)];
 
     const getFilteredProjects = () => {
-        const projects = PROJECTS_LIST.map(p => p.name);
+        const allProjects = dynamicProjects.length > 0 ? dynamicProjects : PROJECTS_LIST;
+        const projectNames = allProjects.map(p => p.name);
+
         if (filters.locationCoords && filters.range && filters.range !== 'Exact') {
             const rangeKm = parseInt(filters.range.replace(/\D/g, ''), 10);
             if (!isNaN(rangeKm)) {
-                return PROJECTS_LIST.filter(p => {
-                    const dist = calculateDistance(filters.locationCoords.lat, filters.locationCoords.lng, p.lat, p.lng);
+                return allProjects.filter(p => {
+                    const lat = p.lat || p.location?.lat;
+                    const lng = p.lng || p.location?.lng;
+                    if (!lat || !lng) return false;
+                    const dist = calculateDistance(filters.locationCoords.lat, filters.locationCoords.lng, lat, lng);
                     return dist !== null && dist <= rangeKm;
                 }).map(p => p.name);
             }
         }
-        return projects;
+        return projectNames;
     };
 
     const projectOptions = getFilteredProjects();
@@ -313,7 +319,7 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                             <div>
                                 <label style={styles.label}>Category</label>
                                 <MultiSelectDropdown
-                                    options={Object.keys(PROPERTY_CATEGORIES)}
+                                    options={Object.keys(propertyConfig)}
                                     selected={filters.category || []}
                                     onChange={(val) => {
                                         onFilterChange({ ...filters, category: val, subCategory: [], sizeType: [] });
