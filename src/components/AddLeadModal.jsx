@@ -471,6 +471,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     const facingOptions = masterFields?.facings || [];
     const roadWidthOptions = masterFields?.roadWidths || [];
     const unitTypeOptions = masterFields?.unitTypes || [];
+    const countryCodeOptions = masterFields?.countryCodes || [];
+    const titleOptions = masterFields?.titles || [];
     const directionOptions = masterFields?.directions || DIRECTION_OPTIONS;
     const floorLevelOptions = masterFields?.floorLevels || [];
 
@@ -954,6 +956,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                     const response = await api.post("contacts", cleanContactPayload);
                     if (response.data && response.data.success) {
                         finalContactId = response.data.data._id;
+                        window.dispatchEvent(new CustomEvent('contact-updated'));
                     } else {
                         throw new Error(response.data?.message || "Failed to create contact");
                     }
@@ -1084,6 +1087,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             }
 
             onAdd(leadPayload);
+            window.dispatchEvent(new CustomEvent('lead-updated'));
+            window.dispatchEvent(new CustomEvent('contact-updated'));
             onClose();
 
         } catch (error) {
@@ -1414,10 +1419,11 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                 style={customSelectStyle}
                                             >
                                                 <option value="">Select</option>
-                                                <option value="Mr.">Mr.</option>
-                                                <option value="Ms.">Ms.</option>
-                                                <option value="Mrs.">Mrs.</option>
-                                                <option value="Dr.">Dr.</option>
+                                                {titleOptions.map(opt => (
+                                                    <option key={opt._id} value={opt.lookup_value}>
+                                                        {opt.lookup_value}
+                                                    </option>
+                                                ))}
                                             </select>
                                         </div>
                                         <div style={{ position: 'relative' }}>
@@ -1454,7 +1460,10 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                     onChange={(e) => handleInputChange('countryCode', e.target.value)}
                                                     style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#f8fafc', fontSize: '0.9rem', color: '#475569' }}
                                                 >
-                                                    {COUNTRY_CODES.map(c => <option key={c.code} value={c.dial_code}>{c.dial_code} ({c.code})</option>)}
+                                                    {countryCodeOptions?.length > 0
+                                                        ? countryCodeOptions.map(c => <option key={c._id} value={c.lookup_value}>{c.lookup_value}</option>)
+                                                        : COUNTRY_CODES.map(c => <option key={c.code} value={c.dial_code}>{c.dial_code} ({c.code})</option>)
+                                                    }
                                                 </select>
                                                 <input
                                                     type="tel"
@@ -1679,10 +1688,11 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             style={customSelectStyle}
                                         >
                                             <option value="">Select</option>
-                                            <option value="Mr.">Mr.</option>
-                                            <option value="Ms.">Ms.</option>
-                                            <option value="Mrs.">Mrs.</option>
-                                            <option value="Dr.">Dr.</option>
+                                            {titleOptions.map(opt => (
+                                                <option key={opt._id} value={opt.lookup_value}>
+                                                    {opt.lookup_value}
+                                                </option>
+                                            ))}
                                         </select>
                                     </div>
                                     <div style={{ position: 'relative' }}>
@@ -1743,7 +1753,10 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                 onChange={(e) => handleInputChange('countryCode', e.target.value)}
                                                 style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#f8fafc', fontSize: '0.9rem', color: '#475569' }}
                                             >
-                                                {COUNTRY_CODES.map(c => <option key={c.code} value={c.dial_code}>{c.dial_code} ({c.code})</option>)}
+                                                {countryCodeOptions?.length > 0
+                                                    ? countryCodeOptions.map(c => <option key={c._id} value={c.lookup_value}>{c.lookup_value}</option>)
+                                                    : COUNTRY_CODES.map(c => <option key={c.code} value={c.dial_code}>{c.dial_code} ({c.code})</option>)
+                                                }
                                             </select>
                                             <input
                                                 type="tel"
@@ -2652,8 +2665,18 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
                         {/* Stage Engine – Read-Only Badge (edit mode only) */}
                         {mode === 'edit' && initialData?.stage && (() => {
-                            const stageName = initialData.stage || 'New';
-                            const stageInfo = STAGE_PIPELINE.find(s => s.label.toLowerCase() === stageName.toLowerCase()) || { color: '#94a3b8', icon: 'fa-circle', label: stageName };
+                            let stageNameStr = 'New';
+                            if (typeof initialData.stage === 'string') {
+                                stageNameStr = initialData.stage;
+                            } else if (initialData.stage && typeof initialData.stage === 'object') {
+                                stageNameStr = initialData.stage.lookup_value || initialData.stage.label || initialData.stage.name || String(initialData.stage);
+                            }
+
+                            const stageInfo = STAGE_PIPELINE.find(s => s.label.toLowerCase() === stageNameStr.toLowerCase()) || { color: '#94a3b8', icon: 'fa-circle', label: stageNameStr };
+
+                            // fallback formatting if it still isn't a string to drop errors
+                            const displayLabel = typeof stageInfo.label === 'string' ? stageInfo.label : 'New';
+
                             return (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '6px 14px' }}>
                                     <i className="fas fa-lock" style={{ fontSize: '0.7rem', color: '#64748b' }}></i>
@@ -2665,7 +2688,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         padding: '2px 10px', fontSize: '0.7rem', fontWeight: 800
                                     }}>
                                         <i className={`fas ${stageInfo.icon}`} style={{ fontSize: '0.6rem' }}></i>
-                                        {stageInfo.label}
+                                        {displayLabel}
                                     </span>
                                     <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontStyle: 'italic' }}>Auto-computed</span>
                                 </div>
