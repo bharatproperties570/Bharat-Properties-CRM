@@ -47,11 +47,22 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     // ── STAGE ENGINE SYNC ──────────────────────────────────────────
     useEffect(() => {
         const handleActivitySync = (e) => {
-            console.log('[LeadsPage] Activity sync event received:', e.detail);
+            console.log('[LeadsPage] Activity sync event received:', e?.detail);
             setRefreshTrigger(prev => prev + 1);
         };
+
+        const handleLeadUpdate = () => {
+            console.log('[LeadsPage] Lead update event received');
+            setRefreshTrigger(prev => prev + 1);
+        };
+
         window.addEventListener('activity-completed', handleActivitySync);
-        return () => window.removeEventListener('activity-completed', handleActivitySync);
+        window.addEventListener('lead-updated', handleLeadUpdate);
+
+        return () => {
+            window.removeEventListener('activity-completed', handleActivitySync);
+            window.removeEventListener('lead-updated', handleLeadUpdate);
+        };
     }, []);
     // ────────────────────────────────────────────────────────────────
     const { fireEvent } = useTriggers();
@@ -202,6 +213,15 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         };
                     }
 
+                    const ownerNameDisplay = lead.assignment?.assignedTo?.fullName
+                        || lead.assignment?.assignedTo?.name
+                        || lead.owner?.fullName
+                        || lead.owner?.name
+                        || lead.owner?.email
+                        || (typeof lead.owner === 'string' && !/^[0-9a-fA-F]{24}$/.test(lead.owner) ? lead.owner : null)
+                        || (typeof contact.owner === 'string' && !/^[0-9a-fA-F]{24}$/.test(contact.owner) ? contact.owner : null)
+                        || "Unassigned";
+
                     return {
                         _id: lead._id?.toString() || lead._id || `lead-${index}`,
                         name: name,
@@ -243,7 +263,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                         source: lead.source,
                         sourceFallback: contact.source || "Direct",
-                        owner: lead.assignment?.assignedTo?.fullName || lead.owner?.fullName || lead.owner?.email || lead.owner || contact.owner || "Unassigned",
+                        owner: ownerNameDisplay,
                         rawOwner: lead.assignment?.assignedTo?._id || lead.owner?._id || lead.owner?.id || lead.owner || contact.owner,
                         team: contact.team || lead.assignment?.team || "",
 

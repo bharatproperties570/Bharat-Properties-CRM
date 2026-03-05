@@ -238,7 +238,7 @@ export const updateContact = async (req, res, next) => {
         delete updateData.updatedAt;
         delete updateData.fullName;
 
-        const { error } = updateContactSchema.validate(updateData);
+        const { error, value: cleanData } = updateContactSchema.validate(updateData, { stripUnknown: true });
         if (error) {
             console.error("[updateContact] Validation Error:", JSON.stringify(error.details, null, 2));
             return res.status(400).json({ success: false, error: error.details[0].message });
@@ -259,14 +259,14 @@ export const updateContact = async (req, res, next) => {
             }
         };
 
-        await resolveAllReferenceFields(updateData);
-        cleanEmptyStrings(updateData);
+        await resolveAllReferenceFields(cleanData);
+        cleanEmptyStrings(cleanData);
 
-        const contact = await Contact.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
+        const contact = await Contact.findByIdAndUpdate(req.params.id, cleanData, { new: true, runValidators: true });
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found" });
 
         // Emit Stage Changed AuditLog if updated
-        if (existingContact && updateData.stage && String(existingContact.stage) !== String(updateData.stage)) {
+        if (existingContact && cleanData.stage && String(existingContact.stage) !== String(cleanData.stage)) {
             // Need AuditLog module explicitly imported at top if not present.
             // Assuming AuditLog is imported at the top of contact.controller.js.
             const AuditLog = mongoose.model('AuditLog');
@@ -276,8 +276,8 @@ export const updateContact = async (req, res, next) => {
                 contact._id,
                 `${contact.name} ${contact.surname || ''}`.trim(),
                 req.user?.id || null, // Best effort actor
-                { before: existingContact.stage || 'New', after: updateData.stage },
-                `Contact stage shifted from ${existingContact.stage || 'New'} to ${updateData.stage}`
+                { before: existingContact.stage || 'New', after: cleanData.stage },
+                `Contact stage shifted from ${existingContact.stage || 'New'} to ${cleanData.stage}`
             );
         }
 
@@ -418,13 +418,18 @@ const resolveLookup = async (type, value) => {
 
 // Helper to resolve User (By Name or Email)
 import User from "../models/User.js";
+const escapeRegExp = (string) => {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
 const resolveUser = async (identifier) => {
     if (!identifier) return null;
     if (mongoose.Types.ObjectId.isValid(identifier)) return identifier;
 
+    const escapedIdentifier = escapeRegExp(identifier);
     const user = await User.findOne({
         $or: [
-            { fullName: { $regex: new RegExp(`^${identifier}$`, 'i') } },
+            { fullName: { $regex: new RegExp(`^${escapedIdentifier}$`, 'i') } },
             { email: identifier.toLowerCase() }
         ]
     });
