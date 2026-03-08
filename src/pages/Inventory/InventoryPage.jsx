@@ -959,37 +959,72 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                         </div>
 
                                         <div className="super-cell">
-                                            <div style={{
-                                                fontSize: '0.75rem',
-                                                fontWeight: 700,
-                                                color: renderVal(item.status, 'Status') === 'Active' ? '#10b981' : (renderVal(item.status, 'Status') === 'Sold Out' || renderVal(item.status, 'Status') === 'Rented Out') ? '#f59e0b' : '#64748b',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '4px',
-                                                marginBottom: '4px'
-                                            }}>
-                                                <div style={{
-                                                    width: '8px',
-                                                    height: '8px',
-                                                    borderRadius: '50%',
-                                                    background: renderVal(item.status, 'Status') === 'Active' ? '#10b981' : (renderVal(item.status, 'Status') === 'Sold Out' || renderVal(item.status, 'Status') === 'Rented Out') ? '#f59e0b' : '#64748b'
-                                                }}></div>
-                                                {renderVal(item.status, 'Status')}
-                                            </div>
-                                            {(item.remarks || (item.history && item.history.length > 0)) && (
-                                                <div style={{
-                                                    fontSize: '0.7rem',
-                                                    color: '#475569',
-                                                    lineHeight: '1.2',
-                                                    background: '#f8fafc',
-                                                    padding: '4px 8px',
-                                                    borderRadius: '4px',
-                                                    border: '1px solid #e2e8f0',
-                                                    maxWidth: '200px'
-                                                }} className="text-ellipsis" title={renderValue(item.remarks) || (item.history && item.history[0]?.note) || (item.history && item.history[0]?.result)}>
-                                                    {renderValue(item.remarks) || (item.history && item.history[0]?.note) || (item.history && item.history[0]?.result) || ''}
-                                                </div>
-                                            )}
+                                            {(() => {
+                                                const rawStatus = renderVal(item.status, 'Status');
+                                                const latestFeedback = (item.history && item.history.length > 0) ? item.history[0] : null;
+
+                                                // Determine "Professional" mapping
+                                                const isActive = rawStatus === 'Active' || rawStatus === 'Available' || !rawStatus || rawStatus === '-';
+                                                const statusLabel = isActive ? 'Active' : 'Inactive';
+                                                const statusColor = isActive ? '#10b981' : (rawStatus === 'Sold Out' || rawStatus === 'Rented Out') ? '#f59e0b' : '#64748b';
+
+                                                return (
+                                                    <>
+                                                        <div style={{
+                                                            fontSize: '0.65rem',
+                                                            fontWeight: 800,
+                                                            color: statusColor,
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px',
+                                                            marginBottom: '6px',
+                                                            textTransform: 'uppercase',
+                                                            letterSpacing: '0.03em'
+                                                        }}>
+                                                            <div style={{
+                                                                width: '6px',
+                                                                height: '6px',
+                                                                borderRadius: '50%',
+                                                                background: statusColor
+                                                            }}></div>
+                                                            {statusLabel}
+                                                        </div>
+
+                                                        {latestFeedback ? (
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                                                <div className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b' }} title={latestFeedback.result}>
+                                                                    {latestFeedback.result}
+                                                                </div>
+                                                                {latestFeedback.reason && (
+                                                                    <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }} className="text-ellipsis">
+                                                                        {latestFeedback.reason}
+                                                                    </div>
+                                                                )}
+                                                                {(latestFeedback.note && latestFeedback.note.includes('Next:')) && (
+                                                                    <div style={{
+                                                                        marginTop: '4px',
+                                                                        fontSize: '0.65rem',
+                                                                        color: '#3b82f6',
+                                                                        fontWeight: 700,
+                                                                        background: '#eff6ff',
+                                                                        padding: '2px 6px',
+                                                                        borderRadius: '4px',
+                                                                        display: 'inline-block',
+                                                                        width: 'fit-content'
+                                                                    }}>
+                                                                        <i className="far fa-calendar-alt" style={{ marginRight: '4px' }}></i>
+                                                                        {latestFeedback.note.split('| Next: ')[1]}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ) : (
+                                                            <div style={{ fontSize: '0.75rem', color: '#cbd5e1', fontStyle: 'italic' }}>
+                                                                No updates yet
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
 
                                         <div className="super-cell col-assignment" style={{ alignItems: 'flex-end', textAlign: 'right' }}>
@@ -1133,9 +1168,31 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                         <span style={{ color: '#cbd5e1' }}>|</span>
                                                         <span style={{ color: '#64748b', fontWeight: 600 }}>{renderVal(item.subCategory, "SubCategory")}</span>
                                                     </div>
-                                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'flex', alignItems: 'center', marginTop: '2px' }}>
-                                                        <i className="fas fa-map-marker-alt" style={{ width: '12px', color: '#ef4444', fontSize: '0.65rem', marginRight: '4px' }}></i>
-                                                        {renderValue(item.area || item.city)}
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'flex', alignItems: 'center' }}>
+                                                            <i className="fas fa-map-marker-alt" style={{ width: '12px', color: '#ef4444', fontSize: '0.65rem', marginRight: '4px' }}></i>
+                                                            {renderValue(item.area || item.city)}
+                                                        </div>
+                                                        {(() => {
+                                                            const rawStatus = renderVal(item.status, 'Status');
+                                                            const latestFeedback = (item.history && item.history.length > 0) ? item.history[0] : null;
+                                                            const isActive = rawStatus === 'Active' || rawStatus === 'Available' || !rawStatus || rawStatus === '-';
+                                                            const statusColor = isActive ? '#10b981' : (rawStatus === 'Sold Out' || rawStatus === 'Rented Out') ? '#f59e0b' : '#64748b';
+                                                            return (
+                                                                <div style={{
+                                                                    fontSize: '0.65rem',
+                                                                    fontWeight: 800,
+                                                                    color: statusColor,
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '3px',
+                                                                    textTransform: 'uppercase'
+                                                                }}>
+                                                                    <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: statusColor }}></div>
+                                                                    {latestFeedback?.result || (isActive ? 'Active' : 'Inactive')}
+                                                                </div>
+                                                            );
+                                                        })()}
                                                     </div>
                                                 </div>
                                             </div>
