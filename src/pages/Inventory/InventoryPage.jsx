@@ -26,7 +26,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     const { teams, users } = useUserContext();
     const { fireEvent } = useTriggers();
     const { startCall } = useCall();
-    const { masterFields, getLookupValue, projects } = usePropertyConfig();
+    const { masterFields, getLookupValue, projects, lookups } = usePropertyConfig();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
