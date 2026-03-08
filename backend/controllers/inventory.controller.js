@@ -624,7 +624,7 @@ export const importInventory = async (req, res) => {
                     result.block
                 );
                 result.sizeConfig = sizeResult?.id;
-                result.status = await resolveLookup('Status', item.status || item['Status'] || 'Available');
+                result.status = await resolveLookup('Status', item.status || item['Status'] || 'Inactive');
 
                 // Auto-populate Dimensions/Area from Size Metadata if missing in CSV
                 if (sizeResult?.metadata) {
