@@ -89,6 +89,41 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
         return ownerValue;
     }, [users]);
 
+    // Exhaustive ID Resolution Helper (Mirroring DealMatchingPage logic)
+    const getStrictLookupValue = useCallback((id, type) => {
+        if (!id) return null;
+        if (typeof id === 'object') return id.lookup_value || id.name || id.fullName || id.displayName || id;
+
+        // 1. Check Projects first (Since Project Name is the biggest visibility item)
+        const foundProject = (projects || []).find(p => p._id === id || p.id === id);
+        if (foundProject) return foundProject.name;
+
+        // 2. Search in specified lookup category
+        const normalizedType = type ? type.replace(/\s+/g, '') : null;
+        if (normalizedType && lookups[normalizedType]) {
+            const found = lookups[normalizedType].find(l => l._id === id || l.id === id);
+            if (found) return found.lookup_value;
+        }
+
+        // 3. Global Lookup Search
+        for (const cat in lookups) {
+            if (Array.isArray(lookups[cat])) {
+                const found = lookups[cat].find(l => l._id === id || l.id === id);
+                if (found) return found.lookup_value;
+            }
+        }
+
+        // 4. Return null if still hex ID (avoid showing raw mongo IDs)
+        if (typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id)) return null;
+
+        return id;
+    }, [lookups, projects]);
+
+    const renderVal = useCallback((val, type = null) => {
+        const resolved = getStrictLookupValue(val, type);
+        return resolved || '-';
+    }, [getStrictLookupValue]);
+
     const fetchInventory = useCallback(async () => {
         setLoading(true);
         try {
@@ -793,18 +828,18 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                     {renderValue(item.unitNo) || renderValue(item.unitNumber) || 'N/A'}
                                                 </div>
                                                 <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                                    {renderValue(getLookupValue('UnitType', item.unitType)) || renderValue(getLookupValue('Facing', item.facing)) || ''}
+                                                    {renderVal(item.unitType, 'UnitType')} {renderVal(item.facing, 'Facing') !== '-' ? `| ${renderVal(item.facing, 'Facing')}` : ''}
                                                 </div>
                                             </div>
                                             <div style={{ paddingLeft: '2px' }}>
                                                 <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>
-                                                    {renderValue(getLookupValue('Category', item.category)) || renderValue(getLookupValue('PropertyType', item.type)) || 'N/A'} - {renderValue(getLookupValue('SubCategory', item.subCategory)) || ''}
+                                                    {renderVal(item.category, 'Category')} {renderVal(item.type, 'PropertyType') !== '-' ? `- ${renderVal(item.type, 'PropertyType')}` : ''} {renderVal(item.subCategory, 'SubCategory') !== '-' ? `| ${renderVal(item.subCategory, 'SubCategory')}` : ''}
                                                 </div>
                                                 <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#3b82f6', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                     {(item.sizeConfig || item.sizeLabel) ? (
                                                         <>
                                                             <i className="fas fa-tag" style={{ fontSize: '0.62rem', color: '#6366f1' }}></i>
-                                                            <span style={{ color: '#6366f1' }}>{renderValue(getLookupValue('SizeConfig', item.sizeConfig)) || renderValue(item.sizeLabel)}</span>
+                                                            <span style={{ color: '#6366f1' }}>{renderVal(item.sizeConfig, 'SizeConfig') !== '-' ? renderVal(item.sizeConfig, 'SizeConfig') : renderValue(item.sizeLabel)}</span>
                                                         </>
                                                     ) : (
                                                         <>
@@ -834,9 +869,9 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                     const cityId = item.projectId?.address?.city || item.city || item.address?.city;
                                                     const stateId = item.projectId?.address?.state || item.address?.state;
 
-                                                    const tehsil = getLookupValue('Tehsil', tehsilId);
-                                                    const city = getLookupValue('City', cityId);
-                                                    const state = getLookupValue('State', stateId);
+                                                    const tehsil = renderVal(tehsilId, 'Tehsil');
+                                                    const city = renderVal(cityId, 'City');
+                                                    const state = renderVal(stateId, 'State');
 
                                                     const parts = [];
                                                     if (renderValue(tehsil) !== '-') parts.push(renderValue(tehsil));
@@ -847,7 +882,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                 })()}
                                             </div>
                                             <div className="text-ellipsis" style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 500, marginTop: '1px' }}>
-                                                {renderValue(getLookupValue('Area', item.projectId?.address?.locality || item.address?.locality || item.address?.area || item.location)) || 'No Locality'}
+                                                {renderVal(item.projectId?.address?.locality || item.address?.locality || item.address?.area || item.location, "Area")}
                                             </div>
                                             <div style={{ marginTop: '6px' }}>
                                                 <span className="verified-badge text-ellipsis" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800, display: 'inline-block', maxWidth: '100%' }}>
@@ -859,9 +894,9 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                         <div className="super-cell">
                                             <div className="cell-label" style={{ marginTop: 0, color: '#94a3b8' }}>Orientation</div>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                                {(item.direction || item.orientation) && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-compass" style={{ color: '#3b82f6', width: '14px' }}></i> {renderValue(getLookupValue('Direction', item.direction || item.orientation)) || renderValue(item.direction) || renderValue(item.orientation)}</div>}
-                                                {item.facing && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-map-signs" style={{ color: '#f59e0b', width: '14px' }}></i> {renderValue(getLookupValue('Facing', item.facing)) || renderValue(item.facing)}</div>}
-                                                {(item.roadWidth || item.road) && <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}><i className="fas fa-road" style={{ width: '14px' }}></i> {renderValue(getLookupValue('RoadWidth', item.roadWidth || item.road)) || renderValue(item.roadWidth) || renderValue(item.road)}</div>}
+                                                {(item.direction || item.orientation) && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-compass" style={{ color: '#3b82f6', width: '14px' }}></i> {renderVal(item.direction || item.orientation, 'Direction')}</div>}
+                                                {item.facing && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-map-signs" style={{ color: '#f59e0b', width: '14px' }}></i> {renderVal(item.facing, 'Facing')}</div>}
+                                                {(item.roadWidth || item.road) && <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}><i className="fas fa-road" style={{ width: '14px' }}></i> {renderVal(item.roadWidth || item.road, 'RoadWidth')}</div>}
                                                 {(!item.direction && !item.facing && !item.orientation && !item.roadWidth) && <div style={{ fontSize: '0.7rem', color: '#cbd5e1', fontStyle: 'italic' }}>Not specified</div>}
                                             </div>
                                         </div>
@@ -927,7 +962,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                             <div style={{
                                                 fontSize: '0.75rem',
                                                 fontWeight: 700,
-                                                color: renderValue(item.status) === 'Active' ? '#10b981' : (renderValue(item.status) === 'Sold Out' || renderValue(item.status) === 'Rented Out') ? '#f59e0b' : '#64748b',
+                                                color: renderVal(item.status, 'Status') === 'Active' ? '#10b981' : (renderVal(item.status, 'Status') === 'Sold Out' || renderVal(item.status, 'Status') === 'Rented Out') ? '#f59e0b' : '#64748b',
                                                 display: 'flex',
                                                 alignItems: 'center',
                                                 gap: '4px',
@@ -937,9 +972,9 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                     width: '8px',
                                                     height: '8px',
                                                     borderRadius: '50%',
-                                                    background: renderValue(item.status) === 'Active' ? '#10b981' : (renderValue(item.status) === 'Sold Out' || renderValue(item.status) === 'Rented Out') ? '#f59e0b' : '#64748b'
+                                                    background: renderVal(item.status, 'Status') === 'Active' ? '#10b981' : (renderVal(item.status, 'Status') === 'Sold Out' || renderVal(item.status, 'Status') === 'Rented Out') ? '#f59e0b' : '#64748b'
                                                 }}></div>
-                                                {getLookupValue('Status', item.status) || 'Active'}
+                                                {renderVal(item.status, 'Status')}
                                             </div>
                                             {(item.remarks || (item.history && item.history.length > 0)) && (
                                                 <div style={{
@@ -1070,7 +1105,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                         </div>
                                                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                                                             <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#1e293b' }}>
-                                                                {getLookupValue('UnitType', item.unitType) || 'Unit'}
+                                                                {renderVal(item.unitType, "UnitType")}
                                                             </div>
                                                             <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
                                                                 {(() => {
@@ -1094,9 +1129,9 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
 
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', paddingLeft: '0' }}>
                                                     <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                        <span style={{ color: '#64748b', fontWeight: 600 }}>{getLookupValue('Category', item.category)}</span>
+                                                        <span style={{ color: '#64748b', fontWeight: 600 }}>{renderVal(item.category, "Category")}</span>
                                                         <span style={{ color: '#cbd5e1' }}>|</span>
-                                                        <span style={{ color: '#64748b', fontWeight: 600 }}>{getLookupValue('SubCategory', item.subCategory)}</span>
+                                                        <span style={{ color: '#64748b', fontWeight: 600 }}>{renderVal(item.subCategory, "SubCategory")}</span>
                                                     </div>
                                                     <div style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'flex', alignItems: 'center', marginTop: '2px' }}>
                                                         <i className="fas fa-map-marker-alt" style={{ width: '12px', color: '#ef4444', fontSize: '0.65rem', marginRight: '4px' }}></i>
