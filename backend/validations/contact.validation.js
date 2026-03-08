@@ -46,6 +46,10 @@ export const createContactSchema = Joi.object({
     campaign: Joi.string().optional().allow("", null),
     team: Joi.string().optional().allow("", null),
     owner: Joi.string().optional().allow(null, ""),
+    assignment: Joi.object({
+        assignedTo: Joi.string().optional().allow(null, ""),
+        team: Joi.array().items(Joi.string()).optional()
+    }).optional(),
     visibleTo: Joi.string().optional().allow("", null),
 
     // Personal Address

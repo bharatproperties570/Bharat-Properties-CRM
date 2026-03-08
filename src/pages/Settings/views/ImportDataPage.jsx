@@ -58,10 +58,18 @@ const ImportDataPage = () => {
                 const moduleFields = MODULE_CONFIG[module].fields;
 
                 parsed.headers.forEach(header => {
-                    const match = moduleFields.find(f =>
-                        f.key.toLowerCase() === header.toLowerCase() ||
-                        f.label.toLowerCase() === header.toLowerCase()
-                    );
+                    const normalizedHeader = header.toLowerCase().trim();
+                    const match = moduleFields.find(f => {
+                        const normalizedKey = f.key.toLowerCase();
+                        const normalizedLabel = f.label.toLowerCase();
+
+                        return normalizedKey === normalizedHeader ||
+                            normalizedLabel === normalizedHeader ||
+                            (f.key === 'direction' && (normalizedHeader === 'orientation' || normalizedHeader === 'direction')) ||
+                            (f.key === 'facing' && (normalizedHeader === 'facing' || normalizedHeader === 'facings')) ||
+                            (f.key === 'latitude' && (normalizedHeader === 'latitude' || normalizedHeader === 'lat')) ||
+                            (f.key === 'longitude' && (normalizedHeader === 'longitude' || normalizedHeader === 'lng'));
+                    });
                     if (match) {
                         initialMapping[match.key] = header;
                     }
@@ -189,7 +197,7 @@ const ImportDataPage = () => {
             // Special case for sizes
             if (module === 'sizes') {
                 endpoint = '/lookups/import';
-                payload.lookup_type = 'size';
+                payload.lookup_type = 'Size';
             }
 
             // Artificial delay for better UX (so progress is seen)

@@ -95,7 +95,10 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
 
     const getUnitLabel = (size) => {
         if (!size) return "Sq Yard";
-        const lowerSize = size.toLowerCase();
+        const sizeStr = typeof size === 'object' ? (size.lookup_value || size.name || size.label || size.value || "") : String(size);
+        if (!sizeStr) return "Sq Yard";
+
+        const lowerSize = sizeStr.toLowerCase();
         if (lowerSize.includes('sq yard')) return 'Sq Yard';
         if (lowerSize.includes('sq meter') || lowerSize.includes('sq mtr')) return 'Sq Meter';
         if (lowerSize.includes('sq feet') || lowerSize.includes('sq ft')) return 'Sq Feet';
@@ -105,6 +108,14 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
     };
 
     const unitLabel = getUnitLabel(formData.size);
+
+    const renderValue = (val) => {
+        if (!val) return '-';
+        if (typeof val === 'object') {
+            return val.lookup_value || val.name || val.label || val.value || val.unit || '-';
+        }
+        return val;
+    };
 
     useEffect(() => {
         if (deal && isOpen) {
@@ -121,7 +132,9 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 category: getLookupValue('Category', deal.category),
                 subCategory: getLookupValue('SubCategory', deal.subCategory),
                 propertyType: getLookupValue('PropertyType', deal.propertyType),
-                status: deal.status || 'Open'
+                status: deal.status || 'Open',
+                isOwnerSelected: !!deal.owner,
+                isAssociateSelected: !!deal.associatedContact
             }));
         }
     }, [deal, isOpen]);
@@ -184,6 +197,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
             try {
                 const params = new URLSearchParams();
                 params.append('area', formData.projectName);
+                params.append('status', 'Active'); // Only show Active properties
                 if (formData.block) {
                     params.append('location', formData.block);
                 }
@@ -703,12 +717,12 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                                 <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Pricing</h4>
                                 {formData.size && (
                                     <span style={{ fontSize: '0.8rem', color: '#6366f1', background: '#eef2ff', padding: '4px 10px', borderRadius: '20px', fontWeight: 600, border: '1px solid #c7d2fe' }}>
-                                        <i className="fas fa-expand-arrows-alt mr-1"></i> Size: {formData.size}
+                                        <i className="fas fa-expand-arrows-alt mr-1"></i> Size: {renderValue(formData.size)}
                                     </span>
                                 )}
                                 {formData.propertyType && (
                                     <span style={{ fontSize: '0.8rem', color: '#0284c7', background: '#f0f9ff', padding: '4px 10px', borderRadius: '20px', fontWeight: 600, border: '1px solid #bae6fd' }}>
-                                        <i className="fas fa-tag mr-1"></i> Type: {formData.propertyType}
+                                        <i className="fas fa-tag mr-1"></i> Type: {renderValue(formData.propertyType)}
                                     </span>
                                 )}
                             </div>

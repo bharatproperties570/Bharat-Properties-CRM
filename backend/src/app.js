@@ -24,7 +24,7 @@ import configLookupRoutes from "./modules/lookups/lookup.routes.js";
 import customFieldRoutes from "./modules/customFields/customField.routes.js";
 import fieldRuleRoutes from "./modules/rules/fieldRule.routes.js";
 import distributionRoutes from "./modules/rules/distribution.routes.js";
-import scoringRoutes from "./modules/rules/scoring.routes.js";
+// ScoringRule removed (Bug 4: was orphaned — never integrated into scoring pipeline)
 import systemRoutes from "./modules/systemSettings/system.routes.js";
 import parsingRoutes from "./modules/parsing/parsingRule.routes.js";
 import intakeRoutes from "./modules/intake/intake.routes.js";
@@ -97,7 +97,7 @@ app.use("/config/lookups", configLookupRoutes);
 app.use("/config/fields", customFieldRoutes);
 app.use("/rules/field", fieldRuleRoutes);
 app.use("/rules/distribution", distributionRoutes);
-app.use("/scoring-rules", scoringRoutes);
+// app.use("/scoring-rules", scoringRoutes); // Removed: ScoringRule was orphaned (Bug 4)
 app.use("/system-settings", systemRoutes);
 app.use("/parsing-rules", parsingRoutes);
 app.use("/intake", intakeRoutes);

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import Toast from '../../../components/Toast';
 import {
@@ -200,6 +200,42 @@ const StagePage = () => {
         allRows.forEach(r => { counts[r.stage] = (counts[r.stage] || 0) + 1; });
         return counts;
     }, [allRows]);
+
+    // Live Stage Density from Backend API (Bug 3 Fix: replaces hardcoded mock data)
+    const [densityData, setDensityData] = useState([]);
+    const [densityLoading, setDensityLoading] = useState(false);
+    const [densityError, setDensityError] = useState(null);
+
+    const fetchDensity = useCallback(async () => {
+        setDensityLoading(true);
+        setDensityError(null);
+        try {
+            const res = await fetch('/api/stage-engine/density?entityType=lead');
+            const data = await res.json();
+            if (data.success) {
+                // Merge with DEFAULT_STAGE_DENSITY_TARGETS for target days
+                const merged = data.density.map(row => ({
+                    ...row,
+                    targetDays: DEFAULT_STAGE_DENSITY_TARGETS[row.stage] || 14,
+                    dropOffRate: row.conversionRate != null ? Math.max(0, 100 - row.conversionRate) : null,
+                    isBottleneck: row.isBottleneck || false
+                }));
+                setDensityData(merged);
+            } else {
+                setDensityError(data.error || 'Failed to fetch density data');
+            }
+        } catch (err) {
+            setDensityError(err.message);
+        } finally {
+            setDensityLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (activeTab === 'density') {
+            fetchDensity();
+        }
+    }, [activeTab, fetchDensity]);
 
     const tabs = [
         { id: 'rules', label: 'Rule Table', icon: 'fa-table' },
@@ -476,143 +512,153 @@ const StagePage = () => {
             )}
             {/* ─── TAB: Stage Density Dashboard ─── */}
             {activeTab === 'density' && (() => {
-                // Mock leads data for density computation — in prod these come from API
-                const mockLeads = [
-                    ...Array(12).fill(null).map(() => ({ stage: 'New', createdAt: new Date(Date.now() - 86400000 * 1), stageChangedAt: null })),
-                    ...Array(8).fill(null).map(() => ({ stage: 'Prospect', createdAt: new Date(Date.now() - 86400000 * 8), stageChangedAt: new Date(Date.now() - 86400000 * 7) })),
-                    ...Array(5).fill(null).map(() => ({ stage: 'Qualified', createdAt: new Date(Date.now() - 86400000 * 15), stageChangedAt: new Date(Date.now() - 86400000 * 12) })),
-                    ...Array(4).fill(null).map(() => ({ stage: 'Opportunity', createdAt: new Date(Date.now() - 86400000 * 22), stageChangedAt: new Date(Date.now() - 86400000 * 20) })),
-                    ...Array(3).fill(null).map(() => ({ stage: 'Negotiation', createdAt: new Date(Date.now() - 86400000 * 35), stageChangedAt: new Date(Date.now() - 86400000 * 30) })),
-                    ...Array(1).fill(null).map(() => ({ stage: 'Booked', createdAt: new Date(Date.now() - 86400000 * 50), stageChangedAt: new Date(Date.now() - 86400000 * 45) })),
-                ];
-                const densityData = computeStageDensity(mockLeads, DEFAULT_STAGE_DENSITY_TARGETS);
                 const maxCount = Math.max(...densityData.map(d => d.count), 1);
 
                 return (
                     <div style={{ padding: '24px 32px', flex: 1 }}>
                         {/* Header */}
-                        <div style={{ marginBottom: '24px' }}>
-                            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#111827' }}>Stage Density Dashboard</h2>
-                            <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#6b7280' }}>
-                                Conversion %, Drop-off %, Avg Days per stage — identify pipeline bottlenecks
-                            </p>
+                        <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div>
+                                <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#111827' }}>Stage Density Dashboard</h2>
+                                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#6b7280' }}>
+                                    Live data from MongoDB · Conversion %, Drop-off %, Avg Days per stage
+                                </p>
+                            </div>
+                            <button onClick={fetchDensity} disabled={densityLoading}
+                                style={{ padding: '8px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: densityLoading ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className={`fas ${densityLoading ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`} />
+                                {densityLoading ? 'Loading...' : 'Refresh'}
+                            </button>
                         </div>
 
-                        {/* Summary Cards */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '28px' }}>
-                            {[
-                                {
-                                    icon: 'fa-filter', color: '#6366f1', label: 'Avg Conversion Rate',
-                                    value: Math.round(densityData.slice(0, -1).reduce((s, d) => s + d.conversionRate, 0) / Math.max(densityData.length - 1, 1)) + '%',
-                                    sub: 'Stage-to-stage progression'
-                                },
-                                {
-                                    icon: 'fa-exclamation-triangle', color: '#ef4444', label: 'Bottleneck Stages',
-                                    value: densityData.filter(d => d.isBottleneck).length,
-                                    sub: densityData.filter(d => d.isBottleneck).map(d => d.stage).join(', ') || 'None detected'
-                                },
-                                {
-                                    icon: 'fa-clock', color: '#f59e0b', label: 'Longest Avg Stage',
-                                    value: (() => { const s = [...densityData].sort((a, b) => b.avgDays - a.avgDays)[0]; return s ? `${s.avgDays}d (${s.stage})` : '—'; })(),
-                                    sub: 'Most time spent here'
-                                },
-                            ].map(c => (
-                                <div key={c.label} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '18px 20px', display: 'flex', gap: '14px', alignItems: 'flex-start' }}>
-                                    <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: c.color + '15', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                        <i className={`fas ${c.icon}`} style={{ color: c.color, fontSize: '15px' }} />
-                                    </div>
-                                    <div>
-                                        <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600 }}>{c.label}</div>
-                                        <div style={{ fontSize: '22px', fontWeight: 800, color: c.color, lineHeight: 1.2 }}>{c.value}</div>
-                                        <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>{c.sub}</div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-
-                        {/* Funnel Table */}
-                        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '14px', overflow: 'hidden' }}>
-                            <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <i className="fas fa-chart-bar" style={{ color: '#6366f1', fontSize: '14px' }} />
-                                <span style={{ fontWeight: 700, fontSize: '14px', color: '#374151' }}>Pipeline Funnel Analysis</span>
-                                <span style={{ fontSize: '11px', color: '#94a3b8', marginLeft: 'auto' }}>Based on current lead distribution · Connect real API for live data</span>
+                        {densityError && (
+                            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '12px 16px', marginBottom: '20px', color: '#dc2626', fontSize: '13px' }}>
+                                <i className="fas fa-exclamation-circle" style={{ marginRight: '8px' }} />
+                                {densityError}
                             </div>
+                        )}
 
-                            {/* Column Headers */}
-                            <div style={{ display: 'grid', gridTemplateColumns: '150px 80px 1fr 110px 110px 110px 100px', gap: '0', borderBottom: '1px solid #f1f5f9', padding: '10px 20px', backgroundColor: '#fafafa' }}>
-                                {['Stage', 'Count', 'Volume Bar', 'Conv. Rate', 'Drop-off', 'Avg Days', 'Status'].map(h => (
-                                    <div key={h} style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</div>
-                                ))}
+                        {densityLoading && densityData.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '60px', color: '#94a3b8' }}>
+                                <i className="fas fa-spinner fa-spin" style={{ fontSize: '24px', marginBottom: '12px', display: 'block' }} />
+                                Loading live pipeline data...
                             </div>
-
-                            {densityData.map((row, idx) => {
-                                const stageInfo = STAGE_PIPELINE.find(s => s.label === row.stage) || { color: '#94a3b8', icon: 'fa-circle' };
-                                const barWidth = Math.round((row.count / maxCount) * 100);
-
-                                return (
-                                    <div key={row.stage} style={{ display: 'grid', gridTemplateColumns: '150px 80px 1fr 110px 110px 110px 100px', gap: '0', padding: '14px 20px', borderBottom: idx < densityData.length - 1 ? '1px solid #f8fafc' : 'none', background: row.isBottleneck ? '#fef2f2' : 'transparent', transition: 'background 0.2s' }}>
-                                        {/* Stage Name */}
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: stageInfo.color, flexShrink: 0 }} />
-                                            <span style={{ fontSize: '13px', fontWeight: 700, color: '#374151' }}>{row.stage}</span>
-                                            <span style={{ fontSize: '10px', fontWeight: 700, color: stageInfo.color, background: stageInfo.color + '15', borderRadius: '4px', padding: '1px 6px' }}>{getStageProbability(row.stage)}%</span>
-                                        </div>
-                                        {/* Count */}
-                                        <div style={{ fontSize: '14px', fontWeight: 800, color: '#111827', display: 'flex', alignItems: 'center' }}>{row.count}</div>
-                                        {/* Bar */}
-                                        <div style={{ display: 'flex', alignItems: 'center', paddingRight: '20px' }}>
-                                            <div style={{ flex: 1, height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
-                                                <div style={{ width: `${barWidth}%`, height: '100%', background: row.isBottleneck ? '#ef4444' : stageInfo.color, borderRadius: '4px', transition: 'width 0.5s ease' }} />
+                        ) : densityData.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '60px', color: '#94a3b8' }}>
+                                <i className="fas fa-chart-bar" style={{ fontSize: '32px', marginBottom: '12px', display: 'block' }} />
+                                No pipeline data available yet. Add leads to see stage density.
+                            </div>
+                        ) : (
+                            <>
+                                {/* Summary Cards */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '28px' }}>
+                                    {[
+                                        {
+                                            icon: 'fa-filter', color: '#6366f1', label: 'Avg Conversion Rate',
+                                            value: Math.round(densityData.slice(0, -1).reduce((s, d) => s + (d.conversionRate || 0), 0) / Math.max(densityData.length - 1, 1)) + '%',
+                                            sub: 'Stage-to-stage progression'
+                                        },
+                                        {
+                                            icon: 'fa-exclamation-triangle', color: '#ef4444', label: 'Bottleneck Stages',
+                                            value: densityData.filter(d => d.isBottleneck).length,
+                                            sub: densityData.filter(d => d.isBottleneck).map(d => d.stage).join(', ') || 'None detected'
+                                        },
+                                        {
+                                            icon: 'fa-clock', color: '#f59e0b', label: 'Longest Avg Stage',
+                                            value: (() => { const s = [...densityData].sort((a, b) => b.avgDaysInStage - a.avgDaysInStage)[0]; return s ? `${s.avgDaysInStage}d (${s.stage})` : '—'; })(),
+                                            sub: 'Most time spent here'
+                                        },
+                                    ].map(c => (
+                                        <div key={c.label} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '18px 20px', display: 'flex', gap: '14px', alignItems: 'flex-start' }}>
+                                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: c.color + '15', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                <i className={`fas ${c.icon}`} style={{ color: c.color, fontSize: '15px' }} />
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600 }}>{c.label}</div>
+                                                <div style={{ fontSize: '22px', fontWeight: 800, color: c.color, lineHeight: 1.2 }}>{c.value}</div>
+                                                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>{c.sub}</div>
                                             </div>
                                         </div>
-                                        {/* Conversion Rate */}
-                                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                                            <span style={{ fontSize: '13px', fontWeight: 700, color: row.conversionRate >= 50 ? '#10b981' : row.conversionRate >= 25 ? '#f59e0b' : '#ef4444' }}>
-                                                {idx < densityData.length - 1 ? `${row.conversionRate}%` : '—'}
-                                            </span>
-                                        </div>
-                                        {/* Drop-off */}
-                                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                                            <span style={{ fontSize: '13px', fontWeight: 700, color: row.dropOffRate > 70 ? '#ef4444' : row.dropOffRate > 40 ? '#f59e0b' : '#10b981' }}>
-                                                {idx < densityData.length - 1 ? `${row.dropOffRate}%` : '—'}
-                                            </span>
-                                        </div>
-                                        {/* Avg Days */}
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                            <span style={{ fontSize: '13px', fontWeight: 700, color: row.avgDays > row.targetDays ? '#f59e0b' : '#374151' }}>{row.avgDays}d</span>
-                                            <span style={{ fontSize: '10px', color: '#94a3b8' }}>/ {row.targetDays}d target</span>
-                                        </div>
-                                        {/* Status */}
-                                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                                            {row.isBottleneck ? (
-                                                <span style={{ fontSize: '10px', fontWeight: 700, color: '#ef4444', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '3px 8px' }}>
-                                                    <i className="fas fa-exclamation-triangle" style={{ marginRight: '4px' }} />BOTTLENECK
-                                                </span>
-                                            ) : row.avgDays > row.targetDays ? (
-                                                <span style={{ fontSize: '10px', fontWeight: 700, color: '#f59e0b', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '3px 8px' }}>
-                                                    <i className="fas fa-eye" style={{ marginRight: '4px' }} />WATCH
-                                                </span>
-                                            ) : (
-                                                <span style={{ fontSize: '10px', fontWeight: 700, color: '#10b981', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '3px 8px' }}>
-                                                    <i className="fas fa-check" style={{ marginRight: '4px' }} />HEALTHY
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
+                                    ))}
+                                </div>
 
-                        {/* Legend */}
-                        <div style={{ marginTop: '16px', display: 'flex', gap: '20px', fontSize: '12px', color: '#94a3b8' }}>
-                            <span><span style={{ color: '#10b981', fontWeight: 700 }}>●</span> Conv. Rate ≥ 50% = Healthy</span>
-                            <span><span style={{ color: '#f59e0b', fontWeight: 700 }}>●</span> 25–50% = Watch</span>
-                            <span><span style={{ color: '#ef4444', fontWeight: 700 }}>●</span> &lt;25% = Bottleneck</span>
-                            <span style={{ marginLeft: 'auto' }}>Probability % shown as win probability per stage</span>
-                        </div>
+                                {/* Funnel Table */}
+                                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '14px', overflow: 'hidden' }}>
+                                    <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <i className="fas fa-chart-bar" style={{ color: '#6366f1', fontSize: '14px' }} />
+                                        <span style={{ fontWeight: 700, fontSize: '14px', color: '#374151' }}>Pipeline Funnel Analysis</span>
+                                        <span style={{ fontSize: '11px', color: '#94a3b8', marginLeft: 'auto' }}>Live MongoDB data · {densityData.reduce((s, d) => s + d.count, 0)} total leads</span>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '150px 80px 1fr 110px 110px 110px 100px', gap: '0', borderBottom: '1px solid #f1f5f9', padding: '10px 20px', backgroundColor: '#fafafa' }}>
+                                        {['Stage', 'Count', 'Volume Bar', 'Conv. Rate', 'Drop-off', 'Avg Days', 'Status'].map(h => (
+                                            <div key={h} style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</div>
+                                        ))}
+                                    </div>
+                                    {densityData.map((row, idx) => {
+                                        const stageInfo = STAGE_PIPELINE.find(s => s.label === row.stage) || { color: '#94a3b8', icon: 'fa-circle' };
+                                        const barWidth = Math.round((row.count / maxCount) * 100);
+                                        const targetDays = row.targetDays || 14;
+                                        return (
+                                            <div key={row.stage} style={{ display: 'grid', gridTemplateColumns: '150px 80px 1fr 110px 110px 110px 100px', gap: '0', padding: '14px 20px', borderBottom: idx < densityData.length - 1 ? '1px solid #f8fafc' : 'none', background: row.isBottleneck ? '#fef2f2' : 'transparent' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: stageInfo.color, flexShrink: 0 }} />
+                                                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#374151' }}>{row.stage}</span>
+                                                    <span style={{ fontSize: '10px', fontWeight: 700, color: stageInfo.color, background: stageInfo.color + '15', borderRadius: '4px', padding: '1px 6px' }}>{getStageProbability(row.stage)}%</span>
+                                                </div>
+                                                <div style={{ fontSize: '14px', fontWeight: 800, color: '#111827', display: 'flex', alignItems: 'center' }}>{row.count}</div>
+                                                <div style={{ display: 'flex', alignItems: 'center', paddingRight: '20px' }}>
+                                                    <div style={{ flex: 1, height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+                                                        <div style={{ width: `${barWidth}%`, height: '100%', background: row.isBottleneck ? '#ef4444' : stageInfo.color, borderRadius: '4px', transition: 'width 0.5s ease' }} />
+                                                    </div>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center' }}>
+                                                    <span style={{ fontSize: '13px', fontWeight: 700, color: row.conversionRate >= 50 ? '#10b981' : row.conversionRate >= 25 ? '#f59e0b' : '#ef4444' }}>
+                                                        {idx < densityData.length - 1 ? `${row.conversionRate ?? '—'}%` : '—'}
+                                                    </span>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center' }}>
+                                                    <span style={{ fontSize: '13px', fontWeight: 700, color: (row.dropOffRate || 0) > 70 ? '#ef4444' : (row.dropOffRate || 0) > 40 ? '#f59e0b' : '#10b981' }}>
+                                                        {idx < densityData.length - 1 && row.dropOffRate != null ? `${row.dropOffRate}%` : '—'}
+                                                    </span>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    <span style={{ fontSize: '13px', fontWeight: 700, color: (row.avgDaysInStage || 0) > targetDays ? '#f59e0b' : '#374151' }}>{row.avgDaysInStage || 0}d</span>
+                                                    <span style={{ fontSize: '10px', color: '#94a3b8' }}>/ {targetDays}d target</span>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center' }}>
+                                                    {row.isBottleneck ? (
+                                                        <span style={{ fontSize: '10px', fontWeight: 700, color: '#ef4444', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '3px 8px' }}>
+                                                            <i className="fas fa-exclamation-triangle" style={{ marginRight: '4px' }} />BOTTLENECK
+                                                        </span>
+                                                    ) : (row.avgDaysInStage || 0) > targetDays ? (
+                                                        <span style={{ fontSize: '10px', fontWeight: 700, color: '#f59e0b', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '3px 8px' }}>
+                                                            <i className="fas fa-eye" style={{ marginRight: '4px' }} />WATCH
+                                                        </span>
+                                                    ) : (
+                                                        <span style={{ fontSize: '10px', fontWeight: 700, color: '#10b981', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '3px 8px' }}>
+                                                            <i className="fas fa-check" style={{ marginRight: '4px' }} />HEALTHY
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* Legend */}
+                                <div style={{ marginTop: '16px', display: 'flex', gap: '20px', fontSize: '12px', color: '#94a3b8' }}>
+                                    <span><span style={{ color: '#10b981', fontWeight: 700 }}>●</span> Conv. Rate ≥ 50% = Healthy</span>
+                                    <span><span style={{ color: '#f59e0b', fontWeight: 700 }}>●</span> 25–50% = Watch</span>
+                                    <span><span style={{ color: '#ef4444', fontWeight: 700 }}>●</span> &lt;25% = Bottleneck</span>
+                                    <span style={{ marginLeft: 'auto' }}>Probability % shown as win probability per stage</span>
+                                </div>
+                            </>
+                        )}
                     </div>
                 );
             })()}
+
+
 
             {/* ─── TAB: Stability Lock Config ─── */}
             {activeTab === 'stability' && (

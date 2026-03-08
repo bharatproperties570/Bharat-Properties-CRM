@@ -1162,9 +1162,13 @@ const AddContactModal = ({
 
 
       Object.entries(lookupMapping).forEach(([field, type]) => {
-        if (finalFormData[field] && typeof finalFormData[field] === 'string') {
-          const id = getLookupId(type, finalFormData[field]);
-          if (id) finalFormData[field] = id;
+        if (finalFormData[field]) {
+          if (typeof finalFormData[field] === 'string') {
+            const id = getLookupId(type, finalFormData[field]);
+            if (id) finalFormData[field] = id;
+          } else if (typeof finalFormData[field] === 'object') {
+            finalFormData[field] = finalFormData[field]._id || finalFormData[field].id || null;
+          }
         }
       });
 

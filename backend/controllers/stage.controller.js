@@ -8,9 +8,10 @@
  */
 
 import Lead from '../models/Lead.js';
-import Deal from '../models/Deal.js';
-import Activity from '../models/Activity.js';
-import Lookup from '../models/Lookup.js';
+import Deal from "../models/Deal.js";
+import Activity from "../models/Activity.js";
+import Contact from "../models/Contact.js";
+import { DEAL_STAGE_PRIORITY, DEFAULT_SYNC_RULES, computeDealStageFromLeads } from "../../src/utils/syncEngine.js";
 import AuditLog from '../models/AuditLog.js';
 import mongoose from 'mongoose';
 
@@ -599,49 +600,20 @@ export const getDealHealth = async (req, res) => {
         });
         const activityScore = Math.max(0, Math.min(25, Math.round(activityRaw)));
 
-        // Owner response rate from activity gap
-        const activityGapDays = deal.lastActivityAt
-            ? Math.floor((now - new Date(deal.lastActivityAt)) / 86400000)
-            : 30;
-        const ownerResponseRate = activityGapDays <= 2 ? 100
-            : activityGapDays <= 5 ? 85
-                : activityGapDays <= 7 ? 70
-                    : activityGapDays <= 14 ? 50
-                        : activityGapDays <= 21 ? 35
-                            : activityGapDays <= 30 ? 20 : 10;
-
-        const ownerRisk = ownerResponseRate < 40 ? Math.round((40 - ownerResponseRate) / 40 * 15) : 0;
-
-        // v3 formula
-        const health = Math.max(0, Math.min(100,
-            (stageScore * 0.25) + (stageScore * 0.25) + activityScore - ownerRisk
-        ));
-
-        const label = health >= 60 ? 'Healthy' : health >= 35 ? 'Watch' : 'At Risk';
-        const color = health >= 60 ? '#10b981' : health >= 35 ? '#f59e0b' : '#ef4444';
-
-        res.json({
+        return res.json({
             success: true,
             dealId,
-            health: {
-                score: Math.round(health),
-                label,
-                color,
-                breakdown: {
-                    stageScore,
-                    activityScore,
-                    ownerRisk,
-                    ownerResponseRate,
-                    activitiesAnalyzed: activities.length
-                }
-            },
-            generatedAt: new Date()
+            stage: deal.stage,
+            stageScore,
+            activityScore,
+            lastActivityDaysAgo: deal.lastActivityAt ? Math.floor((now - new Date(deal.lastActivityAt)) / 86400000) : null
         });
     } catch (err) {
         console.error('[StageEngine] getDealHealth error:', err);
-        res.status(500).json({ success: false, error: err.message });
+        return res.status(500).json({ success: false, error: err.message });
     }
 };
+
 
 /**
  * POST /api/stage-engine/bulk-recalc
@@ -780,12 +752,16 @@ export const getLeadScores = async (req, res) => {
             const leadIdStr = lead._id.toString();
 
             // 1. Calculate the core baseline score
-            // Take the best possible base score from either ML engine or Stage pipeline position
+            // FIX (Bug 7): Stage weight is an ADDITIVE boost (30% contribution), not a competitor.
+            // Using Math.max() was WRONG — it discarded either the ML score or stage weight entirely.
+            // Now: baseScore = enrichment ML score + 30% of stage progression weight
             const intentScore = lead.intent_index || 0;
             const stageName = lead.stage?.lookup_value || lead.stage || 'New';
             const multiplier = getMultiplier(stageName);
-            const stageWeight = (STAGE_WEIGHTS[stageName] || 10) * multiplier;
-            const baseScore = Math.max(intentScore, stageWeight);
+            const stageProgressionWeight = STAGE_WEIGHTS[stageName] || 10;
+            // Combine: ML enrichment score (primary) + stage position as a 30% additive boost
+            const stageBoost = Math.round(stageProgressionWeight * 0.30);
+            const baseScore = intentScore + stageBoost;
 
             // 2. Activity Behaviour Score (Dynamic)
             let behavioralScore = 0;
@@ -910,7 +886,13 @@ export const getDealScores = async (req, res) => {
             if (points) STAGE_WEIGHTS[key] = points;
         });
 
-        const deals = await Deal.find({})
+        // Support ?dealId= filter (for detail page — same formula, same score)
+        let dealQuery = {};
+        if (req.query.dealId && mongoose.Types.ObjectId.isValid(req.query.dealId)) {
+            dealQuery._id = req.query.dealId;
+        }
+
+        const deals = await Deal.find(dealQuery)
             .select('_id stage stageHistory lastActivityAt stageChangedAt dealProbability dealScore')
             .lean();
 
@@ -925,13 +907,11 @@ export const getDealScores = async (req, res) => {
             const daysAgo = lastActivity ? Math.floor((now - new Date(lastActivity)) / 86400000) : 999;
             const activityBonus = daysAgo <= 3 ? 15 : daysAgo <= 7 ? 10 : daysAgo <= 14 ? 5 : 0;
 
+            // BUG D1 FIX: Removed persistenceBonus (deal.dealScore was being added to itself on every
+            // recalculation → score inflated exponentially). Score is now purely computed, not self-referencing.
+            // historyDepth: number of stage changes * 2 pts each (capped at 10)
             const historyDepth = Math.min(10, (deal.stageHistory?.length || 0) * 2);
-
-            // Also blend in dealProbability and dealScore (persistent boost)
-            const probBonus = deal.dealProbability ? Math.round(deal.dealProbability * 0.1) : 0;
-            const persistenceBonus = deal.dealScore || 0;
-
-            const score = Math.min(100, stageWeight + activityBonus + historyDepth + probBonus + persistenceBonus);
+            const score = Math.min(100, stageWeight + activityBonus + historyDepth);
 
             const color = score >= 80 ? '#10B981'   // Healthy / Booked
                 : score >= 55 ? '#F59E0B'            // Watch / Negotiation

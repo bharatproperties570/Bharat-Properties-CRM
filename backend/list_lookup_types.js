@@ -1,34 +1,19 @@
 import mongoose from 'mongoose';
+import Lookup from './models/Lookup.js';
 import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
+dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-dotenv.config({ path: path.join(__dirname, '.env') });
-
-const LookupSchema = new mongoose.Schema({
-    lookup_type: String,
-    lookup_value: String
-}, { collection: 'lookups' });
-
-const Lookup = mongoose.model('Lookup', LookupSchema);
+const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/bharat-properties-crm';
 
 async function listTypes() {
     try {
-        await mongoose.connect(process.env.MONGODB_URI);
-        console.log('Connected.');
-
+        await mongoose.connect(mongoUri);
         const types = await Lookup.distinct('lookup_type');
-        console.log('\nUnique Lookup Types:');
-        types.forEach(t => console.log(`- ${t}`));
-
+        console.log("Lookup Types:", types);
         process.exit(0);
-    } catch (error) {
-        console.error(error);
+    } catch (err) {
+        console.error(err);
         process.exit(1);
     }
 }
-
 listTypes();

@@ -1,30 +1,22 @@
-
 import mongoose from 'mongoose';
 import Lookup from './models/Lookup.js';
 import dotenv from 'dotenv';
+dotenv.config();
 
-dotenv.config({ path: './.env' });
+const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/bharat-properties-crm';
 
 async function checkLookups() {
     try {
-        await mongoose.connect(process.env.MONGODB_URI);
-
-        const typesToCheck = ['Document-Category', 'Document-Type', 'DocumentCategory', 'DocumentType'];
-        const results = {};
-
-        for (const type of typesToCheck) {
-            results[type] = await Lookup.countDocuments({ lookup_type: type });
-        }
-
-        console.log('Lookup Counts:', JSON.stringify(results, null, 2));
-
-        const categories = await Lookup.find({ lookup_type: { $in: ['Document-Category', 'DocumentCategory'] } });
-        console.log('All Categories:', JSON.stringify(categories.map(c => ({ _id: c._id, value: c.lookup_value, type: c.lookup_type })), null, 2));
-
-        await mongoose.disconnect();
-    } catch (error) {
-        console.error('Error:', error);
+        await mongoose.connect(mongoUri);
+        console.log("Connected to MongoDB");
+        const titles = await Lookup.find({ lookup_type: 'Title' });
+        console.log("Titles found:", titles.map(t => t.lookup_value));
+        const countryCodes = await Lookup.find({ lookup_type: 'CountryCode' });
+        console.log("CountryCodes found:", countryCodes.map(c => c.lookup_value));
+        process.exit(0);
+    } catch (err) {
+        console.error(err);
+        process.exit(1);
     }
 }
-
 checkLookups();

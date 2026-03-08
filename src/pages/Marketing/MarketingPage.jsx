@@ -53,10 +53,10 @@ function MarketingPage({ onNavigate }) {
                 ltv: 0,
                 ltvCacRatio: 0,
                 dealsClosed: analytics.conversions,
+                performanceScore: 85,
+                healthStatus: { label: 'Active', color: '#10b981', bg: '#dcfce7' },
                 conversionRate: analytics.views > 0 ? ((analytics.submissions / analytics.views) * 100).toFixed(1) : 0,
                 roi: 0,
-                healthStatus: { label: 'Active', color: '#10b981', bg: '#dcfce7' },
-                performanceScore: 85,
                 propertyPerformance: [],
                 type: form.type,
                 source: 'CRM Builder',
@@ -72,16 +72,7 @@ function MarketingPage({ onNavigate }) {
         return data;
     }, [forms]);
 
-    if (loading) {
-        return (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc', color: '#64748b' }}>
-                <div style={{ width: '40px', height: '40px', border: '4px solid #f3f3f3', borderTop: '4px solid #0ea5e9', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '16px' }}></div>
-                <p style={{ fontWeight: 600 }}>Syncing Marketing Analytics...</p>
-                <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
-            </div>
-        );
-    }
-
+    // Helpers & Hooks moved above loading check to satisfy Hook Rules
     const calculateGlobalKPIs = () => {
         const totalLeads = forms.reduce((sum, f) => sum + (f.analytics?.submissions || 0), 0);
         const totalVisits = forms.reduce((sum, f) => sum + (f.analytics?.views || 0), 0);
@@ -99,14 +90,34 @@ function MarketingPage({ onNavigate }) {
             budgetRemaining: 0
         };
     };
+
     const generateAIInsights = () => [
         { campaign: 'Live Feed', message: `Total ${forms.length} active campaigns monitored.`, type: 'info', action: 'Optimize higher converting forms.' }
     ];
 
     const globalKPIs = useMemo(() =>
         calculateGlobalKPIs(marketingData.online, marketingData.offline, marketingData.organic),
-        []
+        [marketingData, forms]
     );
+
+    const aiInsights = useMemo(() =>
+        generateAIInsights(marketingData.online, marketingData.offline),
+        [marketingData, forms]
+    );
+
+    React.useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery, activeTab]);
+
+    if (loading) {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc', color: '#64748b' }}>
+                <div style={{ width: '40px', height: '40px', border: '4px solid #f3f3f3', borderTop: '4px solid #0ea5e9', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '16px' }}></div>
+                <p style={{ fontWeight: 600 }}>Syncing Marketing Analytics...</p>
+                <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+            </div>
+        );
+    }
 
     const formatINR = (amount) => `₹${amount.toLocaleString('en-IN')}`;
 
@@ -123,10 +134,6 @@ function MarketingPage({ onNavigate }) {
         { label: 'Budget Status', value: `₹${(globalKPIs.budgetRemaining || 0).toLocaleString('en-IN')}`, icon: 'fas fa-wallet', color: globalKPIs.budgetRemaining > 0 ? '#10b981' : '#ef4444' }
     ];
 
-    const aiInsights = useMemo(() =>
-        generateAIInsights(marketingData.online, marketingData.offline),
-        []
-    );
 
     const getROIColor = (roi) => {
         const roiNum = parseFloat(roi);
@@ -181,9 +188,6 @@ function MarketingPage({ onNavigate }) {
         setCurrentPage(1);
     };
 
-    React.useEffect(() => {
-        setCurrentPage(1);
-    }, [searchQuery, activeTab]);
 
     return (
         <section id="marketingView" className="view-section active">

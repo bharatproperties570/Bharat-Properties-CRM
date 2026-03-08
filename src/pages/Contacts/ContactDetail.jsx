@@ -168,6 +168,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                 entityId: contactId,
                 entityType: recordType.charAt(0).toUpperCase() + recordType.slice(1),
                 relatedTo: [{ id: contactId, name: contact?.fullName || contact?.name || 'Unknown', model: recordType.charAt(0).toUpperCase() + recordType.slice(1) }],
+                participants: [{ id: contactId, name: contact?.fullName || contact?.name || 'Unknown', model: recordType.charAt(0).toUpperCase() + recordType.slice(1) }],
                 description: composerContent,
                 details: {
                     purpose: composerTab,
@@ -448,14 +449,19 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
         });
 
         const leadScore = {
-            total: Math.max(scoring.total || 0, contact?.intent_index || 0, contact?.leadScore || 0),
+            // SCORE FIX: Use backend stage-engine score (liveScoreData) as the single source of truth.
+            // This is the SAME score shown in the Lead list view. Falls back to local computation
+            // only if the backend score hasn't loaded yet (0).
+            total: liveScoreData.score > 0 ? liveScoreData.score : Math.max(scoring.total || 0, contact?.intent_index || 0),
             formScore: scoring.formScore,
             activityScore: scoring.activityScore,
             detail: scoring.breakdown,
-            intent: scoring.intent,
-            temp: scoring.temperature || { label: 'COLD', class: 'cold', color: '#94a3b8' },
+            intent: liveScoreData.score > 0 ? liveScoreData.label : (scoring.intent || 'Unknown'),
+            temp: liveScoreData.score > 0
+                ? { label: liveScoreData.label, class: liveScoreData.tempClass, color: liveScoreData.color }
+                : (scoring.temperature || { label: 'COLD', class: 'cold', color: '#94a3b8' }),
             categorized,
-            ownedProperties: ownedProperties || [] // Injected from useEffect fetch
+            ownedProperties: ownedProperties || []
         };
 
         // Real Deal Probability mapping
@@ -903,8 +909,6 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                 <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><i className="fas fa-building" style={{ fontSize: '0.75rem', color: '#475569' }}></i> {contact.company || 'Unknown Company'}</span>
                                 <span style={{ color: '#cbd5e1' }}>|</span>
                                 <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><i className="fas fa-bullhorn" style={{ fontSize: '0.75rem', color: '#f59e0b' }}></i> {renderLookup(contact.source, 'Direct')}</span>
-                                <span style={{ color: '#cbd5e1' }}>|</span>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><i className="fas fa-history" style={{ fontSize: '0.75rem', color: '#475569' }}></i> {contact.activity || '12 Activities'}</span>
                             </div>
                         </div>
                     </div>
@@ -1033,10 +1037,10 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                         {/* Name Stack */}
                         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
                             <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap' }}>
-                                {contact.owner?.name || 'Unassigned'}
+                                {contact.assignment?.assignedTo?.fullName || contact.assignment?.assignedTo?.name || contact.owner?.fullName || contact.owner?.name || 'Unassigned'}
                             </span>
                             <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>
-                                {renderLookup(contact.team) || 'Standard Team'}
+                                {renderLookup(contact.assignment?.team?.[0] || contact.assignment?.team || contact.team) || 'Standard Team'}
                             </span>
                         </div>
 
@@ -1277,7 +1281,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                 </div>
                                             </div>
                                             <div style={{ padding: '12px', background: 'rgba(248, 250, 252, 0.4)', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
-                                                <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Correspondence Address</label>
+                                                <label style={{ block: 'block', fontSize: '0.6rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Correspondence Address</label>
                                                 <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Correspondence Address', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', lineHeight: '1.4' }}>
                                                     {[
                                                         contact.correspondenceAddress?.hNo,
@@ -1291,6 +1295,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                 </div>
                                             </div>
                                         </div>
+
                                     </div>
                                 )
                             }
@@ -1670,7 +1675,8 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                         flexDirection: 'column',
                         gap: '1.5rem',
                         borderLeft: '1px solid #e2e8f0',
-                        height: '100%'
+                        height: '100%',
+                        overflowY: 'auto'
                     }}>
 
                         {/* 1. AI Closing Probability Timeline - Visible only for leads */}
@@ -2013,7 +2019,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                             justifyContent: 'space-between',
                                             alignItems: 'center'
                                         }}>
-                                            <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>Was this analysis accurate?</span>
+                                            <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>Was this analysis accurate?</span>
                                             <div style={{ display: 'flex', gap: '8px' }}>
                                                 <button
                                                     style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: '0.7rem' }}
@@ -2033,7 +2039,6 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                 </div>
                             )
                         }
-
                         {/* 2. AI Intelligence Panel */}
                         {
                             recordType === 'lead' && (
@@ -2642,7 +2647,35 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                         <CallModal
                             isOpen={isCallModalOpen}
                             onClose={() => setIsCallModalOpen(false)}
-                            lead={{ _id: contactId, name: contact?.name, phone: contact?.mobile }}
+                            contact={{ _id: contactId, name: contact?.fullName || contact?.name, mobile: contact?.mobile }}
+                            onCallEnd={async (summary) => {
+                                try {
+                                    await activitiesAPI.create({
+                                        type: 'Call',
+                                        subject: `Call with ${contact?.fullName || contact?.name}`,
+                                        status: 'Completed',
+                                        entityId: contactId,
+                                        entityType: recordType.charAt(0).toUpperCase() + recordType.slice(1),
+                                        participants: summary.participants,
+                                        relatedTo: summary.relatedTo,
+                                        description: `Call Outcome: ${summary.outcome}. Result: ${summary.result}. Notes: ${summary.notes}`,
+                                        details: {
+                                            direction: 'Outgoing',
+                                            duration: summary.duration,
+                                            outcome: summary.outcome,
+                                            result: summary.result,
+                                            notes: summary.notes,
+                                            platform: summary.type
+                                        },
+                                        dueDate: new Date()
+                                    });
+                                    showNotification('Call activity logged successfully');
+                                    fetchUnifiedTimeline(contactId, recordType);
+                                } catch (error) {
+                                    console.error('Failed to log call activity:', error);
+                                    showNotification('Failed to log call activity');
+                                }
+                            }}
                         />
                     )
                 }
@@ -2770,15 +2803,36 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                     <SendMessageModal
                         isOpen={isMessageModalOpen}
                         onClose={() => setIsMessageModalOpen(false)}
-                        initialRecipients={contact ? [{
-                            ...contact,
-                            name: contact.name,
-                            phone: contact.mobile || contact.phone
-                        }] : []}
-                        onSend={(data, res) => {
-                            showNotification(res?.message || 'Message sent successfully!');
+                        onSend={async (data) => {
+                            try {
+                                await activitiesAPI.create({
+                                    type: 'Messaging',
+                                    subject: `Message to ${contact?.fullName || contact?.name}`,
+                                    status: 'Completed',
+                                    entityId: contactId,
+                                    entityType: recordType.charAt(0).toUpperCase() + recordType.slice(1),
+                                    participants: [{ id: contactId, name: contact?.fullName || contact?.name, model: recordType.charAt(0).toUpperCase() + recordType.slice(1) }],
+                                    relatedTo: [{ id: contactId, name: contact?.fullName || contact?.name, model: recordType.charAt(0).toUpperCase() + recordType.slice(1) }],
+                                    description: `Message body: ${data.body}`,
+                                    details: {
+                                        direction: 'Outgoing',
+                                        platform: data.channel,
+                                        content: data.body
+                                    },
+                                    dueDate: new Date()
+                                });
+                                showNotification('Message activity logged successfully');
+                                fetchUnifiedTimeline(contactId, recordType);
+                            } catch (error) {
+                                console.error('Failed to log message activity:', error);
+                            }
                             setIsMessageModalOpen(false);
                         }}
+                        initialRecipients={contact ? [{
+                            ...contact,
+                            name: contact.fullName || contact.name,
+                            phone: contact.mobile || contact.phone
+                        }] : []}
                     />
                 )}
                 {isActivityModalOpen && (
@@ -2800,7 +2854,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                     />
                 )}
             </div>
-        </div>
+        </div >
     );
 };
 

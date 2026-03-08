@@ -6,91 +6,22 @@ import EnrichmentLog from "../../models/EnrichmentLog.js";
 import AuditLog from "../../models/AuditLog.js";
 
 /**
- * Scan lead and activities for keywords and apply tags/intent impact
- */
-export const scanKeywords = async (leadId) => {
-    const lead = await Lead.findById(leadId);
-    if (!lead) return;
-
-    const activities = await Activity.find({ entityId: leadId, entityType: 'Lead' });
-    const keywordRules = await IntentKeywordRule.find({ isActive: true });
-
-    let textToScan = `${lead.description || ''} ${lead.notes || ''}`;
-    activities.forEach(act => {
-        textToScan += ` ${act.subject || ''} ${act.description || ''}`;
-    });
-
-    textToScan = textToScan.toLowerCase();
-
-    let newTags = [...(lead.intent_tags || [])];
-    let roleType = lead.role_type;
-    let intentImpactTotal = 0;
-    let oldIntentIndex = lead.intent_index || 0;
-
-    for (const rule of keywordRules) {
-        if (textToScan.includes(rule.keyword.toLowerCase())) {
-            if (!newTags.includes(rule.autoTag)) {
-                newTags.push(rule.autoTag);
-            }
-            // Role detection: keyword rules can assign role
-            if (!roleType || roleType === 'Buyer') { // Simple priority logic
-                roleType = rule.roleType;
-            }
-            intentImpactTotal += rule.intentImpact;
-
-            // Log the trigger
-            await EnrichmentLog.create({
-                leadId,
-                ruleId: rule._id,
-                ruleType: 'IntentKeywordRule',
-                ruleName: `Keyword: ${rule.keyword}`,
-                triggerType: 'KEYWORD',
-                appliedTags: [rule.autoTag],
-                oldIntentIndex,
-                newIntentIndex: Math.min(100, oldIntentIndex + rule.intentImpact),
-                details: { keyword: rule.keyword }
-            });
-        }
-    }
-
-    const finalIntentIndex = Math.min(100, Math.max(0, oldIntentIndex + intentImpactTotal));
-
-    await Lead.findByIdAndUpdate(leadId, {
-        intent_tags: newTags,
-        role_type: roleType,
-        intent_index: finalIntentIndex,
-        enrichment_last_run: new Date()
-    });
-
-    if (oldIntentIndex !== finalIntentIndex) {
-        await AuditLog.logEntityUpdate(
-            'score_changed',
-            'lead',
-            leadId,
-            `${lead.firstName} ${lead.lastName}`,
-            null, // System
-            { before: oldIntentIndex, after: finalIntentIndex },
-            `AI Keyword Engine recalculated score based on triggered tag rules.`
-        );
-    }
-
-    return { tags: newTags, roleType, intentIndex: finalIntentIndex };
-};
-
-/**
- * Calculate Intent Index based on requirement data and engagement
+ * STEP 1: Calculate formula-based Intent Index from STATIC signals only.
+ * Static signals = requirement depth, timeline, budget, isContacted.
+ * Does NOT count activities (those are counted separately by leadScoring.js to avoid double-counting).
+ * Returns the computed score (0-100) and saves it to lead.enrichment_score (separate field).
  */
 export const calculateIntentIndex = async (leadId) => {
     const lead = await Lead.findById(leadId);
     if (!lead) return 0;
 
-    // Default Weights (Admin can eventually override via FORMULA rule)
+    // Default Weights (Admin can override via FORMULA rule)
     const formulaRule = await ProspectEnrichmentRule.findOne({ type: 'FORMULA', isActive: true });
     const weights = formulaRule?.config || {
         requirementDepth: 25,
         timelineUrgency: 25,
         budgetClarity: 20,
-        visitReadiness: 20,
+        contactReadiness: 20,   // renamed from visitReadiness (no longer counts Site Visits)
         responseSpeed: 10
     };
 
@@ -98,11 +29,11 @@ export const calculateIntentIndex = async (leadId) => {
         requirementDepth: 0,
         timelineUrgency: 0,
         budgetClarity: 0,
-        visitReadiness: 0,
+        contactReadiness: 0,
         responseSpeed: 0
     };
 
-    // 1. Requirement Depth (Requirement, PropertyType, Location etc.)
+    // 1. Requirement Depth (purely static fields — no activity lookup)
     if (lead.requirement) scores.requirementDepth += 5;
     if (lead.propertyType?.length > 0) scores.requirementDepth += 5;
     if (lead.location) scores.requirementDepth += 5;
@@ -127,46 +58,109 @@ export const calculateIntentIndex = async (leadId) => {
         scores.budgetClarity = weights.budgetClarity * 0.7;
     }
 
-    // 4. Visit Readiness (Has a Site Visit activity)
-    const siteVisits = await Activity.countDocuments({
-        entityId: leadId,
-        entityType: 'Lead',
-        type: { $in: ['Site Visit', 'Meeting'] }
-    });
-    if (siteVisits > 0) {
-        scores.visitReadiness = weights.visitReadiness;
-    }
-
-    // 5. Response Speed (Simulated by 'isContacted' or recent activities)
+    // 4. Contact Readiness (isContacted flag — NOT counting activities to avoid double-count)
+    // Activities are scored separately by the frontend leadScoring.js engine
     if (lead.isContacted) {
-        scores.responseSpeed = weights.responseSpeed;
+        scores.contactReadiness = weights.contactReadiness * 0.5; // partial credit for being contacted
     }
 
-    const totalScore = Object.values(scores).reduce((a, b) => a + b, 0);
-    const finalScore = Math.min(100, Math.round(totalScore));
+    // 5. Response Speed (profile completeness as proxy)
+    const hasEmail = !!lead.email;
+    const hasPhone = !!lead.mobile;
+    if (hasEmail && hasPhone) {
+        scores.responseSpeed = weights.responseSpeed;
+    } else if (hasPhone) {
+        scores.responseSpeed = weights.responseSpeed * 0.6;
+    }
 
+    const formulaScore = Math.min(100, Math.round(Object.values(scores).reduce((a, b) => a + b, 0)));
+
+    // Save formula score to a dedicated field (NOT intent_index yet — keywords will add to this)
     await Lead.findByIdAndUpdate(leadId, {
-        intent_index: finalScore,
+        enrichment_formula_score: formulaScore,
         enrichment_last_run: new Date()
     });
 
-    if (lead.intent_index !== finalScore) {
+    return formulaScore;
+};
+
+/**
+ * STEP 2: Scan lead text and activities for keyword matches.
+ * ADDS keyword impact ON TOP of the formula score (does not overwrite it).
+ * Saves the combined result to intent_index.
+ */
+export const scanKeywords = async (leadId) => {
+    const lead = await Lead.findById(leadId);
+    if (!lead) return;
+
+    const activities = await Activity.find({ entityId: leadId, entityType: 'Lead' });
+    const keywordRules = await IntentKeywordRule.find({ isActive: true });
+
+    let textToScan = `${lead.description || ''} ${lead.notes || ''}`;
+    activities.forEach(act => {
+        textToScan += ` ${act.subject || ''} ${act.description || ''}`;
+    });
+    textToScan = textToScan.toLowerCase();
+
+    let newTags = [...(lead.intent_tags || [])];
+    let roleType = lead.role_type;
+    let keywordImpactTotal = 0;
+
+    // Start from the formula score computed in Step 1
+    const formulaScore = lead.enrichment_formula_score || 0;
+
+    for (const rule of keywordRules) {
+        if (textToScan.includes(rule.keyword.toLowerCase())) {
+            if (!newTags.includes(rule.autoTag)) {
+                newTags.push(rule.autoTag);
+            }
+            if (!roleType || roleType === 'Buyer') {
+                roleType = rule.roleType;
+            }
+            keywordImpactTotal += rule.intentImpact;
+
+            await EnrichmentLog.create({
+                leadId,
+                ruleId: rule._id,
+                ruleType: 'IntentKeywordRule',
+                ruleName: `Keyword: ${rule.keyword}`,
+                triggerType: 'KEYWORD',
+                appliedTags: [rule.autoTag],
+                oldIntentIndex: formulaScore,
+                newIntentIndex: Math.min(100, formulaScore + keywordImpactTotal),
+                details: { keyword: rule.keyword }
+            });
+        }
+    }
+
+    // Combined score = formula (static signals) + keyword boost
+    const oldIntentIndex = lead.intent_index || 0;
+    const finalIntentIndex = Math.min(100, Math.max(0, formulaScore + keywordImpactTotal));
+
+    await Lead.findByIdAndUpdate(leadId, {
+        intent_tags: newTags,
+        role_type: roleType,
+        intent_index: finalIntentIndex  // Combined: formula + keywords
+    });
+
+    if (oldIntentIndex !== finalIntentIndex) {
         await AuditLog.logEntityUpdate(
             'score_changed',
             'lead',
             leadId,
             `${lead.firstName} ${lead.lastName}`,
-            null, // System
-            { before: lead.intent_index || 0, after: finalScore },
-            `Enrichment formula aggregated a new engagement/requirement depth intent score.`
+            null,
+            { before: oldIntentIndex, after: finalIntentIndex },
+            `Enrichment engine recalculated score: formula(${formulaScore}) + keyword_boost(${keywordImpactTotal}) = ${finalIntentIndex}`
         );
     }
 
-    return finalScore;
+    return { tags: newTags, roleType, intentIndex: finalIntentIndex };
 };
 
 /**
- * Classify Lead based on intent_index and tags
+ * STEP 3: Classify Lead based on intent_index and tags.
+ * Reads the final combined intent_index (formula + keywords).
  */
 export const classifyLead = async (leadId) => {
     const lead = await Lead.findById(leadId);
@@ -174,16 +168,18 @@ export const classifyLead = async (leadId) => {
 
     const classificationRules = await ProspectEnrichmentRule.find({ type: 'CLASSIFICATION', isActive: true });
 
-    let classification = "Explorer"; // Default
+    // Read the final combined score
     const score = lead.intent_index || 0;
     const tags = lead.intent_tags || [];
 
-    // Prioritize specific tag-based classifications
+    let classification = "Explorer"; // Default
+
+    // Tag-based classifications take priority
     if (tags.includes('ROI') || tags.includes('Investor')) {
         classification = "Investor";
     }
 
-    // Check score-based thresholds
+    // Score-based thresholds
     if (score > 80) classification = "Serious Buyer";
     else if (score > 60) classification = "Qualified";
     else if (score < 40) classification = "Low Intent";
@@ -208,26 +204,19 @@ export const classifyLead = async (leadId) => {
 };
 
 /**
- * Margin Opportunity Detection (for Deals)
+ * Margin Opportunity Detection (for Deals — unchanged)
  */
 export const detectMarginOpportunity = async (dealId) => {
-    const Deal = (await import("../../models/Deal.js")).default; // Dynamic import if needed or just use regular if at top
+    const Deal = (await import("../../models/Deal.js")).default;
     const deal = await Deal.findById(dealId);
     if (!deal) return false;
-
-    // High Negotiation Window if:
-    // - Seller urgency high (check tags or description?)
-    // - Inventory age > 30 days
-    // - Budget gap < 12%
 
     const createdAt = deal.createdAt || new Date();
     const ageInDays = (new Date() - createdAt) / (1000 * 60 * 60 * 24);
 
     let isHighMargin = false;
-
     if (ageInDays > 30) isHighMargin = true;
 
-    // Price gap logic: (QuotePrice - Price) / Price
     if (deal.quotePrice && deal.price) {
         const gap = (deal.quotePrice - deal.price) / deal.price;
         if (gap < 0.12) isHighMargin = true;
@@ -237,22 +226,24 @@ export const detectMarginOpportunity = async (dealId) => {
         isHighMargin = true;
     }
 
-    await Deal.findByIdAndUpdate(dealId, {
-        negotiation_window: isHighMargin
-    });
-
+    await Deal.findByIdAndUpdate(dealId, { negotiation_window: isHighMargin });
     return isHighMargin;
 };
 
 /**
- * Wrapper to run the full enrichment pipeline for a lead
- * @param {string} leadId 
+ * Full enrichment pipeline for a lead.
+ * CORRECT ORDER:
+ *   Step 1: calculateIntentIndex() — static formula (no activities)
+ *   Step 2: scanKeywords()        — adds keyword boost on top of Step 1
+ *   Step 3: classifyLead()        — reads combined result from Steps 1+2
+ *
+ * This eliminates the double-counting bug where Step 2 overwrote Step 1.
  */
 export const runFullLeadEnrichment = async (leadId) => {
     try {
-        await scanKeywords(leadId);
-        await calculateIntentIndex(leadId);
-        await classifyLead(leadId);
+        await calculateIntentIndex(leadId);  // Step 1: static formula → enrichment_formula_score
+        await scanKeywords(leadId);           // Step 2: keyword boost → intent_index (formula + keywords)
+        await classifyLead(leadId);           // Step 3: classify using final intent_index
         return { success: true };
     } catch (error) {
         console.error(`[ENRICHMENT ERROR] Failed for lead ${leadId}:`, error);

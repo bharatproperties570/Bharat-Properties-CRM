@@ -95,7 +95,7 @@ export const MODULE_CONFIG = {
             { key: 'areaMetric', label: 'Area Metric' },
             { key: 'facing', label: 'Facing' },
             { key: 'roadWidth', label: 'Road Width' },
-            { key: 'direction', label: 'Direction' },
+            { key: 'direction', label: 'Direction / Orientation' },
             { key: 'funding', label: 'Funding' },
             { key: 'timeline', label: 'Timeline' },
             { key: 'furnishing', label: 'Furnishing' },
@@ -149,6 +149,8 @@ export const MODULE_CONFIG = {
             { key: 'team', label: 'Team' },
             { key: 'assignedTo', label: 'Assigned To' },
             { key: 'visibleTo', label: 'Visible To' },
+            { key: 'latitude', label: 'Latitude' },
+            { key: 'longitude', label: 'Longitude' },
             { key: 'remarks', label: 'Remarks' },
             { key: 'date', label: 'Deal Date' }
         ]
@@ -171,7 +173,7 @@ export const MODULE_CONFIG = {
             { key: 'builtupType', label: 'Builtup Type' },
             { key: 'block', label: 'Block' },
             { key: 'size', label: 'Size' },
-            { key: 'direction', label: 'Direction' },
+            { key: 'direction', label: 'Direction / Orientation' },
             { key: 'facing', label: 'Facing' },
             { key: 'roadWidth', label: 'Road Width' },
             { key: 'ownership', label: 'Ownership' },

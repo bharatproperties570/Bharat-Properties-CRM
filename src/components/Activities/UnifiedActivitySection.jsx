@@ -122,7 +122,8 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                 priority: 'Normal',
                 entityId: entityId,
                 entityType: entityType,
-                relatedTo: [{ id: entityId, name: entityData?.name || entityData?.unitNo || 'Unknown', model: entityType }],
+                relatedTo: [{ id: entityId, name: entityData?.name || entityData?.fullName || entityData?.unitNo || 'Unknown', model: entityType }],
+                participants: (entityType === 'Contact' || entityType === 'Lead') ? [{ id: entityId, name: entityData?.name || entityData?.fullName || 'Unknown', model: entityType }] : [],
                 description: composerContent,
                 details: {
                     purpose: composerTab,

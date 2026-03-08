@@ -169,8 +169,34 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
     if (!isOpen || !inventory) return null;
 
     const ownersList = [];
-    if (inventory.ownerName) ownersList.push({ name: inventory.ownerName, role: 'Owner', label: `${inventory.ownerName} (Owner)` });
-    if (inventory.associatedContact) ownersList.push({ name: inventory.associatedContact, role: 'Associate', label: `${inventory.associatedContact} (Associate)` });
+
+    // Add modern owners array
+    if (inventory.owners && Array.isArray(inventory.owners) && inventory.owners.length > 0) {
+        inventory.owners.forEach(o => {
+            ownersList.push({
+                name: o.name,
+                role: o.role || o.link_role || 'Owner',
+                label: `${o.name} (${o.role || o.link_role || 'Owner'})`,
+                mobile: o.phones?.[0]?.number || o.mobile
+            });
+        });
+    } else if (inventory.ownerName) {
+        ownersList.push({ name: inventory.ownerName, role: 'Owner', label: `${inventory.ownerName} (Owner)`, mobile: inventory.ownerPhone });
+    }
+
+    // Add modern associates array
+    if (inventory.associates && Array.isArray(inventory.associates) && inventory.associates.length > 0) {
+        inventory.associates.forEach(a => {
+            ownersList.push({
+                name: a.name,
+                role: a.role || a.relationship || 'Associate',
+                label: `${a.name} (${a.role || a.relationship || 'Associate'})`,
+                mobile: a.phones?.[0]?.number || a.mobile
+            });
+        });
+    } else if (inventory.associatedContact) {
+        ownersList.push({ name: inventory.associatedContact, role: 'Associate', label: `${inventory.associatedContact} (Associate)`, mobile: inventory.associatedPhone });
+    }
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;

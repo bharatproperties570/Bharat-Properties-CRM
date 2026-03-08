@@ -16,6 +16,7 @@ import ManageTagsModal from '../../components/ManageTagsModal';
 import toast from 'react-hot-toast';
 import { api } from "../../utils/api";
 import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
+import ProfessionalMap from '../../components/ProfessionalMap';
 import { formatIndianCurrency, numberToIndianWords } from '../../utils/numberToWords';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { STAGE_PIPELINE, getStageProbability } from '../../utils/stageEngine';
@@ -64,6 +65,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const [recordsPerPage, setRecordsPerPage] = useState(25);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [dealScores, setDealScores] = useState({}); // { dealId: { score, color, label } } from stage engine
+    const [categoryStats, setCategoryStats] = useState([]);
 
     const fetchDeals = useCallback(async () => {
         setLoading(true);
@@ -79,6 +81,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
             if (response.data && response.data.success) {
                 setDeals(response.data.records || []);
                 setTotalRecords(response.data.totalCount || 0);
+                setCategoryStats(response.data.categoryStats || []);
 
                 // ── Stage Engine: fetch live deal scores ──
                 api.get('stage-engine/deals/scores')
@@ -854,74 +857,12 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                 </div>
                             </div>
 
-                            {/* Google Map with Pins */}
+                            {/* Professional Interactive Map */}
                             <div style={{ flex: 1, position: 'relative' }}>
-                                <iframe
-                                    src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d221096.81984827753!2d76.6395!3d30.3398!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x390fb6000000001%3A0x4e8b6e8b6e8b6e8b!2sMohali%2C%20Punjab!5e0!3m2!1sen!2sin!4v1234567890123!5m2!1sen!2sin"
-                                    width="100%"
-                                    height="100%"
-                                    style={{ border: 0 }}
-                                    allowFullScreen=""
-                                    loading="lazy"
-                                    referrerPolicy="no-referrer-when-downgrade"
-                                ></iframe>
-
-                                {/* Deal Pin Markers Overlay */}
-                                {filteredDeals.map((deal, idx) => {
-                                    const coords = getCoordinates(deal);
-                                    if (!coords) return null;
-
-                                    const position = getPinPosition(coords.lat, coords.lng);
-
-                                    return (
-                                        <div
-                                            key={idx}
-                                            style={{
-                                                position: 'absolute',
-                                                left: position.left,
-                                                top: position.top,
-                                                transform: 'translate(-50%, -100%)',
-                                                cursor: 'pointer',
-                                                zIndex: 10,
-                                                transition: 'all 0.2s'
-                                            }}
-                                            title={`${deal.id} - ${renderValue(deal.location)}`}
-                                        >
-                                            {/* Pin Marker */}
-                                            <div style={{
-                                                width: '32px',
-                                                height: '40px',
-                                                position: 'relative',
-                                                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))'
-                                            }}>
-                                                {/* Pin Shape */}
-                                                <svg width="32" height="40" viewBox="0 0 32 40" style={{ position: 'absolute', top: 0, left: 0 }}>
-                                                    <path
-                                                        d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z"
-                                                        fill="#ef4444"
-                                                        stroke="#fff"
-                                                        strokeWidth="2"
-                                                    />
-                                                </svg>
-                                                {/* Pin Number */}
-                                                <div style={{
-                                                    position: 'absolute',
-                                                    top: '6px',
-                                                    left: '50%',
-                                                    transform: 'translateX(-50%)',
-                                                    color: '#fff',
-                                                    fontSize: '0.75rem',
-                                                    fontWeight: 800,
-                                                    textAlign: 'center',
-                                                    width: '100%'
-                                                }}>
-                                                    {idx + 1}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-
+                                <ProfessionalMap
+                                    items={filteredDeals}
+                                    onMarkerClick={(deal) => onNavigate('deal-detail', deal._id)}
+                                />
                                 {/* Map Controls Overlay */}
                                 <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                     <button style={{
@@ -956,9 +897,36 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     )}
 
                     {/* Footer - Shows in both list and map view */}
-                    <div className="list-footer" style={{ padding: '15px 2rem', background: '#fff', borderTop: '1px solid #eef2f5', display: 'flex', gap: '20px', alignItems: 'center' }}>
-                        <div style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 600 }}>Summary</div>
-                        <div style={{ fontSize: '0.9rem', color: '#334155' }}>Total Deals <span style={{ fontWeight: 800, color: '#10b981', fontSize: '1rem', marginLeft: '5px' }}>{totalRecords}</span></div>
+                    <div className="list-footer" style={{ height: '55px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: '20px', alignItems: 'center', padding: '0 2rem', width: '100%', overflowX: 'auto' }}>
+                            <div className="summary-label" style={{ background: '#334155', color: '#fff', borderRadius: '8px', fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800, whiteSpace: 'nowrap' }}>DEAL CATEGORY SYNC</div>
+                            {categoryStats && categoryStats.length > 0 ? (
+                                categoryStats.map((stat, idx) => {
+                                    const colors = ['#6366f1', 'var(--primary-color)', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6'];
+                                    const color = colors[idx % colors.length];
+                                    const labelMap = {
+                                        'Residential': 'RESI',
+                                        'Commercial': 'COMM',
+                                        'Agricultural': 'AGRI',
+                                        'Industrial': 'INDU',
+                                        'Institutional': 'INST'
+                                    };
+                                    const label = labelMap[stat.name] || stat.name.substring(0, 4).toUpperCase();
+                                    return (
+                                        <div key={idx} className="stat-pill" style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                                            <span style={{ color: color, fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase' }}>{label}:</span>
+                                            <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '0.85rem' }}>{stat.count.toLocaleString()}</span>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>Calculating deals distribution...</div>
+                            )}
+                            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>Total Deals</div>
+                                <div style={{ background: '#10b98120', color: '#10b981', padding: '4px 12px', borderRadius: '6px', fontWeight: 800, fontSize: '1rem' }}>{totalRecords}</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div >
@@ -1044,17 +1012,19 @@ function DealsPage({ onNavigate, onAddActivity }) {
                 project={selectedDealState}
             />
 
-            {isAddBookingOpen && (
-                <AddBookingModal
-                    isOpen={isAddBookingOpen}
-                    onClose={() => setIsAddBookingOpen(false)}
-                    dealId={selectedIds[0]}
-                    onSave={() => {
-                        fetchDeals();
-                        setSelectedIds([]);
-                    }}
-                />
-            )}
+            {
+                isAddBookingOpen && (
+                    <AddBookingModal
+                        isOpen={isAddBookingOpen}
+                        onClose={() => setIsAddBookingOpen(false)}
+                        dealId={selectedIds[0]}
+                        onSave={() => {
+                            fetchDeals();
+                            setSelectedIds([]);
+                        }}
+                    />
+                )
+            }
         </section >
     );
 }

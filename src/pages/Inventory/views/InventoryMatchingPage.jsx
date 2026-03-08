@@ -42,6 +42,28 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
             }
         };
 
+        const handleToggleInterest = async (lead) => {
+            try {
+                const res = await api.put(`leads/interest/${inventoryId}`, { leadId: lead._id });
+                if (res.data && res.data.success) {
+                    toast.success(res.data.message);
+                    // Update local state
+                    setLeads(prevLeads => prevLeads.map(l =>
+                        l._id === lead._id
+                            ? {
+                                ...l, interestedInventory: res.data.isInterested
+                                    ? [...(l.interestedInventory || []), inventoryId]
+                                    : (l.interestedInventory || []).filter(id => id !== inventoryId)
+                            }
+                            : l
+                    ));
+                }
+            } catch (error) {
+                console.error("Error toggling interest:", error);
+                toast.error("Failed to update interest");
+            }
+        };
+
         fetchData();
     }, [inventoryId]);
 
@@ -79,11 +101,12 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
 
     const parseSizeSqYard = (sizeStr) => {
         if (!sizeStr) return 0;
-        const match = sizeStr.match(/\(([\d.]+)\s*Sq Yard\)/);
+        const normalizedSize = String(sizeStr);
+        const match = normalizedSize.match(/\(([\d.]+)\s*Sq Yard\)/);
         if (match) return parseFloat(match[1]);
-        const marlaMatch = sizeStr.match(/([\d.]+)\s*Marla/);
+        const marlaMatch = normalizedSize.match(/([\d.]+)\s*Marla/);
         if (marlaMatch) return parseFloat(marlaMatch[1]) * 30.25;
-        return parseFloat(sizeStr.replace(/[^\d.]/g, '')) || 0;
+        return parseFloat(normalizedSize.replace(/[^\d.]/g, '')) || 0;
     };
 
     const matchedLeads = useMemo(() => {
@@ -281,7 +304,8 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
     };
 
     const getStageColor = (stage) => {
-        switch (stage.toLowerCase()) {
+        const normalizedStage = String(stage || '').toLowerCase();
+        switch (normalizedStage) {
             case 'site visit': return { bg: '#eff6ff', color: '#2563eb' };
             case 'negotiation': return { bg: '#f3e8ff', color: '#9333ea' };
             case 'closure': return { bg: '#f0fdf4', color: '#16a34a' };
@@ -485,6 +509,25 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                                     >
                                         {lead.name}
                                     </h4>
+                                    <button
+                                        onClick={() => handleToggleInterest(lead)}
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            color: lead.interestedInventory?.includes(inventoryId) ? '#f59e0b' : '#cbd5e1',
+                                            fontSize: '1.2rem',
+                                            padding: '4px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            transition: 'all 0.2s',
+                                            transform: lead.interestedInventory?.includes(inventoryId) ? 'scale(1.2)' : 'scale(1)'
+                                        }}
+                                        title={lead.interestedInventory?.includes(inventoryId) ? "Marked as Interested" : "Mark as Interested"}
+                                    >
+                                        <i className={`${lead.interestedInventory?.includes(inventoryId) ? 'fas' : 'far'} fa-star`}></i>
+                                    </button>
                                     <div style={{ background: lead.leadScore > 80 ? '#fef2f2' : '#f0f9ff', color: lead.leadScore > 80 ? '#dc2626' : '#2563eb', padding: '2px 8px', borderRadius: '100px', fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                         <i className={`fas fa-thermometer-${lead.leadScore > 80 ? 'full' : lead.leadScore > 50 ? 'half' : 'empty'}`}></i>
                                         {lead.leadScore > 80 ? 'Hot' : 'Warm'} ({lead.leadScore})

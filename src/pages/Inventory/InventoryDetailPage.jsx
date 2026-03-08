@@ -13,10 +13,12 @@ import SendMessageModal from '../../components/SendMessageModal';
 import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
 import UnifiedActivitySection from '../../components/Activities/UnifiedActivitySection';
 import ManageTagsModal from '../../components/ManageTagsModal';
+import ProfessionalMap from '../../components/ProfessionalMap';
+import { getInitials } from '../../utils/helpers';
 
 
 export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, onAddActivity, onAddDeal, onEditInventory }) {
-    const { masterFields, getLookupValue } = usePropertyConfig();
+    const { masterFields, getLookupValue, lookups } = usePropertyConfig();
     const { fireEvent } = useTriggers();
     const { startCall } = useCall();
 
@@ -38,6 +40,108 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
     const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
     const [showMoreMenu, setShowMoreMenu] = useState(false);
     const [modalData, setModalData] = useState([]);
+    const [contactPicker, setContactPicker] = useState({ isOpen: false, type: 'call', contacts: [] });
+
+    const handleContactClick = (type) => {
+        const contactOptions = [];
+
+        // Add Owners
+        if (inventory?.owners && inventory.owners.length > 0) {
+            inventory.owners.forEach(owner => {
+                const phone = owner.phones?.[0]?.number || owner.phone;
+                if (phone) {
+                    contactOptions.push({
+                        id: owner._id || owner.id,
+                        name: owner.name,
+                        phone: phone,
+                        role: 'Owner',
+                        relationship: ''
+                    });
+                }
+            });
+        } else if (inventory?.ownerPhone) {
+            contactOptions.push({
+                name: inventory.ownerName || 'Owner',
+                phone: inventory.ownerPhone,
+                role: 'Owner',
+                relationship: ''
+            });
+        }
+
+        // Add Associates
+        if (inventory?.associates && inventory.associates.length > 0) {
+            inventory.associates.forEach(assoc => {
+                const contact = assoc.contact || assoc;
+                const phone = contact.phones?.[0]?.number || contact.phone;
+                if (phone) {
+                    contactOptions.push({
+                        id: contact._id || contact.id,
+                        name: contact.name,
+                        phone: phone,
+                        role: 'Associate',
+                        relationship: assoc.relationship || ''
+                    });
+                }
+            });
+        } else if (inventory?.associatedPhone) {
+            contactOptions.push({
+                name: inventory.associatedContact || 'Associate',
+                phone: inventory.associatedPhone,
+                role: 'Associate',
+                relationship: ''
+            });
+        }
+
+        if (contactOptions.length === 0) {
+            toast.error("No contact information available");
+            return;
+        }
+
+        if (contactOptions.length === 1) {
+            const contact = contactOptions[0];
+            if (type === 'call') {
+                startCall(contact.phone, contact.name);
+            } else {
+                const cleanPhone = contact.phone.replace(/\D/g, '');
+                window.open(`https://wa.me/${cleanPhone}`, '_blank');
+            }
+        } else {
+            setContactPicker({ isOpen: true, type, contacts: contactOptions });
+        }
+    };
+
+    // Professional Fix: Strict Lookup Resolution to prevent leakage between UnitType and Size
+    const getStrictLookupValue = useCallback((type, id) => {
+        if (!id) return null;
+
+        // Handle fully populated objects (e.g. from backend response with population)
+        if (typeof id === 'object') {
+            const val = id.lookup_value || id.name || id.label || id.value || id;
+            // Check if object's type matches requested type (if type info is available in object)
+            if (id.lookup_type && id.lookup_type.replace(/\s+/g, '') !== type.replace(/\s+/g, '')) {
+                return null; // Mismatch
+            }
+            return val;
+        }
+
+        const normalizedType = type ? type.replace(/\s+/g, '') : type;
+        if (lookups && lookups[normalizedType]) {
+            const found = lookups[normalizedType].find(l =>
+                l._id === id ||
+                l.id === id ||
+                (typeof id === 'string' && l.lookup_value === id)
+            );
+            if (found) return found.lookup_value;
+        }
+
+        // Final fallback: if id is a string but not an ObjectId, it might be the value itself 
+        // but only if it doesn't look like an ID
+        if (typeof id === 'string' && !id.match(/^[0-9a-fA-F]{24}$/)) {
+            return id;
+        }
+
+        return null;
+    }, [lookups]);
 
     const fetchInventoryDetails = useCallback(async () => {
         setLoading(true);
@@ -48,13 +152,9 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                 const inv = invResponse.data.data;
                 setInventory(inv);
 
-                // 2. Fetch Deals for this Unit
-                const dealsResponse = await api.get(`deals?search=${inv.unitNo}`);
-                if (dealsResponse.data && dealsResponse.data.success) {
-                    const unitDeals = (dealsResponse.data.records || []).filter(d =>
-                        d.unitNo === inv.unitNo && d.projectName === inv.projectName
-                    );
-                    setDeals(unitDeals);
+                // 2. Use deals from inventory response
+                if (inv.deals) {
+                    setDeals(inv.deals);
                 }
 
                 // 3. Fetch Matching Leads
@@ -90,6 +190,20 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
         if (inventoryId) {
             fetchInventoryDetails();
         }
+
+        // Professional Fix: Listen for global update events to auto-refresh data
+        const handleRefresh = () => {
+            console.log("[InventoryDetailPage] Auto-refreshing details...");
+            fetchInventoryDetails();
+        };
+
+        window.addEventListener('inventory-updated', handleRefresh);
+        window.addEventListener('deal-updated', handleRefresh);
+
+        return () => {
+            window.removeEventListener('inventory-updated', handleRefresh);
+            window.removeEventListener('deal-updated', handleRefresh);
+        };
     }, [inventoryId, fetchInventoryDetails]);
 
     const handleWhatsAppShare = () => {
@@ -110,29 +224,33 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
 
     const handleCreateDeal = (type) => {
         if (!inventory) return;
-        onAddDeal({
-            unitNo: inventory.unitNo,
+
+        // BUG FIX: Ensure intent matches deal discovery logic
+        //Discovery logic uses: dIntent.includes('sell') | dIntent.includes('rent') | dIntent.includes('lease')
+        const intentValue = type === 'Lease' ? 'Lease' : (type === 'Rent' ? 'Rent' : 'Sell');
+
+        const dealData = {
+            inventoryId: inventory._id,
             projectName: inventory.projectName,
-            projectId: inventory.projectId,
             block: inventory.block,
+            unitNo: inventory.unitNo,
+            propertyType: inventory.category,
             category: inventory.category,
             subCategory: inventory.subCategory,
-            unitType: getLookupValue('UnitType', inventory.unitType),
-            intent: type === 'Sell' ? 'For Sale' : 'For Rent',
             size: inventory.size,
             sizeUnit: inventory.sizeUnit,
-            location: inventory.address?.locality || inventory.address?.area,
-            owner: inventory.owners?.[0] ? {
-                ...inventory.owners[0],
-                phone: inventory.owners[0].phones?.[0]?.number || inventory.owners[0].mobile || ''
-            } : { name: inventory.ownerName, phone: inventory.ownerPhone },
-            associatedContact: inventory.associates?.[0] ? {
-                ...inventory.associates[0],
-                phone: inventory.associates[0].phones?.[0]?.number || inventory.associates[0].mobile || ''
-            } : { name: inventory.associatedContact, phone: inventory.associatedPhone },
-            isOwnerSelected: !!inventory.owners?.[0],
-            isAssociateSelected: !!inventory.associates?.[0]
-        });
+            location: inventory.address?.locality || inventory.address?.area || '',
+            intent: intentValue,
+            owner: inventory.owners?.[0] || {
+                name: inventory.ownerName,
+                phone: inventory.ownerPhone,
+                email: inventory.ownerEmail
+            },
+            associatedContact: inventory.associates?.[0]?.contact || inventory.associatedContact,
+            assignedTo: inventory.assignedTo,
+            team: inventory.team
+        };
+        onAddDeal(dealData);
     };
 
     const getTargetContacts = () => {
@@ -456,10 +574,10 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         {/* Name Stack */}
                         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
                             <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap' }}>
-                                {inventory.assignedTo?.name || 'Unassigned'}
+                                {inventory.assignedTo?.fullName || inventory.assignedTo?.name || (typeof inventory.assignedTo === 'string' && !/^[0-9a-fA-F]{24}$/.test(inventory.assignedTo) ? inventory.assignedTo : 'Unassigned')}
                             </span>
                             <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>
-                                {inventory.team?.name || 'Standard Team'}
+                                {inventory.team?.name || inventory.team?.lookup_value || (typeof inventory.team === 'string' && !/^[0-9a-fA-F]{24}$/.test(inventory.team) ? inventory.team : 'Standard Team')}
                             </span>
                         </div>
 
@@ -494,9 +612,10 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                             {['Sell', 'Rent', 'Lease'].map(type => {
                                 const dealForType = deals.find(d => {
-                                    if (type === 'Sell') return d.intent === 'For Sale' || d.intent === 'Sale';
-                                    if (type === 'Rent') return d.intent === 'For Rent' || d.intent === 'Rent';
-                                    if (type === 'Lease') return d.intent === 'Lease';
+                                    const dIntent = (d.intent || '').toLowerCase();
+                                    if (type === 'Sell') return dIntent.includes('sell') || dIntent.includes('sale');
+                                    if (type === 'Rent') return dIntent.includes('rent');
+                                    if (type === 'Lease') return dIntent.includes('lease');
                                     return false;
                                 });
                                 const dealExists = !!dealForType;
@@ -507,21 +626,32 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                     <div key={type}
                                         style={{
                                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                            padding: '14px 18px', background: 'rgba(248, 250, 252, 0.5)', borderRadius: '12px',
-                                            border: '1px solid rgba(241, 245, 249, 0.8)',
-                                            transition: 'all 0.2s ease'
+                                            padding: '14px 18px',
+                                            background: dealExists ? '#fff1f2' : 'rgba(248, 250, 252, 0.5)',
+                                            borderRadius: '12px',
+                                            border: dealExists ? '1px solid #fecdd3' : '1px solid rgba(241, 245, 249, 0.8)',
+                                            transition: 'all 0.2s ease',
+                                            position: 'relative',
+                                            overflow: 'hidden'
                                         }}
                                         onMouseEnter={(e) => {
-                                            e.currentTarget.style.background = '#fff';
+                                            e.currentTarget.style.background = dealExists ? '#ffe4e6' : '#fff';
                                             e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.05)';
                                             e.currentTarget.style.transform = 'translateY(-1px)';
                                         }}
                                         onMouseLeave={(e) => {
-                                            e.currentTarget.style.background = 'rgba(248, 250, 252, 0.5)';
+                                            e.currentTarget.style.background = dealExists ? '#fff1f2' : 'rgba(248, 250, 252, 0.5)';
                                             e.currentTarget.style.boxShadow = 'none';
                                             e.currentTarget.style.transform = 'translateY(0)';
                                         }}
                                     >
+                                        {dealExists && (
+                                            <div style={{
+                                                position: 'absolute', top: '-10px', right: '-10px',
+                                                width: '40px', height: '40px', background: '#fb7185',
+                                                transform: 'rotate(45deg)', opacity: 0.1
+                                            }}></div>
+                                        )}
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                             <div style={{
                                                 width: '32px', height: '32px', borderRadius: '8px',
@@ -535,74 +665,36 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                                 <span style={{ fontWeight: 700, color: '#334155', fontSize: '0.9rem' }}>{type}</span>
                                                 {dealExists && (
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
-                                                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a' }}>
+                                                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#be123c' }}>
                                                             {dealForType.price || dealForType.budget || 'Price N/A'}
                                                         </span>
-                                                        <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>
+                                                        <span style={{ fontSize: '0.65rem', color: '#9f1239', opacity: 0.6 }}>
                                                             • {new Date(dealForType.createdAt).toLocaleDateString()}
                                                         </span>
                                                     </div>
                                                 )}
                                             </div>
-                                            {dealExists && <span style={{ fontSize: '0.6rem', padding: '2px 6px', background: '#dcfce7', color: '#166534', borderRadius: '4px', fontWeight: 800, marginLeft: '4px' }}>ACTIVE DEAL</span>}
+                                            {dealExists && <span style={{ fontSize: '0.6rem', padding: '2px 6px', background: '#fb7185', color: '#fff', borderRadius: '4px', fontWeight: 800, marginLeft: '4px' }}>ACTIVE DEAL</span>}
                                         </div>
 
-                                        {/* Matching Stats Inline */}
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                            <div style={{ display: 'flex', gap: '20px' }}>
-                                                <div>
-                                                    <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600, display: 'block' }}>Matching Leads</span>
-                                                    <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#2563eb' }}>
-                                                        {matchingLeads.filter(l => {
-                                                            const lReq = l.requirement?.lookup_value || l.requirement || '';
-                                                            const lIntent = l.intent || (typeof lReq === 'string' ? lReq : '');
-                                                            if (type === 'Sell') return lIntent.toLowerCase().includes('buy') || lIntent.toLowerCase().includes('sale');
-                                                            if (type === 'Rent') return lIntent.toLowerCase().includes('rent');
-                                                            if (type === 'Lease') return lIntent.toLowerCase().includes('lease');
-                                                            return false;
-                                                        }).length}
-                                                    </span>
-                                                </div>
-                                                <div style={{ width: '1px', height: '24px', background: '#e2e8f0' }}></div>
-                                                <div>
-                                                    <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600, display: 'block' }}>Active Interest</span>
-                                                    <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#16a34a' }}>
-                                                        {matchingLeads.filter(l => {
-                                                            const lReq = l.requirement?.lookup_value || l.requirement || '';
-                                                            const lIntent = l.intent || (typeof lReq === 'string' ? lReq : '');
-                                                            const matchesIntent = (type === 'Sell' && (lIntent.toLowerCase().includes('buy') || lIntent.toLowerCase().includes('sale'))) ||
-                                                                (type === 'Rent' && lIntent.toLowerCase().includes('rent')) ||
-                                                                (type === 'Lease' && lIntent.toLowerCase().includes('lease'));
-                                                            return matchesIntent && (l.status?.lookup_value === 'Active' || l.status === 'Active');
-                                                        }).length}
-                                                    </span>
-                                                </div>
-                                            </div>
-
-                                            {/* Lead Match Icon Button */}
-                                            <button
-                                                className="primary-btn"
-                                                style={{
-                                                    width: '32px', height: '32px',
-                                                    borderRadius: '8px',
-                                                    background: 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)',
-                                                    color: '#fff',
-                                                    border: 'none',
-                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                    padding: 0
-                                                }}
-                                                onClick={() => onNavigate('inventory-matching', inventory._id)}
-                                                title="Find Matching Leads"
-                                            >
-                                                <i className="fas fa-sync-alt" style={{ fontSize: '0.8rem' }}></i>
-                                            </button>
-
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                             {dealExists ? (
                                                 <button
-                                                    className="secondary-btn"
-                                                    style={{ fontSize: '0.85rem', padding: '6px 12px' }}
+                                                    className="primary-btn"
+                                                    style={{
+                                                        fontSize: '0.85rem',
+                                                        padding: '8px 16px',
+                                                        background: 'linear-gradient(135deg, #fb7185 0%, #e11d48 100%)',
+                                                        border: 'none',
+                                                        boxShadow: '0 4px 6px -1px rgba(225, 29, 72, 0.2)',
+                                                        fontWeight: 700,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '8px'
+                                                    }}
                                                     onClick={() => onNavigate('deal-detail', dealForType._id)}
                                                 >
+                                                    <i className="fas fa-external-link-alt"></i>
                                                     View Deal
                                                 </button>
                                             ) : (
@@ -611,9 +703,13 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                                     disabled={isDisabled}
                                                     onClick={() => handleCreateDeal(type)}
                                                     style={{
-                                                        fontSize: '0.85rem', padding: '6px 16px',
+                                                        fontSize: '0.85rem', padding: '8px 16px',
                                                         opacity: isDisabled ? 0.5 : 1,
-                                                        cursor: isDisabled ? 'not-allowed' : 'pointer'
+                                                        cursor: isDisabled ? 'not-allowed' : 'pointer',
+                                                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                                        border: 'none',
+                                                        fontWeight: 700,
+                                                        boxShadow: isDisabled ? 'none' : '0 4px 6px -1px rgba(16, 185, 129, 0.2)'
                                                     }}
                                                 >
                                                     Create Deal
@@ -623,6 +719,57 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                     </div>
                                 );
                             })}
+                        </div>
+
+                        {/* Top Match Leads Section (Professional) */}
+                        <div style={{ marginTop: '24px', borderTop: '1px solid #f1f5f9', paddingTop: '20px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <i className="fas fa-star" style={{ color: '#f59e0b', fontSize: '0.8rem' }}></i> Top Match Leads
+                                </h4>
+                                <button
+                                    onClick={() => onNavigate('inventory-matching', inventory._id)}
+                                    style={{ fontSize: '0.75rem', fontWeight: 700, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}
+                                >
+                                    View Match Centre →
+                                </button>
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                {matchingLeads && matchingLeads.length > 0 ? (
+                                    matchingLeads.slice(0, 3).map((lead, idx) => (
+                                        <div key={idx} style={{
+                                            padding: '12px 16px',
+                                            background: '#f8fafc',
+                                            borderRadius: '12px',
+                                            border: '1px solid #f1f5f9',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center'
+                                        }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#e0f2fe', color: '#0369a1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>
+                                                    {getInitials(lead.name || lead.firstName)}
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{lead.name || `${lead.firstName || ''} ${lead.lastName || ''}`}</div>
+                                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{lead.mobile || lead.phone || 'N/A'} • {lead.intent || 'Buying'}</div>
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => onNavigate('lead-detail', lead._id)}
+                                                style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#fff', border: '1px solid #e2e8f0', color: '#64748b', cursor: 'pointer' }}
+                                            >
+                                                <i className="fas fa-chevron-right" style={{ fontSize: '0.7rem' }}></i>
+                                            </button>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div style={{ textAlign: 'center', padding: '16px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
+                                        <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0 }}>No matching leads found for this unit.</p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                         {currentStatus === 'Sold Out' && (
                             <p style={{ marginTop: '12px', fontSize: '0.75rem', color: '#ef4444', fontWeight: 600 }}>
@@ -646,22 +793,75 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                                     <DetailField label="Category" value={getLookupValue('Category', inventory.category)} />
                                     <DetailField label="Subcategory" value={getLookupValue('SubCategory', inventory.subCategory)} />
+                                    <DetailField label="Unit Type" value={getStrictLookupValue('UnitType', inventory.unitType)} />
+                                    <DetailField label="Built-up Type" value={getLookupValue('BuiltupType', inventory.builtupType)} />
 
-                                    {/* Dimensions Row (Size, Length, Width) */}
-                                    <div style={{
-                                        gridColumn: 'span 2',
-                                        display: 'grid',
-                                        gridTemplateColumns: '1fr 1fr 1fr',
-                                        gap: '16px',
-                                        background: '#f8fafc',
-                                        padding: '12px',
-                                        borderRadius: '8px',
-                                        border: '1px solid #f1f5f9'
-                                    }}>
-                                        <DetailField label="Size / Area" value={`${renderValue(inventory.size)} ${renderValue(inventory.sizeUnit)}`} />
-                                        <DetailField label="Length" value={inventory.length || (inventory.builtupDetails?.[0]?.length)} />
-                                        <DetailField label="Width" value={inventory.width || (inventory.builtupDetails?.[0]?.width)} />
-                                    </div>
+                                    {/* Conditional Dimensions/Areas Row */}
+                                    {(() => {
+                                        // Professional Fix: Extract metadata from lookup to show dimensions even if not in DB directly
+                                        const sizeId = inventory.sizeConfig || inventory.unitType;
+                                        let sizeMeta = null;
+                                        if (sizeId && lookups && lookups['Size']) {
+                                            const found = lookups['Size'].find(l =>
+                                                l._id === sizeId ||
+                                                l.id === sizeId ||
+                                                (typeof sizeId === 'object' && l._id === sizeId._id)
+                                            );
+                                            sizeMeta = found?.metadata;
+                                        }
+
+                                        const subCategoryValue = getLookupValue('SubCategory', inventory.subCategory);
+                                        const isPlotOrHouse = ['Plot', 'Independent House'].includes(subCategoryValue);
+
+                                        if (isPlotOrHouse) {
+                                            const width = inventory.width || sizeMeta?.width || sizeMeta?.plotWidth;
+                                            const length = inventory.length || sizeMeta?.length || sizeMeta?.plotLength;
+                                            const sizeUnit = inventory.sizeUnit || sizeMeta?.widthMetric || sizeMeta?.lengthMetric || 'Ft';
+
+                                            return (
+                                                <div style={{
+                                                    gridColumn: 'span 2',
+                                                    display: 'grid',
+                                                    gridTemplateColumns: '2.2fr 1fr 1fr',
+                                                    gap: '24px',
+                                                    background: 'linear-gradient(90deg, #f8fafc 0%, #eff6ff 100%)',
+                                                    padding: '16px 20px',
+                                                    borderRadius: '12px',
+                                                    border: '1px solid #dbeafe',
+                                                    boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                                                    alignItems: 'center'
+                                                }}>
+                                                    <DetailField label="Size Label" value={getStrictLookupValue('Size', inventory.sizeConfig) || renderValue(inventory.sizeConfig) || inventory.sizeLabel || 'N/A'} />
+                                                    <DetailField label="Width" value={width ? `${width} ${renderValue(sizeUnit)}` : 'N/A'} />
+                                                    <DetailField label="Length" value={length ? `${length} ${renderValue(sizeUnit)}` : 'N/A'} />
+                                                </div>
+                                            );
+                                        } else {
+                                            const saleable = inventory.totalSaleableArea?.value || sizeMeta?.saleableArea || sizeMeta?.totalArea;
+                                            const covered = inventory.builtUpArea?.value || sizeMeta?.coveredArea || sizeMeta?.builtupArea;
+                                            const carpet = inventory.carpetArea?.value || sizeMeta?.carpetArea;
+                                            const areaUnit = inventory.sizeUnit || sizeMeta?.resultMetric || sizeMeta?.areaMetrics || 'Sq.Ft.';
+
+                                            return (
+                                                <div style={{
+                                                    gridColumn: 'span 2',
+                                                    display: 'grid',
+                                                    gridTemplateColumns: '1fr 1fr 1fr',
+                                                    gap: '16px',
+                                                    background: 'linear-gradient(90deg, #f8fafc 0%, #f0fdf4 100%)',
+                                                    padding: '16px 20px',
+                                                    borderRadius: '12px',
+                                                    border: '1px solid #dcfce7',
+                                                    boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                                                    alignItems: 'center'
+                                                }}>
+                                                    <DetailField label="Total Saleable Area" value={saleable ? `${saleable} ${renderValue(areaUnit)}` : 'N/A'} />
+                                                    <DetailField label="Covered Area" value={covered ? `${covered} ${renderValue(areaUnit)}` : 'N/A'} />
+                                                    <DetailField label="Carpet Area" value={carpet ? `${carpet} ${renderValue(areaUnit)}` : 'N/A'} />
+                                                </div>
+                                            );
+                                        }
+                                    })()}
                                 </div>
                             </div>
 
@@ -671,13 +871,15 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                     <i className="fas fa-compass" style={{ marginRight: '8px', fontSize: '0.8rem', color: '#f59e0b' }}></i> Orientation & Features
                                 </h4>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                    <DetailField label="Direction" value={getLookupValue('Direction', inventory.direction)} />
-                                    <DetailField label="Facing" value={getLookupValue('Facing', inventory.facing)} />
-                                    <DetailField label="Road Width" value={getLookupValue('RoadWidth', inventory.roadWidth)} />
+                                    <DetailField label="Direction" value={getLookupValue('Direction', inventory.direction || inventory.orientation) || renderValue(inventory.direction) || renderValue(inventory.orientation)} />
+                                    <DetailField label="Facing" value={getLookupValue('Facing', inventory.facing) || renderValue(inventory.facing)} />
+                                    <DetailField label="Road Width" value={getLookupValue('RoadWidth', inventory.roadWidth) || renderValue(inventory.roadWidth)} />
+                                    <DetailField label="Ownership" value={inventory.ownership || 'N/A'} />
                                 </div>
                             </div>
                         </div>
                     </section>
+
 
 
                     {/* LOCATION CARD (Moved Up) */}
@@ -715,25 +917,76 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                             </button>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '24px' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                <DetailField label="City" value={inventory.address?.city} />
-                                <DetailField label="Locality / Area" value={inventory.address?.locality || inventory.address?.area} />
-                                <DetailField label="Post Office / Pincode" value={`${renderValue(inventory.address?.postOffice)} - ${renderValue(inventory.address?.pinCode)}`} />
-                                <DetailField label="Landmark" value={inventory.address?.landmark} />
-                                <div style={{ gridColumn: 'span 2' }}>
-                                    <DetailField label="Full Address" value={`${renderValue(inventory.address?.hNo)} ${renderValue(inventory.address?.street)} ${renderValue(inventory.address?.locality)}`} />
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '16px' }}>
+                                <DetailField label="Country" value={getLookupValue('Country', inventory.address?.country) || 'India'} />
+                                <DetailField label="State" value={getLookupValue('State', inventory.address?.state)} />
+                                <DetailField label="City" value={getLookupValue('City', inventory.address?.city || inventory.city)} />
+                                <DetailField label="Location" value={getLookupValue('Location', inventory.address?.location || inventory.location)} />
+                                <DetailField label="Tehsil" value={getLookupValue('Tehsil', inventory.address?.tehsil)} />
+                                <DetailField label="Post Office" value={inventory.address?.postOffice} />
+                                <DetailField label="Pin Code" value={inventory.address?.pincode || inventory.address?.pinCode} />
+                                <DetailField label="House Number" value={inventory.address?.hNo} />
+                                <div style={{ gridColumn: 'span 1' }}>
+                                    <DetailField label="Street / Road / Landmark" value={`${inventory.address?.street || ''}${inventory.address?.street && inventory.address?.landmark ? ' / ' : ''}${inventory.address?.landmark || ''}` || 'N/A'} />
+                                </div>
+                                <DetailField label="Area" value={getLookupValue('Area', inventory.address?.area || inventory.address?.locality)} />
+
+                                <div style={{ gridColumn: '1 / -1', marginTop: '12px', borderTop: '1px dashed #e2e8f0', paddingTop: '12px' }}>
+                                    <DetailField
+                                        label="Full Address"
+                                        value={(() => {
+                                            const addr = inventory.address;
+                                            if (!addr) return 'N/A';
+                                            const parts = [];
+
+                                            // Sequence: h. no., street/landmark, area, location, tehsil, post office, city, state, pincode (country)
+                                            if (addr.hNo) parts.push(addr.hNo);
+
+                                            const sl = [addr.street, addr.landmark].filter(Boolean).join(' / ');
+                                            if (sl) parts.push(sl);
+
+                                            const areaVal = getLookupValue('Area', addr.area || addr.locality);
+                                            if (areaVal) parts.push(areaVal);
+
+                                            const locVal = getLookupValue('Location', addr.location);
+                                            if (locVal) parts.push(locVal);
+
+                                            const tehsilVal = getLookupValue('Tehsil', addr.tehsil);
+                                            if (tehsilVal) parts.push(tehsilVal);
+
+                                            if (addr.postOffice) parts.push(addr.postOffice);
+
+                                            const cityVal = getLookupValue('City', addr.city);
+                                            if (cityVal) parts.push(cityVal);
+
+                                            const stateVal = getLookupValue('State', addr.state);
+                                            if (stateVal) parts.push(stateVal);
+
+                                            const pc = addr.pincode || addr.pinCode;
+                                            if (pc) parts.push(pc);
+
+                                            const main = parts.filter(Boolean).join(', ');
+                                            const countryName = getLookupValue('Country', addr.country) || 'India';
+
+                                            return main ? `${main}${countryName ? ` (${countryName})` : ''}` : 'N/A';
+                                        })()}
+                                    />
                                 </div>
                             </div>
                             <div style={{ background: '#f8fafc', borderRadius: '10px', height: '180px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-                                {(inventory.address?.lat && inventory.address?.lng) ? (
-                                    <iframe
-                                        width="100%"
-                                        height="100%"
-                                        frameBorder="0"
-                                        style={{ border: 0 }}
-                                        src={`https://www.google.com/maps/embed/v1/view?key=YOUR_API_KEY&center=${inventory.address.lat},${inventory.address.lng}&zoom=15`}
-                                        allowFullScreen
-                                    ></iframe>
+                                {((inventory.address?.lat || inventory.latitude) && (inventory.address?.lng || inventory.longitude)) ? (
+                                    <ProfessionalMap
+                                        items={[{
+                                            ...inventory,
+                                            lat: inventory.address?.lat || inventory.latitude,
+                                            lng: inventory.address?.lng || inventory.longitude
+                                        }]}
+                                        center={{
+                                            lat: parseFloat(inventory.address?.lat || inventory.latitude),
+                                            lng: parseFloat(inventory.address?.lng || inventory.longitude)
+                                        }}
+                                        zoom={15}
+                                    />
                                 ) : (
                                     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
                                         <i className="fas fa-map" style={{ fontSize: '2rem', marginBottom: '8px' }}></i>
@@ -749,14 +1002,35 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
                             <i className="fas fa-layer-group" style={{ marginRight: '8px', color: '#8b5cf6' }}></i> Builtup & Furnishing Details
                         </h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-                            <DetailField label="Built-up Type" value={getLookupValue('BuiltupType', inventory.builtupType)} />
-                            <DetailField label="Possession Status" value={inventory.possessionStatus} />
-                            <DetailField label="Occupation Date" value={inventory.occupationDate ? new Date(inventory.occupationDate).toLocaleDateString() : '-'} />
-                            <DetailField label="Age of Construction" value={inventory.ageOfConstruction || inventory.constructionAge} />
-                            <DetailField label="Furnish Status" value={inventory.furnishType} />
-                            <div style={{ gridColumn: 'span 3' }}>
-                                <DetailField label="Furnished Items" value={inventory.furnishedItems} />
+                        <div style={{ marginBottom: '20px' }}>
+                            {/* Core Measurement Highlight Group */}
+                            <div style={{
+                                background: '#f8fafc',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '10px',
+                                padding: '16px',
+                                marginBottom: '20px',
+                                boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.02)'
+                            }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                                    <DetailField label="Built-up Type" value={getLookupValue('BuiltupType', inventory.builtupType)} />
+                                    <DetailField label="Floor" value={inventory.floor || 'N/A'} />
+                                    <DetailField label="Plan/Cluster" value={inventory.builtupDetails?.[0]?.cluster || 'N/A'} />
+                                    <DetailField label="Width" value={inventory.builtupDetails?.[0]?.width || 'N/A'} />
+                                    <DetailField label="Length" value={inventory.builtupDetails?.[0]?.length || 'N/A'} />
+                                    <DetailField label="Total Area" value={inventory.builtupDetails?.[0]?.totalArea || inventory.builtUpArea?.value || inventory.size?.value || 'N/A'} />
+                                </div>
+                            </div>
+
+                            {/* Supplementary Details */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                                <DetailField label="Possession Status" value={inventory.possessionStatus} />
+                                <DetailField label="Occupation Date" value={inventory.occupationDate ? new Date(inventory.occupationDate).toLocaleDateString() : '-'} />
+                                <DetailField label="Age of Construction" value={inventory.ageOfConstruction || inventory.constructionAge} />
+                                <DetailField label="Furnish Status" value={inventory.furnishType} />
+                                <div style={{ gridColumn: 'span 3' }}>
+                                    <DetailField label="Furnished Items" value={inventory.furnishedItems} />
+                                </div>
                             </div>
                         </div>
 
@@ -788,66 +1062,8 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                             </div>
                         )}
 
-                        {/* IMAGES & VIDEOS GALLERY */}
-                        <div style={{ marginTop: '32px', borderTop: '1px solid #f1f5f9', paddingTop: '24px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                                <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <i className="fas fa-images" style={{ color: '#3b82f6' }}></i> Images & Videos Gallery
-                                </h4>
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '16px' }}>
-                                {/* Images rendering */}
-                                {inventory.projectImages && inventory.projectImages.length > 0 ? (
-                                    inventory.projectImages.map((img, idx) => (
-                                        <div key={`img-${idx}`} style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', border: '1px solid #e2e8f0', height: '110px', background: '#f8fafc' }}>
-                                            {img.url || img.previewUrl ? (
-                                                <img src={img.url || img.previewUrl} alt={img.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                            ) : (
-                                                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                    <i className="fas fa-image" style={{ color: '#cbd5e1', fontSize: '1.5rem' }}></i>
-                                                </div>
-                                            )}
-                                            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.7))', padding: '8px 4px', fontSize: '0.65rem', color: '#fff', fontWeight: 600 }}>
-                                                {img.title || img.category}
-                                            </div>
-                                        </div>
-                                    ))
-                                ) : null}
-
-                                {/* Videos rendering */}
-                                {inventory.projectVideos && inventory.projectVideos.length > 0 ? (
-                                    inventory.projectVideos.map((vid, idx) => {
-                                        const ytThumb = vid.type === 'YouTube' ? `https://img.youtube.com/vi/${vid.url?.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1]}/mqdefault.jpg` : null;
-                                        return (
-                                            <div key={`vid-${idx}`} style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', border: '1px solid #e2e8f0', height: '110px', background: '#0f172a', cursor: 'pointer' }} onClick={() => window.open(vid.url, '_blank')}>
-                                                {ytThumb ? (
-                                                    <img src={ytThumb} alt={vid.title} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.7 }} />
-                                                ) : (
-                                                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                        <i className="fas fa-video" style={{ color: '#cbd5e1', fontSize: '1.5rem' }}></i>
-                                                    </div>
-                                                )}
-                                                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                    <i className="fas fa-play-circle" style={{ color: '#fff', fontSize: '2rem', opacity: 0.8 }}></i>
-                                                </div>
-                                                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.7))', padding: '4px 8px', fontSize: '0.65rem', color: '#fff', fontWeight: 600 }}>
-                                                    {vid.title}
-                                                </div>
-                                            </div>
-                                        );
-                                    })
-                                ) : null}
-
-                                {(!inventory.projectImages?.length && !inventory.projectVideos?.length) && (
-                                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '32px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
-                                        <i className="fas fa-camera-retro" style={{ fontSize: '2rem', color: '#cbd5e1', marginBottom: '12px' }}></i>
-                                        <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: 0 }}>No media files uploaded yet</p>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
                     </section>
+
 
 
 
@@ -861,70 +1077,161 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                             hideComposer={true}
                         />
                     </section>
-                </main>
+                </main >
 
                 {/* RIGHT SIDEBAR */}
-                <aside style={{ flex: '1', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                < aside style={{ flex: '1', display: 'flex', flexDirection: 'column', gap: '24px' }
+                }>
 
                     {/* CONSOLIDATED CONTACT INFO */}
+                    {/* ASSOCIATED CONTACTS & STAKEHOLDERS (Professional Sidebar View) */}
                     <section className="detail-card" style={glassCardStyle}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid rgba(226, 232, 240, 0.5)', paddingBottom: '10px' }}>
                             <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <i className="fas fa-user-tie" style={{ color: '#6366f1', fontSize: '0.8rem' }}></i> Contact Information
+                                <i className="fas fa-address-book" style={{ color: '#6366f1', fontSize: '0.8rem' }}></i> Contact Information
                             </h3>
                             <button
                                 className="text-btn"
                                 style={{ color: '#2563eb', fontWeight: 600, fontSize: '0.75rem', background: 'none', border: 'none', cursor: 'pointer' }}
                                 onClick={() => setIsOwnerModalOpen(true)}
                             >
-                                Edit
+                                Manage
                             </button>
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            {/* Unified view of Owner & Associate */}
-                            <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '12px', border: '1px solid #f1f5f9' }}>
-                                <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
-                                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                        <i className="fas fa-crown" style={{ color: '#4f46e5', fontSize: '0.8rem' }}></i>
-                                    </div>
-                                    <div style={{ flex: 1 }}>
-                                        <p style={{ fontSize: '0.65rem', color: '#64748b', margin: '0 0 2px 0', fontWeight: 700, textTransform: 'uppercase' }}>Owner</p>
-                                        <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', margin: '0 0 4px 0' }}>{renderValue(inventory.owners?.[0]?.name || inventory.ownerName)}</p>
-                                        <p style={{ fontSize: '0.8rem', color: '#475569', margin: 0 }}>{renderValue(inventory.owners?.[0]?.phones?.[0]?.number || inventory.ownerPhone)}</p>
-                                    </div>
+                            {/* Property Owners Sub-section */}
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <label style={{ fontSize: '0.6rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Property Owners</label>
+                                    <span style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: 700 }}>{inventory.owners?.length || 0}</span>
                                 </div>
-
-                                {inventory.associatedContact && (
-                                    <div style={{ display: 'flex', gap: '12px', paddingTop: '12px', borderTop: '1px dashed #e2e8f0' }}>
-                                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                            <i className="fas fa-user-friends" style={{ color: '#16a34a', fontSize: '0.8rem' }}></i>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    {inventory.owners && inventory.owners.length > 0 ? (
+                                        inventory.owners.map((owner, idx) => (
+                                            <div key={idx} style={{
+                                                padding: '10px',
+                                                background: '#f8fafc',
+                                                borderRadius: '10px',
+                                                border: '1px solid #f1f5f9',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '10px'
+                                            }}>
+                                                <div style={{
+                                                    width: '32px', height: '32px',
+                                                    background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+                                                    borderRadius: '8px',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    color: '#fff', fontWeight: 900, fontSize: '0.75rem'
+                                                }}>
+                                                    {getInitials(owner.name)}
+                                                </div>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{owner.name}</div>
+                                                    <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>{owner.phones?.[0]?.number || 'No Phone'}</div>
+                                                </div>
+                                                <div style={{ background: '#ecfdf5', color: '#059669', fontSize: '0.5rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 900, textTransform: 'uppercase', border: '1px solid #d1fae5' }}>Owner</div>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic', padding: '10px', background: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1', textAlign: 'center' }}>
+                                            {inventory.ownerName ? (
+                                                <div style={{ textAlign: 'left', color: '#475569', fontStyle: 'normal' }}>
+                                                    <p style={{ fontWeight: 800, margin: 0 }}>{inventory.ownerName}</p>
+                                                    <p style={{ margin: 0 }}>{inventory.ownerPhone}</p>
+                                                </div>
+                                            ) : 'No Owners'}
                                         </div>
-                                        <div style={{ flex: 1 }}>
-                                            <p style={{ fontSize: '0.65rem', color: '#64748b', margin: '0 0 2px 0', fontWeight: 700, textTransform: 'uppercase' }}>Associate</p>
-                                            <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', margin: '0 0 4px 0' }}>{renderValue(inventory.associates?.[0]?.name || inventory.associatedContact)}</p>
-                                            <p style={{ fontSize: '0.8rem', color: '#475569', margin: 0 }}>{renderValue(inventory.associates?.[0]?.phones?.[0]?.number || inventory.associatedPhone)}</p>
-                                        </div>
-                                    </div>
-                                )}
+                                    )}
+                                </div>
                             </div>
 
-                            <div style={{ display: 'flex', gap: '8px' }}>
+                            {/* Associated Stakeholders Sub-section */}
+                            {(inventory.associates?.length > 0 || inventory.associatedContact) && (
+                                <div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <label style={{ fontSize: '0.6rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Stakeholders</label>
+                                        <span style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: 700 }}>{inventory.associates?.length || (inventory.associatedContact ? 1 : 0)}</span>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        {inventory.associates && inventory.associates.length > 0 ? (
+                                            inventory.associates.map((assoc, idx) => {
+                                                const contact = assoc.contact || assoc;
+                                                const relationship = assoc.relationship || '';
+                                                return (
+                                                    <div key={idx} style={{
+                                                        padding: '10px',
+                                                        background: '#f8fafc',
+                                                        borderRadius: '10px',
+                                                        border: '1px solid #f1f5f9',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '10px'
+                                                    }}>
+                                                        <div style={{
+                                                            width: '32px', height: '32px',
+                                                            background: 'linear-gradient(135deg, #f59e0b, #fbbf24)',
+                                                            borderRadius: '8px',
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            color: '#fff', fontWeight: 900, fontSize: '0.75rem'
+                                                        }}>
+                                                            {getInitials(contact.name)}
+                                                        </div>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                                {contact.name}
+                                                                {relationship && (
+                                                                    <span style={{ marginLeft: '6px', fontSize: '0.65rem', color: '#f59e0b', fontWeight: 700 }}>({relationship})</span>
+                                                                )}
+                                                            </div>
+                                                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>{contact.phones?.[0]?.number || 'No Phone'}</div>
+                                                        </div>
+                                                        <div style={{ background: '#fffbeb', color: '#b45309', fontSize: '0.5rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 900, textTransform: 'uppercase', border: '1px solid #fde68a' }}>Assoc</div>
+                                                    </div>
+                                                );
+                                            })
+                                        ) : inventory.associatedContact && (
+                                            <div style={{
+                                                padding: '10px',
+                                                background: '#f8fafc',
+                                                borderRadius: '10px',
+                                                border: '1px solid #f1f5f9',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '10px'
+                                            }}>
+                                                <div style={{
+                                                    width: '32px', height: '32px',
+                                                    background: 'linear-gradient(135deg, #f59e0b, #fbbf24)',
+                                                    borderRadius: '8px',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    color: '#fff', fontWeight: 900, fontSize: '0.75rem'
+                                                }}>
+                                                    {getInitials(inventory.associatedContact)}
+                                                </div>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{inventory.associatedContact}</div>
+                                                    <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>{inventory.associatedPhone || 'No Phone'}</div>
+                                                </div>
+                                                <div style={{ background: '#fffbeb', color: '#b45309', fontSize: '0.5rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 900, textTransform: 'uppercase', border: '1px solid #fde68a' }}>Assoc</div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Action Buttons */}
+                            <div style={{ display: 'flex', gap: '8px', paddingTop: '10px', borderTop: '1px dashed #e2e8f0' }}>
                                 <button
-                                    onClick={() => {
-                                        const phone = inventory.owners?.[0]?.phones?.[0]?.number || inventory.ownerPhone;
-                                        startCall(phone, inventory.owners?.[0]?.name || inventory.ownerName);
-                                    }}
+                                    onClick={() => handleContactClick('call')}
                                     style={{ flex: 1, padding: '10px', borderRadius: '10px', background: '#ecfdf5', color: '#059669', border: '1px solid #d1fae5', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', transition: 'all 0.2s' }}
                                 >
                                     <i className="fas fa-phone-alt"></i> Call
                                 </button>
                                 <button
                                     style={{ flex: 1, padding: '10px', borderRadius: '10px', background: '#eff6ff', color: '#2563eb', border: '1px solid #dbeafe', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', transition: 'all 0.2s' }}
-                                    onClick={() => {
-                                        const phone = (inventory.owners?.[0]?.phones?.[0]?.number || inventory.ownerPhone || '').replace(/\D/g, '');
-                                        window.open(`https://wa.me/${phone}`, '_blank');
-                                    }}
+                                    onClick={() => handleContactClick('whatsapp')}
                                 >
                                     <i className="fab fa-whatsapp"></i> WhatsApp
                                 </button>
@@ -964,7 +1271,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                         </div>
                                         <button
                                             style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', cursor: 'pointer', padding: '6px', borderRadius: '6px', transition: 'all 0.2s' }}
-                                            onClick={() => window.open(doc.fileUrl, '_blank')}
+                                            onClick={() => window.open(doc.url || doc.fileUrl, '_blank')}
                                             onMouseEnter={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = '#2563eb'; }}
                                             onMouseLeave={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.color = '#64748b'; }}
                                         >
@@ -986,6 +1293,59 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         </div>
                     </section>
 
+                    {/* IMAGES & VIDEOS SECTION */}
+                    <section className="detail-card" style={glassCardStyle}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid rgba(226, 232, 240, 0.5)', paddingBottom: '10px' }}>
+                            <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-images" style={{ color: '#3b82f6', fontSize: '0.8rem' }}></i> Gallery & Videos
+                            </h3>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                            {[...(inventory.inventoryImages || []), ...(inventory.projectImages || [])].map((img, idx) => (
+                                <div key={`img-${idx}`} style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', border: '1px solid #f1f5f9', height: '80px', background: '#f8fafc', cursor: 'pointer' }} onClick={() => window.open(img.url || img.previewUrl || img.path, '_blank')}>
+                                    {img.url || img.previewUrl || img.path ? (
+                                        <img src={img.url || img.previewUrl || img.path} alt={img.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    ) : (
+                                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <i className="fas fa-image" style={{ color: '#cbd5e1', fontSize: '1rem' }}></i>
+                                        </div>
+                                    )}
+                                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.7))', padding: '4px', fontSize: '0.6rem', color: '#fff', fontWeight: 600 }}>
+                                        {img.title || img.category}
+                                    </div>
+                                </div>
+                            ))}
+
+                            {[...(inventory.inventoryVideos || []), ...(inventory.projectVideos || [])].map((vid, idx) => {
+                                const ytThumb = vid.type === 'YouTube' ? `https://img.youtube.com/vi/${vid.url?.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1]}/mqdefault.jpg` : null;
+                                return (
+                                    <div key={`vid-${idx}`} style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', border: '1px solid #f1f5f9', height: '80px', background: '#0f172a', cursor: 'pointer' }} onClick={() => window.open(vid.url, '_blank')}>
+                                        {ytThumb ? (
+                                            <img src={ytThumb} alt={vid.title} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.7 }} />
+                                        ) : (
+                                            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                <i className="fas fa-video" style={{ color: '#cbd5e1', fontSize: '1rem' }}></i>
+                                            </div>
+                                        )}
+                                        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <i className="fas fa-play-circle" style={{ color: '#fff', fontSize: '1.5rem', opacity: 0.8 }}></i>
+                                        </div>
+                                        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.7))', padding: '4px', fontSize: '0.6rem', color: '#fff', fontWeight: 600 }}>
+                                            {vid.title}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {(!inventory.inventoryImages?.length && !inventory.projectImages?.length && !inventory.inventoryVideos?.length && !inventory.projectVideos?.length) && (
+                            <div style={{ textAlign: 'center', padding: '20px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
+                                <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0 }}>No media files available</p>
+                            </div>
+                        )}
+                    </section>
+
                     {/* LIFECYCLE CARD */}
                     <section className="detail-card" style={glassCardStyle}>
                         <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -999,17 +1359,6 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         </div>
                     </section>
 
-                    {/* ASSIGNMENT CARD */}
-                    <section className="detail-card" style={glassCardStyle}>
-                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <i className="fas fa-user-shield" style={{ color: '#16a34a', fontSize: '0.8rem' }}></i> Assignment & Visibility
-                        </h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '16px' }}>
-                            <SidebarStat label="Assigned To" value={renderValue(inventory.assignedTo) || 'Unassigned'} />
-                            <SidebarStat label="Visibility" value={renderValue(inventory.visibleTo) || 'Everyone'} />
-                        </div>
-                        <button className="toolbar-btn" style={{ width: '100%', justifyContent: 'center', borderRadius: '10px', height: '40px', background: '#fff' }}>Change Assignment</button>
-                    </section>
 
 
 
@@ -1040,9 +1389,9 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         </div>
                     </section>
 
-                </aside>
+                </aside >
 
-            </div>
+            </div >
 
 
             {/* MODALS */}
@@ -1052,7 +1401,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                 onSave={async (newDocs) => {
                     try {
                         const response = await api.put(`inventory/${inventoryId}`, {
-                            inventoryDocuments: [...(inventory.inventoryDocuments || []), ...newDocs]
+                            inventoryDocuments: newDocs
                         });
                         if (response.data && response.data.success) {
                             toast.success("Documents updated successfully");
@@ -1095,6 +1444,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                 currentOwners={[
                     ...(inventory.owners && inventory.owners.length > 0
                         ? inventory.owners.map(o => ({
+                            id: o._id || o.id,
                             name: o.name,
                             mobile: o.phones?.[0]?.number || o.mobile || '',
                             role: 'Property Owner'
@@ -1102,11 +1452,16 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         : (inventory.ownerName ? [{ name: inventory.ownerName, mobile: inventory.ownerPhone, role: 'Property Owner' }] : [])
                     ),
                     ...(inventory.associates && inventory.associates.length > 0
-                        ? inventory.associates.map(a => ({
-                            name: a.name,
-                            mobile: a.phones?.[0]?.number || a.mobile || '',
-                            role: 'Associate'
-                        }))
+                        ? inventory.associates.map(a => {
+                            const contact = a.contact || a;
+                            return {
+                                id: contact._id || contact.id,
+                                name: contact.name,
+                                mobile: contact.phones?.[0]?.number || contact.mobile || '',
+                                role: 'Associate',
+                                relationship: a.relationship || ''
+                            };
+                        })
                         : (inventory.associatedContact ? [{ name: inventory.associatedContact, mobile: inventory.associatedPhone, role: 'Associate' }] : [])
                     )
                 ]}
@@ -1116,10 +1471,11 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         const associate = owners.find(o => o.role === 'Associate' || o.role === 'Buyer');
 
                         const updates = {
-                            ownerName: owner?.name || '',
-                            ownerPhone: owner?.mobile || '',
-                            associatedContact: associate?.name || '',
-                            associatedPhone: associate?.mobile || ''
+                            owners: owners.filter(o => o.role === 'Property Owner').map(o => o.id),
+                            associates: owners.filter(o => o.role === 'Associate' || o.role === 'Buyer').map(o => ({
+                                contact: o.id,
+                                relationship: o.relationship
+                            }))
                         };
 
                         const response = await api.put(`inventory/${inventoryId}`, updates);
@@ -1178,10 +1534,154 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         }
                     } catch (error) {
                         console.error("Error updating tags:", error);
-                        toast.error("Error updating tags");
+                        toast.error("An error occurred while updating tags");
                     }
                 }}
             />
+
+            {/* Contact Picker Modal */}
+            {
+                contactPicker.isOpen && (
+                    <div
+                        style={{
+                            position: 'fixed', inset: 0, zIndex: 9999,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: 'rgba(15, 23, 42, 0.4)', backdropFilter: 'blur(8px)',
+                            padding: '20px'
+                        }}
+                        onClick={() => setContactPicker({ ...contactPicker, isOpen: false })}
+                    >
+                        <div
+                            style={{
+                                background: '#fff', width: '100%', maxWidth: '420px',
+                                borderRadius: '32px', overflow: 'hidden',
+                                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                                animation: 'modalFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
+                            }}
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <style>{`
+                            @keyframes modalFadeIn {
+                                from { opacity: 0; transform: scale(0.95) translateY(20px); }
+                                to { opacity: 1; transform: scale(1) translateY(0); }
+                            }
+                        `}</style>
+                            <div style={{ padding: '28px 28px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: '#1e293b', letterSpacing: '-0.5px' }}>
+                                        {contactPicker.type === 'call' ? 'Choose to Call' : 'Choose to Message'}
+                                    </h3>
+                                    <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#64748b', fontWeight: 700 }}>
+                                        Select a professional contact
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => setContactPicker({ ...contactPicker, isOpen: false })}
+                                    style={{
+                                        width: '32px', height: '32px', borderRadius: '10px',
+                                        border: 'none', background: '#f8fafc', color: '#94a3b8',
+                                        cursor: 'pointer', display: 'flex', alignItems: 'center',
+                                        justifyContent: 'center', transition: 'all 0.2s'
+                                    }}
+                                    onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'}
+                                    onMouseLeave={e => e.currentTarget.style.background = '#f8fafc'}
+                                >
+                                    <i className="fas fa-times"></i>
+                                </button>
+                            </div>
+                            <div style={{ padding: '12px', maxHeight: '420px', overflowY: 'auto' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    {contactPicker.contacts.map((contact, idx) => (
+                                        <div
+                                            key={idx}
+                                            onClick={() => {
+                                                if (contactPicker.type === 'call') {
+                                                    startCall(contact.phone, contact.name);
+                                                } else {
+                                                    const cleanPhone = contact.phone.replace(/\D/g, '');
+                                                    window.open(`https://wa.me/${cleanPhone}`, '_blank');
+                                                }
+                                                setContactPicker({ ...contactPicker, isOpen: false });
+                                            }}
+                                            style={{
+                                                padding: '16px', borderRadius: '20px',
+                                                background: '#f8fafc', border: '1px solid #f1f5f9',
+                                                display: 'flex', alignItems: 'center', gap: '16px',
+                                                cursor: 'pointer', transition: 'all 0.2s'
+                                            }}
+                                            onMouseEnter={(e) => {
+                                                e.currentTarget.style.background = '#fff';
+                                                e.currentTarget.style.borderColor = '#e2e8f0';
+                                                e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.05)';
+                                                e.currentTarget.style.transform = 'translateY(-2px)';
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                e.currentTarget.style.background = '#f8fafc';
+                                                e.currentTarget.style.borderColor = '#f1f5f9';
+                                                e.currentTarget.style.boxShadow = 'none';
+                                                e.currentTarget.style.transform = 'translateY(0)';
+                                            }}
+                                        >
+                                            <div style={{
+                                                width: '48px', height: '48px',
+                                                background: contact.role === 'Owner' ? 'linear-gradient(135deg, #4f46e5, #818cf8)' : 'linear-gradient(135deg, #f59e0b, #fbbf24)',
+                                                borderRadius: '16px', display: 'flex',
+                                                alignItems: 'center', justifyContent: 'center',
+                                                color: '#fff', fontWeight: 900, fontSize: '1.1rem',
+                                                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                                            }}>
+                                                {getInitials(contact.name)}
+                                            </div>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <div style={{ fontSize: '1rem', fontWeight: 800, color: '#1e293b', letterSpacing: '-0.3px' }}>{contact.name}</div>
+                                                    <div style={{
+                                                        fontSize: '0.6rem', fontWeight: 900, padding: '2px 8px',
+                                                        borderRadius: '6px', background: contact.role === 'Owner' ? '#eef2ff' : '#fffbeb',
+                                                        color: contact.role === 'Owner' ? '#4f46e5' : '#b45309', textTransform: 'uppercase',
+                                                        letterSpacing: '0.5px'
+                                                    }}>
+                                                        {contact.role}
+                                                    </div>
+                                                </div>
+                                                <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginTop: '2px' }}>
+                                                    {contact.phone} {contact.relationship && <span style={{ color: '#cbd5e1', margin: '0 4px' }}>•</span>}
+                                                    {contact.relationship && <span style={{ color: '#f59e0b', fontWeight: 800 }}>{contact.relationship}</span>}
+                                                </div>
+                                            </div>
+                                            <div style={{
+                                                width: '36px', height: '36px', borderRadius: '12px',
+                                                background: contactPicker.type === 'call' ? '#ecfdf5' : '#eff6ff',
+                                                color: contactPicker.type === 'call' ? '#059669' : '#2563eb',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                fontSize: '0.9rem'
+                                            }}>
+                                                <i className={contactPicker.type === 'call' ? 'fas fa-phone-alt' : 'fab fa-whatsapp'}></i>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div style={{ padding: '20px 28px 28px', background: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'center' }}>
+                                <button
+                                    onClick={() => setContactPicker({ ...contactPicker, isOpen: false })}
+                                    style={{
+                                        padding: '12px 32px', borderRadius: '16px',
+                                        border: '1px solid #e2e8f0', background: '#fff',
+                                        color: '#64748b', fontWeight: 800, fontSize: '0.9rem',
+                                        cursor: 'pointer', transition: 'all 0.2s',
+                                        boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                                    }}
+                                    onMouseEnter={e => e.currentTarget.style.borderColor = '#cbd5e1'}
+                                    onMouseLeave={e => e.currentTarget.style.borderColor = '#e2e8f0'}
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
         </div >
     );
 }

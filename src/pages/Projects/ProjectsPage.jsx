@@ -11,6 +11,7 @@ import AddDocumentModal from '../../components/AddDocumentModal';
 import ProjectFilterPanel from './components/ProjectFilterPanel';
 import { applyProjectFilters } from '../../utils/projectFilterLogic';
 import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
+import ProfessionalMap from '../../components/ProfessionalMap';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { renderValue } from '../../utils/renderUtils';
 
@@ -286,105 +287,15 @@ function ProjectsPage({ onNavigate, onAddProject }) {
                         </div>
                     </div>
 
-                    {/* Google Map Placeholder */}
-                    <div style={{ flex: 1, background: '#e2e8f0', position: 'relative' }}>
-                        <iframe
-                            width="100%"
-                            height="100%"
-                            frameBorder="0"
-                            style={{ border: 0 }}
-                            src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d109782.91037748405!2d76.69036504285265!3d30.698544258807534!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x390fed0be66c4021%3A0xa59fbc01d248358!2sMohali%2C%20Punjab!5e0!3m2!1sen!2sin!4v1705330000000!5m2!1sen!2sin"
-                            allowFullScreen
-                        ></iframe>
+                    {/* Professional Interactive Map */}
+                    <div style={{ flex: 1, position: 'relative' }}>
+                        <ProfessionalMap
+                            items={filteredProjects}
+                            onMarkerClick={(project) => onNavigate('project-detail', project._id)}
+                        />
 
-                        {/* Project Pin Markers Overlay */}
-                        {filteredProjects.map((project, idx) => {
-                            const coords = getCoordinates(project);
-                            if (!coords) return null;
-
-                            const position = getPinPosition(coords.lat, coords.lng);
-
-                            return (
-                                <div
-                                    key={project._id}
-                                    style={{
-                                        position: 'absolute',
-                                        left: position.left,
-                                        top: position.top,
-                                        transform: 'translate(-50%, -100%)',
-                                        transition: 'all 0.2s'
-                                    }}
-                                    title={project.name}
-                                    onClick={() => onNavigate('project-detail', project._id)}
-                                >
-                                    {/* Pin Marker */}
-                                    <div style={{
-                                        width: 'auto',
-                                        height: 'auto',
-                                        position: 'relative',
-                                        filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        alignItems: 'center'
-                                    }}>
-                                        {/* Pin Shape */}
-                                        <div style={{
-                                            background: '#fff',
-                                            padding: '4px 8px',
-                                            borderRadius: '4px',
-                                            fontWeight: 700,
-                                            fontSize: '0.75rem',
-                                            color: '#1e293b',
-                                            marginBottom: '4px',
-                                            whiteSpace: 'nowrap',
-                                            border: '1px solid #e2e8f0'
-                                        }}>
-                                            {project.name}
-                                        </div>
-                                        <svg width="32" height="40" viewBox="0 0 32 40">
-                                            <path
-                                                d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z"
-                                                fill="var(--primary-color)"
-                                                stroke="#fff"
-                                                strokeWidth="2"
-                                            />
-                                            <text x="50%" y="45%" dominantBaseline="middle" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">{idx + 1}</text>
-                                        </svg>
-                                    </div>
-                                </div>
-                            );
-                        })}
-
-                        {/* Map Controls Overlay */}
-                        <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            <button style={{
-                                background: '#fff',
-                                border: '1px solid #e2e8f0',
-                                borderRadius: '6px',
-                                padding: '8px 12px',
-                                fontSize: '0.75rem',
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                            }}>
-                                <i className="fas fa-expand-arrows-alt" style={{ marginRight: '6px' }}></i>
-                                Fullscreen
-                            </button>
-                            <button style={{
-                                background: '#fff',
-                                border: '1px solid #e2e8f0',
-                                borderRadius: '6px',
-                                padding: '8px 12px',
-                                fontSize: '0.75rem',
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                            }}>
-                                <i className="fas fa-layer-group" style={{ marginRight: '6px' }}></i>
-                                Layers
-                            </button>
-                        </div>
-                        <div style={{ position: 'absolute', top: '20px', left: '20px', background: 'rgba(255,255,255,0.9)', padding: '10px 15px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', backdropFilter: 'blur(4px)' }}>
+                        {/* Map Controls Overlay (Optional extras if needed, but ProfessionalMap handles zoom/controls) */}
+                        <div style={{ position: 'absolute', top: '20px', left: '20px', background: 'rgba(255,255,255,0.9)', padding: '10px 15px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', backdropFilter: 'blur(4px)', zIndex: 1 }}>
                             <div style={{ fontWeight: 700, color: '#1e293b' }}><i className="fas fa-info-circle" style={{ color: '#3b82f6', marginRight: '8px' }}></i> Map View Active</div>
                             <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Displaying {filteredProjects.length} projects</div>
                         </div>

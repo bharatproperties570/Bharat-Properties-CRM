@@ -264,9 +264,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         source: lead.source,
                         sourceFallback: contact.source || "Direct",
                         owner: ownerNameDisplay,
-                        rawOwner: lead.assignment?.assignedTo?._id || lead.owner?._id || lead.owner?.id || lead.owner || contact.owner,
-                        team: contact.team || lead.assignment?.team || "",
-
+                        ownerNameDisplay: lead.assignment?.assignedTo ? (lead.assignment.assignedTo.fullName || lead.assignment.assignedTo.name || "Unassigned") : (lead.owner ? (lead.owner.fullName || lead.owner.name || "Unassigned") : "Unassigned"),
+                        rawOwner: lead.assignment?.assignedTo || lead.owner || null,
+                        team: lead.assignment?.team?.[0] || lead.owner?.team || null,
                         lastAct: lead.lastAct || "Today",
                         activity: lead.activity || "None",
                         remarks: lead.notes || lead.remarks || "",

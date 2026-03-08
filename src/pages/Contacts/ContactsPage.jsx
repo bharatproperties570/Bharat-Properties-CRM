@@ -1263,7 +1263,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 color: "#64748b",
                               }}
                             >
-                              {getInitials(getUserName(item?.owner || item?.ownership))}
+                              {getInitials(getUserName(item?.assignment?.assignedTo || item?.owner || item?.ownership))}
                             </div>
                             <div style={{ lineHeight: 1.2 }}>
                               <div
@@ -1273,10 +1273,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                   color: "#0f172a",
                                 }}
                               >
-                                {getUserName(item?.owner || item?.ownership)}
+                                {getUserName(item?.assignment?.assignedTo || item?.owner || item?.ownership)}
                               </div>
                               <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
-                                {getTeamName(item?.team || item?.assignment?.team)}
+                                {getTeamName(item?.assignment?.team || item?.team)}
                               </div>
                               <div style={{ fontSize: '0.6rem', color: '#94a3b8', marginTop: '2px' }}>
                                 <i className="far fa-clock" style={{ marginRight: '4px' }}></i>
@@ -1853,7 +1853,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                               flexShrink: 0,
                             }}
                           >
-                            {getInitials(getUserName(item?.owner || item?.ownership))}
+                            {getInitials(getUserName(item?.assignment?.assignedTo || item?.owner || item?.ownership))}
                           </div>
                           <div style={{ minWidth: 0 }}>
                             <div
@@ -1866,10 +1866,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 whiteSpace: "nowrap",
                               }}
                             >
-                              {getUserName(item?.owner || item?.ownership)}
+                              {getUserName(item?.assignment?.assignedTo || item?.owner || item?.ownership)}
                             </div>
                             <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
-                              {getTeamName(item?.team || item?.assignment?.team)}
+                              {getTeamName(item?.assignment?.team || item?.team)}
                             </div>
                             <div
                               style={{

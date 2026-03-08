@@ -126,11 +126,17 @@ const ProjectSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Helper to resolve lookup (Find or Create)
+const escapeRegExp = (string) => {
+    if (!string) return '';
+    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
 const resolveLookupLocal = async (type, value) => {
     if (!value) return null;
     if (mongoose.Types.ObjectId.isValid(value)) return value;
     const Lookup = mongoose.model('Lookup');
-    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${value}$`, 'i') } });
+    const escapedValue = escapeRegExp(value);
+    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } });
     if (!lookup) {
         lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
     }

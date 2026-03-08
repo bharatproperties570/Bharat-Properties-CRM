@@ -1,8 +1,131 @@
 import Activity from "../models/Activity.js";
+import mongoose from "mongoose";
 import AuditLog from "../models/AuditLog.js";
 import Lead from "../models/Lead.js";
 import Deal from "../models/Deal.js";
 import { enrichmentQueue } from "../src/queues/queueManager.js";
+import { updateLeadStage } from "./stage.controller.js";
+
+/**
+ * Bug 6 Fix: Auto-trigger stage change when a completed activity is saved for a lead.
+ * Looks up the mapped stage from activityMasterFields settings, then calls updateLeadStage.
+ * This makes stage auto-computation truly automatic without requiring the frontend hook.
+ */
+const autoTriggerStageChange = async (activity, userId = null) => {
+    try {
+        // Only trigger for completed activities on Lead entities
+        if (activity.entityType?.toLowerCase() !== 'lead') return;
+        if (activity.status?.toLowerCase() !== 'completed') return;
+        if (!activity.entityId) return;
+
+        // Load activityMasterFields from SystemSettings
+        const SystemSetting = mongoose.model('SystemSetting');
+        const settingDoc = await SystemSetting.findOne({ key: 'activityMasterFields' }).lean();
+        const activityMasterFields = settingDoc?.value || {};
+
+        const actType = (activity.type || '').toLowerCase();
+        const typeConfig = activityMasterFields.activities?.find(a => (a.name || '').toLowerCase() === actType);
+        if (!typeConfig) return;
+
+        const purposeStr = (activity.details?.purpose || activity.purpose || '').toLowerCase();
+        const purposeConfig = typeConfig.purposes?.find(p => (p.name || '').toLowerCase() === purposeStr);
+        if (!purposeConfig) return;
+
+        let outcomeLabel = (
+            activity.details?.completionResult ||
+            activity.details?.meetingOutcomeStatus ||
+            activity.details?.callOutcome ||
+            activity.details?.outcome ||
+            activity.completionResult || ''
+        ).toLowerCase();
+
+        // Site Visit: scan nested visitedProperties for result
+        if (!outcomeLabel && actType === 'site visit' && Array.isArray(activity.details?.visitedProperties)) {
+            const priority = { 'very interested': 1, 'shortlisted': 2, 'somewhat interested': 3 };
+            const foundResult = activity.details.visitedProperties
+                .map(p => (p.result || '').toLowerCase())
+                .filter(r => r)
+                .sort((a, b) => (priority[a] || 99) - (priority[b] || 99))[0];
+            if (foundResult) outcomeLabel = foundResult;
+        }
+
+        const outcomeConfig = purposeConfig.outcomes?.find(o => {
+            const label = (o.label || '').toLowerCase();
+            return label === outcomeLabel || outcomeLabel.includes(label) || label.includes(outcomeLabel);
+        });
+
+        const mappedStage = outcomeConfig?.stage || outcomeConfig?.defaultStage;
+        if (!mappedStage) return;
+
+        // Also check override rules (from stageMappingRules setting)
+        const stageRulesSetting = await SystemSetting.findOne({ key: 'stageMappingRules' }).lean();
+        const overrideRules = (stageRulesSetting?.value || [])
+            .filter(r => r.isActive)
+            .sort((a, b) => (a.priority || 99) - (b.priority || 99));
+
+        let finalStage = mappedStage;
+        for (const rule of overrideRules) {
+            const ruleActType = (rule.activityType || '').toLowerCase();
+            const rulePurpose = (rule.purpose || '').toLowerCase();
+            const ruleOutcome = (rule.outcome || '').toLowerCase();
+            const matchAct = !ruleActType || ruleActType === actType;
+            const matchPurpose = !rulePurpose || rulePurpose === purposeStr;
+            const matchOutcome = !ruleOutcome || ruleOutcome === outcomeLabel;
+            if (matchAct && matchPurpose && matchOutcome) {
+                finalStage = rule.stage;
+                break;
+            }
+        }
+
+        // Call stage update (uses the existing updateLeadStage logic)
+        const lead = await Lead.findById(activity.entityId).select('stage').populate('stage', 'lookup_value').lean();
+        const currentStage = lead?.stage?.lookup_value || lead?.stage || 'New';
+        if (currentStage === finalStage) return; // No change needed
+
+        // Import Lookup to resolve the stage ID
+        const Lookup = mongoose.model('Lookup');
+        let stageId;
+        const lookup = await Lookup.findOne({ lookup_type: 'Stage', lookup_value: { $regex: new RegExp(`^${finalStage}$`, 'i') } });
+        if (lookup) {
+            stageId = lookup._id;
+        } else {
+            const newLookup = await Lookup.create({ lookup_type: 'Stage', lookup_value: finalStage });
+            stageId = newLookup._id;
+        }
+
+        // Write stage history and update the lead
+        await Lead.findByIdAndUpdate(activity.entityId, {
+            $push: {
+                stageHistory: {
+                    stage: finalStage,
+                    enteredAt: new Date(),
+                    triggeredBy: 'activity',
+                    activityType: activity.type,
+                    outcome: outcomeLabel,
+                    activityId: activity._id,
+                    triggeredByUser: userId || null
+                }
+            },
+            $set: {
+                stage: stageId,
+                stageChangedAt: new Date()
+            }
+        });
+
+        await AuditLog.logEntityUpdate(
+            'stage_changed', 'lead', activity.entityId,
+            `Lead`, userId,
+            { before: currentStage, after: finalStage },
+            `Stage auto-changed by ${activity.type} activity outcome: "${outcomeLabel}"`
+        );
+
+        console.log(`[StageEngine] Auto-triggered: Lead ${activity.entityId} → ${finalStage} (from ${actType}/${outcomeLabel})`);
+    } catch (err) {
+        // Non-fatal: log the error but don't fail the activity save
+        console.error('[StageEngine] autoTriggerStageChange failed:', err.message);
+    }
+};
+
 // @desc    Get all activities with filtering and pagination
 // @route   GET /api/activities
 export const getActivities = async (req, res) => {
@@ -67,6 +190,28 @@ export const getActivities = async (req, res) => {
     }
 };
 
+const escapeRegExp = (string) => {
+    if (!string) return '';
+    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+// @desc    Get activities for a specific entity
+// @route   GET /api/activities/entity/:entityType/:entityId
+export const getActivitiesByEntity = async (req, res, next) => {
+    try {
+        const { entityType, entityId } = req.params;
+        const escapedEntityType = escapeRegExp(entityType);
+        const activities = await Activity.find({
+            entityType: { $regex: new RegExp(`^${escapedEntityType}$`, 'i') },
+            entityId: entityId
+        }).populate('assignedTo', 'firstName lastName email').sort({ createdAt: -1 }).lean();
+
+        res.json({ success: true, data: activities });
+    } catch (error) {
+        if (error.name === "CastError") return res.status(400).json({ success: false, error: `Invalid ${error.path}: ${error.value}` });
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 // @desc    Get unified chronological timeline (Activities + Audit Logs)
 // @route   GET /api/activities/unified/:entityType/:entityId
 export const getUnifiedTimeline = async (req, res) => {
@@ -76,7 +221,7 @@ export const getUnifiedTimeline = async (req, res) => {
         // 1. Fetch Activities
         const activities = await Activity.find({
             entityId,
-            entityType: { $regex: new RegExp(`^${entityType}$`, 'i') }
+            entityType: { $regex: new RegExp(`^${escapeRegExp(entityType)}$`, 'i') }
         })
             .populate('assignedTo', 'firstName lastName')
             .lean();
@@ -204,6 +349,11 @@ export const addActivity = async (req, res) => {
             }
         }
 
+        // Bug 6 Fix: Auto-trigger stage change based on activity outcome mapping
+        if (activity.entityType?.toLowerCase() === 'lead' && activity.status?.toLowerCase() === 'completed') {
+            await autoTriggerStageChange(activity, req.body.assignedTo || null);
+        }
+
         res.status(201).json({ success: true, data: activity });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
@@ -234,6 +384,11 @@ export const updateActivity = async (req, res) => {
             await Deal.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }).catch(() => { });
         }
 
+        // Bug 6 Fix: Auto-trigger stage change based on activity outcome mapping
+        if (activity.entityType?.toLowerCase() === 'lead' && activity.status?.toLowerCase() === 'completed') {
+            await autoTriggerStageChange(activity, req.body.assignedTo || null);
+        }
+
         res.json({ success: true, data: activity });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
@@ -261,5 +416,101 @@ export const deleteActivity = async (req, res) => {
         res.json({ success: true, message: "Activity deleted successfully" });
     } catch (error) {
         if (error.name === "CastError") return res.status(400).json({ success: false, error: `Invalid ${error.path}: ${error.value}` }); res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// @desc    Sync mobile call logs
+// @route   POST /api/activities/mobile-sync
+export const syncMobileCalls = async (req, res) => {
+    try {
+        const { calls } = req.body;
+
+        if (!calls || !Array.isArray(calls)) {
+            return res.status(400).json({ success: false, error: "Invalid calls data" });
+        }
+
+        const syncedActivities = [];
+
+        for (const call of calls) {
+            if (!call || !call.number) {
+                console.warn("[Sync] Skipping invalid call record:", call);
+                continue;
+            }
+            const normalizedPhone = call.number.replace(/[^0-9]/g, '').slice(-10);
+
+            let matchedEntity = null;
+            let entityType = 'Unknown';
+            let participantName = call.name || 'Unknown';
+
+            // 1. Try Exact Mobile Number via Contact
+            const escapedPhone = escapeRegExp(normalizedPhone);
+            const matchedContact = await mongoose.model('Contact').findOne({
+                "phones.number": { $regex: new RegExp(`${escapedPhone}$`) }
+            }).lean();
+
+            if (matchedContact) {
+                matchedEntity = matchedContact;
+                entityType = 'Contact';
+                participantName = matchedContact.name;
+            } else {
+                // 2. Try Exact Mobile Number via Lead
+                const lead = await mongoose.model('Lead').findOne({
+                    "mobile": { $regex: new RegExp(`${escapedPhone}$`) }
+                }).lean();
+
+                if (lead) {
+                    matchedEntity = lead;
+                    entityType = 'Lead';
+                    participantName = `${lead.firstName} ${lead.lastName || ''}`.trim();
+                }
+            }
+
+            const activityData = {
+                type: 'Call',
+                subject: `Mobile Call: ${call.type || 'Incoming'}`,
+                entityType: matchedEntity ? entityType : 'Unknown',
+                entityId: matchedEntity ? matchedEntity._id : null,
+                relatedTo: matchedEntity ? [{
+                    id: matchedEntity._id,
+                    name: participantName,
+                    model: entityType
+                }] : [],
+                participants: [{
+                    name: participantName,
+                    mobile: call.number,
+                }],
+                dueDate: new Date(call.timestamp),
+                status: 'Completed',
+                description: `Synced from mobile. Duration: ${call.duration}s. Raw number: ${call.number}`,
+                details: {
+                    direction: call.type === 'INCOMING' ? 'Incoming' : 'Outgoing',
+                    duration: call.duration,
+                    platform: 'Mobile',
+                    mobileId: call.id,
+                    isMatched: !!matchedEntity
+                },
+                performedAt: new Date(call.timestamp)
+            };
+
+            const existing = await Activity.findOne({
+                "details.mobileId": call.id,
+                "details.platform": 'Mobile'
+            });
+
+            if (!existing) {
+                const newActivity = await Activity.create(activityData);
+                syncedActivities.push(newActivity);
+            }
+        }
+
+        res.json({
+            success: true,
+            syncedCount: syncedActivities.length,
+            data: syncedActivities
+        });
+
+    } catch (error) {
+        console.error("Sync error:", error);
+        res.status(500).json({ success: false, error: error.message });
     }
 };

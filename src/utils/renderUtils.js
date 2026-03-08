@@ -7,7 +7,7 @@
 export const renderValue = (val, emptyValue = '-') => {
     if (val === null || val === undefined || val === '') return emptyValue;
     if (typeof val === 'object') {
-        const result = val.lookup_value || val.name || val.label || val.value || val.displayName;
+        const result = val.lookup_value || val.fullName || val.name || val.label || val.value || val.displayName;
         return result || emptyValue;
     }
     return val;

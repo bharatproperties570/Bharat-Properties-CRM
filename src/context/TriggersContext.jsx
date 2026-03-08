@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { evaluateAndExecuteTriggers } from '../utils/triggersEngine';
+import { activitiesAPI } from '../utils/api';
 import { useSequences } from './SequenceContext';
 import { AutomatedActionsContext } from './AutomatedActionsContext';
 
@@ -285,8 +286,13 @@ export const TriggersProvider = ({ children }) => {
                 },
 
                 createActivity: async (activityData) => {
-                    console.log('Activity created:', activityData);
-                    return { success: true, activityId: `activity_${Date.now()}` };
+                    try {
+                        const res = await activitiesAPI.create(activityData);
+                        return { success: res?.success, activityId: res?.data?._id };
+                    } catch (error) {
+                        console.error('Trigger Action: Failed to create activity:', error);
+                        return { success: false, error: error.message };
+                    }
                 }
             };
 

@@ -57,14 +57,17 @@ export const getDashboardStats = async (req, res) => {
         const baseInvQuery = {};
         const baseActQuery = {};
 
-        if (userId) {
+        if (userId && mongoose.Types.ObjectId.isValid(userId)) {
             baseLeadQuery.$or = [{ owner: userId }, { 'assignment.assignedTo': userId }];
             baseDealQuery.$or = [{ owner: userId }, { 'assignment.assignedTo': userId }];
             baseInvQuery.$or = [{ owners: userId }, { associates: userId }];
             baseActQuery.$or = [{ createdBy: userId }, { 'assignment.assignedTo': userId }];
-        } else if (teamId) {
+        } else if (teamId && mongoose.Types.ObjectId.isValid(teamId)) {
             baseLeadQuery.$or = [{ team: teamId }, { 'assignment.team': teamId }];
             baseDealQuery.$or = [{ team: teamId }, { 'assignment.team': teamId }];
+        } else {
+            // Optional: log if invalid IDs are passed
+            if (userId || teamId) console.warn(`[Dashboard] Invalid IDs received: userId=${userId}, teamId=${teamId}`);
         }
 
         // ━━ 1. ACTIVITY STATS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

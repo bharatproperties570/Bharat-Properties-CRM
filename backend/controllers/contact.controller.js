@@ -19,6 +19,8 @@ const populateFields = [
     { path: 'campaign', select: 'lookup_value' },
     { path: 'team', select: 'name' },
     { path: 'owner', select: 'fullName email name' },
+    { path: 'assignment.assignedTo', select: 'fullName email name' },
+    { path: 'assignment.team', select: 'name' },
     { path: 'personalAddress.country', select: 'lookup_value' },
     { path: 'personalAddress.state', select: 'lookup_value' },
     { path: 'personalAddress.city', select: 'lookup_value' },
@@ -152,7 +154,7 @@ const resolveAllReferenceFields = async (obj) => {
 
             if (lookupMap[key]) {
                 obj[key] = await resolveLookup(lookupMap[key], value);
-            } else if (key === 'owner') {
+            } else if (key === 'owner' || key === 'assignedTo') {
                 obj[key] = await resolveUser(value);
             }
         } else if (typeof value === 'object') {
@@ -160,7 +162,7 @@ const resolveAllReferenceFields = async (obj) => {
             // Otherwise, recurse to find nested strings to resolve
             const refFields = [
                 'title', 'countryCode', 'professionCategory', 'professionSubCategory',
-                'designation', 'source', 'subSource', 'campaign', 'owner',
+                'designation', 'source', 'subSource', 'campaign', 'owner', 'assignedTo',
                 'requirement', 'budget', 'location', 'country', 'state', 'city',
                 'tehsil', 'postOffice', 'education', 'degree', 'loanType',
                 'bank', 'platform', 'incomeType', 'documentCategory',
@@ -185,6 +187,16 @@ const resolveAllReferenceFields = async (obj) => {
                 await resolveAllReferenceFields(value);
             }
         }
+    }
+
+    // Sync top-level owner/team to assignment if missing
+    if (obj.owner && (!obj.assignment || !obj.assignment.assignedTo)) {
+        if (!obj.assignment) obj.assignment = {};
+        obj.assignment.assignedTo = obj.owner;
+    }
+    if (obj.team && (!obj.assignment || !obj.assignment.team)) {
+        if (!obj.assignment) obj.assignment = {};
+        obj.assignment.team = [obj.team];
     }
 };
 
@@ -419,7 +431,8 @@ const resolveLookup = async (type, value) => {
 // Helper to resolve User (By Name or Email)
 import User from "../models/User.js";
 const escapeRegExp = (string) => {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!string) return '';
+    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
 const resolveUser = async (identifier) => {
@@ -460,6 +473,10 @@ export const importContacts = async (req, res, next) => {
             newItem.subSource = await resolveLookup('SubSource', item.subSource);
             newItem.campaign = await resolveLookup('Campaign', item.campaign);
             newItem.owner = await resolveUser(item.owner);
+            if (item.assignedTo) {
+                if (!newItem.assignment) newItem.assignment = {};
+                newItem.assignment.assignedTo = await resolveUser(item.assignedTo);
+            }
             newItem.status = item.status || 'Active';
             newItem.stage = item.stage || 'New';
 

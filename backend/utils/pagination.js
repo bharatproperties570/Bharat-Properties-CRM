@@ -1,3 +1,5 @@
+import '../models/Lookup.js'; // Ensure Lookup model is registered for population
+
 export const paginate = async (model, query, page, limit, sort = {}, populate = "") => {
     const skip = (page - 1) * limit;
 

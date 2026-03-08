@@ -67,11 +67,13 @@ const CallModal = ({ isOpen, onClose, contact, context, onCallEnd }) => {
             duration: timer,
             type: callType,
             ...outcomeData,
+            participants: [{ id: contact?._id, name: contact?.name, model: contact?.model || 'Contact' }],
+            relatedTo: [{ id: contact?._id, name: contact?.name, model: contact?.model || 'Contact' }],
             timestamp: new Date().toISOString()
         };
 
         // Fire Triggers
-        fireEvent('call_logged', summary, { entityType: 'communication' });
+        fireEvent('call_logged', contact, { ...summary, entityType: contact?.model || 'Contact' });
 
         if (onCallEnd) onCallEnd(summary);
     };

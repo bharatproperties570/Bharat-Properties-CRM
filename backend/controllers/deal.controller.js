@@ -54,11 +54,11 @@ export const matchDeals = async (req, res) => {
 const syncInventoryStatus = async (deal) => {
     if (!deal.inventoryId) return;
 
-    let targetStatus = 'Available';
+    let targetStatus = 'Active';
     if (deal.stage === 'Closed') {
         targetStatus = 'Sold Out';
     } else if (deal.stage === 'Booked') {
-        targetStatus = 'Booked';
+        targetStatus = 'Blocked';
     }
 
     await Inventory.findByIdAndUpdate(deal.inventoryId, { status: targetStatus });
@@ -66,8 +66,21 @@ const syncInventoryStatus = async (deal) => {
 
 export const getDeals = async (req, res) => {
     try {
-        const { page = 1, limit = 25, search = "", projectId, inventoryId } = req.query;
+        const { page = 1, limit = 25, search = "", projectId, inventoryId, category, subCategory, status } = req.query;
         let query = { isVisible: { $ne: false } };
+
+        // ROBUST FILTER RESOLUTION (Handle both Names and IDs)
+        const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const resolveFilter = async (type, value) => {
+            if (!value) return null;
+            if (mongoose.Types.ObjectId.isValid(value)) return value;
+            const lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapeRegExp(value)}$`, 'i') } });
+            return lookup ? lookup._id : null;
+        };
+
+        if (category) query.category = await resolveFilter('Category', category);
+        if (subCategory) query.subCategory = await resolveFilter('SubCategory', subCategory);
+        if (status) query.status = await resolveFilter('Status', status);
 
         if (search) {
             query = {
@@ -110,6 +123,13 @@ export const getDeals = async (req, res) => {
             { path: 'team', select: 'name' }
         ];
         const results = await paginate(Deal, query, Number(page), Number(limit), { createdAt: -1 }, populateFields);
+
+        // Enhanced: Category-based counts for deal list view footer
+        const categories = await Lookup.find({ lookup_type: 'Category' });
+        const categoryCounts = await Promise.all(categories.map(async (cat) => {
+            const count = await Deal.countDocuments({ ...query, category: cat._id });
+            return { name: cat.lookup_value, count };
+        }));
 
         // Fetch latest activities for owners and associates
         const contactIds = results.records.reduce((acc, deal) => {
@@ -159,6 +179,7 @@ export const getDeals = async (req, res) => {
         res.json({
             success: true,
             ...results,
+            categoryStats: categoryCounts,
             records: enrichedRecords
         });
     } catch (error) {
@@ -214,10 +235,11 @@ const sanitizeData = (data) => {
     const sanitizeValue = (val) => {
         if (val === "" || val === undefined || val === null) return null;
         if (typeof val === 'object' && !Array.isArray(val)) {
-            return val._id || null;
+            return val._id || val;
         }
         return val;
     };
+
 
     refFields.forEach(field => {
         if (field.includes('.')) {
@@ -264,6 +286,20 @@ export const addDeal = async (req, res) => {
         }
 
         const deal = await Deal.create(sanitizedData);
+
+        // BUG D3 FIX: Write initial stageHistory entry so time-in-stage metrics work from day 1
+        await Deal.findByIdAndUpdate(deal._id, {
+            $push: {
+                stageHistory: {
+                    stage: deal.stage || 'Open',
+                    enteredAt: new Date(),
+                    triggeredBy: 'system',
+                    reason: 'Deal created'
+                }
+            },
+            $set: { stageChangedAt: new Date() }
+        });
+
         await syncInventoryStatus(deal);
 
         // Audit Log Deal Conversion
@@ -279,13 +315,14 @@ export const addDeal = async (req, res) => {
             );
         }
 
-        // SMS Trigger: New Deal
+        // BUG D4 FIX: Use DLT-compliant SMS template instead of plain sendSMS
         const dealWithConfig = await Deal.findById(deal._id).populate('owner associatedContact category');
         const phone = dealWithConfig.owner?.phone || dealWithConfig.associatedContact?.phone;
         if (phone) {
-            const catName = dealWithConfig.category?.lookup_value || 'Property';
-            smsService.sendSMS(phone, `Bharat Properties: A new deal (${dealWithConfig.dealId}) for ${catName} has been created.`)
-                .catch(e => console.error('[SMS Trigger Error] New Deal failed:', e.message));
+            smsService.sendSMSWithTemplate(phone, 'deal_created', {
+                dealId: dealWithConfig.dealId || deal._id.toString().slice(-6).toUpperCase(),
+                projectName: dealWithConfig.projectName || 'the property'
+            }).catch(e => console.error('[SMS Trigger Error] New Deal failed:', e.message));
         }
 
         res.status(201).json({ success: true, data: deal });
@@ -337,13 +374,15 @@ export const updateDeal = async (req, res) => {
         if (!deal) return res.status(404).json({ success: false, error: 'Deal not found' });
         await syncInventoryStatus(deal);
 
-        // SMS Trigger: Stage Change
+        // BUG D4 FIX: Use DLT-compliant SMS template instead of plain sendSMS
         if (sanitizedData.stage) {
             const dealPop = await Deal.findById(deal._id).populate('owner associatedContact');
             const phone = dealPop.owner?.phone || dealPop.associatedContact?.phone;
             if (phone) {
-                smsService.sendSMS(phone, `Bharat Properties: Your deal ${dealPop.dealId} status has been updated to ${dealPop.stage}.`)
-                    .catch(e => console.error('[SMS Trigger Error] Deal stage failed:', e.message));
+                smsService.sendSMSWithTemplate(phone, 'deal_stage_updated', {
+                    dealId: dealPop.dealId || deal._id.toString().slice(-6).toUpperCase(),
+                    stage: dealPop.stage
+                }).catch(e => console.error('[SMS Trigger Error] Deal stage failed:', e.message));
             }
         }
 
@@ -425,6 +464,8 @@ export const importDeals = async (req, res) => {
                 assignedTo: item.assignedTo,
                 visibleTo: item.visibleTo || 'Public',
                 remarks: item.remarks,
+                latitude: item.latitude || item.lat,
+                longitude: item.longitude || item.lng,
                 date: item.date ? new Date(item.date) : new Date()
             };
         });
@@ -443,6 +484,37 @@ export const closeDeal = async (req, res) => {
 
         const deal = await Deal.findById(id).populate('inventoryId owner associatedContact partyStructure.buyer');
         if (!deal) return res.status(404).json({ success: false, error: "Deal not found" });
+
+        // BUG D2 FIX: Write stageHistory entry when deal is closed
+        const existing = await Deal.findById(id).select('stage stageHistory stageChangedAt createdAt').lean();
+        if (existing && existing.stage !== 'Closed') {
+            const now = new Date();
+            const historyUpdate = {};
+
+            // Close previous open entry
+            if (existing.stageHistory?.length > 0) {
+                const lastIdx = existing.stageHistory.length - 1;
+                const last = existing.stageHistory[lastIdx];
+                if (!last.exitedAt) {
+                    const enteredAt = new Date(last.enteredAt || existing.stageChangedAt || existing.createdAt);
+                    const daysInStage = Math.floor((now - enteredAt) / 86400000);
+                    historyUpdate[`stageHistory.${lastIdx}.exitedAt`] = now;
+                    historyUpdate[`stageHistory.${lastIdx}.daysInStage`] = daysInStage;
+                }
+            }
+
+            await Deal.findByIdAndUpdate(id, {
+                $set: { ...historyUpdate, stageChangedAt: now },
+                $push: {
+                    stageHistory: {
+                        stage: 'Closed',
+                        enteredAt: now,
+                        triggeredBy: 'manual_override',
+                        reason: 'Deal officially closed via closing checklist'
+                    }
+                }
+            });
+        }
 
         // Update Deal
         deal.stage = 'Closed';

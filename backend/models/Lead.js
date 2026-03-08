@@ -77,6 +77,7 @@ const LeadSchema = new mongoose.Schema({
 
     // Prospecting & Enrichment Intelligence Fields
     intent_index: { type: Number, default: 0, min: 0, max: 100 },
+    enrichment_formula_score: { type: Number, default: null }, // Step 1 formula-only score (no activities — prevents double-counting)
     lead_classification: { type: String }, // Serious Buyer, Qualified, Explorer, etc.
     role_type: { type: String }, // Buyer, Seller, Investor, etc.
     negotiation_window: { type: Boolean, default: false },
@@ -107,7 +108,8 @@ const LeadSchema = new mongoose.Schema({
         outcome: { type: String },                      // Outcome string from activity
         triggeredByUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         reason: { type: String }                       // Human-readable reason
-    }]
+    }],
+    interestedInventory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' }],
 }, { timestamps: true });
 
 // Virtual for full name
@@ -116,11 +118,17 @@ LeadSchema.virtual("fullName").get(function () {
 });
 
 // Helper to resolve lookup (Find or Create)
+const escapeRegExp = (string) => {
+    if (!string) return '';
+    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
 const resolveLookupLocal = async (type, value) => {
     if (!value) return null;
     if (mongoose.Types.ObjectId.isValid(value)) return value;
     const Lookup = mongoose.model('Lookup');
-    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${value}$`, 'i') } });
+    const escapedValue = escapeRegExp(value);
+    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } });
     if (!lookup) {
         lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
     }
@@ -188,6 +196,7 @@ LeadSchema.pre('save', async function (next) {
             this[field] = await Promise.all(this[field].map(val => typeof val === 'string' ? resolveLookupLocal(arrayTypes[field], val) : val));
         }
     }
+
     next();
 });
 
@@ -219,6 +228,7 @@ LeadSchema.pre('findOneAndUpdate', async function (next) {
             update[field] = await Promise.all(update[field].map(val => typeof val === 'string' ? resolveLookupLocal(type, val) : val));
         }
     }
+
     next();
 });
 

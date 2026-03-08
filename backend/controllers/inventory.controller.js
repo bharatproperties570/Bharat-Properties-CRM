@@ -3,8 +3,13 @@ import Lead from "../models/Lead.js";
 import Lookup from "../models/Lookup.js";
 import User from "../models/User.js";
 import SystemSetting from "../models/SystemSetting.js";
+import Contact from "../models/Contact.js";
+import Team from "../models/Team.js";
 import { paginate } from "../utils/pagination.js";
 import mongoose from "mongoose";
+import Deal from "../models/Deal.js";
+
+
 
 export const getInventory = async (req, res) => {
     try {
@@ -50,11 +55,19 @@ export const getInventory = async (req, res) => {
             }
         }
 
-        // Apply filters
-        if (category) query.category = category;
-        if (subCategory) query.subCategory = subCategory;
-        if (unitType) query.unitType = unitType;
-        if (status) query.status = status;
+        // ROBUST FILTER RESOLUTION (Handle both Names and IDs)
+        const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const resolveFilter = async (type, value) => {
+            if (!value) return null;
+            if (mongoose.Types.ObjectId.isValid(value)) return value;
+            const lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapeRegExp(value)}$`, 'i') } });
+            return lookup ? lookup._id : null;
+        };
+
+        if (category) query.category = await resolveFilter('Category', category);
+        if (subCategory) query.subCategory = await resolveFilter('SubCategory', subCategory);
+        if (unitType) query.unitType = await resolveFilter('Size', unitType);
+        if (status) query.status = await resolveFilter('Status', status);
         if (project) {
             const projectConditions = [
                 { projectId: mongoose.Types.ObjectId.isValid(project) ? project : undefined },
@@ -76,13 +89,24 @@ export const getInventory = async (req, res) => {
         const populateFields = [
             { path: "owners", select: "name phones" },
             { path: "associates", select: "name phones" },
+            { path: "projectId" },
             { path: "category" },
             { path: "subCategory" },
             { path: "status" },
             { path: "unitType" },
             { path: "facing" },
-            { path: "intent" },
-            { path: "team", select: "name" }
+            { path: "direction" },
+            { path: "orientation" },
+            { path: "sizeConfig" },
+            { path: "roadWidth" },
+            { path: "team", select: "name" },
+            { path: "assignedTo", select: "fullName" },
+            { path: "address.city" },
+            { path: "address.tehsil" },
+            { path: "address.state" },
+            { path: "address.locality" },
+            { path: "address.area" },
+            { path: "address.location" }
         ];
 
         // Fetch counts for Active and InActive
@@ -105,12 +129,20 @@ export const getInventory = async (req, res) => {
             Inventory.countDocuments({ ...query, status: { $in: inactiveStatusIds } })
         ]);
 
+        // Enhanced: Category-based counts for list view footer
+        const categories = await Lookup.find({ lookup_type: 'Category' });
+        const categoryCounts = await Promise.all(categories.map(async (cat) => {
+            const count = await Inventory.countDocuments({ ...query, category: cat._id });
+            return { name: cat.lookup_value, count };
+        }));
+
         const results = await paginate(Inventory, query, Number(page), Number(limit), { createdAt: -1 }, populateFields);
 
         res.status(200).json({
             success: true,
             activeCount: activeCount || 0,
             inactiveCount: inactiveCount || 0,
+            categoryStats: categoryCounts,
             ...results
         });
     } catch (error) {
@@ -122,25 +154,39 @@ export const getInventoryById = async (req, res) => {
     try {
         const populateFields = [
             { path: "owners", select: "name phones emails title personalAddress" },
-            { path: "associates", select: "name phones emails title" },
+            {
+                path: "associates.contact",
+                model: 'Contact',
+                select: "name phones emails title"
+            },
             { path: "projectId" },
             { path: "category" },
             { path: "subCategory" },
             { path: "status" },
             { path: "unitType" },
             { path: "facing" },
+            { path: "direction" },
+            { path: "orientation" },
+            { path: "sizeConfig" },
+            { path: "roadWidth" },
             { path: "intent" },
             { path: "team", select: "name" },
-            { path: "assignedTo", select: "name team" }
+            { path: "assignedTo", select: "fullName name team" },
+            { path: "address.city" },
+            { path: "address.tehsil" },
+            { path: "address.state" },
+            { path: "address.locality" },
+            { path: "address.area" },
+            { path: "address.location" }
         ];
 
         const inventory = await Inventory.findById(req.params.id).populate(populateFields);
-
         if (!inventory) {
             return res.status(404).json({ success: false, error: "Inventory item not found" });
         }
 
-        res.status(200).json({ success: true, data: inventory });
+        const deals = await mongoose.model('Deal').find({ inventoryId: inventory._id }).lean();
+        res.status(200).json({ success: true, data: { ...inventory.toObject(), deals } });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -178,17 +224,33 @@ export const addInventory = async (req, res) => {
         // Resolve Reference Fields to prevent CastErrors
         if (data.category) data.category = await resolveLookup('Category', data.category);
         if (data.subCategory) data.subCategory = await resolveLookup('SubCategory', data.subCategory);
-        if (data.unitType) data.unitType = await resolveLookup('UnitType', data.unitType);
+        if (data.unitType) data.unitType = await resolveLookup('Size', data.unitType);
         if (data.status) data.status = await resolveLookup('Status', data.status);
         if (data.facing) data.facing = await resolveLookup('Facing', data.facing);
+        if (data.direction) data.direction = await resolveLookup('Direction', data.direction);
+        if (data.orientation) data.orientation = await resolveLookup('Orientation', data.orientation);
         if (data.intent) data.intent = await resolveLookup('Intent', data.intent);
         if (data.assignedTo) data.assignedTo = await resolveUser(data.assignedTo);
+        if (data.team) data.team = await resolveTeam(data.team);
 
         if (data.owners) data.owners = sanitizeIds(data.owners);
-        if (data.associates) data.associates = sanitizeIds(data.associates);
+        if (data.associates) {
+            data.associates = data.associates.map(assoc => {
+                if (typeof assoc === 'string') return { contact: assoc };
+                if (assoc.id || assoc.contact) {
+                    return {
+                        contact: assoc.contact || assoc.id,
+                        relationship: assoc.relationship
+                    };
+                }
+                return assoc;
+            });
+        }
 
-        const inventory = await Inventory.create(data);
+        let inventory = await Inventory.create(data);
+        inventory = await inventory.populate(populateFields);
         res.status(201).json({ success: true, data: inventory });
+
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
     }
@@ -201,19 +263,47 @@ export const updateInventory = async (req, res) => {
         // Resolve Reference Fields to prevent CastErrors
         if (data.category) data.category = await resolveLookup('Category', data.category);
         if (data.subCategory) data.subCategory = await resolveLookup('SubCategory', data.subCategory);
-        if (data.unitType) data.unitType = await resolveLookup('UnitType', data.unitType);
+        if (data.unitType) data.unitType = await resolveLookup('Size', data.unitType);
         if (data.status) data.status = await resolveLookup('Status', data.status);
         if (data.facing) data.facing = await resolveLookup('Facing', data.facing);
+        if (data.direction) data.direction = await resolveLookup('Direction', data.direction);
+        if (data.orientation) data.orientation = await resolveLookup('Orientation', data.orientation);
         if (data.intent) data.intent = await resolveLookup('Intent', data.intent);
         if (data.assignedTo) data.assignedTo = await resolveUser(data.assignedTo);
+        if (data.team) data.team = await resolveTeam(data.team);
 
         if (data.owners) data.owners = sanitizeIds(data.owners);
-        if (data.associates) data.associates = sanitizeIds(data.associates);
+        if (data.associates) {
+            data.associates = data.associates.map(assoc => {
+                if (typeof assoc === 'string') return { contact: assoc };
+                if (assoc.id || assoc.contact) {
+                    return {
+                        contact: assoc.contact || assoc.id,
+                        relationship: assoc.relationship
+                    };
+                }
+                return assoc;
+            });
+        }
 
         const inventory = await Inventory.findByIdAndUpdate(req.params.id, data, {
             new: true,
             runValidators: true,
-        });
+        }).populate([
+            { path: "owners", select: "name phones" },
+            { path: "associates.contact", select: "name phones" },
+            { path: "projectId" },
+            { path: "category" },
+            { path: "subCategory" },
+            { path: "status" },
+            { path: "unitType" },
+            { path: "facing" },
+            { path: "direction" },
+            { path: "orientation" },
+            { path: "sizeConfig" },
+            { path: "roadWidth" },
+            { path: "assignedTo", select: "fullName" }
+        ]);
 
         if (!inventory) {
             return res.status(404).json({ success: false, error: "Inventory item not found" });
@@ -292,7 +382,8 @@ export const matchInventory = async (req, res) => {
             }
 
             const leads = await Lead.find({ $or: queryConditions }).limit(50).sort({ updatedAt: -1 }).lean();
-            return res.status(200).json({ success: true, count: leads.length, data: leads });
+            const interestedLeadsCount = await Lead.countDocuments({ interestedInventory: inventoryId });
+            return res.status(200).json({ success: true, count: leads.length, data: leads, interestedCount: interestedLeadsCount });
         }
 
         // Case 2: Find matching inventory for a specific lead (Original placeholder intent)
@@ -330,15 +421,61 @@ export const matchInventory = async (req, res) => {
     }
 };
 
+const escapeRegExp = (string) => {
+    if (!string) return '';
+    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
 // Helper to resolve lookup (Find or Create)
 const resolveLookup = async (type, value) => {
     if (!value) return null;
     if (mongoose.Types.ObjectId.isValid(value)) return value;
-    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${value}$`, 'i') } });
+    const escapedValue = escapeRegExp(value);
+    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } });
     if (!lookup) {
         lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
     }
     return lookup._id;
+};
+
+/**
+ * Professional Resolver for Size Labels
+ * Matches by Project and Block to ensure correct configuration is picked
+ */
+export const resolveSizeLookup = async (value, projectName, blockName) => {
+    if (!value) return null;
+    if (mongoose.Types.ObjectId.isValid(value)) {
+        const lookup = await Lookup.findById(value).lean();
+        return { id: value, metadata: lookup?.metadata };
+    }
+
+    const escapedValue = escapeRegExp(value);
+    const query = {
+        lookup_type: 'Size',
+        lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') }
+    };
+
+    // If multiple matches exist, prioritize by Project and Block
+    const lookups = await Lookup.find(query).lean();
+    if (lookups.length === 0) {
+        const newLookup = await Lookup.create({ lookup_type: 'Size', lookup_value: value });
+        return { id: newLookup._id, metadata: null };
+    }
+
+    if (lookups.length === 1) return { id: lookups[0]._id, metadata: lookups[0].metadata };
+
+    // More than one match - filter by project/block
+    let matched = lookups.find(l =>
+        l.metadata?.project?.toLowerCase() === projectName?.toLowerCase() &&
+        l.metadata?.block?.toLowerCase() === blockName?.toLowerCase()
+    );
+
+    if (!matched) {
+        matched = lookups.find(l => l.metadata?.project?.toLowerCase() === projectName?.toLowerCase());
+    }
+
+    const final = matched || lookups[0];
+    return { id: final._id, metadata: final.metadata };
 };
 
 // Helper to resolve User (By Name or Email)
@@ -346,14 +483,27 @@ const resolveUser = async (identifier) => {
     if (!identifier) return null;
     if (mongoose.Types.ObjectId.isValid(identifier)) return identifier;
 
+    const escapedIdentifier = escapeRegExp(identifier);
     const user = await User.findOne({
         $or: [
-            { fullName: { $regex: new RegExp(`^${identifier}$`, 'i') } },
+            { fullName: { $regex: new RegExp(`^${escapedIdentifier}$`, 'i') } },
             { email: identifier.toLowerCase() },
-            { name: { $regex: new RegExp(`^${identifier}$`, 'i') } }
+            { name: { $regex: new RegExp(`^${escapedIdentifier}$`, 'i') } }
         ]
     });
     return user ? user._id : null;
+};
+
+// Helper to resolve Team (By Name)
+const resolveTeam = async (identifier) => {
+    if (!identifier) return null;
+    if (mongoose.Types.ObjectId.isValid(identifier)) return identifier;
+
+    const escapedIdentifier = escapeRegExp(identifier);
+    const team = await Team.findOne({
+        name: { $regex: new RegExp(`^${escapedIdentifier}$`, 'i') }
+    });
+    return team ? team._id : null;
 };
 
 
@@ -369,112 +519,221 @@ export const importInventory = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid data provided" });
         }
 
-        // Fetch property sizes for auto-populating area details
-        const sizesSetting = await SystemSetting.findOne({ key: 'property_sizes' }).lean();
-        const systemSizes = sizesSetting ? sizesSetting.value : [];
+        console.log(`[IMPORT] Received ${data.length} items for import`);
+
+        // Fetch property sizes from Lookups for auto-populating area details
+        const sizeLookups = await Lookup.find({ lookup_type: 'Size' }).lean();
+        const systemSizes = sizeLookups.map(l => ({
+            name: l.lookup_value,
+            id: l._id,
+            ...l.metadata
+        }));
 
         const restructuredData = [];
 
-        for (const item of data) {
-            const result = {
-                // Ensure project names and IDs are handled consistently
-                projectName: item.projectName || item.project,
-                projectId: item.projectId,
-                unitNo: item.unitNo,
-                unitNumber: item.unitNo,
-                builtupType: item.builtupType,
-                block: item.block,
-                size: item.size,
-                sizeLabel: item.sizeLabel,
-                direction: item.direction,
-                roadWidth: item.roadWidth,
-                ownership: item.ownership,
+        for (let i = 0; i < data.length; i++) {
+            const item = data[i];
+            try {
+                const result = {
+                    // Ensure project names and IDs are handled consistently
+                    projectName: item.projectName || item.project || item['Project Name'],
+                    projectId: item.projectId,
+                    unitNo: item.unitNo || item.unitNumber || item['Unit No'] || item['Unit No*'],
+                    unitNumber: item.unitNo || item.unitNumber || item['Unit No'] || item['Unit No*'],
+                    builtupType: item.builtupType || item['Builtup Type'],
 
-                // Construction Details
-                occupationDate: item.occupationDate,
-                possessionStatus: item.possessionStatus,
-                furnishType: item.furnishType,
-                furnishedItems: item.furnishedItems,
+                    // Pricing mapping
+                    price: {
+                        value: parseFloat(item.price || item.value || item['Price'] || item['Asking Price'] || 0),
+                        currency: item.currency || 'INR'
+                    },
+                    totalCost: {
+                        value: parseFloat(item.totalCost || item.total_cost || item['Total Cost'] || 0),
+                        currency: item.currency || 'INR'
+                    },
+                    allInclusivePrice: {
+                        value: parseFloat(item.allInclusivePrice || item.all_inclusive_price || item['All Inclusive Price'] || 0),
+                        currency: item.currency || 'INR'
+                    },
 
-                // Location Details (Nested address object)
-                address: {
-                    hNo: item.hNo,
-                    street: item.street,
-                    locality: item.locality,
-                    area: item.area,
-                    city: item.city,
-                    tehsil: item.tehsil,
-                    postOffice: item.postOffice,
-                    pinCode: item.pinCode,
-                    state: item.state,
-                    country: item.country || 'India',
-                    lat: item.lat,
-                    lng: item.lng
-                },
+                    // Size & Specs mapping
+                    size: {
+                        value: parseFloat(item.size || item.plotArea || item['Size'] || item['Plot Area'] || 0),
+                        unit: item.sizeUnit || item.unit || item['Size Unit'] || 'Sq.Ft.'
+                    },
+                    sizeUnit: item.sizeUnit || item.unit || item['Size Unit'] || 'Sq.Ft.',
+                    builtUpArea: {
+                        value: parseFloat(item.builtUpArea || item.builtup_area || item['Builtup Area'] || item['Covered Area'] || 0),
+                        unit: item.sizeUnit || item.unit || item['Size Unit'] || 'Sq.Ft.'
+                    },
+                    carpetArea: {
+                        value: parseFloat(item.carpetArea || item.carpet_area || item['Carpet Area'] || 0),
+                        unit: item.sizeUnit || item.unit || item['Size Unit'] || 'Sq.Ft.'
+                    },
+                    totalSaleableArea: {
+                        value: parseFloat(item.totalSaleableArea || item.saleableArea || item.total_saleable_area || item['Total Saleable Area'] || 0),
+                        unit: item.sizeUnit || item.unit || item['Size Unit'] || 'Sq.Ft.'
+                    },
+                    length: parseFloat(item.length || item.plotLength || item['Length'] || item['Plot Length'] || 0),
+                    width: parseFloat(item.width || item.plotWidth || item['Width'] || item['Plot Width'] || 0),
+                    floor: item.floor || item['Floor'],
+                    block: item.block || item['Block'],
+                    ownership: item.ownership || item['Ownership'],
 
-                // Plain fields
-                ownerName: item.ownerName,
-                ownerPhone: item.ownerPhone,
-                ownerEmail: item.ownerEmail,
-                ownerAddress: item.ownerAddress,
+                    // Construction Details
+                    occupationDate: item.occupationDate || item['Occupation Date'],
+                    possessionStatus: item.possessionStatus || item['Possession Status'],
+                    furnishType: item.furnishType || item['Furnish Type'],
+                    furnishedItems: item.furnishedItems || item['Furnished Items'],
 
-                // System Details
-                team: item.team,
-                visibleTo: item.visibleTo || 'Everyone'
-            };
+                    // Location Details
+                    address: {
+                        hNo: item.hNo || item['H No'],
+                        street: item.street || item['Street'],
+                        locality: await resolveLookup('Area', item.locality || item['Locality']),
+                        area: await resolveLookup('Area', item.area || item['Area']),
+                        location: await resolveLookup('Area', item.location || item['Location']),
+                        city: await resolveLookup('City', item.city || item['City']),
+                        tehsil: await resolveLookup('Tehsil', item.tehsil || item['Tehsil']),
+                        postOffice: item.postOffice || item['Post Office'],
+                        pinCode: item.pinCode || item['Pin Code'] || item['Post Code'],
+                        state: await resolveLookup('State', item.state || item['State']),
+                        country: item.country || item['Country'] || 'India'
+                    },
+                    latitude: item.lat || item.latitude || item['Latitude'],
+                    longitude: item.lng || item.longitude || item['Longitude'],
 
-            // Resolve Lookups
-            result.category = await resolveLookup('Category', item.category || item.type);
-            result.subCategory = await resolveLookup('SubCategory', item.subCategory);
-            result.unitType = await resolveLookup('UnitType', item.unitType);
-            result.status = await resolveLookup('Status', item.status || 'Available');
-            result.facing = await resolveLookup('Facing', item.facing);
-            result.intent = await resolveLookup('Intent', item.intent);
+                    ownerName: item.ownerName || item['Owner Name'],
+                    ownerPhone: item.ownerPhone || item['Owner Phone'],
+                    ownerEmail: item.ownerEmail || item['Owner Email'],
+                    ownerAddress: item.ownerAddress || item['Owner Address'],
 
-            // Resolve User for AssignedTo
-            result.assignedTo = await resolveUser(item.assignedTo);
+                    team: await resolveTeam(item.team || item['Team']),
+                    visibleTo: item.visibleTo || item['Visible To'] || 'Everyone'
+                };
 
-            // AUTO-POPULATE FROM SYSTEM SIZES
-            if (item.sizeLabel) {
-                const currentProjectName = result.projectName;
-                // Find matching size by Label, Project, and Block
-                const matchedSize = systemSizes.find(s =>
-                    s.name === item.sizeLabel &&
-                    (s.project === currentProjectName || s.project === 'Global')
+                // Resolve Lookups
+                result.category = await resolveLookup('Category', item.category || item.type || item['Category'] || item['Property Category']);
+                result.subCategory = await resolveLookup('SubCategory', item.subCategory || item['SubCategory'] || item['Property Category']);
+                result.unitType = await resolveLookup('UnitType', item.unitType || item['Unit Type']);
+
+                // Professional Size Alignment with Project/Block matching
+                const sizeResult = await resolveSizeLookup(
+                    item.sizeLabel || item.sizeConfig || item['Size Label'] || item['Size Label*'],
+                    result.projectName,
+                    result.block
                 );
+                result.sizeConfig = sizeResult?.id;
+                result.status = await resolveLookup('Status', item.status || item['Status'] || 'Available');
 
-                if (matchedSize) {
-                    // Overwrite if matched
-                    if (matchedSize.sizeType) result.unitType = await resolveLookup('UnitType', matchedSize.sizeType);
-                    result.builtUpArea = matchedSize.coveredArea || matchedSize.saleableArea; // Fallback
-                    result.carpetArea = matchedSize.carpetArea;
-                    result.superArea = matchedSize.saleableArea || matchedSize.totalArea;
-                    if (matchedSize.category) result.category = await resolveLookup('Category', matchedSize.category);
-                    if (matchedSize.subCategory) result.subCategory = await resolveLookup('SubCategory', matchedSize.subCategory);
+                // Auto-populate Dimensions/Area from Size Metadata if missing in CSV
+                if (sizeResult?.metadata) {
+                    const meta = sizeResult.metadata;
+                    if (!result.length && meta.length) result.length = parseFloat(meta.length);
+                    if (!result.width && meta.width) result.width = parseFloat(meta.width);
+                    if (result.size.value === 0 && meta.totalArea) {
+                        result.size.value = parseFloat(meta.totalArea);
+                        result.size.unit = meta.resultMetric || result.sizeUnit;
+                    }
+                    // Also populate saleable/covered if applicable
+                    if (result.totalSaleableArea.value === 0 && meta.saleableArea) result.totalSaleableArea.value = parseFloat(meta.saleableArea);
+                    if (result.builtUpArea.value === 0 && meta.coveredArea) result.builtUpArea.value = parseFloat(meta.coveredArea);
+                    if (result.carpetArea.value === 0 && meta.carpetArea) result.carpetArea.value = parseFloat(meta.carpetArea);
+                }
 
-                    // If plot type, use totalArea and resultMetric
-                    if (matchedSize.totalArea) {
-                        result.size = matchedSize.totalArea;
-                        result.sizeUnit = matchedSize.resultMetric;
-                        result.dimensions = `${matchedSize.width || ''} x ${matchedSize.length || ''}`;
+                // Mapping orientation/facing fields
+                result.facing = await resolveLookup('Facing', item.facing || item['Facing'] || item['Orientation']);
+                result.direction = await resolveLookup('Direction', item.direction || item['Direction'] || item['Orientation']);
+                result.orientation = await resolveLookup('Orientation', item.orientation || item['Orientation']);
+                result.roadWidth = await resolveLookup('RoadWidth', item.roadWidth || item['Road Width'] || item['RoadWidth']);
+                result.intent = await resolveLookup('Intent', item.intent || item['Intent']);
+
+                // Resolve User for AssignedTo
+                result.assignedTo = await resolveUser(item.assignedTo);
+
+                // Handle Owner Creation/Linking
+                if (item.ownerName || item.ownerPhone || item.ownerEmail) {
+                    try {
+                        const query = [];
+                        if (item.ownerPhone) query.push({ 'phones.number': { $regex: escapeRegExp(item.ownerPhone), $options: 'i' } });
+                        if (item.ownerEmail) query.push({ 'emails.address': { $regex: escapeRegExp(item.ownerEmail), $options: 'i' } });
+
+                        let contact = null;
+                        if (query.length > 0) {
+                            contact = await Contact.findOne({ $or: query });
+                        }
+                        if (!contact && item.ownerName) {
+                            contact = await Contact.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(item.ownerName)}$`, 'i') } });
+                        }
+
+                        if (!contact) {
+                            const newContactData = {
+                                name: item.ownerName || 'Unknown Owner',
+                                phones: item.ownerPhone ? [{ number: item.ownerPhone, type: 'Personal' }] : [],
+                                emails: item.ownerEmail ? [{ address: item.ownerEmail, type: 'Personal' }] : [],
+                                source: await resolveLookup('Source', 'Data Import')
+                            };
+                            contact = await Contact.create(newContactData);
+                        }
+
+                        result.owners = [contact._id];
+                    } catch (err) {
+                        console.error(`[IMPORT] Error linking owner for item index ${i}:`, err);
                     }
                 }
-            }
 
-            restructuredData.push(result);
+                // AUTO-POPULATE FROM SYSTEM SIZES
+                if (item.sizeLabel) {
+                    result.sizeLabel = item.sizeLabel;
+                    const currentProjectName = result.projectName;
+                    // Find matching size by Label, Project, and Block
+                    const matchedSize = systemSizes.find(s =>
+                        s.name === item.sizeLabel &&
+                        (s.project === currentProjectName || s.project === 'Global')
+                    );
+
+                    if (matchedSize) {
+                        // Overwrite if matched
+                        if (matchedSize.unitType) result.unitType = await resolveLookup('Size', matchedSize.unitType);
+                        result.builtUpArea = matchedSize.coveredArea || matchedSize.saleableArea; // Fallback
+                        result.carpetArea = matchedSize.carpetArea;
+                        result.superArea = matchedSize.saleableArea || matchedSize.totalArea;
+                        if (matchedSize.category) result.category = await resolveLookup('Category', matchedSize.category);
+                        if (matchedSize.subCategory) result.subCategory = await resolveLookup('SubCategory', matchedSize.subCategory);
+
+                        // If plot type, use totalArea and resultMetric
+                        if (matchedSize.totalArea) {
+                            result.size = {
+                                value: parseFloat(matchedSize.totalArea),
+                                unit: matchedSize.resultMetric
+                            };
+                            result.sizeUnit = matchedSize.resultMetric;
+                            result.dimensions = `${matchedSize.width || ''} x ${matchedSize.length || ''}`;
+                        }
+                    }
+                }
+
+                restructuredData.push(result);
+                if (i % 50 === 0) console.log(`[IMPORT] Processed ${i}/${data.length} items`);
+            } catch (itemErr) {
+                console.error(`[IMPORT] Critical error in item restructuring at index ${i}:`, itemErr);
+            }
         }
 
-        await Inventory.insertMany(restructuredData, { ordered: false });
+        console.log(`[IMPORT] Restructuring complete. Inserting ${restructuredData.length} documents...`);
+        const insertedResult = await Inventory.insertMany(restructuredData, { ordered: false });
+        console.log(`[IMPORT] Successfully inserted ${insertedResult.length} documents.`);
 
         res.status(200).json({
             success: true,
-            message: `Successfully imported ${restructuredData.length} inventory items.`,
-            successCount: restructuredData.length,
-            errorCount: 0
+            message: `Successfully imported ${insertedResult.length} inventory items.`,
+            successCount: insertedResult.length,
+            errorCount: restructuredData.length - insertedResult.length
         });
     } catch (error) {
-        if (error.writeErrors) {
-            const realSuccessCount = (req.body.data?.length || 0) - error.writeErrors.length;
+        if (error.writeErrors || error.name === 'MongooseBulkWriteError') {
+            const insertedCount = error.insertedDocs ? error.insertedDocs.length : 0;
+            const realSuccessCount = insertedCount;
             return res.status(200).json({
                 success: true,
                 message: `Imported ${realSuccessCount} inventory items. ${error.writeErrors.length} failed.`,
@@ -483,7 +742,7 @@ export const importInventory = async (req, res) => {
                 errors: error.writeErrors.map(e => ({
                     row: e.index + 1,
                     name: `Unit ${req.body.data[e.index]?.unitNo || 'Unknown'}`,
-                    reason: e.errmsg?.includes('duplicate key') ? 'Duplicate Unit Number in this Project' : e.errmsg
+                    reason: e.errmsg?.includes('duplicate key') ? 'Duplicate Unit Number in this Project/Block' : e.errmsg
                 }))
             });
         }
@@ -501,7 +760,7 @@ export const importInventory = async (req, res) => {
                 errors: errorDetails
             });
         }
-        console.error("Inventory Import Error:", error);
+        console.error("Inventory Import Fatal Error:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 };
@@ -513,32 +772,29 @@ export const importInventory = async (req, res) => {
  */
 export const checkDuplicatesImport = async (req, res) => {
     try {
-        const { items } = req.body; // Array of { unitNo, projectId }
+        const { items } = req.body; // Array of { unitNo, projectId, projectName }
         if (!items || !Array.isArray(items)) {
             return res.status(400).json({ success: false, error: "Invalid items provided" });
         }
 
         const query = {
             $or: items.map(item => ({
-                $or: [
-                    { unitNo: item.unitNo, projectId: item.projectId },
-                    { unitNumber: item.unitNo, projectId: item.projectId }
+                $and: [
+                    { $or: [{ unitNo: item.unitNo }, { unitNumber: item.unitNo }] },
+                    { $or: [{ projectId: item.projectId }, { projectName: item.projectName || item.project }] }
                 ]
             }))
         };
 
-        const duplicates = await Inventory.find(query, 'unitNo unitNumber projectId').lean();
+        const duplicates = await Inventory.find(query, 'unitNo unitNumber projectId projectName block').lean();
 
         res.status(200).json({
             success: true,
             duplicates: duplicates.map(d => ({
                 unitNo: d.unitNo || d.unitNumber,
-                projectId: d.projectId
-            })),
-            details: duplicates.map(d => ({
-                id: d._id,
-                unitNo: d.unitNo || d.unitNumber,
-                projectId: d.projectId
+                projectId: d.projectId,
+                projectName: d.projectName,
+                block: d.block
             }))
         });
     } catch (error) {

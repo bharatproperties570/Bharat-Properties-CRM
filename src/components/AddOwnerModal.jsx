@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { contactsAPI } from '../utils/api';
+import { usePropertyConfig } from '../context/PropertyConfigContext';
 import toast from 'react-hot-toast';
 
 const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
@@ -27,6 +28,8 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
     const [isSearching, setIsSearching] = useState(false);
     const [selectedContact, setSelectedContact] = useState(null);
     const [linkData, setLinkData] = useState({ role: 'Property Owner', relationship: '' });
+    const { masterFields } = usePropertyConfig();
+    const relations = masterFields?.relations || [];
     const searchRef = useRef(null);
 
     // Search Logic
@@ -96,22 +99,6 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
             id: selectedContact._id || selectedContact.id || Date.now().toString()
         };
 
-        const FALLBACK_RELATIONSHIPS = [
-            "Spouse",
-            "Partner",
-            "Child",
-            "Parent",
-            "Sibling",
-            "Father",
-            "Mother",
-            "Brother",
-            "Sister",
-            "Friend",
-            "Colleague",
-            "Broker",
-            "Agent",
-            "Other",
-        ];
         const updatedOwners = [...owners, newOwner];
         setOwners(updatedOwners);
         setLinkData({ role: 'Property Owner', relationship: '' });
@@ -228,11 +215,9 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
                                             onChange={(e) => setLinkData({ ...linkData, relationship: e.target.value })}
                                         >
                                             <option value="">Select Relationship</option>
-                                            <option value="Spouse">Spouse</option>
-                                            <option value="Child">Child</option>
-                                            <option value="Parent">Parent</option>
-                                            <option value="Sibling">Sibling</option>
-                                            <option value="Partner">Partner</option>
+                                            {relations.map(rel => (
+                                                <option key={rel.id} value={rel.name}>{rel.name}</option>
+                                            ))}
                                         </select>
                                     </div>
                                 )}

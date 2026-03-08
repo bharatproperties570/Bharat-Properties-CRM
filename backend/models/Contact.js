@@ -31,6 +31,10 @@ const ContactSchema = new mongoose.Schema({
     campaign: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
     owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    assignment: {
+        assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        team: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }]
+    },
     visibleTo: { type: String },
 
 

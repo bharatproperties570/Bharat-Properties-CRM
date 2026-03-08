@@ -180,7 +180,9 @@ const DealSchema = new mongoose.Schema({
         outcome: { type: String },
         triggeredByUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         reason: { type: String }
-    }]
+    }],
+    latitude: { type: String },
+    longitude: { type: String }
 }, { timestamps: true, strict: false });
 
 DealSchema.post('save', invalidateDashboardCache);

@@ -148,7 +148,10 @@ export const PropertyConfigProvider = ({ children }) => {
 
             const newLookups = {};
             allLookups.forEach(item => {
-                const type = item.lookup_type;
+                let type = item.lookup_type || item.type || '';
+                // Normalize keys by removing spaces so 'Unit Type' and 'UnitType' merge
+                type = type.replace(/\s+/g, '');
+
                 if (!newLookups[type]) newLookups[type] = [];
                 newLookups[type].push(item);
             });
@@ -162,10 +165,9 @@ export const PropertyConfigProvider = ({ children }) => {
                 directions: newLookups['Direction']?.map(l => l.lookup_value) || [],
                 roadWidths: newLookups['RoadWidth']?.map(l => l.lookup_value) || [],
                 unitTypes: newLookups['UnitType']?.map(l => l.lookup_value) || [],
-                sizes: newLookups['Size']?.map(l => ({
+                relations: newLookups['Relation']?.map(l => ({
                     id: l._id,
-                    name: l.lookup_value,
-                    ...l.metadata
+                    name: l.lookup_value
                 })) || []
             }));
 
@@ -363,6 +365,7 @@ export const PropertyConfigProvider = ({ children }) => {
         roadWidths: [],
         directions: [],
         unitTypes: [],
+        relations: [],
         floorLevels: [
             'Basement', 'Ground Floor', 'First Floor', 'Second Floor', 'Third Floor', 'Top Floor'
         ],
@@ -557,7 +560,8 @@ export const PropertyConfigProvider = ({ children }) => {
             facings: 'Facing',
             directions: 'Direction',
             roadWidths: 'RoadWidth',
-            unitTypes: 'UnitType'
+            unitTypes: 'UnitType',
+            relations: 'Relation'
         };
 
         const lookupType = fieldToLookupType[field];

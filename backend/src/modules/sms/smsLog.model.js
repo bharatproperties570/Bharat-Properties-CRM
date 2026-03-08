@@ -22,7 +22,7 @@ const SmsLogSchema = new mongoose.Schema({
     },
     entityType: {
         type: String,
-        enum: ['Lead', 'Deal', 'Contact', 'System'],
+        enum: ['Lead', 'Deal', 'Contact', 'System', 'Test', 'Activity'],
         default: 'System'
     },
     entityId: {

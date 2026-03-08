@@ -45,7 +45,7 @@ const SizeItem = ({ size, onEdit, onDelete }) => (
 const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, allProjects }) => {
     const defaultState = {
         name: '',
-        sizeType: '',
+        unitType: '',
         project: '',
         block: '',
         category: 'Residential',
@@ -102,9 +102,9 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
         } else {
             areaPart = sizeData.saleableArea ? `(${sizeData.saleableArea} Sq Ft)` : '';
         }
-        const generatedName = `${sizeData.sizeType} ${areaPart}`.trim();
+        const generatedName = `${sizeData.unitType} ${areaPart}`.trim();
         setSizeData(prev => ({ ...prev, name: generatedName }));
-    }, [sizeData.sizeType, sizeData.totalArea, sizeData.saleableArea, sizeData.resultMetric, sizeData.subCategory]);
+    }, [sizeData.unitType, sizeData.totalArea, sizeData.saleableArea, sizeData.resultMetric, sizeData.subCategory]);
 
     useEffect(() => {
         if (sizeData.length && sizeData.width) {
@@ -190,14 +190,14 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                             <select value={sizeData.category} onChange={e => {
                                 const cat = e.target.value;
                                 const subs = propertyConfig?.[cat]?.subCategories || [];
-                                setSizeData({ ...sizeData, category: cat, subCategory: subs.length > 0 ? subs[0].name : '', sizeType: '' });
+                                setSizeData({ ...sizeData, category: cat, subCategory: subs.length > 0 ? subs[0].name : '', unitType: '' });
                             }} style={customSelectStyle}>
                                 {propertyConfig && Object.keys(propertyConfig).map(cat => <option key={cat} value={cat}>{cat}</option>)}
                             </select>
                         </div>
                         <div>
                             <label style={labelStyle}>Sub Category</label>
-                            <select value={sizeData.subCategory} onChange={e => setSizeData({ ...sizeData, subCategory: e.target.value, sizeType: '' })} style={customSelectStyle}>
+                            <select value={sizeData.subCategory} onChange={e => setSizeData({ ...sizeData, subCategory: e.target.value, unitType: '' })} style={customSelectStyle}>
                                 {propertyConfig && Array.isArray(propertyConfig[sizeData.category]?.subCategories) && propertyConfig[sizeData.category].subCategories.map(sub => (
                                     <option key={sub.name} value={sub.name}>{sub.name}</option>
                                 ))}
@@ -205,7 +205,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                         </div>
                         <div>
                             <label style={labelStyle}>Size Type</label>
-                            <select value={sizeData.sizeType} onChange={e => setSizeData({ ...sizeData, sizeType: e.target.value })} style={customSelectStyle}>
+                            <select value={sizeData.unitType} onChange={e => setSizeData({ ...sizeData, unitType: e.target.value })} style={customSelectStyle}>
                                 <option value="">Select Type</option>
                                 {(() => {
                                     if (!propertyConfig) return null;
@@ -334,6 +334,14 @@ const PropertySettingsPage = () => {
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+    const [sizeFilters, setSizeFilters] = useState({
+        project: '',
+        block: '',
+        category: '',
+        subCategory: '',
+        unitType: ''
+    });
 
     const context = usePropertyConfig();
 
@@ -344,7 +352,8 @@ const PropertySettingsPage = () => {
     const {
         propertyConfig, updateConfig, masterFields, updateMasterFields,
         sizes, addSize, updateSize, deleteSize, projects,
-        syncCategoryLookup, syncSubCategoryLookup, syncPropertyTypeLookup, syncBuiltupTypeLookup
+        syncCategoryLookup, syncSubCategoryLookup, syncPropertyTypeLookup, syncBuiltupTypeLookup,
+        getLookupId
     } = context;
 
     const safeProjects = React.useMemo(() => Array.isArray(projects) ? projects : [], [projects]);
@@ -434,10 +443,33 @@ const PropertySettingsPage = () => {
             showToast("No items to export", "warning");
             return;
         }
-        const dataToExport = items.map(item => ({
-            ID: typeof item === 'string' ? item : (item.id || item._id || item.name || 'N/A'),
-            Name: typeof item === 'string' ? item : (item.name || item.lookup_value || 'N/A')
-        }));
+
+        // Map hierarchy level to backend lookup types
+        const typeMap = {
+            'Categories': 'Category',
+            'Sub_Categories': 'SubCategory',
+            'Types': 'PropertyType',
+            'Builtup': 'BuiltupType'
+        };
+
+        const lookupType = typeMap[type];
+
+        const dataToExport = items.map(item => {
+            const name = typeof item === 'object' ? (item.name || item.lookup_value) : item;
+            let id = typeof item === 'object' && item.id ? item.id : name;
+
+            // Try to get actual MongoDB ID from context lookups
+            if (lookupType) {
+                const mongoId = getLookupId(lookupType, name);
+                if (mongoId) id = mongoId;
+            }
+
+            return {
+                Backend_ID: id,
+                Display_Value: name
+            };
+        });
+
         const csvContent = generateCSV(dataToExport);
         downloadFile(csvContent, `property_config_${type.toLowerCase()}_${new Date().toISOString().split('T')[0]}.csv`);
         showToast("Export successful!");
@@ -449,10 +481,22 @@ const PropertySettingsPage = () => {
             showToast("No items to export", "warning");
             return;
         }
+
+        const fieldToLookupType = {
+            facings: 'Facing',
+            directions: 'Direction',
+            roadWidths: 'RoadWidth',
+            unitTypes: 'UnitType',
+            relations: 'Relation'
+        };
+
+        const lookupType = fieldToLookupType[activeOrientationField] || activeOrientationField;
+
         const dataToExport = currentList.map(item => ({
-            ID: item,
-            Value: item
+            Backend_ID: getLookupId(lookupType, item) || 'N/A',
+            Display_Value: item
         }));
+
         const csvContent = generateCSV(dataToExport);
         downloadFile(csvContent, `property_orientation_${activeOrientationField}_${new Date().toISOString().split('T')[0]}.csv`);
         showToast("Export successful!");
@@ -734,7 +778,15 @@ const PropertySettingsPage = () => {
         showToast('Property size deleted', 'info');
     };
 
-    const filteredSizes = sizes ? sizes.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase())) : [];
+    const filteredSizes = (sizes || []).filter(s => {
+        const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesProject = !sizeFilters.project || s.project === sizeFilters.project;
+        const matchesBlock = !sizeFilters.block || s.block === sizeFilters.block;
+        const matchesCategory = !sizeFilters.category || s.category === sizeFilters.category;
+        const matchesSubCategory = !sizeFilters.subCategory || s.subCategory === sizeFilters.subCategory;
+        const matchesUnitType = !sizeFilters.unitType || s.unitType === sizeFilters.unitType;
+        return matchesSearch && matchesProject && matchesBlock && matchesCategory && matchesSubCategory && matchesUnitType;
+    });
 
     // Pagination Logic
     const totalPages = Math.ceil(filteredSizes.length / recordsPerPage);
@@ -883,29 +935,170 @@ const PropertySettingsPage = () => {
                                         Next <i className="fas fa-chevron-right"></i>
                                     </button>
                                 </div>
+
+                                {/* Filter Toggle Button */}
+                                <button
+                                    onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
+                                    style={{
+                                        width: '36px',
+                                        height: '36px',
+                                        borderRadius: '8px',
+                                        border: '1px solid #e2e8f0',
+                                        background: isFilterPanelOpen ? '#eff6ff' : '#fff',
+                                        color: isFilterPanelOpen ? '#3b82f6' : '#64748b',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s',
+                                        fontSize: '0.9rem'
+                                    }}
+                                    title="Filter"
+                                >
+                                    <i className={`fas fa-${isFilterPanelOpen ? 'times' : 'filter'}`}></i>
+                                </button>
                             </div>
                         </div>
-                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                                <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                                    <tr>
-                                        <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Location</th>
-                                        <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category</th>
-                                        <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Size Name</th>
-                                        <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Details</th>
-                                        <th style={{ padding: '16px', width: '100px' }}></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {paginatedSizes.length > 0 ? (
-                                        paginatedSizes.map(size => (
-                                            <SizeItem key={size.id} size={size} onEdit={() => handleEditOpen(size)} onDelete={handleDeleteSize} />
-                                        ))
-                                    ) : (
-                                        <tr><td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>No sizes found matching your search.</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
+
+                        <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
+                            {/* Table Column */}
+                            <div style={{ flex: 1, background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                    <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                        <tr>
+                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Location</th>
+                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category</th>
+                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Size Name</th>
+                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Details</th>
+                                            <th style={{ padding: '16px', width: '100px' }}></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {paginatedSizes.length > 0 ? (
+                                            paginatedSizes.map(size => (
+                                                <SizeItem key={size.id} size={size} onEdit={() => handleEditOpen(size)} onDelete={handleDeleteSize} />
+                                            ))
+                                        ) : (
+                                            <tr><td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>No sizes found matching your search.</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Filter Sidebar */}
+                            {isFilterPanelOpen && (
+                                <div style={{
+                                    width: '320px',
+                                    flexShrink: 0,
+                                    background: '#fff',
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: '12px',
+                                    padding: '24px',
+                                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '20px',
+                                    position: 'sticky',
+                                    top: '24px'
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fas fa-filter" style={{ fontSize: '0.9rem', color: '#2563eb' }}></i>
+                                            Quick Filters
+                                        </h3>
+                                        <button
+                                            onClick={() => setIsFilterPanelOpen(false)}
+                                            style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: '1.2rem' }}
+                                        >
+                                            <i className="fas fa-times"></i>
+                                        </button>
+                                    </div>
+
+                                    <div>
+                                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Project</label>
+                                        <select
+                                            value={sizeFilters.project}
+                                            onChange={e => setSizeFilters({ ...sizeFilters, project: e.target.value, block: '' })}
+                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.9rem', outline: 'none', background: '#f8fafc', color: '#1e293b' }}
+                                        >
+                                            <option value="">All Projects</option>
+                                            {safeProjects.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Block</label>
+                                        <select
+                                            value={sizeFilters.block}
+                                            onChange={e => setSizeFilters({ ...sizeFilters, block: e.target.value })}
+                                            disabled={!sizeFilters.project}
+                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.9rem', outline: 'none', background: sizeFilters.project ? '#f8fafc' : '#f1f5f9', color: '#1e293b' }}
+                                        >
+                                            <option value="">All Blocks</option>
+                                            {sizeFilters.project && safeProjects.find(p => p.name === sizeFilters.project)?.blocks?.map(b => {
+                                                const bName = typeof b === 'object' ? b.name : b;
+                                                return <option key={bName} value={bName}>{bName}</option>;
+                                            })}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category</label>
+                                        <select
+                                            value={sizeFilters.category}
+                                            onChange={e => setSizeFilters({ ...sizeFilters, category: e.target.value, subCategory: '', unitType: '' })}
+                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.9rem', outline: 'none', background: '#f8fafc', color: '#1e293b' }}
+                                        >
+                                            <option value="">All Categories</option>
+                                            {propertyConfig && Object.keys(propertyConfig).map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sub Category</label>
+                                        <select
+                                            value={sizeFilters.subCategory}
+                                            onChange={e => setSizeFilters({ ...sizeFilters, subCategory: e.target.value, unitType: '' })}
+                                            disabled={!sizeFilters.category}
+                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.9rem', outline: 'none', background: sizeFilters.category ? '#f8fafc' : '#f1f5f9', color: '#1e293b' }}
+                                        >
+                                            <option value="">All Sub Categories</option>
+                                            {sizeFilters.category && propertyConfig[sizeFilters.category]?.subCategories?.map(sub => (
+                                                <option key={sub.name} value={sub.name}>{sub.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Size Type</label>
+                                        <select
+                                            value={sizeFilters.unitType}
+                                            onChange={e => setSizeFilters({ ...sizeFilters, unitType: e.target.value })}
+                                            disabled={!sizeFilters.subCategory}
+                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.9rem', outline: 'none', background: sizeFilters.subCategory ? '#f8fafc' : '#f1f5f9', color: '#1e293b' }}
+                                        >
+                                            <option value="">All Types</option>
+                                            {(() => {
+                                                if (!sizeFilters.category || !sizeFilters.subCategory) return null;
+                                                const subCatObj = propertyConfig[sizeFilters.category]?.subCategories?.find(s => s.name === sizeFilters.subCategory);
+                                                return subCatObj?.types?.map(t => {
+                                                    const typeName = typeof t === 'string' ? t : t.name;
+                                                    return <option key={typeName} value={typeName}>{typeName}</option>;
+                                                });
+                                            })()}
+                                        </select>
+                                    </div>
+
+                                    <button
+                                        onClick={() => setSizeFilters({ project: '', block: '', category: '', subCategory: '', unitType: '' })}
+                                        style={{ marginTop: '12px', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                                        onMouseOver={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.color = '#1e293b'; }}
+                                        onMouseOut={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = '#64748b'; }}
+                                    >
+                                        <i className="fas fa-undo"></i> Reset All Filters
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 ) : activeTab === 'Configuration' ? (
@@ -1004,7 +1197,7 @@ const PropertySettingsPage = () => {
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem' }}>Field Name</div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
                                     {masterFields && Object.keys(masterFields)
-                                        .filter(field => field !== 'documents')
+                                        .filter(field => ['facings', 'roadWidths', 'directions', 'unitTypes', 'relations'].includes(field))
                                         .map(field => (
                                             <div key={field} onClick={() => setActiveOrientationField(field)} style={{ padding: '16px', cursor: 'pointer', fontWeight: activeOrientationField === field ? 700 : 500, color: activeOrientationField === field ? '#2563eb' : '#334155', background: activeOrientationField === field ? '#fff' : 'transparent', borderLeft: activeOrientationField === field ? '4px solid #2563eb' : '4px solid transparent', textTransform: 'capitalize' }}>
                                                 {field.replace(/([A-Z])/g, ' $1').trim()}

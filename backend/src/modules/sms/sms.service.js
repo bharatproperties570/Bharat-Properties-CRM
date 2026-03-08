@@ -146,41 +146,83 @@ class SmsService {
      */
     async sendViaSMSGatewayHub(to, message, config, context = {}) {
         const { apiKey, senderId, channel = 2, dcs = 0, flash = 0, baseUrl } = config;
-        let url = baseUrl || 'https://login.smsgatewayhub.com/api/mt/SendSMS';
-        if (url.includes('?')) {
-            url = url.split('?')[0];
-        }
-        let params = {};
 
+        // Clean up baseUrl: strip query string (may contain placeholder text from the UI form)
+        let url = (baseUrl || 'https://www.smsgatewayhub.com/api/mt/SendSMS').split('?')[0];
+
+        // Ensure we're hitting the correct SMSGatewayHub endpoint
+        if (!url.includes('smsgatewayhub.com') && !url.includes('SendSMS')) {
+            url = 'https://www.smsgatewayhub.com/api/mt/SendSMS';
+        }
+
+        let params = {};
         try {
+            // Normalize phone: remove + and country code prefix if already formatted
+            let normalizedNumber = String(to).replace(/\D/g, ''); // digits only
+            // If 11 digits starting with 0, strip leading 0; if 10 digits, add country code is done by gateway with EntityId
+            // SMSGatewayHub expects 10-digit number for India (or 12 with 91)
+            if (normalizedNumber.startsWith('91') && normalizedNumber.length === 12) {
+                // Already has country code, pass as-is
+            } else if (normalizedNumber.length === 10) {
+                // 10-digit number, pass as-is (gateway adds country code based on route)
+            }
+
+            // channel: 1=Promotional, 2=Transactional, 4=OTP
+            let resolvedChannel = Number(channel) || 2;
+            if (context.category === 'Promotional') resolvedChannel = 1;
+            else if (context.category === 'Transactional') resolvedChannel = 2;
+            else if (context.category === 'OTP') resolvedChannel = 4;
+
             params = {
                 APIKey: apiKey,
                 senderid: senderId,
-                channel: context.category === 'Promotional' ? 1 : (context.category === 'Transactional' ? 2 : (Number(channel) || 2)),
+                channel: resolvedChannel,
                 DCS: Number(dcs) || 0,
-                flashsms: Number(flash) ? 1 : 0,
-                number: to.replace('+', ''),
+                flashsms: flash ? 1 : 0,   // Must be integer 0 or 1, NOT boolean
+                number: normalizedNumber,
                 text: message,
-                route: config.route || 'clickhere'
+                route: config.route || '47'  // 47 = SmartPing Transactional (DLT compliant)
             };
 
-            // Add EntityID/TemplateID for DLT compliance
+            // DLT EntityId (MANDATORY for India DLT compliance)
             if (config.entityId) params.EntityId = config.entityId;
 
-            // Override senderid if template has specific header
+            // Override senderid if template has a specific DLT Header Id
             if (context.dltHeaderId) params.senderid = context.dltHeaderId;
 
-            // DLT Template ID
+            // DLT Template ID (MANDATORY - without this, gateway returns "Invalid template text")
             if (context.dltTemplateId) {
                 params.dlttemplateid = context.dltTemplateId;
+            } else {
+                // Auto-fallback: look up the first active template's dltTemplateId
+                // This is required for DLT compliance in India
+                try {
+                    const SmsTemplate = (await import('./smsTemplate.model.js')).default;
+                    const fallbackTemplate = await SmsTemplate.findOne({ isActive: true, dltTemplateId: { $exists: true, $ne: '' } })
+                        .sort({ createdAt: 1 })
+                        .lean();
+                    if (fallbackTemplate?.dltTemplateId) {
+                        params.dlttemplateid = fallbackTemplate.dltTemplateId;
+                        console.log(`[SMSGatewayHub] Auto-resolved dlttemplateid: ${fallbackTemplate.dltTemplateId} from template "${fallbackTemplate.name}"`);
+                    } else {
+                        console.warn('[SMSGatewayHub] WARNING: No dlttemplateid found. Message may be rejected by DLT gateway.');
+                    }
+                } catch (templateErr) {
+                    console.warn('[SMSGatewayHub] Could not auto-resolve dlttemplateid:', templateErr.message);
+                }
             }
 
-            console.log('--- SMSGatewayHub Request ---', url, params);
-            const response = await axios.get(url, { params });
+            console.log('[SMSGatewayHub] Sending to:', url, '| Params:', JSON.stringify({ ...params, APIKey: '[REDACTED]' }));
+            const response = await axios.get(url, { params, timeout: 15000 });
+            console.log('[SMSGatewayHub] Response:', response.data);
 
             // SMSGatewayHub returns 200 even on functional failure.
-            // Success code is "000". Anything else is an error.
-            if (response.data && response.data.ErrorCode && response.data.ErrorCode !== "000") {
+            // Check for error codes: "000" = success, "error:*" in ErrorMessage = failure
+            const responseStr = typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+            if (responseStr.toLowerCase().includes('error:') || responseStr.toLowerCase().includes('invalid')) {
+                throw new Error(responseStr);
+            }
+            if (response.data && response.data.ErrorCode && response.data.ErrorCode !== '000') {
                 throw new Error(response.data.ErrorMessage || `Error Code: ${response.data.ErrorCode}`);
             }
 
@@ -188,7 +230,7 @@ class SmsService {
         } catch (error) {
             const errorMsg = error.response?.data ? JSON.stringify(error.response.data) : error.message;
             console.error('[SMSGatewayHub Error]', errorMsg);
-            throw new Error(`SMSGatewayHub failed: ${errorMsg} | URL: ${url} | Params: ${JSON.stringify(params)}`);
+            throw new Error(`SMSGatewayHub failed: ${errorMsg} | URL: ${url} | Params: ${JSON.stringify({ ...params, APIKey: '[REDACTED]' })}`);
         }
     }
 

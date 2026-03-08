@@ -5,9 +5,12 @@ import CreateActivityModal from '../../../components/CreateActivityModal';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
 import { useActivities } from '../../../context/ActivityContext';
+import { usePropertyConfig } from '../../../context/PropertyConfigContext';
+import { useCallback } from 'react';
 
 const DealMatchingPage = ({ onNavigate, dealId }) => {
     const { addActivity } = useActivities();
+    const { propertyConfig, lookups, projects } = usePropertyConfig();
     const [deal, setDeal] = useState(null);
     const [leads, setLeads] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -63,6 +66,68 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     const [budgetFlexibility, setBudgetFlexibility] = useState(10); // % flexibility
     const [sizeFlexibility, setSizeFlexibility] = useState(10); // % flexibility
 
+    const getStrictLookupValue = useCallback((type, id) => {
+        if (!id) return null;
+        const lookupSource = lookups || {};
+
+        if (typeof id === 'object') {
+            const val = id.lookup_value || id.name || id.label || id.value || id;
+            if (id.lookup_type && id.lookup_type.replace(/\s+/g, '') !== type.replace(/\s+/g, '')) {
+                return null;
+            }
+            return typeof val === 'object' ? val.lookup_value || val.name : val;
+        }
+
+        const normalizedType = type ? type.replace(/\s+/g, '') : type;
+        if (lookupSource[normalizedType]) {
+            const found = lookupSource[normalizedType].find(l =>
+                l._id === id || l.id === id || (typeof id === 'string' && l.lookup_value === id)
+            );
+            if (found) return found.lookup_value;
+        }
+
+        // Project Resolution Fallback
+        if (type === 'Locality' || type === 'Project') {
+            const project = projects?.find(p => p._id === id || p.id === id || p.name === id);
+            if (project) return project.name;
+        }
+
+        if (typeof id === 'string' && !id.match(/^[0-9a-fA-F]{24}$/)) {
+            return id;
+        }
+        return null;
+    }, [lookups, projects]);
+
+    const renderVal = (v, type = null) => {
+        if (!v) return v;
+        if (type) {
+            const resolved = getStrictLookupValue(type, v);
+            if (resolved) return resolved;
+        }
+        if (typeof v === 'object') {
+            return v.lookup_value || v.name || v.label || v.value || JSON.stringify(v);
+        }
+        // If it's a string, try to resolve it against common types if no type provided
+        if (typeof v === 'string' && v.match(/^[0-9a-fA-F]{24}$/)) {
+            // Check projects first
+            const project = projects?.find(p => p._id === v || p.id === v);
+            if (project) return project.name;
+
+            // Attempt auto-resolution for common types if type is missing
+            const types = [
+                'PropertyType', 'Locality', 'City', 'State',
+                'Category', 'SubCategory', 'LeadStage', 'LeadSource',
+                'UnitType', 'BuiltupType', 'FurnishingType', 'Size',
+                'Facing', 'Direction', 'Budget'
+            ];
+            for (const t of types) {
+                const resolved = getStrictLookupValue(t, v);
+                if (resolved) return resolved;
+            }
+        }
+        return v;
+    };
+
     const parsePrice = (priceStr) => {
         if (!priceStr && priceStr !== 0) return 0;
         if (typeof priceStr === 'number') return priceStr;
@@ -79,11 +144,12 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
 
     const parseSizeSqYard = (sizeStr) => {
         if (!sizeStr) return 0;
-        const match = sizeStr.match(/\(([\d.]+)\s*Sq Yard\)/);
+        const str = String(sizeStr);
+        const match = str.match(/\(([\d.]+)\s*Sq Yard\)/);
         if (match) return parseFloat(match[1]);
-        const marlaMatch = sizeStr.match(/([\d.]+)\s*Marla/);
+        const marlaMatch = str.match(/([\d.]+)\s*Marla/);
         if (marlaMatch) return parseFloat(marlaMatch[1]) * 30.25;
-        return parseFloat(sizeStr.replace(/[^\d.]/g, '')) || 0;
+        return parseFloat(str.replace(/[^\d.]/g, '')) || 0;
     };
 
     const matchedLeads = useMemo(() => {
@@ -104,9 +170,11 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             const gaps = [];
 
             // Project/Location Match (30 points)
-            const areaText = (lead.location || '').toLowerCase();
-            const projectMatch = deal.projectName && areaText.includes(deal.projectName.toLowerCase());
-            const locationMatch = deal.location && areaText.includes(deal.location.toLowerCase());
+            const resolvedLeadLoc = renderVal(lead.location, 'Locality');
+            const resolvedDealLoc = renderVal(deal.location, 'Locality');
+            const areaText = (resolvedLeadLoc || '').toLowerCase();
+            const projectMatch = deal.projectName && areaText.includes(String(deal.projectName).toLowerCase());
+            const locationMatch = resolvedDealLoc && areaText.includes(String(resolvedDealLoc).toLowerCase());
 
             if (projectMatch || locationMatch) {
                 score += 30;
@@ -116,8 +184,8 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             }
 
             // Type Match (20 points)
-            const dealType = (deal.propertyType?.lookup_value || deal.propertyType || '').toLowerCase();
-            const leadType = (lead.req?.type?.lookup_value || lead.req?.type || '').toLowerCase();
+            const dealType = String(renderVal(deal.propertyType, 'PropertyType') || '').toLowerCase();
+            const leadType = String(renderVal(lead.req?.type, 'PropertyType') || '').toLowerCase();
             if (dealType && leadType && (dealType.includes(leadType) || leadType.includes(dealType))) {
                 score += 20;
                 details.type = 'match';
@@ -213,22 +281,22 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     };
 
     const generateEmailContent = (leads) => {
-        const subject = `🔥 Priority Deal: Exclusive ${deal.propertyType} in ${deal.location}!`;
+        const subject = `🔥 Priority Deal: Exclusive ${renderVal(deal.propertyType, 'PropertyType')} in ${renderVal(deal.location, 'Locality')}!`;
         let body = `Dear Partner,<br><br>`;
-        body += `We have an exclusive property listing that perfectly aligns with your current requirements. This <strong>${deal.propertyType}</strong> at <strong>${deal.location}</strong> represents a significant opportunity in the current market.<br><br>`;
+        body += `We have an exclusive property listing that perfectly aligns with your current requirements. This <strong>${renderVal(deal.propertyType, 'PropertyType')}</strong> at <strong>${renderVal(deal.location, 'Locality')}</strong> represents a significant opportunity in the current market.<br><br>`;
 
         body += `<div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-bottom: 24px; font-family: sans-serif; background: #fff; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">`;
         body += `<div style="display: flex; gap: 20px; align-items: flex-start;">`;
 
         // Deal Image (if available) - Currently using a placeholder as deal doesn't have images in state yet
         // In a real scenario, we'd use deal.images[0]
-        body += `<div style="width: 200px; height: 140px; border-radius: 12px; overflow: hidden; flex-shrink: 0; background: #f1f5f9;">`;
-        body += `<img src="https://images.unsplash.com/photo-1564013799919-ab600027ffc6" style="width: 100%; height: 100%; object-fit: cover;">`;
+        body += `<div style="width: 200px; height: 140px; border-radius: 12px; overflow: hidden; flex-shrink: 0; background: #3b82f6; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 2.5rem;">`;
+        body += `<i class="fas fa-home"></i>`;
         body += `</div>`;
 
         body += `<div>`;
-        body += `<h2 style="margin: 0; color: #1e293b; font-size: 1.4rem;">🏠 ${deal.propertyType}</h2>`;
-        body += `<p style="margin: 6px 0; color: #64748b; font-size: 1rem;"><i class="fas fa-map-marker-alt"></i> ${deal.location} ${deal.projectName ? `| ${deal.projectName}` : ''}</p>`;
+        body += `<h2 style="margin: 0; color: #1e293b; font-size: 1.4rem;">🏠 ${renderVal(deal.propertyType, 'PropertyType')}</h2>`;
+        body += `<p style="margin: 6px 0; color: #64748b; font-size: 1rem;"><i class="fas fa-map-marker-alt"></i> ${renderVal(deal.location, 'Locality')} ${deal.projectName ? `| ${renderVal(deal.projectName)}` : ''}</p>`;
         body += `<p style="margin: 8px 0; color: #475569; font-size: 0.95rem;">📏 Size: <strong>${deal.size}</strong></p>`;
         body += `<p style="margin: 12px 0; color: #10b981; font-weight: 800; font-size: 1.5rem;">💰 Price: ₹${deal.price}</p>`;
         body += `</div>`;
@@ -238,16 +306,13 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
         body += `This property has been vetted by our experts and is ready for immediate site visits.<br><br>`;
         body += `<strong>Would you like to schedule a visit for your client(s) this weekend?</strong><br><br>`;
         body += `Looking forward to your swift response.<br><br>`;
+        body += `<br>`;
         body += `Best regards,<br>`;
-        body += `<strong>${deal.assigned || 'Bharat Properties Team'}</strong><br>`;
-        body += `Ph: +91-XXXXX-XXXXX`;
+        body += `<strong>${renderVal(deal.assignedTo || deal.assigned || 'Bharat Properties')}</strong><br>`;
+        body += `Ph: +91-${deal.assignedTo?.mobile || '99155-XXXXX'}`;
 
-        // Attachments
-        const attachments = [
-            { type: 'image', url: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6', name: 'Property_Main.jpg' },
-            { type: 'image', url: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750', name: 'Property_Interior.jpg' },
-            { type: 'video', url: 'https://www.w3schools.com/html/mov_bbb.mp4', name: 'Property_Walkthrough.mp4' }
-        ];
+        // Attachments (Can be extended to use deal documents)
+        const attachments = [];
 
         return { subject, body, attachments };
     };
@@ -270,12 +335,13 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     };
 
     const handleWhatsApp = (mobile, name) => {
-        const message = `Hi ${name}, I have a property that perfectly matches your requirement: ${deal.propertyType} at ${deal.location}. Price: ₹${deal.price}. Let me know if you are interested!`;
+        const message = `Hi ${name}, I have a property that perfectly matches your requirement: ${renderVal(deal.propertyType, 'PropertyType')} at ${renderVal(deal.location, 'Locality')}. Price: ₹${deal.price}. Let me know if you are interested!`;
         window.open(`https://wa.me/91${mobile}?text=${encodeURIComponent(message)}`, '_blank');
     };
 
     const getStageColor = (stage) => {
-        switch (stage.toLowerCase()) {
+        const stageStr = String(stage?.lookup_value || stage || '').toLowerCase();
+        switch (stageStr) {
             case 'site visit': return { bg: '#eff6ff', color: '#2563eb' };
             case 'negotiation': return { bg: '#f3e8ff', color: '#9333ea' };
             case 'closure': return { bg: '#f0fdf4', color: '#16a34a' };
@@ -307,7 +373,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                         <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Deal Match Center</h1>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
                             <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Matching leads for:</span>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>{deal.propertyType} | {deal.id}</span>
+                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>{renderVal(deal.propertyType, 'PropertyType')} | {deal.id}</span>
                         </div>
                     </div>
                 </div>
@@ -327,7 +393,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                         className="btn-primary"
                         style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
                         onClick={() => {
-                            const text = `*New Deal Alert!* 🏠\n\n*${deal.propertyType}* in *${deal.location}*\nSize: ${deal.size}\nPrice: ₹${deal.price}\n\nContact: ${deal.assigned || 'Bharat Properties'}`;
+                            const text = `*New Deal Alert!* 🏠\n\n*${renderVal(deal.propertyType, 'PropertyType')}* in *${renderVal(deal.location, 'Locality')}*\nSize: ${deal.size}\nPrice: ₹${deal.price}\n\nContact: ${renderVal(deal.assignedTo || deal.assigned || 'Bharat Properties Team')}`;
                             navigator.clipboard.writeText(text);
                             toast.success("Deal details copied to clipboard!");
                         }}
@@ -348,14 +414,14 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                             <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px' }}>
                                 <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Property Info</label>
-                                <p style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', margin: '4px 0' }}>{deal.propertyType}</p>
-                                <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>{deal.location} {deal.projectName ? `| ${deal.projectName}` : ''}</p>
+                                <p style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', margin: '4px 0' }}>{renderVal(deal.propertyType, 'PropertyType')}</p>
+                                <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>{renderVal(deal.location, 'Locality')} {deal.projectName ? `| ${renderVal(deal.projectName)}` : ''}</p>
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                                 <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '12px' }}>
                                     <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Size</label>
-                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', margin: '2px 0' }}>{deal.size.split('(')[0]}</p>
+                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', margin: '2px 0' }}>{String(deal.size || '').split('(')[0]}</p>
                                 </div>
                                 <div style={{ background: '#ecfdf5', padding: '12px', borderRadius: '12px' }}>
                                     <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#059669', textTransform: 'uppercase' }}>Price</label>
@@ -367,10 +433,10 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                 <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Assigned Agent</label>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                     <div style={{ width: '36px', height: '36px', background: '#3b82f6', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', fontWeight: 800, color: '#fff' }}>
-                                        {deal.assigned?.charAt(0) || 'S'}
+                                        {renderVal(deal.assignedTo || deal.assigned || 'B').charAt(0)}
                                     </div>
                                     <div>
-                                        <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', margin: 0 }}>{deal.assigned || 'Suraj Keshwar'}</p>
+                                        <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', margin: 0 }}>{renderVal(deal.assignedTo || deal.assigned || 'Bharat Properties Team')}</p>
                                         <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>Sales Manager</p>
                                     </div>
                                 </div>
@@ -500,7 +566,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
 
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '6px' }}>
                                     <span style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        <i className="fas fa-map-marker-alt" style={{ fontSize: '0.75rem' }}></i> {lead.location}
+                                        <i className="fas fa-map-marker-alt" style={{ fontSize: '0.75rem' }}></i> {renderVal(lead.location, 'Locality')}
                                     </span>
                                     <span style={{
                                         fontSize: '0.75rem',
@@ -512,32 +578,32 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                         textTransform: 'uppercase',
                                         letterSpacing: '0.5px'
                                     }}>
-                                        {lead.leadStage}
+                                        {renderVal(lead.leadStage)}
                                     </span>
                                 </div>
 
                                 {/* Match Analysis Badges */}
                                 <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                                     <div
-                                        title={`Deal: ${deal.projectName || 'N/A'} | Lead: ${lead.location}`}
+                                        title={`Deal: ${deal.projectName || 'N/A'} | Lead: ${renderVal(lead.location, 'Locality')}`}
                                         style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.project)}`, color: getStatusColor(lead.matchDetails.project), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
                                     >
                                         <i className={`fas fa-${lead.matchDetails.project === 'match' ? 'check-circle' : 'circle'}`}></i> PROJECT
                                     </div>
                                     <div
-                                        title={`Deal: ${deal.propertyType} | Lead: ${lead.req?.type}`}
+                                        title={`Deal: ${renderVal(deal.propertyType, 'PropertyType')} | Lead: ${renderVal(lead.req?.type, 'PropertyType')}`}
                                         style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.type)}`, color: getStatusColor(lead.matchDetails.type), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
                                     >
                                         <i className={`fas fa-${lead.matchDetails.type === 'match' ? 'check-circle' : 'circle'}`}></i> TYPE
                                     </div>
                                     <div
-                                        title={`Deal: ₹${deal.price} | Lead: ${lead.budget}`}
+                                        title={`Deal: ₹${deal.price} | Lead: ${renderVal(lead.budget, 'Budget')}`}
                                         style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.budget)}`, color: getStatusColor(lead.matchDetails.budget), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
                                     >
                                         <i className={`fas fa-${lead.matchDetails.budget === 'match' ? 'check-circle' : 'circle'}`}></i> BUDGET
                                     </div>
                                     <div
-                                        title={`Deal: ${deal.size} | Lead: ${lead.req?.size}`}
+                                        title={`Deal: ${deal.size} | Lead: ${renderVal(lead.req?.size, 'Size')}`}
                                         style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.size)}`, color: getStatusColor(lead.matchDetails.size), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
                                     >
                                         <i className={`fas fa-${lead.matchDetails.size === 'match' ? 'check-circle' : 'circle'}`}></i> SIZE
@@ -594,8 +660,8 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                             purpose: 'Property Visit',
                                             relatedTo: [{ id: lead.mobile, name: lead.name }],
                                             visitedProperties: [{
-                                                project: deal.projectName || deal.location || deal.propertyType,
-                                                block: deal.location || 'A Block',
+                                                project: renderVal(deal.projectName) || renderVal(deal.location, 'Locality') || renderVal(deal.propertyType, 'PropertyType'),
+                                                block: '',
                                                 property: deal.unitNo || deal.id,
                                                 result: '',
                                                 feedback: ''

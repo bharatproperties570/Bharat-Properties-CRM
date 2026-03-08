@@ -10,12 +10,26 @@ import { paginate } from "../utils/pagination.js";
 import mockStore from "../utils/mockStore.js";
 import { enrichmentQueue } from "../src/queues/queueManager.js";
 import smsService from "../src/modules/sms/sms.service.js";
+import { runFullLeadEnrichment } from "../src/utils/enrichmentEngine.js";
+
+const escapeRegExp = (string) => {
+    if (!string) return '';
+    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+const sanitizeIds = (ids) => {
+    if (!ids) return [];
+    const arr = Array.isArray(ids) ? ids : ids.split(",").map((s) => s.trim());
+    return arr.filter((id) => mongoose.Types.ObjectId.isValid(id)).map((id) => new mongoose.Types.ObjectId(id));
+};
 
 // Helper to resolve lookup (Find or Create)
 const resolveLookup = async (type, value) => {
     if (!value) return null;
     if (mongoose.Types.ObjectId.isValid(value)) return value;
-    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${value}$`, 'i') } });
+    const escapedValue = escapeRegExp(value);
+    const re = new RegExp(`^${escapedValue}$`, 'i');
+    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: re } });
     if (!lookup) {
         lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
     }
@@ -27,11 +41,12 @@ const resolveUser = async (identifier) => {
     if (!identifier) return null;
     if (mongoose.Types.ObjectId.isValid(identifier)) return identifier;
 
+    const escapedIdentifier = escapeRegExp(identifier);
     const user = await User.findOne({
         $or: [
-            { fullName: { $regex: new RegExp(`^${identifier}$`, 'i') } },
+            { fullName: { $regex: new RegExp(`^${escapedIdentifier}$`, 'i') } },
             { email: identifier.toLowerCase() },
-            { name: { $regex: new RegExp(`^${identifier}$`, 'i') } }
+            { name: { $regex: new RegExp(`^${escapedIdentifier}$`, 'i') } }
         ]
     });
     return user ? user._id : null;
@@ -87,19 +102,25 @@ const resolveAllReferenceFields = async (doc) => {
     if (doc.owner === "") doc.owner = null;
     if (doc.owner) doc.owner = await resolveUser(doc.owner);
 
-    // Handle Team resolution (from ID to Name for assignment.team)
+    // Handle Team resolution (from ID or Name)
     if (doc.team) {
         const Team = mongoose.model('Team');
         let teamId = doc.team;
         if (typeof teamId === 'object' && teamId._id) teamId = teamId._id;
 
+        let teamDoc;
         if (mongoose.Types.ObjectId.isValid(teamId)) {
-            const teamDoc = await Team.findById(teamId);
-            if (teamDoc) {
-                if (!doc.assignment) doc.assignment = {};
-                // assignment.team is [String] in Lead model
-                doc.assignment.team = [teamDoc.name];
-            }
+            teamDoc = await Team.findById(teamId);
+        } else {
+            // Find by name if not a valid ID
+            teamDoc = await Team.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(teamId)}$`, 'i') } });
+        }
+
+        if (teamDoc) {
+            if (!doc.assignment) doc.assignment = {};
+            doc.assignment.team = [teamDoc._id];
+        } else {
+            console.log(`[WARN] Team not found: ${teamId}`);
         }
     }
 
@@ -124,6 +145,7 @@ const resolveAllReferenceFields = async (doc) => {
             if (p) doc.project = p._id;
         }
     }
+
 
     // Resolve Documents
     if (Array.isArray(doc.documents)) {
@@ -181,7 +203,7 @@ const leadPopulateFields = [
     { path: 'assignment.team', select: 'name' },
     { path: 'documents.documentCategory', select: 'lookup_value' },
     { path: 'documents.documentName', select: 'lookup_value' },
-    { path: 'documents.documentType', select: 'lookup_value' }
+    { path: 'documents.documentType', select: 'lookup_value' },
 ];
 
 /**
@@ -191,24 +213,26 @@ const leadPopulateFields = [
  */
 export const getLeads = async (req, res, next) => {
     try {
-        const { page = 1, limit = 25, search = "" } = req.query;
+        const { page = 1, limit = 25, search = "", stage, status, teamId, userId } = req.query;
 
+        let query = {};
 
-        if (process.env.MOCK_MODE === 'true') {
-            const results = mockStore.getLeads({}, Number(page), Number(limit));
-            return res.status(200).json({ success: true, ...results });
+        if (search) {
+            query.$or = [
+                { firstName: { $regex: search, $options: "i" } },
+                { lastName: { $regex: search, $options: "i" } },
+                { mobile: { $regex: search, $options: "i" } },
+                { email: { $regex: search, $options: "i" } }
+            ];
         }
 
-        const query = search
-            ? {
-                $or: [
-                    { firstName: { $regex: search, $options: "i" } },
-                    { lastName: { $regex: search, $options: "i" } },
-                    { mobile: { $regex: search, $options: "i" } },
-                    { email: { $regex: search, $options: "i" } }
-                ]
-            }
-            : {};
+        if (stage && mongoose.Types.ObjectId.isValid(stage)) query.stage = stage;
+        if (status && mongoose.Types.ObjectId.isValid(status)) query.status = status;
+        if (teamId && mongoose.Types.ObjectId.isValid(teamId)) query['assignment.team'] = teamId;
+        if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+            query.$or = query.$or || [];
+            query.$or.push({ owner: userId }, { 'assignment.assignedTo': userId });
+        }
 
         // Enable population for key fields
         const results = await paginate(Lead, query, Number(page), Number(limit), { createdAt: -1 }, leadPopulateFields);
@@ -264,15 +288,23 @@ export const addLead = async (req, res, next) => {
         const lead = await Lead.create(data);
         console.log("[DEBUG] Lead created successfully:", lead._id);
 
-        // Auto-run Enrichment
-        await runFullLeadEnrichment(lead._id);
+        // Auto-run Enrichment (wrapped in try-catch to prevent crash if ReferenceError/Enrichment fails)
+        try {
+            await runFullLeadEnrichment(lead._id);
+        } catch (enrichError) {
+            console.error("[ENRICHMENT ERROR] Failed in addLead:", enrichError.message);
+        }
 
         await lead.populate(leadPopulateFields);
 
-        // SMS Trigger: Welcome Message
+        // SMS Trigger: Welcome Message via registered DLT template
         if (lead.mobile) {
-            smsService.sendSMS(lead.mobile, `Hello ${lead.firstName}, welcome to Bharat Properties! Your lead has been registered.`)
-                .catch(err => console.error('[SMS Trigger Error] Welcome failed:', err.message));
+            smsService.sendSMSWithTemplate(
+                lead.mobile,
+                'Get Response',  // Name of the registered DLT template
+                { Name: lead.firstName || 'Customer' },
+                { entityType: 'Lead', entityId: lead._id }
+            ).catch(err => console.error('[SMS Trigger Error] Welcome failed:', err.message));
         }
 
         res.status(201).json({ success: true, data: lead });
@@ -353,18 +385,28 @@ export const updateLead = async (req, res, next) => {
         }
 
         // Standard update (stage already resolved to ObjectId by resolveAllReferenceFields)
-        if (lead) {
-            await runFullLeadEnrichment(lead._id);
-            await lead.populate(leadPopulateFields);
+        const finalLead = await Lead.findByIdAndUpdate(req.params.id, updateData, { new: true }).populate(leadPopulateFields);
 
-            // SMS Trigger: Stage Change
-            if (lead.mobile && updateData.stage) {
-                const stageName = lead.stage?.lookup_value || 'Updated Stage';
-                smsService.sendSMS(lead.mobile, `Bharat Properties: Your lead status has been updated to ${stageName}.`)
-                    .catch(e => console.error('[SMS Trigger Error] Stage change failed:', e.message));
+        if (finalLead) {
+            // Auto-run Enrichment (wrapped in try-catch)
+            try {
+                await runFullLeadEnrichment(finalLead._id);
+            } catch (enrichError) {
+                console.error("[ENRICHMENT ERROR] Failed in updateLead:", enrichError.message);
+            }
+
+            // SMS Trigger: Stage Change (only if lead has a DLT-compliant template configured)
+            // We skip arbitrary text messages as they violate DLT regulations in India
+            if (finalLead.mobile && updateData.stage) {
+                smsService.sendSMSWithTemplate(
+                    finalLead.mobile,
+                    'Get Response',
+                    { Name: finalLead.firstName || 'Customer' },
+                    { entityType: 'Lead', entityId: finalLead._id }
+                ).catch(e => console.error('[SMS Trigger Error] Stage change failed:', e.message));
             }
         }
-        res.json({ success: true, data: lead });
+        res.json({ success: true, data: finalLead });
     } catch (error) {
         next(error);
     }
@@ -634,5 +676,44 @@ export const matchLeads = async (req, res) => {
         return res.status(200).json({ success: true, count: scoredLeads.length, data: scoredLeads });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * @desc    Toggle lead interest in an inventory
+ * @route   PUT /leads/interest/:inventoryId
+ * @access  Private
+ */
+export const toggleLeadInterest = async (req, res, next) => {
+    try {
+        const { leadId } = req.body;
+        const { inventoryId } = req.params;
+
+        if (!leadId || !inventoryId) {
+            return res.status(400).json({ success: false, message: "Lead ID and Inventory ID are required" });
+        }
+
+        const lead = await Lead.findById(leadId);
+        if (!lead) {
+            return res.status(404).json({ success: false, message: "Lead not found" });
+        }
+
+        const interestIndex = lead.interestedInventory.indexOf(inventoryId);
+        if (interestIndex > -1) {
+            // Remove interest
+            lead.interestedInventory.splice(interestIndex, 1);
+        } else {
+            // Add interest
+            lead.interestedInventory.push(inventoryId);
+        }
+
+        await lead.save();
+        res.status(200).json({
+            success: true,
+            message: interestIndex > -1 ? "Removed from interested" : "Marked as interested",
+            isInterested: interestIndex === -1
+        });
+    } catch (error) {
+        next(error);
     }
 };

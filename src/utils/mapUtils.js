@@ -36,6 +36,15 @@ export const getCoordinates = (item) => {
         }
     }
 
+    // From populated inventoryId (fallback for Deals)
+    if (item.inventoryId && typeof item.inventoryId === 'object') {
+        const iLat = item.inventoryId.latitude || item.inventoryId.lat;
+        const iLng = item.inventoryId.longitude || item.inventoryId.lng;
+        if (iLat && iLng) {
+            return { lat: parseFloat(iLat), lng: parseFloat(iLng) };
+        }
+    }
+
     return null;
 };
 

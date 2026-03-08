@@ -19,6 +19,7 @@ import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
 import InventoryFilterPanel from './components/InventoryFilterPanel';
 import { applyInventoryFilters } from '../../utils/inventoryFilterLogic';
 import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
+import ProfessionalMap from '../../components/ProfessionalMap';
 import AddDealModal from '../../components/AddDealModal';
 
 export default function InventoryPage({ onNavigate, onAddActivity }) {
@@ -41,6 +42,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [activeCount, setActiveCount] = useState(0);
     const [inactiveCount, setInactiveCount] = useState(0);
+    const [categoryStats, setCategoryStats] = useState([]);
 
     // Advanced Filtering State
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
@@ -58,21 +60,33 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     const [modalData, setModalData] = useState([]);
 
     const getTeamName = useCallback((teamValue) => {
-        if (!teamValue) return "General Team";
+        if (!teamValue) return "Standard Team";
         if (typeof teamValue === 'object') {
-            return teamValue.name || teamValue.lookup_value || "General Team";
+            return teamValue.name || teamValue.lookup_value || teamValue.fullName || "Standard Team";
         }
         const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
-        return found ? (found.name || found.lookup_value) : teamValue;
+        if (found) return found.name || found.lookup_value;
+
+        // If it's a hex ID but not found in teams, return "Standard Team" instead of ID
+        if (typeof teamValue === 'string' && /^[0-9a-fA-F]{24}$/.test(teamValue)) return "Standard Team";
+
+        return teamValue;
     }, [teams]);
 
     const getUserName = useCallback((ownerValue) => {
-        if (!ownerValue) return "Admin";
+        if (!ownerValue) return "Unassigned";
         if (typeof ownerValue === 'object') {
-            return ownerValue.name || ownerValue.lookup_value || "Admin";
+            return ownerValue.fullName || ownerValue.name || ownerValue.lookup_value || ownerValue.displayName || "Unassigned";
         }
         const found = users.find(u => (u._id === ownerValue) || (u.id === ownerValue));
-        return found ? (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username)) : ownerValue;
+        if (found) {
+            return found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username));
+        }
+
+        // If it's a hex ID but not found in users, return "Unassigned" instead of ID
+        if (typeof ownerValue === 'string' && /^[0-9a-fA-F]{24}$/.test(ownerValue)) return "Unassigned";
+
+        return ownerValue;
     }, [users]);
 
     const fetchInventory = useCallback(async () => {
@@ -92,6 +106,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                 setTotalRecords(response.data.totalCount || 0);
                 setActiveCount(response.data.activeCount || 0);
                 setInactiveCount(response.data.inactiveCount || 0);
+                setCategoryStats(response.data.categoryStats || []);
             } else {
                 toast.error("Failed to fetch inventory");
                 setInventoryItems([]);
@@ -187,6 +202,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
             if (property.owners && property.owners.length > 0) {
                 property.owners.forEach(owner => {
                     owners.push({
+                        id: owner._id || owner.id,
                         name: owner.name,
                         mobile: owner.phones?.[0]?.number || owner.mobile || '',
                         role: 'Property Owner'
@@ -199,6 +215,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
             if (property.associates && property.associates.length > 0) {
                 property.associates.forEach(assoc => {
                     owners.push({
+                        id: assoc._id || assoc.id,
                         name: assoc.name,
                         mobile: assoc.phones?.[0]?.number || assoc.mobile || '',
                         role: 'Associate',
@@ -455,14 +472,14 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
         <section id="inventoryView" className="view-section active">
             {viewMode === 'list' ? (
                 <div className="view-scroll-wrapper">
-                    <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0', paddingBottom: '10px' }}>
                         <div className="page-title-group" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div style={{ width: '40px', height: '40px', background: '#f0fdf4', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <i className="fas fa-warehouse" style={{ color: '#16a34a', fontSize: '1.2rem' }}></i>
+                            <div style={{ width: '38px', height: '38px', background: '#f0fdf4', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fas fa-warehouse" style={{ color: '#16a34a', fontSize: '1.1rem' }}></i>
                             </div>
                             <div>
-                                <h1 style={{ fontSize: '1.5rem', fontWeight: '700', color: '#1e293b', marginBottom: '4px' }}>Inventory</h1>
-                                <p style={{ fontSize: '0.9rem', color: '#64748b' }}>Manage your property listings</p>
+                                <h1 style={{ fontSize: '1.4rem', fontWeight: '800', color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>Inventory</h1>
+                                <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0, fontWeight: 500 }}>Property Assets Management</p>
                             </div>
                         </div>
                         <div style={{ display: 'flex', gap: '10px' }}>
@@ -504,7 +521,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                         />
                     </div>
 
-                    <div className="inventory-stats-row" style={{ padding: '12px 25px', display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: '20px' }}>
+                    <div className="inventory-stats-row" style={{ padding: '4px 25px', display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: '20px', background: '#fff' }}>
                         <div style={{ display: 'flex', gap: '15px' }}>
                             <div className="status-card" style={{ padding: '8px 15px', minWidth: '160px', borderLeft: '4px solid #22c55e' }}>
                                 <div className="stat-card-info">
@@ -783,18 +800,46 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                 <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>
                                                     {renderValue(getLookupValue('Category', item.category)) || renderValue(getLookupValue('PropertyType', item.type)) || 'N/A'} - {renderValue(getLookupValue('SubCategory', item.subCategory)) || ''}
                                                 </div>
-                                                <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>
-                                                    {renderValue(item.size) || renderValue(item.plotArea) || 'N/A'}
+                                                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#3b82f6', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    {(item.sizeConfig || item.sizeLabel) ? (
+                                                        <>
+                                                            <i className="fas fa-tag" style={{ fontSize: '0.62rem', color: '#6366f1' }}></i>
+                                                            <span style={{ color: '#6366f1' }}>{renderValue(getLookupValue('SizeConfig', item.sizeConfig)) || renderValue(item.sizeLabel)}</span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            {renderValue(item.size?.value || item.size) || 'N/A'} {renderValue(item.size?.unit || item.sizeUnit || '')}
+                                                        </>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
 
                                         <div className="super-cell">
-                                            <div className="cell-value-main text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, lineHeight: 1.2, color: '#0f172a' }}>
-                                                {renderValue(item.projectName) || renderValue(item.area) || 'Unknown Project'}
+                                            <div className="cell-value-main text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, lineHeight: 1.2, color: 'var(--primary-color)' }}>
+                                                {item.projectId?.name || item.project || 'Direct Property'}
                                             </div>
-                                            <div className="cell-value-sub text-ellipsis" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>
-                                                {renderValue(item.locationSearch) || renderValue(item.location) || 'No Location'}
+                                            <div className="cell-value-sub text-ellipsis" style={{ fontSize: '0.72rem', fontWeight: 600, color: '#475569', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                                                <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.65rem' }}></i>
+                                                {(() => {
+                                                    const tehsilId = item.projectId?.address?.tehsil || item.address?.tehsil;
+                                                    const cityId = item.projectId?.address?.city || item.city || item.address?.city;
+                                                    const stateId = item.projectId?.address?.state || item.address?.state;
+
+                                                    const tehsil = getLookupValue('Tehsil', tehsilId);
+                                                    const city = getLookupValue('City', cityId);
+                                                    const state = getLookupValue('State', stateId);
+
+                                                    const parts = [];
+                                                    if (renderValue(tehsil) !== '-') parts.push(renderValue(tehsil));
+                                                    if (renderValue(city) !== '-') parts.push(renderValue(city));
+                                                    if (renderValue(state) !== '-') parts.push(renderValue(state));
+
+                                                    return parts.length > 0 ? parts.join(', ') : 'Location not specified';
+                                                })()}
+                                            </div>
+                                            <div className="text-ellipsis" style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 500, marginTop: '1px' }}>
+                                                {renderValue(getLookupValue('Area', item.projectId?.address?.locality || item.address?.locality || item.address?.area || item.location)) || 'No Locality'}
                                             </div>
                                             <div style={{ marginTop: '6px' }}>
                                                 <span className="verified-badge text-ellipsis" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800, display: 'inline-block', maxWidth: '100%' }}>
@@ -804,11 +849,12 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                         </div>
 
                                         <div className="super-cell">
-                                            <div className="cell-label" style={{ marginTop: 0, color: '#94a3b8' }}>Facing & Directions</div>
+                                            <div className="cell-label" style={{ marginTop: 0, color: '#94a3b8' }}>Orientation</div>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                                {(renderValue(item.direction) && renderValue(item.direction) !== '-') && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-compass" style={{ color: '#3b82f6', width: '14px' }}></i> {renderValue(getLookupValue('Direction', item.direction))}</div>}
-                                                {(renderValue(item.facing) && renderValue(item.facing) !== '-') && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-map-signs" style={{ color: '#f59e0b', width: '14px' }}></i> {renderValue(getLookupValue('Facing', item.facing))}</div>}
-                                                {(renderValue(item.roadWidth) || renderValue(item.road)) && <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}><i className="fas fa-road" style={{ width: '14px' }}></i> {renderValue(getLookupValue('RoadWidth', item.roadWidth || item.road))}</div>}
+                                                {(item.direction || item.orientation) && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-compass" style={{ color: '#3b82f6', width: '14px' }}></i> {renderValue(getLookupValue('Direction', item.direction || item.orientation)) || renderValue(item.direction) || renderValue(item.orientation)}</div>}
+                                                {item.facing && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-map-signs" style={{ color: '#f59e0b', width: '14px' }}></i> {renderValue(getLookupValue('Facing', item.facing)) || renderValue(item.facing)}</div>}
+                                                {(item.roadWidth || item.road) && <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}><i className="fas fa-road" style={{ width: '14px' }}></i> {renderValue(getLookupValue('RoadWidth', item.roadWidth || item.road)) || renderValue(item.roadWidth) || renderValue(item.road)}</div>}
+                                                {(!item.direction && !item.facing && !item.orientation && !item.roadWidth) && <div style={{ fontSize: '0.7rem', color: '#cbd5e1', fontStyle: 'italic' }}>Not specified</div>}
                                             </div>
                                         </div>
 
@@ -995,34 +1041,51 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                     background: '#fff'
                                                 }}
                                                 onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-                                                onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                                                onLeave={(e) => e.currentTarget.style.background = '#fff'}
+                                                onClick={() => onNavigate('inventory-detail', item._id)}
                                             >
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                                                    <div style={{
-                                                        width: '24px',
-                                                        height: '24px',
-                                                        background: renderValue(item.status) === 'Active' ? '#10b981' : '#ef4444',
-                                                        borderRadius: '50%',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        color: '#fff',
-                                                        fontSize: '0.7rem',
-                                                        fontWeight: 700
-                                                    }}>
-                                                        {idx + 1}
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                        {/* Unit Number Box */}
+                                                        <div style={{
+                                                            padding: '4px 8px',
+                                                            background: '#f1f5f9',
+                                                            border: '1.5px solid #e2e8f0',
+                                                            borderRadius: '6px',
+                                                            fontSize: '0.85rem',
+                                                            fontWeight: 800,
+                                                            color: 'var(--primary-color)',
+                                                            minWidth: '60px',
+                                                            textAlign: 'center'
+                                                        }}>
+                                                            {renderValue(item.unitNo || item.unitNumber)}
+                                                        </div>
+                                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                            <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#1e293b' }}>
+                                                                {getLookupValue('UnitType', item.unitType) || 'Unit'}
+                                                            </div>
+                                                            <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
+                                                                {item.projectName || item.project || 'Private Property'}
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-color)' }}>Unit #{renderValue(item.unitNo)}</div>
+                                                    {item.block && (
+                                                        <div style={{ fontSize: '0.65rem', background: 'var(--primary-color)', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontWeight: 700, textTransform: 'uppercase' }}>
+                                                            {item.block}
+                                                        </div>
+                                                    )}
                                                 </div>
-                                                <div style={{ fontSize: '0.75rem', color: '#0f172a', fontWeight: 600, marginBottom: '4px' }}>
-                                                    {renderValue(item.area)}
-                                                </div>
-                                                <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>
-                                                    {renderValue(item.type)} - {renderValue(item.size)}
-                                                </div>
-                                                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                                    <i className="fas fa-user" style={{ marginRight: '4px' }}></i>
-                                                    {renderValue(item.ownerName)}
+
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', paddingLeft: '0' }}>
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                        <span style={{ color: '#64748b', fontWeight: 600 }}>{getLookupValue('Category', item.category)}</span>
+                                                        <span style={{ color: '#cbd5e1' }}>|</span>
+                                                        <span style={{ color: '#64748b', fontWeight: 600 }}>{getLookupValue('SubCategory', item.subCategory)}</span>
+                                                    </div>
+                                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'flex', alignItems: 'center', marginTop: '2px' }}>
+                                                        <i className="fas fa-map-marker-alt" style={{ width: '12px', color: '#ef4444', fontSize: '0.65rem', marginRight: '4px' }}></i>
+                                                        {renderValue(item.area || item.city)}
+                                                    </div>
                                                 </div>
                                             </div>
                                         );
@@ -1030,74 +1093,12 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 </div>
                             </div>
 
-                            {/* Google Map with Pins */}
+                            {/* Professional Interactive Map */}
                             <div style={{ flex: 1, position: 'relative' }}>
-                                <iframe
-                                    width="100%"
-                                    height="100%"
-                                    style={{ border: 0 }}
-                                    loading="lazy"
-                                    allowFullScreen
-                                    src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d109782.91037748405!2d76.69036504285265!3d30.698544258807534!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x390fed0be66c4021%3A0xa59fbc01d248358!2sMohali%2C%20Punjab!5e0!3m2!1sen!2sin!4v1705330000000!5m2!1sen!2sin"
-                                ></iframe>
-
-                                {/* Property Pin Markers Overlay */}
-                                {(inventoryItems || []).map((item, idx) => {
-                                    if (!item) return null;
-
-                                    const coords = getCoordinates(item);
-                                    if (!coords) return null;
-
-                                    const position = getPinPosition(coords.lat, coords.lng);
-
-                                    return (
-                                        <div
-                                            key={idx}
-                                            style={{
-                                                position: 'absolute',
-                                                left: position.left,
-                                                top: position.top,
-                                                transform: 'translate(-50%, -100%)',
-                                                cursor: 'pointer',
-                                                zIndex: 10,
-                                                transition: 'all 0.2s'
-                                            }}
-                                            title={`Unit ${renderValue(item.unitNo) || renderValue(item.unitNumber)} - ${renderValue(item.projectName)}`}
-                                        >
-                                            {/* Pin Marker */}
-                                            <div style={{
-                                                width: '32px',
-                                                height: '40px',
-                                                position: 'relative',
-                                                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))'
-                                            }}>
-                                                {/* Pin Shape */}
-                                                <svg width="32" height="40" viewBox="0 0 32 40" style={{ position: 'absolute', top: 0, left: 0 }}>
-                                                    <path
-                                                        d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z"
-                                                        fill={renderValue(item.status) === 'Active' ? '#10b981' : '#ef4444'}
-                                                        stroke="#fff"
-                                                        strokeWidth="2"
-                                                    />
-                                                </svg>
-                                                {/* Pin Number */}
-                                                <div style={{
-                                                    position: 'absolute',
-                                                    top: '6px',
-                                                    left: '50%',
-                                                    transform: 'translateX(-50%)',
-                                                    color: '#fff',
-                                                    fontSize: '0.75rem',
-                                                    fontWeight: 800,
-                                                    textAlign: 'center',
-                                                    width: '100%'
-                                                }}>
-                                                    {idx + 1}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
+                                <ProfessionalMap
+                                    items={inventoryItems}
+                                    onMarkerClick={(item) => onNavigate('inventory-detail', item._id)}
+                                />
                             </div>
                         </div>
                     </div>
@@ -1105,12 +1106,31 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                 </>
             )}
 
-            <footer className="summary-footer" style={{ height: '55px', background: '#f8fafc' }}>
-                <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-                    <div className="summary-label" style={{ background: '#334155', color: '#fff', borderRadius: '8px', fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800 }}>PROPERTY SYNC</div>
-                    <div className="stat-pill"><span style={{ color: '#6366f1' }}>RES:</span> <span className="stat-val-bold">29,588</span></div>
-                    <div className="stat-pill"><span style={{ color: 'var(--primary-color)' }}>COMM:</span> <span className="stat-val-bold">962</span></div>
-                    <div className="stat-pill"><span style={{ color: '#f59e0b' }}>AGRI:</span> <span className="stat-val-bold">02</span></div>
+            <footer className="summary-footer" style={{ height: '55px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '20px', alignItems: 'center', padding: '0 2rem', width: '100%', overflowX: 'auto' }}>
+                    <div className="summary-label" style={{ background: '#334155', color: '#fff', borderRadius: '8px', fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800, whiteSpace: 'nowrap' }}>CATEGORY SYNC</div>
+                    {categoryStats && categoryStats.length > 0 ? (
+                        categoryStats.map((stat, idx) => {
+                            const colors = ['#6366f1', 'var(--primary-color)', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6'];
+                            const color = colors[idx % colors.length];
+                            const labelMap = {
+                                'Residential': 'RESI',
+                                'Commercial': 'COMM',
+                                'Agricultural': 'AGRI',
+                                'Industrial': 'INDU',
+                                'Institutional': 'INST'
+                            };
+                            const label = labelMap[stat.name] || stat.name.substring(0, 4).toUpperCase();
+                            return (
+                                <div key={idx} className="stat-pill" style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                                    <span style={{ color: color, fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase' }}>{label}:</span>
+                                    <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '0.85rem' }}>{stat.count.toLocaleString()}</span>
+                                </div>
+                            );
+                        })
+                    ) : (
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>Calculating distribution...</div>
+                    )}
                 </div>
             </footer>
 
@@ -1137,7 +1157,20 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
             <AddInventoryDocumentModal
                 isOpen={isDocumentModalOpen}
                 onClose={() => setIsDocumentModalOpen(false)}
-                onSave={(data) => console.log("Saved Documents:", data)}
+                onSave={async (data) => {
+                    try {
+                        const response = await api.put(`inventory/${selectedProperty?._id}`, {
+                            inventoryDocuments: data
+                        });
+                        if (response.data && response.data.success) {
+                            toast.success("Documents updated successfully");
+                            fetchInventory();
+                        }
+                    } catch (error) {
+                        console.error("Error saving documents:", error);
+                        toast.error("Failed to save documents");
+                    }
+                }}
                 project={selectedProperty}
             />
 

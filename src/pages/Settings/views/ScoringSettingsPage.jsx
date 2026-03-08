@@ -301,44 +301,50 @@ const ScoringSettingsPage = () => {
 
                 {/* --- DEAL SCORING TAB --- */}
                 {activeTab === 'deal' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '24px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px', paddingBottom: '40px' }}>
+
+                        {/* A. Base Stage Allocation */}
                         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                            <SectionHeader title="Deal Stage Score" icon="fa-flag-checkered" color="#3b82f6" />
+                            <SectionHeader title="A. Base Stage Allocation" subtitle="Deal Progression" icon="fa-tasks" color="#3b82f6" />
                             <div style={{ padding: '20px' }}>
-                                {Object.entries(dealScoringRules.stages).map(([key, data]) => (
-                                    <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                        <span style={{ fontSize: '0.9rem' }}>{data.label}</span>
-                                        <PointsInput value={data.points} onChange={(e) => handleDealRuleChange('stages', key, e.target.value)} />
+                                {dealScoringRules?.stageWeights && Object.entries(dealScoringRules.stageWeights).map(([key, data]) => (
+                                    <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px dashed #f1f5f9' }}>
+                                        <span style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 500 }}>{data.label || key}</span>
+                                        <PointsInput value={data.points} onChange={(e) => handleDealRuleChange('stageWeights', key, e.target.value)} />
                                     </div>
                                 ))}
                             </div>
                         </div>
 
+                        {/* B. Momentum / Recency */}
                         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                            <SectionHeader title="Negotiation Signals" icon="fa-comments-dollar" color="#10b981" />
+                            <SectionHeader title="B. Activity Momentum" subtitle="Recency Bonuses" icon="fa-bolt" color="#f59e0b" />
                             <div style={{ padding: '20px' }}>
-                                {Object.entries(dealScoringRules.signals).map(([key, data]) => (
-                                    <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                        <span style={{ fontSize: '0.9rem' }}>{data.label}</span>
-                                        <PointsInput value={data.points} onChange={(e) => handleDealRuleChange('signals', key, e.target.value)} />
+                                {dealScoringRules?.activityRecency && Object.entries(dealScoringRules.activityRecency).map(([key, data]) => (
+                                    <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px dashed #f1f5f9' }}>
+                                        <span style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 500 }}>{data.label || key}</span>
+                                        <PointsInput value={data.points} onChange={(e) => handleDealRuleChange('activityRecency', key, e.target.value)} />
                                     </div>
                                 ))}
                             </div>
                         </div>
 
+                        {/* C. History / Interactions */}
                         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                            <SectionHeader title="Risk Penalties" icon="fa-exclamation-triangle" color="#ef4444" />
+                            <SectionHeader title="C. History Depth" subtitle="Past Interactions" icon="fa-history" color="#8b5cf6" />
                             <div style={{ padding: '20px' }}>
-                                {Object.entries(dealScoringRules.risks).map(([key, data]) => (
-                                    <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                        <span style={{ fontSize: '0.9rem' }}>{data.label}</span>
-                                        <PointsInput value={data.points} onChange={(e) => handleDealRuleChange('risks', key, e.target.value)} />
+                                {dealScoringRules?.historyDepth && Object.entries(dealScoringRules.historyDepth).map(([key, data]) => (
+                                    <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px dashed #f1f5f9' }}>
+                                        <span style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 500 }}>{data.label || key}</span>
+                                        <PointsInput value={data.points} onChange={(e) => handleDealRuleChange('historyDepth', key, e.target.value)} />
                                     </div>
                                 ))}
                             </div>
                         </div>
                     </div>
                 )}
+
+
 
                 {/* --- SCORE BANDS TAB --- */}
                 {activeTab === 'bands' && (

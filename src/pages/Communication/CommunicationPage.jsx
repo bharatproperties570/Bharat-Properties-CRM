@@ -48,17 +48,38 @@ function CommunicationPage() {
                 const response = await activitiesAPI.getAll();
                 if (response && response.success) {
                     // Map backend Activity to UI format
-                    const mappedData = response.data.map(act => ({
-                        id: act._id,
-                        participant: act.participants && act.participants.length > 0 ? act.participants[0].name : 'Unknown',
-                        via: act.type === 'Messaging' ? 'MESSAGE' : act.type.toUpperCase(),
-                        type: `${act.details?.direction || 'Outgoing'} ${act.type}`,
-                        outcome: act.details?.outcome || '',
-                        duration: act.details?.duration || '',
-                        associatedDeals: act.relatedTo && act.relatedTo.length > 0 ? act.relatedTo[0].name : '--',
-                        date: new Date(act.dueDate).toLocaleDateString(),
-                        platform: act.details?.platform || 'Direct'
-                    }));
+                    const mappedData = response.data.map(act => {
+                        // Better participant resolution
+                        let participantName = 'Unknown';
+                        if (act.participants && act.participants.length > 0) {
+                            participantName = act.participants[0].name;
+                        } else if (act.relatedTo && act.relatedTo.length > 0) {
+                            // Fallback to related entity if it's likely the person
+                            const potentialPerson = act.relatedTo.find(r => r.model === 'Contact' || r.model === 'Lead');
+                            if (potentialPerson) {
+                                participantName = potentialPerson.name;
+                            } else {
+                                participantName = act.relatedTo[0].name;
+                            }
+                        }
+
+                        // Better deals resolution
+                        const deal = act.relatedTo && act.relatedTo.find(r => r.model === 'Deal');
+                        const associatedDeals = deal ? deal.name : '--';
+
+                        return {
+                            id: act._id,
+                            participant: participantName,
+                            via: act.type === 'Messaging' ? 'MESSAGE' : (act.type || 'CALL').toUpperCase(),
+                            type: `${act.details?.direction || 'Outgoing'} ${act.type || 'Activity'}`,
+                            outcome: act.details?.outcome || act.status || '',
+                            duration: act.details?.duration || '',
+                            associatedDeals: associatedDeals,
+                            date: new Date(act.dueDate || act.createdAt).toLocaleDateString(),
+                            platform: act.details?.platform || 'Direct',
+                            isMatched: act.entityId ? true : (act.details?.isMatched ?? false)
+                        };
+                    });
                     setActivities(mappedData);
                 }
             } catch (error) {
@@ -89,7 +110,8 @@ function CommunicationPage() {
                             date: new Date(email.date).toLocaleString(),
                             platform: 'Gmail',
                             subject: email.subject,
-                            isLive: true
+                            isLive: true,
+                            isMatched: true // Emails usually have a sender matched or identifiable
                         }));
                         setLiveEmails(mappedEmails);
                     }
@@ -105,19 +127,26 @@ function CommunicationPage() {
 
     // Filter Logic
     const communicationData = useMemo(() => {
+        let data = [];
         if (activeTab === 'Email') {
-            const data = [...liveEmails];
-            return applyCommunicationFilters(data, filters, searchQuery);
+            data = [...liveEmails];
+        } else {
+            data = activities.filter(item => {
+                if (activeTab === 'Calls') return item.via === 'CALL';
+                if (activeTab === 'Messaging') return item.via === 'MESSAGE';
+                return true;
+            });
         }
 
-        const data = activities.filter(item => {
-            if (activeTab === 'Calls') return item.via === 'CALL';
-            if (activeTab === 'Messaging') return item.via === 'MESSAGE';
+        // Sub-tab Filtering: Matched vs Unmatched
+        data = data.filter(item => {
+            if (activeSubTab === 'Matched') return item.isMatched === true;
+            if (activeSubTab === 'Unmatched') return item.isMatched === false;
             return true;
         });
 
         return applyCommunicationFilters(data, filters, searchQuery);
-    }, [activeTab, activities, filters, searchQuery]);
+    }, [activeTab, activeSubTab, activities, liveEmails, filters, searchQuery]);
 
     // Pagination Helpers
     const totalRecords = communicationData.length;

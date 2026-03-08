@@ -6,7 +6,17 @@ export const getLookups = async (req, res) => {
 
         const query = {};
         if (lookup_type) query.lookup_type = lookup_type;
-        if (parent_lookup_id !== undefined) query.parent_lookup_id = parent_lookup_id === "null" ? null : parent_lookup_id;
+        if (parent_lookup_id && parent_lookup_id !== "null" && parent_lookup_id !== "undefined") {
+            // Only add to query if it's a valid hex string for ObjectId
+            if (/^[0-9a-fA-F]{24}$/.test(parent_lookup_id)) {
+                query.parent_lookup_id = parent_lookup_id;
+            } else {
+                // Return empty if invalid ID provided to prevent 500
+                return res.json({ status: "success", data: [] });
+            }
+        } else if (parent_lookup_id === "null") {
+            query.parent_lookup_id = null;
+        }
 
         const lookups = await Lookup.find(query)
             .sort({ order: 1, lookup_value: 1 })
@@ -79,12 +89,12 @@ export const importLookups = async (req, res) => {
         }
 
         if (lookupsToCreate.length > 0) {
-            if (type === 'size') {
+            if (type === 'Size') {
                 // Professional Size Duplicate Prevention
                 const filteredToCreate = [];
                 for (const candidate of lookupsToCreate) {
                     const existing = await Lookup.findOne({
-                        lookup_type: 'size',
+                        lookup_type: 'Size',
                         lookup_value: candidate.lookup_value,
                         'metadata.project': candidate.metadata.project,
                         'metadata.block': candidate.metadata.block,
@@ -183,12 +193,12 @@ export const checkDuplicatesImport = async (req, res) => {
         const type = lookup_type || 'generic';
 
         let duplicates = [];
-        if (type === 'size') {
+        if (type === 'Size') {
             // Complex multi-field duplicate check for sizes
             for (const val of values) {
                 // val is expected to be an object for 'size' type
                 const query = {
-                    lookup_type: 'size',
+                    lookup_type: 'Size',
                     lookup_value: val.name || val.lookup_value,
                     'metadata.project': val.project,
                     'metadata.block': val.block,

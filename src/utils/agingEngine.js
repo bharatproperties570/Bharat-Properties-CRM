@@ -287,9 +287,14 @@ export const computeDealHealth = (
     // Activity score (0–25) — outcome quality + recency
     const actScore = computeActivityScore(activities, activityMasterFields);
 
-    // v3 Formula: Stage(25%) + LeadScore(25%) + ActivityScore(25%) − Risks − OwnerRisk
+    // BUG D6 FIX: Use configurable weights instead of hardcoded 0.25
+    // Fallback securely to 0.25 (25%) if config is missing
+    const stageW = (healthConfig.stageWeight?.weight || 25) / 100;
+    const scoreW = (healthConfig.scoreWeight?.weight || 25) / 100;
+    const actW = (healthConfig.activityWeight?.weight || 25) / 100;
+
     const health = Math.max(0, Math.min(100,
-        (stageScore * 0.25) + (leadScore * 0.25) + actScore - riskPenalty - ownerRisk
+        (stageScore * stageW) + (leadScore * scoreW) + (actScore * 4 * actW) - riskPenalty - ownerRisk
     ));
 
     const { green, yellow, red } = healthConfig.thresholds;
