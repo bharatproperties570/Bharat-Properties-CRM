@@ -26,7 +26,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     const { teams, users } = useUserContext();
     const { fireEvent } = useTriggers();
     const { startCall } = useCall();
-    const { masterFields, getLookupValue } = usePropertyConfig();
+    const { masterFields, getLookupValue, projects } = usePropertyConfig();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
@@ -817,7 +817,15 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
 
                                         <div className="super-cell">
                                             <div className="cell-value-main text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, lineHeight: 1.2, color: 'var(--primary-color)' }}>
-                                                {item.projectId?.name || item.project || 'Direct Property'}
+                                                {(() => {
+                                                    const projectId = item.projectId?._id || item.projectId || item.project;
+                                                    if (item.projectId?.name) return item.projectId.name;
+                                                    if (projectId) {
+                                                        const found = (projects || []).find(p => p._id === projectId || p.id === projectId);
+                                                        if (found) return found.name;
+                                                    }
+                                                    return item.projectName || item.project || 'Direct Property';
+                                                })()}
                                             </div>
                                             <div className="cell-value-sub text-ellipsis" style={{ fontSize: '0.72rem', fontWeight: 600, color: '#475569', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
                                                 <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.65rem' }}></i>
@@ -1065,7 +1073,15 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                                 {getLookupValue('UnitType', item.unitType) || 'Unit'}
                                                             </div>
                                                             <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
-                                                                {item.projectName || item.project || 'Private Property'}
+                                                                {(() => {
+                                                                    const projectId = item.projectId?._id || item.projectId || item.project;
+                                                                    if (item.projectId?.name) return item.projectId.name;
+                                                                    if (projectId) {
+                                                                        const found = (projects || []).find(p => p._id === projectId || p.id === projectId);
+                                                                        if (found) return found.name;
+                                                                    }
+                                                                    return item.projectName || item.project || 'Private Property';
+                                                                })()}
                                                             </div>
                                                         </div>
                                                     </div>
