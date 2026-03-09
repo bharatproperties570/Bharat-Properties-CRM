@@ -47,3 +47,21 @@ export const formatIndianCurrency = (num) => {
         return `₹${num}`;
     }
 };
+export const formatFullIndianAmount = (num) => {
+    if (num === undefined || num === null || num === '') return '₹ 0/-';
+    try {
+        const n = Math.abs(Number(num));
+        if (isNaN(n)) return '₹ 0/-';
+
+        let x = Math.round(n).toString();
+        let lastThree = x.substring(x.length - 3);
+        let otherNumbers = x.substring(0, x.length - 3);
+        if (otherNumbers !== '') lastThree = ',' + lastThree;
+        let res = otherNumbers.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + lastThree;
+
+        const sign = Number(num) < 0 ? '-' : '';
+        return `${sign}₹ ${res}/-`;
+    } catch (e) {
+        return `₹ ${num}/-`;
+    }
+};
