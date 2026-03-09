@@ -241,6 +241,7 @@ export const PropertyConfigProvider = ({ children }) => {
                             case 'forecastConfig': setForecastConfig(setting.value); break;
                             case 'dealHealthConfig': setDealHealthConfig(setting.value); break;
                             case 'intentSignals': setIntentSignals(setting.value); break;
+                            case 'dealMasterFields': setDealMasterFields(setting.value); break;
 
                             // Backward compatibility (Migrated in DB, but handled here for safety)
                             case 'property_config': if (!foundKeys.has('propertyConfig')) setPropertyConfig(setting.value); break;
@@ -255,7 +256,7 @@ export const PropertyConfigProvider = ({ children }) => {
 
                     // Professional Fix: Backfill missing settings to MongoDB
                     // If a key is expected but not found in backend, push the current frontend value (defaults/localStorage)
-                    const expectedKeys = ['propertyConfig', 'activityMasterFields', 'leadMasterFields', 'stageMultipliers', 'scoreBands', 'masterFields'];
+                    const expectedKeys = ['propertyConfig', 'activityMasterFields', 'leadMasterFields', 'stageMultipliers', 'scoreBands', 'masterFields', 'dealMasterFields'];
                     expectedKeys.forEach(k => {
                         if (!foundKeys.has(k)) {
                             console.log(`[PropertyConfigContext] Backfilling missing setting to MongoDB: ${k}`);
@@ -799,23 +800,6 @@ export const PropertyConfigProvider = ({ children }) => {
         timelines: ['Immediate', 'Within 3 Months', 'Within 6 Months', 'More than 6 Months'],
         campaigns: [
             {
-                name: 'Organic Campaign',
-                sources: [
-                    { name: 'Walk-in', mediums: ['Store Visit', 'Front Desk'] },
-                    { name: 'Referral', mediums: ['Client Referral', 'Employee Referral', 'Partner Referral'] },
-                    { name: 'Website', mediums: ['Contact Form', 'Chatbot', 'Direct Call'] }
-                ]
-            },
-            {
-                name: 'Online Campaign',
-                sources: [
-                    { name: 'Facebook', mediums: ['Lead Form', 'Messenger', 'Comment', 'Post', 'Marketplace'] },
-                    { name: 'Instagram', mediums: ['DM', 'Story Reply', 'Ad Click', 'Bio Link'] },
-                    { name: 'Google Ads', mediums: ['Search Ad', 'Display Ad', 'YouTube Ad'] },
-                    { name: 'LinkedIn', mediums: ['InMail', 'Post', 'Lead Gen Form'] }
-                ]
-            },
-            {
                 name: 'Offline Campaign',
                 sources: [
                     { name: 'Cold Call', mediums: ['Database 1', 'Database 2'] },
@@ -825,6 +809,37 @@ export const PropertyConfigProvider = ({ children }) => {
             }
         ]
     });
+
+    // Deal Master Fields
+    const [dealMasterFields, setDealMasterFields] = useSystemSetting('dealMasterFields', {
+        dealTypes: ['Cold', 'Warm', 'Hot', 'Very Hot'],
+        buyerTypes: ['Male', 'Female', 'Joint']
+    });
+
+    const updateDealMasterFields = useCallback(async (field, newValue, mode = 'update') => {
+        setDealMasterFields(prevFields => {
+            let updatedList = (prevFields && prevFields[field]) ? prevFields[field] : [];
+            if (mode === 'add') {
+                if (Array.isArray(updatedList) && !updatedList.includes(newValue)) {
+                    updatedList = [...updatedList, newValue];
+                }
+            } else if (mode === 'delete') {
+                if (Array.isArray(updatedList)) {
+                    updatedList = updatedList.filter(v => v !== newValue);
+                }
+            } else {
+                updatedList = newValue;
+            }
+
+            const updated = { ...prevFields, [field]: updatedList };
+            systemSettingsAPI.upsert('dealMasterFields', {
+                category: 'crm_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save deal master fields:', e));
+            return updated;
+        });
+    }, [setDealMasterFields]);
 
     // Scoring Attributes State (Static Weights)
     const [scoringAttributes, setScoringAttributes] = useSystemSetting('scoringAttributes', {
@@ -1695,8 +1710,8 @@ export const PropertyConfigProvider = ({ children }) => {
         setStageMappingRules(prev => prev.filter(r => r.id !== id));
     }, [setStageMappingRules]);
 
-    // Update a single outcome's stage in activityMasterFields
-    const updateOutcomeStage = useCallback((activityName, purposeName, outcomeLabel, newStage) => {
+    // Update a single outcome's stage and requiredForm in activityMasterFields
+    const updateOutcomeStage = useCallback((activityName, purposeName, outcomeLabel, newStage, requiredForm = null) => {
         setActivityMasterFields(prev => {
             const activities = prev.activities.map(act => {
                 if (act.name !== activityName) return act;
@@ -1707,13 +1722,22 @@ export const PropertyConfigProvider = ({ children }) => {
                         return {
                             ...purp,
                             outcomes: purp.outcomes.map(out =>
-                                out.label === outcomeLabel ? { ...out, stage: newStage } : out
+                                out.label === outcomeLabel ? { ...out, stage: newStage, requiredForm: requiredForm } : out
                             )
                         };
                     })
                 };
             });
-            return { ...prev, activities };
+            const updated = { ...prev, activities };
+
+            // Persist to backend
+            systemSettingsAPI.upsert('activityMasterFields', {
+                category: 'crm_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save activity master fields:', e));
+
+            return updated;
         });
     }, [setActivityMasterFields]);
 
@@ -1864,6 +1888,8 @@ export const PropertyConfigProvider = ({ children }) => {
         updateCompanyMasterFields,
         leadMasterFields,
         updateLeadMasterFields,
+        dealMasterFields,
+        updateDealMasterFields,
         scoringAttributes,
         updateScoringAttributes,
         scoringConfig,

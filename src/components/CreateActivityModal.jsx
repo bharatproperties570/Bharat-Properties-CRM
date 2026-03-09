@@ -4,6 +4,7 @@ import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useSequences } from '../context/SequenceContext';
 import { useTriggers } from '../context/TriggersContext';
 import { useStageEngine } from '../hooks/useStageEngine';
+import { triggerRequiredForm } from '../utils/FormTriggerService';
 
 const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
     const { activityMasterFields } = usePropertyConfig();
@@ -466,6 +467,18 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                     triggerStageUpdate(entityId, backendData.type, purpose, outcome).then(result => {
                         if (result.stage) {
                             showStageToast(`✅ Stage auto-updated → ${result.stage}`);
+
+                            // ── FUNCTIONAL FORM TRIGGERING ────────────────────────────
+                            if (result.requiredForm && result.requiredForm !== 'None') {
+                                setTimeout(() => {
+                                    triggerRequiredForm(result.requiredForm, entityId, {
+                                        type: entityType,
+                                        leadId: entityId,
+                                        activityType: backendData.type
+                                    });
+                                }, 500); // Small delay to allow Modal to close first
+                            }
+                            // ──────────────────────────────────────────────────────────
                         }
                     }).catch(err => console.warn('[StageEngine] update after activity save failed:', err));
                 }

@@ -253,6 +253,50 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
         onAddDeal(dealData);
     };
 
+    const handleToggleIntent = async (type) => {
+        if (!inventory) return;
+
+        try {
+            const currentIntents = Array.isArray(inventory.intent)
+                ? inventory.intent.map(i => (i && typeof i === 'object' ? i.lookup_value : i))
+                : [inventory.intent && typeof inventory.intent === 'object' ? inventory.intent.lookup_value : inventory.intent].filter(Boolean);
+
+            let newIntents;
+            if (currentIntents.includes(type)) {
+                // If it's the only one, don't allow removing it? Or allow it? 
+                // Usually at least one intent should be there, but let's allow removal for flexibility
+                newIntents = currentIntents.filter(i => i !== type);
+            } else {
+                newIntents = [...currentIntents, type];
+            }
+
+            const response = await api.put(`inventory/${inventoryId}`, { intent: newIntents });
+            if (response.data && response.data.success) {
+                setInventory(response.data.data);
+                toast.success(`${type} transaction type ${currentIntents.includes(type) ? 'disabled' : 'enabled'}`);
+                window.dispatchEvent(new CustomEvent('inventory-updated'));
+            }
+        } catch (error) {
+            console.error("Error toggling intent:", error);
+            toast.error("Failed to update transaction type");
+        }
+    };
+
+    const updateInventoryField = async (fieldName, value) => {
+        if (!inventory) return;
+        try {
+            const response = await api.put(`inventory/${inventoryId}`, { [fieldName]: value });
+            if (response.data && response.data.success) {
+                setInventory(response.data.data);
+                toast.success('Inventory updated');
+                window.dispatchEvent(new CustomEvent('inventory-updated'));
+            }
+        } catch (error) {
+            console.error(`Error updating ${fieldName}:`, error);
+            toast.error('Update failed');
+        }
+    };
+
     const getTargetContacts = () => {
         const targets = [];
         if (inventory) {
@@ -318,15 +362,20 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                 newRemark += ` | Next: ${data.nextActionType} on ${data.nextActionDate} @ ${data.nextActionTime}`;
             }
 
+            // Automation: Mark as Sold/Rented/Inactive (Driven by Business Rules)
             let newStatus = inventory.status;
-            if (data.markAsSold && data.reason) {
-                if (String(data.reason).includes('Sold Out')) {
-                    newStatus = 'Sold Out';
-                } else if (String(data.reason).includes('Rented Out')) {
-                    newStatus = 'Rented Out';
-                } else {
-                    newStatus = 'Inactive';
-                }
+
+            // Get business rule from context if it exists
+            const rule = masterFields.feedbackRules?.[data.result]?.[data.reason];
+            if (rule?.inventoryStatus === 'InActive' && data.markAsSold) {
+                // Determine internal status name based on reason
+                if (String(data.reason).includes('Sold Out')) newStatus = 'Sold Out';
+                else if (String(data.reason).includes('Rented Out')) newStatus = 'Rented Out';
+                else newStatus = 'Inactive';
+            } else if (rule?.inventoryStatus === 'Active') {
+                // Professional Fix: Explicitly reset to 'Available' when rule says 'Active'
+                // This ensures "Create Deal" buttons become enabled immediately
+                newStatus = 'Available';
             }
 
             const newInteraction = {
@@ -431,18 +480,36 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                 {renderValue(inventory.unitNo)}
                                 ({renderValue(getLookupValue('UnitType', inventory.unitType))})
                             </h2>
-                            <span style={{
-                                backgroundColor: statusStyle.bg,
-                                color: statusStyle.text,
-                                padding: '4px 10px', borderRadius: '20px',
-                                fontSize: '0.7rem', fontWeight: 800,
-                                display: 'flex', alignItems: 'center', gap: '6px',
-                                textTransform: 'uppercase', letterSpacing: '0.03em',
-                                border: `1px solid ${statusStyle.dot}33`
-                            }}>
-                                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: statusStyle.dot }}></span>
-                                {currentStatus}
-                            </span>
+                            {(() => {
+                                const activeStatusNames = ['Available', 'Active', 'Interested / Warm', 'Interested / Hot', 'Request Call Back', 'Busy / Driving', 'Market Feedback', 'General Inquiry', 'Blocked', 'Booked', 'Interested'];
+                                const rawStatus = getLookupValue('Status', inventory.status) || 'Available';
+                                const isActive = activeStatusNames.includes(rawStatus) || !rawStatus || rawStatus === '-';
+                                const statusLabel = isActive ? 'Active' : 'Inactive';
+                                const statusColor = isActive ? '#10b981' : (rawStatus === 'Sold Out' || rawStatus === 'Rented Out') ? '#f59e0b' : '#64748b';
+                                const bgColor = isActive ? '#ecfdf5' : (rawStatus === 'Sold Out' || rawStatus === 'Rented Out') ? '#fffbeb' : '#f1f5f9';
+
+                                return (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{
+                                            backgroundColor: bgColor,
+                                            color: statusColor,
+                                            padding: '4px 10px', borderRadius: '20px',
+                                            fontSize: '0.7rem', fontWeight: 800,
+                                            display: 'flex', alignItems: 'center', gap: '6px',
+                                            textTransform: 'uppercase', letterSpacing: '0.03em',
+                                            border: `1px solid ${statusColor}33`
+                                        }}>
+                                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: statusColor }}></span>
+                                            {statusLabel}
+                                        </span>
+                                        {rawStatus !== statusLabel && rawStatus !== 'Available' && (
+                                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', background: '#f8fafc', padding: '2px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                                                {rawStatus}
+                                            </span>
+                                        )}
+                                    </div>
+                                );
+                            })()}
                         </div>
                         <p style={{ fontSize: '0.85rem', color: '#64748b', margin: '2px 0 0 0', fontWeight: 500 }}>
                             {renderValue(inventory.projectName)} • {renderValue(inventory.block)}
@@ -622,47 +689,78 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                 const isSold = currentStatus === 'Sold Out' && type === 'Sell';
                                 const isDisabled = isSold || currentStatus === 'Inactive';
 
+                                // Check if this intent is currently active for the inventory
+                                const isIntentActive = Array.isArray(inventory?.intent)
+                                    ? inventory.intent.some(i => (i && typeof i === 'object' ? i.lookup_value : i) === type)
+                                    : (inventory?.intent && typeof inventory.intent === 'object' ? inventory.intent.lookup_value : inventory?.intent) === type;
+
+                                // Pricing mapping
+                                const priceField = type === 'Sell' ? 'price' : (type === 'Rent' ? 'rentPrice' : 'leasePrice');
+                                const priceValue = inventory?.[priceField]?.value || '';
+
                                 return (
                                     <div key={type}
                                         style={{
                                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                                             padding: '14px 18px',
-                                            background: dealExists ? '#fff1f2' : 'rgba(248, 250, 252, 0.5)',
+                                            background: dealExists ? '#fff1f2' : (isIntentActive ? '#f8fafc' : 'rgba(248, 250, 252, 0.3)'),
                                             borderRadius: '12px',
-                                            border: dealExists ? '1px solid #fecdd3' : '1px solid rgba(241, 245, 249, 0.8)',
+                                            border: dealExists ? '1px solid #fecdd3' : (isIntentActive ? '1px solid #e2e8f0' : '1px solid rgba(241, 245, 249, 0.5)'),
                                             transition: 'all 0.2s ease',
                                             position: 'relative',
-                                            overflow: 'hidden'
+                                            overflow: 'hidden',
+                                            opacity: isIntentActive || dealExists ? 1 : 0.7
                                         }}
                                         onMouseEnter={(e) => {
-                                            e.currentTarget.style.background = dealExists ? '#ffe4e6' : '#fff';
-                                            e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.05)';
-                                            e.currentTarget.style.transform = 'translateY(-1px)';
+                                            if (!isDisabled) {
+                                                e.currentTarget.style.background = dealExists ? '#ffe4e6' : '#fff';
+                                                e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.05)';
+                                                e.currentTarget.style.transform = 'translateY(-1px)';
+                                            }
                                         }}
                                         onMouseLeave={(e) => {
-                                            e.currentTarget.style.background = dealExists ? '#fff1f2' : 'rgba(248, 250, 252, 0.5)';
+                                            e.currentTarget.style.background = dealExists ? '#fff1f2' : (isIntentActive ? '#f8fafc' : 'rgba(248, 250, 252, 0.3)');
                                             e.currentTarget.style.boxShadow = 'none';
                                             e.currentTarget.style.transform = 'translateY(0)';
                                         }}
                                     >
-                                        {dealExists && (
-                                            <div style={{
-                                                position: 'absolute', top: '-10px', right: '-10px',
-                                                width: '40px', height: '40px', background: '#fb7185',
-                                                transform: 'rotate(45deg)', opacity: 0.1
-                                            }}></div>
-                                        )}
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
                                             <div style={{
                                                 width: '32px', height: '32px', borderRadius: '8px',
                                                 background: type === 'Sell' ? '#eff6ff' : type === 'Rent' ? '#f0fdf4' : '#faf5ff',
                                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                color: type === 'Sell' ? '#2563eb' : type === 'Rent' ? '#16a34a' : '#9333ea'
+                                                color: type === 'Sell' ? '#2563eb' : type === 'Rent' ? '#16a34a' : '#9333ea',
+                                                opacity: isIntentActive ? 1 : 0.5
                                             }}>
                                                 <i className={`fas fa-${type === 'Sell' ? 'hand-holding-usd' : type === 'Rent' ? 'key' : 'file-signature'}`}></i>
                                             </div>
-                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                <span style={{ fontWeight: 700, color: '#334155', fontSize: '0.9rem' }}>{type}</span>
+                                            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <span style={{ fontWeight: 700, color: isIntentActive ? '#1e293b' : '#64748b', fontSize: '0.9rem' }}>{type}</span>
+                                                    {isIntentActive && !dealExists && (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>₹</span>
+                                                            <input
+                                                                type="number"
+                                                                placeholder="Price"
+                                                                value={priceValue}
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                onBlur={(e) => updateInventoryField(priceField, { value: parseFloat(e.target.value) || 0, currency: 'INR' })}
+                                                                style={{
+                                                                    border: 'none',
+                                                                    borderBottom: '1px dashed #cbd5e1',
+                                                                    fontSize: '0.8rem',
+                                                                    fontWeight: 600,
+                                                                    color: '#0f172a',
+                                                                    width: '100px',
+                                                                    background: 'transparent',
+                                                                    padding: '0 4px',
+                                                                    outline: 'none'
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </div>
                                                 {dealExists && (
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
                                                         <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#be123c' }}>
@@ -674,7 +772,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                                     </div>
                                                 )}
                                             </div>
-                                            {dealExists && <span style={{ fontSize: '0.6rem', padding: '2px 6px', background: '#fb7185', color: '#fff', borderRadius: '4px', fontWeight: 800, marginLeft: '4px' }}>ACTIVE DEAL</span>}
+                                            {dealExists && <span style={{ fontSize: '0.6rem', padding: '2px 6px', background: '#fb7185', color: '#fff', borderRadius: '4px', fontWeight: 800, marginLeft: '8px' }}>ACTIVE DEAL</span>}
                                         </div>
 
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -700,16 +798,16 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                             ) : (
                                                 <button
                                                     className="primary-btn"
-                                                    disabled={isDisabled}
+                                                    disabled={isDisabled || !isIntentActive}
                                                     onClick={() => handleCreateDeal(type)}
                                                     style={{
                                                         fontSize: '0.85rem', padding: '8px 16px',
-                                                        opacity: isDisabled ? 0.5 : 1,
-                                                        cursor: isDisabled ? 'not-allowed' : 'pointer',
+                                                        opacity: (isDisabled || !isIntentActive) ? 0.5 : 1,
+                                                        cursor: (isDisabled || !isIntentActive) ? 'not-allowed' : 'pointer',
                                                         background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                                                         border: 'none',
                                                         fontWeight: 700,
-                                                        boxShadow: isDisabled ? 'none' : '0 4px 6px -1px rgba(16, 185, 129, 0.2)'
+                                                        boxShadow: (isDisabled || !isIntentActive) ? 'none' : '0 4px 6px -1px rgba(16, 185, 129, 0.2)'
                                                     }}
                                                 >
                                                     Create Deal
@@ -923,7 +1021,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                 <DetailField label="City" value={getLookupValue('City', inventory.address?.city || inventory.city)} />
                                 <DetailField label="Location" value={getLookupValue('Location', inventory.address?.location || inventory.location)} />
                                 <DetailField label="Tehsil" value={getLookupValue('Tehsil', inventory.address?.tehsil)} />
-                                <DetailField label="Post Office" value={inventory.address?.postOffice} />
+                                <DetailField label="Post Office" value={getLookupValue('PostOffice', inventory.address?.postOffice)} />
                                 <DetailField label="Pin Code" value={inventory.address?.pincode || inventory.address?.pinCode} />
                                 <DetailField label="House Number" value={inventory.address?.hNo} />
                                 <div style={{ gridColumn: 'span 1' }}>
@@ -954,7 +1052,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                             const tehsilVal = getLookupValue('Tehsil', addr.tehsil);
                                             if (tehsilVal) parts.push(tehsilVal);
 
-                                            if (addr.postOffice) parts.push(addr.postOffice);
+                                            if (addr.postOffice) parts.push(getLookupValue('PostOffice', addr.postOffice));
 
                                             const cityVal = getLookupValue('City', addr.city);
                                             if (cityVal) parts.push(cityVal);
@@ -1085,6 +1183,36 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
 
                     {/* CONSOLIDATED CONTACT INFO */}
                     {/* ASSOCIATED CONTACTS & STAKEHOLDERS (Professional Sidebar View) */}
+                    <section className="detail-card" style={glassCardStyle}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid rgba(226, 232, 240, 0.5)', paddingBottom: '10px' }}>
+                            <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-history" style={{ color: '#ef4444', fontSize: '0.8rem' }}></i> Previous Owner History
+                            </h3>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {inventory.previousOwners && inventory.previousOwners.length > 0 ? (
+                                inventory.previousOwners.map((owner, idx) => (
+                                    <div key={idx} style={{
+                                        padding: '12px',
+                                        background: '#f8fafc',
+                                        borderRadius: '12px',
+                                        border: '1px solid #f1f5f9'
+                                    }}>
+                                        <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b' }}>{owner.name}</div>
+                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{owner.phone || owner.mobile}</div>
+                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '4px', fontStyle: 'italic' }}>
+                                            Owned from: {owner.fromDate || 'N/A'} to {owner.toDate || 'N/A'}
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <div style={{ textAlign: 'center', padding: '20px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
+                                    <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0 }}>No previous owner history found</p>
+                                </div>
+                            )}
+                        </div>
+                    </section>
+
                     <section className="detail-card" style={glassCardStyle}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid rgba(226, 232, 240, 0.5)', paddingBottom: '10px' }}>
                             <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>

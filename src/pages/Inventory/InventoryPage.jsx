@@ -58,6 +58,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     const [isAddDealModalOpen, setIsAddDealModalOpen] = useState(false);
     const [selectedDealData, setSelectedDealData] = useState(null);
     const [modalData, setModalData] = useState([]);
+    const [statusFilter, setStatusFilter] = useState(''); // '' | 'Active' | 'InActive'
 
     const getTeamName = useCallback((teamValue) => {
         if (!teamValue) return "Standard Team";
@@ -131,6 +132,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                 page: currentPage,
                 limit: recordsPerPage,
                 search: searchTerm,
+                statusCategory: statusFilter
             });
 
             const response = await api.get(`inventory?${queryParams.toString()}`);
@@ -159,7 +161,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
         } finally {
             setLoading(false);
         }
-    }, [currentPage, recordsPerPage, searchTerm, refreshTrigger]);
+    }, [currentPage, recordsPerPage, searchTerm, refreshTrigger, statusFilter]);
 
     useEffect(() => {
         fetchInventory();
@@ -383,8 +385,9 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                 else if (String(data.reason).includes('Rented Out')) newStatus = 'Rented Out';
                 else newStatus = 'Inactive';
             } else if (rule?.inventoryStatus === 'Active') {
-                // If it's explicitly marked as active by rule (e.g. Price Too High), keep it Available
-                // but usually it's already in an active state.
+                // Professional Fix: Explicitly reset to 'Available' when rule says 'Active'
+                // This ensures consistency and enables deal options
+                newStatus = 'Available';
             }
 
             // Create History Entry
@@ -508,7 +511,16 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
             {viewMode === 'list' ? (
                 <div className="view-scroll-wrapper">
                     <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0', paddingBottom: '10px' }}>
-                        <div className="page-title-group" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div
+                            onClick={() => {
+                                setStatusFilter('');
+                                setCurrentPage(1);
+                                setFilters({});
+                                setSearchTerm('');
+                            }}
+                            style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}
+                            title="Click to show all inventory"
+                        >
                             <div style={{ width: '38px', height: '38px', background: '#f0fdf4', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                 <i className="fas fa-warehouse" style={{ color: '#16a34a', fontSize: '1.1rem' }}></i>
                             </div>
@@ -556,30 +568,67 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                         />
                     </div>
 
-                    <div className="inventory-stats-row" style={{ padding: '4px 25px', display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: '20px', background: '#fff' }}>
-                        <div style={{ display: 'flex', gap: '15px' }}>
-                            <div className="status-card" style={{ padding: '8px 15px', minWidth: '160px', borderLeft: '4px solid #22c55e' }}>
-                                <div className="stat-card-info">
-                                    <h3 style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Active Inventory</h3>
-                                    <div className="stat-count" style={{ fontSize: '1.2rem', color: '#16a34a', fontWeight: 800 }}>{activeCount.toLocaleString()}</div>
-                                </div>
+                    <div className="inventory-stats-row" style={{ padding: '10px 25px', display: 'flex', alignItems: 'center', justifyContent: 'flex-start', background: '#fff', borderBottom: '1px solid #f1f5f9' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0', background: '#f8fafc', padding: '4px', borderRadius: '10px' }}>
+                            {/* INACTIVE TAB (LEFT) */}
+                            <div
+                                onClick={() => {
+                                    setStatusFilter(prev => prev === 'InActive' ? '' : 'InActive');
+                                    setCurrentPage(1);
+                                }}
+                                style={{
+                                    padding: '10px 30px 10px 20px',
+                                    minWidth: '140px',
+                                    cursor: 'pointer',
+                                    backgroundColor: statusFilter === 'InActive' ? '#64748b' : 'transparent',
+                                    color: statusFilter === 'InActive' ? '#fff' : '#64748b',
+                                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                    borderRadius: '8px 4px 4px 8px',
+                                    position: 'relative',
+                                    fontWeight: 700,
+                                    fontSize: '0.85rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    clipPath: 'polygon(0% 0%, 90% 0%, 100% 50%, 90% 100%, 0% 100%)',
+                                    zIndex: statusFilter === 'InActive' ? 2 : 1,
+                                    boxShadow: statusFilter === 'InActive' ? '0 4px 12px rgba(100, 116, 139, 0.2)' : 'none'
+                                }}
+                            >
+                                <i className="fas fa-ban" style={{ fontSize: '0.9rem' }}></i>
+                                <span>Inactive ({inactiveCount})</span>
                             </div>
-                            <div className="status-card" style={{ padding: '8px 15px', minWidth: '160px', borderLeft: '4px solid #94a3b8' }}>
-                                <div className="stat-card-info">
-                                    <h3 style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>InActive Inventory</h3>
-                                    <div className="stat-count" style={{ fontSize: '1.2rem', color: '#64748b', fontWeight: 800 }}>{inactiveCount.toLocaleString()}</div>
-                                </div>
-                            </div>
-                        </div>
 
-                        {/* Deal Intake Icon moved here */}
-                        <div
-                            style={{ position: 'relative', cursor: 'pointer', marginLeft: 'auto' }}
-                            onClick={() => onNavigate && onNavigate('deal-intake')}
-                            title="Deal Intake Inbox"
-                        >
-                            <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#fff', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-                                <i className="fas fa-inbox" style={{ color: '#64748b', fontSize: '1.1rem' }}></i>
+                            {/* ACTIVE TAB (RIGHT) */}
+                            <div
+                                onClick={() => {
+                                    setStatusFilter(prev => prev === 'Active' ? '' : 'Active');
+                                    setCurrentPage(1);
+                                }}
+                                style={{
+                                    padding: '10px 35px 10px 30px',
+                                    minWidth: '140px',
+                                    cursor: 'pointer',
+                                    backgroundColor: statusFilter === 'Active' ? '#10b981' : 'transparent',
+                                    color: statusFilter === 'Active' ? '#fff' : '#64748b',
+                                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                    borderRadius: '4px 8px 8px 4px',
+                                    position: 'relative',
+                                    marginLeft: '-15px',
+                                    fontWeight: 700,
+                                    fontSize: '0.85rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    clipPath: statusFilter === 'Active'
+                                        ? 'polygon(0% 50%, 15% 0%, 90% 0%, 100% 50%, 90% 100%, 15% 100%)'
+                                        : 'polygon(0% 50%, 15% 0%, 100% 0%, 100% 100%, 15% 100%)',
+                                    zIndex: statusFilter === 'Active' ? 2 : 0,
+                                    boxShadow: statusFilter === 'Active' ? '0 4px 12px rgba(16, 185, 129, 0.2)' : 'none'
+                                }}
+                            >
+                                <i className="fas fa-check-circle" style={{ fontSize: '0.9rem' }}></i>
+                                <span>Active ({activeCount})</span>
                             </div>
                         </div>
                     </div>
@@ -812,23 +861,39 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
 
                                         <div className="super-cell">
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                                                <div
-                                                    className={`project-thumbnail ${item.status === 'Active' ? 'thumb-active' : 'thumb-inactive'}`}
-                                                    onClick={() => onNavigate('inventory-detail', item._id)}
-                                                    style={{
-                                                        width: 'auto',
-                                                        minWidth: '60px',
-                                                        height: '28px',
-                                                        borderRadius: '6px',
-                                                        padding: '0 10px',
-                                                        aspectRatio: 'auto',
-                                                        cursor: 'pointer'
-                                                    }}
-                                                >
-                                                    {renderValue(item.unitNo) || renderValue(item.unitNumber) || 'N/A'}
-                                                </div>
+                                                {(() => {
+                                                    const rawStatus = renderVal(item.status, 'Status');
+                                                    const activeStatusNames = ['Available', 'Active', 'Interested / Warm', 'Interested / Hot', 'Request Call Back', 'Busy / Driving', 'Market Feedback', 'General Inquiry', 'Blocked', 'Booked', 'Interested'];
+                                                    const isActive = activeStatusNames.includes(rawStatus) || !rawStatus || rawStatus === '-';
+
+                                                    return (
+                                                        <div
+                                                            className={`project-thumbnail ${isActive ? 'thumb-active' : 'thumb-inactive'}`}
+                                                            onClick={() => onNavigate('inventory-detail', item._id)}
+                                                            style={{
+                                                                width: 'auto',
+                                                                minWidth: '60px',
+                                                                height: '28px',
+                                                                borderRadius: '6px',
+                                                                padding: '0 10px',
+                                                                aspectRatio: 'auto',
+                                                                cursor: 'pointer',
+                                                                background: isActive ? '#ecfdf5' : '#f1f5f9',
+                                                                color: isActive ? '#10b981' : '#64748b',
+                                                                border: isActive ? '1px solid #10b98133' : '1px solid #e2e8f0',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                fontWeight: 700,
+                                                                fontSize: '0.85rem'
+                                                            }}
+                                                        >
+                                                            {renderValue(item.unitNo) || renderValue(item.unitNumber) || 'N/A'}
+                                                        </div>
+                                                    );
+                                                })()}
                                                 <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                                    {renderVal(item.unitType, 'UnitType')} {renderVal(item.facing, 'Facing') !== '-' ? `| ${renderVal(item.facing, 'Facing')}` : ''}
+                                                    {renderVal(item.unitType, 'UnitType')}
                                                 </div>
                                             </div>
                                             <div style={{ paddingLeft: '2px' }}>
@@ -926,35 +991,24 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
 
                                         <div className="super-cell">
                                             {(() => {
-                                                const associate = (item.associates && item.associates.length > 0) ? item.associates[0] : item.owners?.find(o => o.role === 'Associate' || o.link_role === 'Associate');
+                                                const associate = (item.associates && item.associates.length > 0) ? (item.associates[0]?.contact || item.associates[0]) : item.owners?.find(o => o.role === 'Associate' || o.link_role === 'Associate');
+                                                const relationship = (item.associates && item.associates.length > 0) ? item.associates[0]?.relationship : '';
+
                                                 if (associate) {
                                                     return (
                                                         <>
                                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
                                                                 <div style={{ fontWeight: 800, color: '#6366f1', fontSize: '0.85rem' }}>{renderValue(associate.name)}</div>
+                                                                {relationship && <span style={{ fontSize: '0.6rem', color: '#94a3b8', background: '#f8fafc', padding: '1px 5px', borderRadius: '4px' }}>{relationship}</span>}
                                                             </div>
                                                             <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px' }}>{renderValue(associate.phones?.[0]?.number || associate.mobile)}</div>
                                                             <div className="address-clamp" style={{ fontSize: '0.68rem', lineHeight: '1.2', color: '#94a3b8' }}>
-                                                                {renderValue(associate.relationship) ? `Associate (${renderValue(associate.relationship)})` : 'Verified Associate'}
+                                                                {renderValue(associate.personalAddress || associate.emails?.[0]?.address)}
                                                             </div>
                                                         </>
                                                     );
-                                                } else if (item.associatedContact) {
-                                                    // Fallback for legacy data
-                                                    return (
-                                                        <>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-                                                                <div style={{ fontWeight: 800, color: '#6366f1', fontSize: '0.85rem' }}>{renderValue(item.associatedContact)}</div>
-                                                            </div>
-                                                            <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px' }}>{renderValue(item.associatedPhone)}</div>
-                                                            <div className="address-clamp" style={{ fontSize: '0.68rem', lineHeight: '1.2', color: '#94a3b8' }}>
-                                                                Verified Associate Representative
-                                                            </div>
-                                                        </>
-                                                    );
-                                                } else {
-                                                    return <div style={{ color: '#cbd5e1', fontStyle: 'italic', fontSize: '0.75rem' }}>No associate</div>;
                                                 }
+                                                return <div style={{ color: '#cbd5e1', fontStyle: 'italic', fontSize: '0.75rem' }}>No associate</div>;
                                             })()}
                                         </div>
 
@@ -964,12 +1018,13 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                 const latestFeedback = (item.history && item.history.length > 0) ? item.history[0] : null;
 
                                                 // Determine "Professional" mapping
-                                                const isActive = rawStatus === 'Active' || rawStatus === 'Available' || !rawStatus || rawStatus === '-';
+                                                const activeStatusNames = ['Available', 'Active', 'Interested / Warm', 'Interested / Hot', 'Request Call Back', 'Busy / Driving', 'Market Feedback', 'General Inquiry', 'Blocked', 'Booked', 'Interested'];
+                                                const isActive = activeStatusNames.includes(rawStatus) || !rawStatus || rawStatus === '-';
                                                 const statusLabel = isActive ? 'Active' : 'Inactive';
                                                 const statusColor = isActive ? '#10b981' : (rawStatus === 'Sold Out' || rawStatus === 'Rented Out') ? '#f59e0b' : '#64748b';
 
                                                 return (
-                                                    <>
+                                                    <div style={{ paddingBottom: '10px', borderBottom: '1px solid #f1f5f9', marginBottom: '8px' }}>
                                                         <div style={{
                                                             fontSize: '0.65rem',
                                                             fontWeight: 800,
@@ -1022,7 +1077,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                                 No updates yet
                                                             </div>
                                                         )}
-                                                    </>
+                                                    </div>
                                                 );
                                             })()}
                                         </div>
@@ -1050,8 +1105,8 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 ))
                             )}
                         </div>
-                    </div>
-                </div>
+                    </div >
+                </div >
             ) : (
                 <>
                     <div className="page-header">
@@ -1212,23 +1267,17 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                     </div>
 
                 </>
-            )}
+            )
+            }
 
             <footer className="summary-footer" style={{ height: '55px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center' }}>
                 <div style={{ display: 'flex', gap: '20px', alignItems: 'center', padding: '0 2rem', width: '100%', overflowX: 'auto' }}>
-                    <div className="summary-label" style={{ background: '#334155', color: '#fff', borderRadius: '8px', fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800, whiteSpace: 'nowrap' }}>CATEGORY SYNC</div>
+                    <div className="summary-label" style={{ background: '#334155', color: '#fff', borderRadius: '8px', fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800, whiteSpace: 'nowrap' }}>SUMMARY</div>
                     {categoryStats && categoryStats.length > 0 ? (
                         categoryStats.map((stat, idx) => {
                             const colors = ['#6366f1', 'var(--primary-color)', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6'];
                             const color = colors[idx % colors.length];
-                            const labelMap = {
-                                'Residential': 'RESI',
-                                'Commercial': 'COMM',
-                                'Agricultural': 'AGRI',
-                                'Industrial': 'INDU',
-                                'Institutional': 'INST'
-                            };
-                            const label = labelMap[stat.name] || stat.name.substring(0, 4).toUpperCase();
+                            const label = stat.name.toUpperCase();
                             return (
                                 <div key={idx} className="stat-pill" style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
                                     <span style={{ color: color, fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase' }}>{label}:</span>

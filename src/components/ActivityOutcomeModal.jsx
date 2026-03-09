@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useActivities } from '../context/ActivityContext';
 import { useStageEngine } from '../hooks/useStageEngine';
+import { triggerRequiredForm } from '../utils/FormTriggerService';
 
 const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
     const { activityMasterFields } = usePropertyConfig();
@@ -110,7 +111,21 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
                 const purpose = activity.details?.purpose || (purposeObj ? 'Matched Purpose' : '');
 
                 const result = await triggerStageUpdate(leadRelation.id, activity.type, purpose, outcome);
-                if (result.stage) showStageToast(`✅ Lead stage → ${result.stage}`);
+                if (result.stage) {
+                    showStageToast(`✅ Lead stage → ${result.stage}`);
+
+                    // ── FUNCTIONAL FORM TRIGGERING ────────────────────────────
+                    if (result.requiredForm && result.requiredForm !== 'None') {
+                        setTimeout(() => {
+                            triggerRequiredForm(result.requiredForm, leadRelation.id, {
+                                type: 'lead',
+                                leadId: leadRelation.id,
+                                activityType: activity.type
+                            });
+                        }, 500);
+                    }
+                    // ──────────────────────────────────────────────────────────
+                }
 
                 // Cascade: if this lead belongs to a deal, sync deal stage too
                 if (dealRelation?.id) {

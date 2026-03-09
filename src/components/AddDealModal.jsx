@@ -10,7 +10,7 @@ import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 
 const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToProperties }) => {
-    const { getLookupId, getLookupValue } = usePropertyConfig();
+    const { getLookupId, getLookupValue, dealMasterFields } = usePropertyConfig();
     const { validateAsync } = useFieldRules();
     const { fireEvent } = useTriggers();
     const { executeDistribution } = useDistribution();
@@ -390,12 +390,6 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 fixed: type === 'fixed' ? !prev.pricingNature.fixed : false
             }
         }));
-        // Exclusive Checkbox Logic
-        if (type === 'negotiable') {
-            setFormData(prev => ({ ...prev, pricingNature: { negotiable: !prev.pricingNature.negotiable, fixed: false } }));
-        } else {
-            setFormData(prev => ({ ...prev, pricingNature: { fixed: !prev.pricingNature.fixed, negotiable: false } }));
-        }
     };
 
     const handleSave = async () => {
@@ -862,9 +856,9 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                                     value={formData.dealType}
                                     onChange={e => handleInputChange('dealType', e.target.value)}
                                 >
-                                    <option value="Hot">Hot</option>
-                                    <option value="Warm">Warm</option>
-                                    <option value="Cold">Cold</option>
+                                    {dealMasterFields?.dealTypes?.map(type => (
+                                        <option key={type} value={type}>{type}</option>
+                                    ))}
                                 </select>
                             </div>
                             <div>

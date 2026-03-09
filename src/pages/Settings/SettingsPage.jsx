@@ -22,6 +22,7 @@ import CustomizeLeadPage from './views/CustomizeLeadPage';
 
 import CustomizeCompanyPage from './views/CustomizeCompanyPage';
 import DealSettingsPage from './views/DealSettingsPage';
+import DealDetailsPage from './views/DealDetailsPage';
 import ActivitySettingsPage from './views/ActivitySettingsPage';
 import CustomizeFeedbackPage from './views/CustomizeFeedbackPage';
 import FeedbackTemplatePage from './views/FeedbackTemplatePage';
@@ -765,7 +766,7 @@ const SettingsHubPage = () => {
         { title: 'Manage', items: [{ id: 'users', label: 'Users' }, { id: 'notifications', label: 'Notifications' }, { id: 'sales-goals', label: 'Sales goals' }] },
         { title: 'Data', items: [{ id: 'import', label: 'Import' }, { id: 'bulk-update', label: 'Bulk update' }, { id: 'export', label: 'Export' }, { id: 'lead-capture', label: 'Lead capture' }, { id: 'enrichment', label: 'Prospecting and enrichment' }, { id: 'duplicate-mgt', label: 'Duplicate Management' }] },
         { title: 'Communication channels', items: [{ id: 'email', label: 'Email' }, { id: 'calls', label: 'Calls' }, { id: 'messaging', label: 'Messaging' }, { id: 'feedback-templates', label: 'Message Templates' }] },
-        { title: 'Customize', items: [{ id: 'company-c', label: 'Company' }, { id: 'project-c', label: 'Project' }, { id: 'leads-c', label: 'Leads' }, { id: 'contacts-c', label: 'Contacts' }, { id: 'properties-c', label: 'Properties' }, { id: 'parsing-rules', label: 'Parsing Rules' }, { id: 'deals-c', label: 'Deals' }, { id: 'task-c', label: 'Activities' }] },
+        { title: 'Customize', items: [{ id: 'company-c', label: 'Company' }, { id: 'project-c', label: 'Project' }, { id: 'leads-c', label: 'Leads' }, { id: 'contacts-c', label: 'Contacts' }, { id: 'properties-c', label: 'Properties' }, { id: 'parsing-rules', label: 'Parsing Rules' }, { id: 'deals-c', label: 'Deals' }, { id: 'deal-details', label: 'Deal Details' }, { id: 'task-c', label: 'Activities' }] },
         { title: 'Notes', items: [{ id: 'post-sales', label: 'Post Sales' }, { id: 'layouts', label: 'Layouts' }] },
         { title: 'Integrations', items: [{ id: 'integrations', label: 'Integrations' }, { id: 'api', label: 'API' }] },
         { title: 'Business rules', items: [{ id: 'field-rules', label: 'Field rules' }, { id: 'distributions', label: 'Distributions' }, { id: 'sequences', label: 'Sequences' }, { id: 'automated-actions', label: 'Automated actions' }, { id: 'triggers', label: 'Triggers' }, { id: 'scoring', label: 'Scoring' }, { id: 'stage-c', label: 'Stage' }] }
@@ -925,6 +926,8 @@ const SettingsHubPage = () => {
                         <DuplicationSettingsPage />
                     ) : activeTab === 'deals-c' ? (
                         <DealSettingsPage />
+                    ) : activeTab === 'deal-details' ? (
+                        <DealDetailsPage />
                     ) : activeTab === 'stage-c' ? (
                         <StagePage />
                     ) : activeTab === 'export' ? (

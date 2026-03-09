@@ -13,6 +13,7 @@ import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModa
 import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../components/SendMessageModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
+import AddQuoteModal from '../../components/AddQuoteModal';
 import toast from 'react-hot-toast';
 import { api } from "../../utils/api";
 import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
@@ -56,6 +57,8 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const [selectedIds, setSelectedIds] = useState([]);
     const [currentView, setCurrentView] = useState('list'); // 'list' or 'map'
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
+    const [editingDeal, setEditingDeal] = useState(null);
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
     const [deals, setDeals] = useState([]);
@@ -190,7 +193,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const handleEditClick = () => {
         const deal = getSelectedDeal();
         if (deal) {
-            setSelectedDealState(deal);
+            setEditingDeal(deal);
             setIsAddModalOpen(true);
         }
     };
@@ -208,6 +211,14 @@ function DealsPage({ onNavigate, onAddActivity }) {
         if (deal) {
             setSelectedDealState(deal);
             setIsDocumentModalOpen(true);
+        }
+    };
+
+    const handleQuoteClick = () => {
+        if (selectedIds.length === 1) {
+            setIsQuoteModalOpen(true);
+        } else {
+            toast.error("Please select exactly one deal to generate a quote.");
         }
     };
 
@@ -294,24 +305,31 @@ function DealsPage({ onNavigate, onAddActivity }) {
         setCurrentPage(1);
     };
 
-    const handleDelete = async () => {
-        if (selectedIds.length === 0) return;
+    const handleDelete = async (id = null) => {
+        // If id is an event object or not a string, treat it as null (use selectedIds)
+        const targetId = (typeof id === 'string') ? id : null;
+        const idsToDelete = targetId ? [targetId] : selectedIds;
+        if (idsToDelete.length === 0) return;
 
-        const confirmMsg = selectedIds.length === 1
+        const confirmMsg = idsToDelete.length === 1
             ? "Are you sure you want to delete this deal?"
-            : `Are you sure you want to delete ${selectedIds.length} selected deals?`;
+            : `Are you sure you want to delete ${idsToDelete.length} selected deals?`;
 
         if (!window.confirm(confirmMsg)) return;
 
         try {
-            if (selectedIds.length === 1) {
-                await api.delete(`deals/${selectedIds[0]}`);
+            if (idsToDelete.length === 1) {
+                await api.delete(`deals/${idsToDelete[0]}`);
             } else {
-                await api.post(`deals/bulk-delete`, { ids: selectedIds });
+                await api.post(`deals/bulk-delete`, { ids: idsToDelete });
             }
 
-            toast.success(`${selectedIds.length} deal(s) deleted successfully`);
-            setSelectedIds([]);
+            toast.success(`${idsToDelete.length} deal(s) deleted successfully`);
+            if (id) {
+                setSelectedIds(prev => prev.filter(currId => currId !== id));
+            } else {
+                setSelectedIds([]);
+            }
             fetchDeals();
         } catch (error) {
             console.error("Error deleting deals:", error);
@@ -417,7 +435,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             <i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call
                                         </button>
                                         <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
-                                        <button className="action-btn" title="View Quote"><i className="fas fa-file-invoice-dollar"></i> Quote</button>
+                                        <button className="action-btn" title="View Quote" onClick={handleQuoteClick}><i className="fas fa-file-invoice-dollar"></i> Quote</button>
                                         <button
                                             className="action-btn"
                                             title="Book Deal"
@@ -453,7 +471,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                 <button className="action-btn" title="Add Note"><i className="fas fa-sticky-note"></i> Note</button>
 
                                 <div style={{ marginLeft: 'auto' }}>
-                                    <button className="action-btn danger" title="Delete" onClick={handleDelete}><i className="fas fa-trash-alt"></i></button>
+                                    <button className="action-btn danger" title="Delete" onClick={() => handleDelete()}><i className="fas fa-trash-alt"></i></button>
                                 </div>
                             </div>
                         ) : (
@@ -585,7 +603,19 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     {/* Header */}
                     {currentView === 'list' && (
                         <div className="list-header deals-list-grid" style={{ position: 'sticky', top: '45px', zIndex: 99, padding: '15px 1.5rem', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            <div><input type="checkbox" /></div>
+                            <div>
+                                <input
+                                    type="checkbox"
+                                    checked={filteredDeals.length > 0 && selectedIds.length === filteredDeals.length}
+                                    onChange={(e) => {
+                                        if (e.target.checked) {
+                                            setSelectedIds(filteredDeals.map(d => d._id));
+                                        } else {
+                                            setSelectedIds([]);
+                                        }
+                                    }}
+                                />
+                            </div>
                             <div>Score</div>
                             <div>Property Details</div>
                             <div>Location & Project</div>
@@ -596,6 +626,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                             <div>Status</div>
                             <div>Interaction</div>
                             <div>Assignment</div>
+                            <div style={{ textAlign: 'center' }}>Actions</div>
                         </div>
                     )}
 
@@ -787,6 +818,32 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             </div>
                                         </div>
                                     </div>
+
+                                    {/* Col 11: Actions (Row-level actions) */}
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                        <button
+                                            className="action-btn"
+                                            title="Edit Deal"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleEditClick(deal);
+                                            }}
+                                            style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', width: '30px', height: '30px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer' }}
+                                        >
+                                            <i className="fas fa-edit"></i>
+                                        </button>
+                                        <button
+                                            className="action-btn danger"
+                                            title="Delete Deal"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDelete(deal._id);
+                                            }}
+                                            style={{ background: '#fff1f2', border: '1px solid #fecdd3', color: '#e11d48', width: '30px', height: '30px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer' }}
+                                        >
+                                            <i className="fas fa-trash-alt"></i>
+                                        </button>
+                                    </div>
                                 </div>
                                 ))}
                             </div>
@@ -933,25 +990,19 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
             <AddDealModal
                 isOpen={isAddModalOpen}
-                deal={selectedDealState}
                 onClose={() => {
                     setIsAddModalOpen(false);
-                    setSelectedDealState(null);
+                    setEditingDeal(null);
                 }}
-                onSave={(updatedData) => {
-                    if (selectedDealState) {
-                        setDeals(prev => prev.map(d => d.id === selectedDealState.id ? { ...d, ...updatedData } : d));
-                    } else {
-                        const formattedDeal = {
-                            ...updatedData,
-                            id: `D${Math.floor(Math.random() * 10000)}`,
-                            score: { val: 60, class: 'warm' } // Mock initial score
-                        };
-                        setDeals(prev => [formattedDeal, ...prev]);
-                    }
-                    setIsAddModalOpen(false);
-                    setSelectedDealState(null);
-                }}
+                dealData={editingDeal}
+                onSave={fetchDeals}
+            />
+
+            <AddQuoteModal
+                isOpen={isQuoteModalOpen}
+                onClose={() => setIsQuoteModalOpen(false)}
+                deal={deals.find(d => d._id === selectedIds[0])}
+                onSave={fetchDeals}
             />
 
             <ComposeEmailModal

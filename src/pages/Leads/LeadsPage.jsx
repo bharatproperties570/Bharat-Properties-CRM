@@ -166,6 +166,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
     const [documentModalData, setDocumentModalData] = useState(null);
+    const [initialTab, setInitialTab] = useState(null);
 
     const [isOutcomeModalOpen, setIsOutcomeModalOpen] = useState(false);
     const [selectedActivityForOutcome, setSelectedActivityForOutcome] = useState(null);
@@ -1403,15 +1404,21 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
             {/* Update Lead Modal */}
             <AddLeadModal
                 isOpen={isAddLeadModalOpen}
-                onClose={() => setIsAddLeadModalOpen(false)}
+                onClose={() => {
+                    setIsAddLeadModalOpen(false);
+                    setEditingLead(null);
+                    setInitialTab(null);
+                }}
                 initialData={editingLead} // Correctly pass as initialData for Edit mode
                 title={editingLead ? "Update Lead" : "Add New Lead"}
                 saveLabel={editingLead ? "Update" : "Save"}
                 mode={editingLead ? "edit" : "add"}
+                initialTab={initialTab}
                 onAdd={(updatedData) => {
                     console.log('Lead Updated:', updatedData);
                     setIsAddLeadModalOpen(false);
                     setEditingLead(null);
+                    setInitialTab(null);
                     setSelectedIds([]);
                     // Trigger refresh by incrementing refreshTrigger
                     setRefreshTrigger(prev => prev + 1);

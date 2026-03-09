@@ -15,7 +15,7 @@ const InventorySchema = new mongoose.Schema({
     unitNo: { type: String },
 
     // Status & Intent
-    intent: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup', index: true }, // For Sale, For Rent
+    intent: [{ type: mongoose.Schema.Types.Mixed, ref: 'Lookup', index: true }], // For Sale, For Rent, etc.
     status: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup', index: true }, // Available, Sold, etc.
 
     // Construction Details
@@ -36,6 +36,14 @@ const InventorySchema = new mongoose.Schema({
 
     // Pricing
     price: {
+        value: { type: Number },
+        currency: { type: String, default: 'INR' }
+    },
+    rentPrice: {
+        value: { type: Number },
+        currency: { type: String, default: 'INR' }
+    },
+    leasePrice: {
         value: { type: Number },
         currency: { type: String, default: 'INR' }
     },
@@ -162,7 +170,12 @@ InventorySchema.pre('save', async function (next) {
             return lookup._id;
         };
 
-        if (this.intent && !mongoose.Types.ObjectId.isValid(this.intent)) this.intent = await resolveLookupLocal('Intent', this.intent);
+        if (this.intent && this.intent.length > 0) {
+            this.intent = await Promise.all(this.intent.map(async (val) => {
+                if (mongoose.Types.ObjectId.isValid(val)) return val;
+                return await resolveLookupLocal('Intent', val);
+            }));
+        }
         if (this.status && !mongoose.Types.ObjectId.isValid(this.status)) this.status = await resolveLookupLocal('Status', this.status);
 
         // Address component resolution
@@ -198,7 +211,21 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
             return lookup._id;
         };
 
-        if (update.intent && !mongoose.Types.ObjectId.isValid(update.intent)) update.intent = await resolveLookupLocal('Intent', update.intent);
+        if (update.intent) {
+            if (Array.isArray(update.intent)) {
+                update.intent = await Promise.all(update.intent.map(async (val) => {
+                    if (mongoose.Types.ObjectId.isValid(val)) return val;
+                    return await resolveLookupLocal('Intent', val);
+                }));
+            } else {
+                // Handle legacy single value update
+                if (!mongoose.Types.ObjectId.isValid(update.intent)) {
+                    update.intent = [await resolveLookupLocal('Intent', update.intent)];
+                } else {
+                    update.intent = [update.intent];
+                }
+            }
+        }
         if (update.status && !mongoose.Types.ObjectId.isValid(update.status)) update.status = await resolveLookupLocal('Status', update.status);
 
         // Address component resolution (Handles both nested object and dot-notation)

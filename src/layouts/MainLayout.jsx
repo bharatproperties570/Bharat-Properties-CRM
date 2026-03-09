@@ -12,6 +12,11 @@ import AddProjectModal from '../components/AddProjectModal';
 import AddInventoryModal from '../components/AddInventoryModal';
 import AddLeadModal from '../components/AddLeadModal';
 import AddDealModal from '../components/AddDealModal';
+import AddQuoteModal from '../components/AddQuoteModal';
+import AddOfferModal from '../components/AddOfferModal';
+import ClosingFormModal from '../components/ClosingFormModal';
+import { REQUIRED_FORM_TYPES } from '../utils/FormTriggerService';
+import { leadsAPI, dealsAPI } from '../utils/api';
 
 const MainLayout = ({ children, currentView, onNavigate }) => {
     // Global Modal State
@@ -30,6 +35,14 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
     const [editingCompany, setEditingCompany] = useState(null);
     const [activityInitialData, setActivityInitialData] = useState(null);
     const [showActivityModal, setShowActivityModal] = useState(false);
+
+    // Dynamic Form Triggering States
+    const [showQuoteModal, setShowQuoteModal] = useState(false);
+    const [showOfferModal, setShowOfferModal] = useState(false);
+    const [showClosingModal, setShowClosingModal] = useState(false);
+    const [activeEntity, setActiveEntity] = useState(null);
+    const [initialTab, setInitialTab] = useState(null);
+    const [editingLead, setEditingLead] = useState(null);
 
     // Global Context
     const { addActivity } = useActivities();
@@ -79,6 +92,77 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
 
         window.addEventListener('popstate', handlePopState);
         return () => window.removeEventListener('popstate', handlePopState);
+    }, []);
+
+    // --- GLOBAL FORM TRIGGERING LISTENER ---
+    useEffect(() => {
+        const handleTriggerForm = async (event) => {
+            const { formType, entityId, type: entityTypeContext } = event.detail;
+            console.log(`[MainLayout] Global Trigger: ${formType} for ${entityId}`);
+
+            setActiveEntity({ id: entityId, type: entityTypeContext });
+
+            switch (formType) {
+                case REQUIRED_FORM_TYPES.REQUIREMENT:
+                    setInitialTab('requirement');
+                    try {
+                        const res = await leadsAPI.getById(entityId);
+                        if (res.success || res.status === 'success') {
+                            setEditingLead(res.record || res.data);
+                            setShowAddLeadModal(true);
+                        }
+                    } catch (err) {
+                        console.error("Failed to fetch lead for requirement form", err);
+                        setShowAddLeadModal(true); // Fallback to add mode or empty
+                    }
+                    break;
+                case REQUIRED_FORM_TYPES.MEETING:
+                    setActivityInitialData({
+                        relatedTo: [{ id: entityId, type: entityTypeContext === 'lead' ? 'Lead' : 'Contact' }],
+                        activityType: 'Meeting'
+                    });
+                    setShowActivityModal(true);
+                    break;
+                case REQUIRED_FORM_TYPES.SITE_VISIT:
+                    setActivityInitialData({
+                        relatedTo: [{ id: entityId, type: entityTypeContext === 'lead' ? 'Lead' : 'Contact' }],
+                        activityType: 'Site Visit'
+                    });
+                    setShowActivityModal(true);
+                    break;
+                case REQUIRED_FORM_TYPES.QUOTATION:
+                    try {
+                        const res = await dealsAPI.getById(entityId);
+                        if (res.success || res.status === 'success') {
+                            setActiveEntity(res.record || res.data);
+                            setShowQuoteModal(true);
+                        }
+                    } catch (err) {
+                        console.error("Failed to fetch deal for quote form", err);
+                    }
+                    break;
+                case REQUIRED_FORM_TYPES.OFFER:
+                    try {
+                        const res = await dealsAPI.getById(entityId);
+                        if (res.success || res.status === 'success') {
+                            const dealData = res.record || res.data;
+                            setActiveEntity(dealData);
+                            setShowOfferModal(true);
+                        }
+                    } catch (err) {
+                        console.error("Failed to fetch deal for offer form", err);
+                    }
+                    break;
+                case REQUIRED_FORM_TYPES.FEEDBACK:
+                    setShowClosingModal(true);
+                    break;
+                default:
+                    console.warn(`[MainLayout] Unhandled form type: ${formType}`);
+            }
+        };
+
+        window.addEventListener('trigger-form', handleTriggerForm);
+        return () => window.removeEventListener('trigger-form', handleTriggerForm);
     }, []);
 
     // Handlers exposed to children
@@ -156,8 +240,15 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
 
                 <AddLeadModal
                     isOpen={showAddLeadModal}
-                    onClose={() => setShowAddLeadModal(false)}
+                    onClose={() => {
+                        setShowAddLeadModal(false);
+                        setEditingLead(null);
+                        setInitialTab(null);
+                    }}
                     onAdd={() => setShowAddLeadModal(false)}
+                    initialData={editingLead}
+                    initialTab={initialTab}
+                    mode={editingLead ? "edit" : "add"}
                 />
 
                 <AddCompanyModal
@@ -209,6 +300,44 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                         window.dispatchEvent(new Event('deal-updated'));
                     }}
                 />
+
+                {/* Additional Dynamic Modals */}
+                {showQuoteModal && (
+                    <AddQuoteModal
+                        isOpen={showQuoteModal}
+                        onClose={() => setShowQuoteModal(false)}
+                        deal={activeEntity}
+                        onSave={() => {
+                            setShowQuoteModal(false);
+                            window.dispatchEvent(new Event('deal-updated'));
+                        }}
+                    />
+                )}
+
+                {showOfferModal && (
+                    <AddOfferModal
+                        isOpen={showOfferModal}
+                        onClose={() => setShowOfferModal(false)}
+                        leads={activeEntity?.matchedLeads || []}
+                        onSave={() => {
+                            setShowOfferModal(false);
+                            window.dispatchEvent(new Event('deal-updated'));
+                        }}
+                    />
+                )}
+
+                {showClosingModal && (
+                    <ClosingFormModal
+                        isOpen={showClosingModal}
+                        onClose={() => setShowClosingModal(false)}
+                        entity={activeEntity}
+                        entityType={activeEntity?.type === 'lead' ? 'Lead' : 'Deal'}
+                        onComplete={() => {
+                            setShowClosingModal(false);
+                            window.dispatchEvent(new Event('inventory-updated'));
+                        }}
+                    />
+                )}
             </main>
         </div>
     );

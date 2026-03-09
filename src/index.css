@@ -3089,8 +3089,8 @@ body {
 /* Deals Grid - 11 Column Layout with Score */
 .deals-list-grid {
     display: grid;
-    /* Columns: Checkbox | Score | Property Details | Location & Project | Match | Expectation | Owner | Associate | Status | Interaction | Assignment */
-    grid-template-columns: 40px 50px minmax(150px, 1.2fr) minmax(150px, 1.2fr) minmax(100px, 0.8fr) minmax(150px, 1.2fr) minmax(150px, 1.2fr) minmax(100px, 0.8fr) 90px minmax(120px, 1fr) minmax(140px, 1fr);
+    /* Columns: Checkbox | Score | Property Details | Location & Project | Match | Expectation | Owner | Associate | Status | Interaction | Assignment | Actions */
+    grid-template-columns: 48px 50px minmax(150px, 1.2fr) minmax(150px, 1.2fr) minmax(100px, 0.8fr) minmax(150px, 1.2fr) minmax(150px, 1.2fr) minmax(100px, 0.8fr) 90px minmax(120px, 1fr) minmax(140px, 1fr) 100px;
     gap: 1rem;
     align-items: center;
 }

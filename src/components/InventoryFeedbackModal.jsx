@@ -180,8 +180,13 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
                 mobile: o.phones?.[0]?.number || o.mobile
             });
         });
-    } else if (inventory.ownerName) {
-        ownersList.push({ name: inventory.ownerName, role: 'Owner', label: `${inventory.ownerName} (Owner)`, mobile: inventory.ownerPhone });
+    }
+
+    if (inventory.ownerName) {
+        // Only add if not already present by name
+        if (!ownersList.some(o => o.name === inventory.ownerName)) {
+            ownersList.push({ name: inventory.ownerName, role: 'Owner', label: `${inventory.ownerName} (Owner)`, mobile: inventory.ownerPhone });
+        }
     }
 
     // Add modern associates array
@@ -194,8 +199,13 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
                 mobile: a.phones?.[0]?.number || a.mobile
             });
         });
-    } else if (inventory.associatedContact) {
-        ownersList.push({ name: inventory.associatedContact, role: 'Associate', label: `${inventory.associatedContact} (Associate)`, mobile: inventory.associatedPhone });
+    }
+
+    if (inventory.associatedContact) {
+        // Only add if not already present by name
+        if (!ownersList.some(o => o.name === inventory.associatedContact)) {
+            ownersList.push({ name: inventory.associatedContact, role: 'Associate', label: `${inventory.associatedContact} (Associate)`, mobile: inventory.associatedPhone });
+        }
     }
 
     const handleChange = (e) => {
@@ -239,6 +249,8 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
 
     const handleSubmit = () => {
         if (validate()) {
+            // Professional Fix: Ensure we pass more than just the form data to onSave if needed
+            // But usually onSave handles the logic in the parent.
             onSave(formData);
 
             // 1. Log Automated Messages (Triggers)
@@ -248,18 +260,18 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
                 if (isActive && channelMessages[channel]) {
                     const msgActivity = {
                         type: channel === 'whatsapp' ? 'WhatsApp' : channel === 'sms' ? 'SMS' : 'Email',
-                        subject: `Feedback Request sent: ${channel.toUpperCase()}`,
+                        subject: `Feedback Response sent: ${channel.toUpperCase()}`,
                         status: 'Completed',
                         relatedTo: [{
-                            id: inventory.mobile || inventory.phone || 'Unknown',
-                            name: formData.selectedOwner,
-                            model: 'Lead'
+                            id: inventory._id, // Use correct Mongo ID instead of mobile
+                            name: inventory.unitNo,
+                            model: 'Inventory'
                         }],
                         participants: [{
                             name: formData.selectedOwner,
-                            mobile: inventory.mobile || inventory.phone
+                            mobile: inventory.ownerPhone || inventory.associatedPhone
                         }],
-                        description: `Automated ${channel.toUpperCase()} message prepared: ${channelMessages[channel].substring(0, 100)}...`,
+                        description: `Automated ${channel.toUpperCase()} message dispatched to ${formData.selectedOwner}: ${channelMessages[channel].substring(0, 100)}...`,
                         details: {
                             feedback: formData.result,
                             message: channelMessages[channel],
@@ -276,19 +288,19 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
             // 2. Integrate with Activities Module (Follow-up)
             if (scheduleFollowUp) {
                 const newActivity = {
-                    type: formData.nextActionType || 'Call',
+                    type: formData.nextActionType || 'Follow Up',
                     subject: `Follow-up: ${formData.nextActionType || 'Call'} for Unit ${inventory.unitNo}`,
                     status: 'Pending',
                     priority: 'High',
                     scheduledDate: `${formData.nextActionDate}T${formData.nextActionTime}`,
                     relatedTo: [{
-                        id: inventory.mobile || inventory.phone || 'Unknown',
-                        name: formData.selectedOwner,
-                        model: 'Lead'
+                        id: inventory._id, // Use correct Mongo ID
+                        name: inventory.unitNo,
+                        model: 'Inventory'
                     }],
                     participants: [{
                         name: formData.selectedOwner,
-                        mobile: inventory.mobile || inventory.phone
+                        mobile: inventory.ownerPhone || inventory.associatedPhone
                     }],
                     description: `Follow up with ${formData.selectedOwner} regarding Unit ${inventory.unitNo} - ${inventory.type}`,
                     details: {
@@ -372,7 +384,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
     // Button Visibility Logic (Professional & Robust)
     const showDealButton =
         (formData.result.includes('Interested') || formData.result === 'Interested') &&
-        ['For Sale', 'For Rent', 'For Lease', 'Sell & Buy (Re-invest)', 'Ready to Sell Now', 'High Intent (Urgent)'].includes(formData.reason);
+        ['For Sale', 'For Rent', 'For Lease', 'Sell & Buy (Re-invest)', 'Ready to Sell Now', 'High Intent (Urgent)', 'Wants to Buy (Invest)'].includes(formData.reason);
 
     const showLeadButton =
         ((formData.result.includes('Interested') || formData.result === 'Interested') && ['Wants to Buy (Invest)', 'Sell & Buy (Re-invest)'].includes(formData.reason)) ||
@@ -489,13 +501,41 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
                     </div>
 
                     <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px', marginBottom: '20px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px', alignItems: 'flex-end' }}>
                             <div>
                                 <label style={labelStyle}>Contact</label>
                                 <select value={formData.selectedOwner} onChange={handleOwnerChange} style={customSelectStyle(errors.selectedOwner)}>
                                     <option value="">Select Person</option>
                                     {ownersList.map((o, idx) => <option key={idx} value={o.name}>{o.label}</option>)}
                                 </select>
+                            </div>
+                            <div style={{ paddingBottom: '4px' }}>
+                                <label style={labelStyle}>Target status</label>
+                                {(() => {
+                                    const rule = (masterFields.feedbackRules?.[formData.result]?.[formData.reason]) || {};
+                                    const isInactive = rule.inventoryStatus === 'InActive' && formData.markAsSold;
+                                    const label = isInactive ? 'Inactive' : 'Active';
+                                    const color = isInactive ? '#64748b' : '#10b981';
+                                    return (
+                                        <div style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            padding: '6px 12px',
+                                            background: isInactive ? '#f1f5f9' : '#ecfdf5',
+                                            borderRadius: '6px',
+                                            border: `1px solid ${isInactive ? '#e2e8f0' : '#d1fae5'}`,
+                                            color: color,
+                                            fontSize: '0.8rem',
+                                            fontWeight: 800,
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.05em'
+                                        }}>
+                                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: color }}></div>
+                                            {label}
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         </div>
 

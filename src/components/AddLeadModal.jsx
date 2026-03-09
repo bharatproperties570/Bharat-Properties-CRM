@@ -450,14 +450,14 @@ const BUDGET_VALUES = [
     { value: 1000000000, label: "100 Crore" }
 ];
 
-const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entityType = 'lead', contactData, title = "Add New Lead", saveLabel = "Save" }) => {
+const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entityType = 'lead', contactData, title = "Add New Lead", saveLabel = "Save", initialTab = null }) => {
     const { propertyConfig, masterFields, leadMasterFields, getLookupId, getLookupValue, projects: allProjects } = usePropertyConfig();
     const { validate, validateAsync } = useFieldRules(); // Get Validator Engine
     const { executeDistribution } = useDistribution(); // Get Distribution Engine
     const { evaluateAndEnroll } = useSequences();
     const { fireEvent } = useTriggers();
     const { users, teams } = useUserContext();
-    const [currentTab, setCurrentTab] = useState('requirement');
+    const [currentTab, setCurrentTab] = useState(initialTab || (entityType === 'lead' ? 'requirement' : 'basic'));
     const [showOnlyRequired, setShowOnlyRequired] = useState(false);
 
     // UI Enforcement State
@@ -649,6 +649,12 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     });
 
     // Passive Validation (Visibility Check)
+    useEffect(() => {
+        if (isOpen && initialTab) {
+            setCurrentTab(initialTab);
+        }
+    }, [isOpen, initialTab]);
+
     useEffect(() => {
         // Run sync validation actively to determine UI state
         // We pass 'view' context to distinguish from 'save' validation implies
@@ -1590,7 +1596,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         </div>
 
                                         {/* Medium - Level 3 */}
-                                        {/* <div>
+                                        <div>
                                             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Medium</label>
                                             <select
                                                 value={formData.subSource}
@@ -1605,7 +1611,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                     return (selectedSrc?.mediums || []).map(m => <option key={m} value={m}>{m}</option>);
                                                 })()}
                                             </select>
-                                        </div> */}
+                                        </div>
                                     </div>
                                 </div>
 
@@ -1843,26 +1849,64 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
                             {!showOnlyRequired && (
                                 <>
-                                    {/* Campaign & Source (Inserted/Modified) */}
+                                    {/* Campaign & Source (Dynamic Hierarchy) */}
                                     <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                                         <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
                                             <i className="fas fa-bullhorn" style={{ color: '#f59e0b' }}></i> Campaign & Source
                                         </h3>
                                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+                                            {/* Campaign */}
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Campaign Name</label>
+                                                <select
+                                                    value={formData.campaign}
+                                                    onChange={(e) => {
+                                                        handleInputChange('campaign', e.target.value);
+                                                        handleInputChange('source', '');
+                                                        handleInputChange('subSource', '');
+                                                    }}
+                                                    style={customSelectStyle}
+                                                >
+                                                    <option value="">Select Campaign</option>
+                                                    {(leadMasterFields?.campaigns || []).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                                                </select>
+                                            </div>
+
                                             {/* Source */}
                                             <div>
                                                 <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
                                                 <select
                                                     value={formData.source}
-                                                    onChange={(e) => handleInputChange('source', e.target.value)}
-                                                    style={customSelectStyle}
+                                                    onChange={(e) => {
+                                                        handleInputChange('source', e.target.value);
+                                                        handleInputChange('subSource', '');
+                                                    }}
+                                                    disabled={!formData.campaign}
+                                                    style={!formData.campaign ? customSelectStyleDisabled : customSelectStyle}
                                                 >
                                                     <option value="">Select Source</option>
-                                                    {SOURCE_OPTIONS.map((opt) => (
-                                                        <option key={opt} value={opt}>
-                                                            {opt}
-                                                        </option>
-                                                    ))}
+                                                    {(() => {
+                                                        const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign);
+                                                        return (selectedCamp?.sources || []).map(s => <option key={s.name} value={s.name}>{s.name}</option>);
+                                                    })()}
+                                                </select>
+                                            </div>
+
+                                            {/* Medium */}
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Medium</label>
+                                                <select
+                                                    value={formData.subSource}
+                                                    onChange={(e) => handleInputChange('subSource', e.target.value)}
+                                                    disabled={!formData.source}
+                                                    style={!formData.source ? customSelectStyleDisabled : customSelectStyle}
+                                                >
+                                                    <option value="">Select Medium</option>
+                                                    {(() => {
+                                                        const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign);
+                                                        const selectedSrc = (selectedCamp?.sources || []).find(s => s.name === formData.source);
+                                                        return (selectedSrc?.mediums || []).map(m => <option key={m} value={m}>{m}</option>);
+                                                    })()}
                                                 </select>
                                             </div>
                                         </div>

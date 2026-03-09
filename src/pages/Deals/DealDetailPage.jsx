@@ -21,6 +21,7 @@ import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import AddNoteModal from '../../components/AddNoteModal';
 import UploadModal from '../../components/UploadModal';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
+import AddQuoteModal from '../../components/AddQuoteModal';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 
 
@@ -47,6 +48,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
     const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
+    const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
     const [isMarkingLost, setIsMarkingLost] = useState(false);
 
     // State for calculator inputs
@@ -881,6 +883,29 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                 </button>
                                 <div style={{ height: '1px', background: '#e2e8f0', margin: '4px 0' }}></div>
                                 <button
+                                    onClick={() => {
+                                        setShowMoreMenu(false);
+                                        setIsQuoteModalOpen(true);
+                                    }}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        width: '100%',
+                                        padding: '10px 16px',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        color: '#475569',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        textAlign: 'left'
+                                    }}
+                                    className="hover:bg-slate-50 transition-colors"
+                                >
+                                    <Calculator size={14} className="text-blue-500" /> Quotation
+                                </button>
+                                <button
                                     onClick={async () => {
                                         setShowMoreMenu(false);
                                         try {
@@ -1332,28 +1357,34 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                         <div>
                                             <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e293b', margin: '0 0 2px 0' }}>{lead.name}</h4>
                                             <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                <i className="fas fa-phone-alt" style={{ fontSize: '0.6rem', opacity: 0.7 }}></i> {lead.phone || lead.mobile}
+                                                <i className="fas fa-phone-alt" style={{ fontSize: '0.6rem', opacity: 0.7 }}></i> {lead.mobile || lead.phone || lead.contactDetails?.phones?.[0]?.number || 'No Phone'}
                                             </p>
                                         </div>
                                         <div style={{ textAlign: 'right' }}>
-                                            <span style={{
-                                                fontSize: '1rem', fontWeight: 900, color: lead.score >= 80 ? '#059669' : '#d97706',
-                                                display: 'block', lineHeight: 1
-                                            }}>{lead.score}%</span>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
+                                                <span style={{
+                                                    fontSize: '1rem', fontWeight: 900, color: lead.score >= 80 ? '#059669' : '#d97706',
+                                                    display: 'block', lineHeight: 1
+                                                }}>{lead.score || 0}%</span>
+                                                <i className="fas fa-certificate" style={{ fontSize: '0.6rem', color: lead.score >= 80 ? '#10b981' : '#f59e0b' }}></i>
+                                            </div>
                                             <span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Match</span>
                                         </div>
                                     </div>
 
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingLeft: '8px', paddingTop: '8px', borderTop: '1px dashed #f1f5f9' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                                             <span style={{
                                                 fontSize: '0.65rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px',
                                                 background: '#f1f5f9', color: '#475569', textTransform: 'uppercase'
                                             }}>
                                                 {lead.category || 'Lead'}
                                             </span>
+                                            <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <i className="far fa-calendar-alt"></i> {Math.floor((new Date() - new Date(lead.createdAt || Date.now())) / (1000 * 60 * 60 * 24))}d old
+                                            </span>
                                             <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>
-                                                Budget: {formatIndianCurrency(lead.budget || lead.maxBudget)}
+                                                Budget: {formatIndianCurrency(lead.budget || lead.maxBudget || lead.minBudget || 0)}
                                             </span>
                                         </div>
                                         <div style={{
@@ -1389,7 +1420,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                 <div style={{ width: '32px', height: '32px', background: 'linear-gradient(135deg, #eff6ff, #dbeafe)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
                                     <i className="fas fa-address-book text-blue-600" style={{ fontSize: '0.8rem' }}></i>
                                 </div>
-                                Stakeholders Info
+                                Contact Information
                             </h3>
                         </div>
                         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -1663,6 +1694,13 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 onClose={() => setIsBookingModalOpen(false)}
                 dealId={dealId}
                 dealData={deal}
+                onSave={fetchDealDetails}
+            />
+
+            <AddQuoteModal
+                isOpen={isQuoteModalOpen}
+                onClose={() => setIsQuoteModalOpen(false)}
+                deal={deal}
                 onSave={fetchDealDetails}
             />
 

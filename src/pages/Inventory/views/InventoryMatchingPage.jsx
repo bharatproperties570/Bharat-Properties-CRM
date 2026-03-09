@@ -196,7 +196,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                 matchPercentage: Math.round(score),
                 matchDetails: details,
                 gaps,
-                leadScore: lead.score?.val || 0,
+                leadScore: lead.matchPercentage || 0,
                 leadStage: lead.stage || 'Prospect'
             };
         })
@@ -528,9 +528,9 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                                     >
                                         <i className={`${lead.interestedInventory?.includes(inventoryId) ? 'fas' : 'far'} fa-star`}></i>
                                     </button>
-                                    <div style={{ background: lead.leadScore > 80 ? '#fef2f2' : '#f0f9ff', color: lead.leadScore > 80 ? '#dc2626' : '#2563eb', padding: '2px 8px', borderRadius: '100px', fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        <i className={`fas fa-thermometer-${lead.leadScore > 80 ? 'full' : lead.leadScore > 50 ? 'half' : 'empty'}`}></i>
-                                        {lead.leadScore > 80 ? 'Hot' : 'Warm'} ({lead.leadScore})
+                                    <div style={{ background: lead.matchPercentage > 80 ? '#fef2f2' : '#f0f9ff', color: lead.matchPercentage > 80 ? '#dc2626' : '#2563eb', padding: '2px 8px', borderRadius: '100px', fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <i className={`fas fa-thermometer-${lead.matchPercentage > 80 ? 'full' : lead.matchPercentage > 50 ? 'half' : 'empty'}`}></i>
+                                        {lead.matchPercentage > 80 ? 'Hot' : 'Warm'} ({lead.matchPercentage})
                                     </div>
                                 </div>
 

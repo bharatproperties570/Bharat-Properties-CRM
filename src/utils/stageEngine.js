@@ -126,7 +126,10 @@ export const computeStage = (activityType, purpose, outcome, stageMappingRules =
     const purpLower = (purpose || '').toLowerCase();
     const outLower = (outcome || '').toLowerCase();
 
-    // 1. Check explicit override rules (ordered by priority ascending — lower number = higher priority)
+    let computedStage = 'New';
+    let requiredForm = null;
+
+    // 1. Check explicit override rules (ordered by priority ascending)
     const sortedRules = [...stageMappingRules]
         .filter(r => r.isActive)
         .sort((a, b) => (a.priority || 99) - (b.priority || 99));
@@ -136,7 +139,9 @@ export const computeStage = (activityType, purpose, outcome, stageMappingRules =
         const purpMatch = !rule.purpose || rule.purpose.toLowerCase() === purpLower;
         const outcMatch = !rule.outcome || rule.outcome.toLowerCase() === outLower;
         if (typeMatch && purpMatch && outcMatch) {
-            return rule.stage;
+            computedStage = rule.stage;
+            requiredForm = rule.requiredForm || null;
+            return { stage: computedStage, requiredForm };
         }
     }
 
@@ -147,12 +152,16 @@ export const computeStage = (activityType, purpose, outcome, stageMappingRules =
         const purp = act.purposes?.find(p => (p.name || '').toLowerCase() === purpLower);
         if (purp) {
             const out = purp.outcomes?.find(o => (o.label || '').toLowerCase() === outLower);
-            if (out?.stage) return out.stage;
+            if (out?.stage) {
+                computedStage = out.stage;
+                requiredForm = out.requiredForm || null;
+                return { stage: computedStage, requiredForm };
+            }
         }
     }
 
     // 3. Fallback
-    return 'New';
+    return { stage: computedStage, requiredForm: null };
 };
 
 /**
@@ -175,6 +184,7 @@ export const flattenOutcomeMappings = (activityMasterFields = {}) => {
                     stage: stageName,
                     score: out.score || 0,
                     probability: getStageProbability(stageName),
+                    requiredForm: out.requiredForm || null
                 });
             }
         }

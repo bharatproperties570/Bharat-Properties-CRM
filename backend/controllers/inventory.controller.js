@@ -10,10 +10,43 @@ import mongoose from "mongoose";
 import Deal from "../models/Deal.js";
 
 
+// ROBUST FILTER RESOLUTION (Handle both Names and IDs)
+const escapeRegExp = (string) => {
+    if (!string) return '';
+    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+const populateFields = [
+    { path: "owners", select: "name phones emails title personalAddress" },
+    {
+        path: "associates.contact",
+        model: 'Contact',
+        select: "name phones emails title"
+    },
+    { path: "projectId" },
+    { path: "category" },
+    { path: "subCategory" },
+    { path: "status" },
+    { path: "unitType" },
+    { path: "facing" },
+    { path: "direction" },
+    { path: "orientation" },
+    { path: "sizeConfig" },
+    { path: "roadWidth" },
+    { path: "intent" },
+    { path: "team", select: "name" },
+    { path: "assignedTo", select: "fullName name team" },
+    { path: "address.city" },
+    { path: "address.tehsil" },
+    { path: "address.state" },
+    { path: "address.locality" },
+    { path: "address.area" },
+    { path: "address.location" }
+];
 
 export const getInventory = async (req, res) => {
     try {
-        const { page = 1, limit = 10, search = "", category, subCategory, unitType, status, project, block, location, area, contactId } = req.query;
+        const { page = 1, limit = 10, search = "", category, subCategory, unitType, status, project, block, location, area, contactId, statusCategory } = req.query;
 
         let query = {};
 
@@ -55,8 +88,6 @@ export const getInventory = async (req, res) => {
             }
         }
 
-        // ROBUST FILTER RESOLUTION (Handle both Names and IDs)
-        const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const resolveFilter = async (type, value) => {
             if (!value) return null;
             if (mongoose.Types.ObjectId.isValid(value)) return value;
@@ -88,7 +119,7 @@ export const getInventory = async (req, res) => {
         // category, status, etc. in Inventory seem to be stored as objects or strings already
         const populateFields = [
             { path: "owners", select: "name phones" },
-            { path: "associates", select: "name phones" },
+            { path: "associates.contact", select: "name phones" },
             { path: "projectId" },
             { path: "category" },
             { path: "subCategory" },
@@ -113,7 +144,7 @@ export const getInventory = async (req, res) => {
         // Note: In a real production system, these "Active/InActive" rules would be lookups or business rules.
         // For now, we define Active as 'Available' and InActive as 'Sold Out', 'Rented Out', 'Inactive'.
 
-        const activeStatusNames = ['Available', 'Interested / Warm', 'Interested / Hot', 'Request Call Back', 'Busy / Driving', 'Market Feedback', 'General Inquiry'];
+        const activeStatusNames = ['Available', 'Active', 'Interested / Warm', 'Interested / Hot', 'Request Call Back', 'Busy / Driving', 'Market Feedback', 'General Inquiry', 'Blocked', 'Booked', 'Interested'];
         const inactiveStatusNames = ['Sold Out', 'Rented Out', 'Not Interested', 'Inactive', 'Wrong Number / Invalid', 'Switch Off / Unreachable'];
 
         const [activeStatusDocs, inactiveStatusDocs] = await Promise.all([
@@ -125,9 +156,48 @@ export const getInventory = async (req, res) => {
         const inactiveStatusIds = inactiveStatusDocs.map(d => d._id);
 
         const [activeCount, inactiveCount] = await Promise.all([
-            Inventory.countDocuments({ ...query, status: { $in: activeStatusIds } }),
-            Inventory.countDocuments({ ...query, status: { $in: inactiveStatusIds } })
+            Inventory.countDocuments({
+                ...query,
+                $or: [
+                    { status: { $in: activeStatusIds } },
+                    { status: { $in: activeStatusNames } } // Fallback for string statuses
+                ]
+            }),
+            Inventory.countDocuments({
+                ...query,
+                $or: [
+                    { status: { $in: inactiveStatusIds } },
+                    { status: { $in: inactiveStatusNames } } // Fallback for string statuses
+                ]
+            })
         ]);
+
+        // Apply Status Category Filter if requested
+        if (statusCategory === 'Active') {
+            const activeCondition = {
+                $or: [
+                    { status: { $in: activeStatusIds } },
+                    { status: { $in: activeStatusNames } }
+                ]
+            };
+            if (query.$or) {
+                query = { $and: [query, activeCondition] };
+            } else {
+                query = { ...query, ...activeCondition };
+            }
+        } else if (statusCategory === 'InActive') {
+            const inactiveCondition = {
+                $or: [
+                    { status: { $in: inactiveStatusIds } },
+                    { status: { $in: inactiveStatusNames } }
+                ]
+            };
+            if (query.$or) {
+                query = { $and: [query, inactiveCondition] };
+            } else {
+                query = { ...query, ...inactiveCondition };
+            }
+        }
 
         // Enhanced: Category-based counts for list view footer
         const categories = await Lookup.find({ lookup_type: 'Category' });
@@ -152,33 +222,6 @@ export const getInventory = async (req, res) => {
 
 export const getInventoryById = async (req, res) => {
     try {
-        const populateFields = [
-            { path: "owners", select: "name phones emails title personalAddress" },
-            {
-                path: "associates.contact",
-                model: 'Contact',
-                select: "name phones emails title"
-            },
-            { path: "projectId" },
-            { path: "category" },
-            { path: "subCategory" },
-            { path: "status" },
-            { path: "unitType" },
-            { path: "facing" },
-            { path: "direction" },
-            { path: "orientation" },
-            { path: "sizeConfig" },
-            { path: "roadWidth" },
-            { path: "intent" },
-            { path: "team", select: "name" },
-            { path: "assignedTo", select: "fullName name team" },
-            { path: "address.city" },
-            { path: "address.tehsil" },
-            { path: "address.state" },
-            { path: "address.locality" },
-            { path: "address.area" },
-            { path: "address.location" }
-        ];
 
         const inventory = await Inventory.findById(req.params.id).populate(populateFields);
         if (!inventory) {
@@ -225,7 +268,7 @@ export const addInventory = async (req, res) => {
         if (data.category) data.category = await resolveLookup('Category', data.category);
         if (data.subCategory) data.subCategory = await resolveLookup('SubCategory', data.subCategory);
         if (data.unitType) data.unitType = await resolveLookup('Size', data.unitType);
-        if (data.status) data.status = await resolveLookup('Status', data.status);
+        if (data.status) data.status = await resolveLookup('Status', data.status); else data.status = await resolveLookup('Status', 'Inactive');
         if (data.facing) data.facing = await resolveLookup('Facing', data.facing);
         if (data.direction) data.direction = await resolveLookup('Direction', data.direction);
         if (data.orientation) data.orientation = await resolveLookup('Orientation', data.orientation);
@@ -264,7 +307,7 @@ export const updateInventory = async (req, res) => {
         if (data.category) data.category = await resolveLookup('Category', data.category);
         if (data.subCategory) data.subCategory = await resolveLookup('SubCategory', data.subCategory);
         if (data.unitType) data.unitType = await resolveLookup('Size', data.unitType);
-        if (data.status) data.status = await resolveLookup('Status', data.status);
+        if (data.status) data.status = await resolveLookup('Status', data.status); else data.status = await resolveLookup('Status', 'Inactive');
         if (data.facing) data.facing = await resolveLookup('Facing', data.facing);
         if (data.direction) data.direction = await resolveLookup('Direction', data.direction);
         if (data.orientation) data.orientation = await resolveLookup('Orientation', data.orientation);
@@ -421,14 +464,19 @@ export const matchInventory = async (req, res) => {
     }
 };
 
-const escapeRegExp = (string) => {
-    if (!string) return '';
-    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-};
 
 // Helper to resolve lookup (Find or Create)
 const resolveLookup = async (type, value) => {
     if (!value) return null;
+
+    // Handle array or comma-separated string (for multi-intents)
+    if (Array.isArray(value)) {
+        return await Promise.all(value.map(val => resolveLookup(type, val)));
+    }
+    if (typeof value === 'string' && value.includes(',')) {
+        return await resolveLookup(type, value.split(',').map(v => v.trim()).filter(Boolean));
+    }
+
     if (mongoose.Types.ObjectId.isValid(value)) return value;
     const escapedValue = escapeRegExp(value);
     let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } });

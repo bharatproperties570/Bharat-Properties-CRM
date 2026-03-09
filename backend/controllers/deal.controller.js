@@ -415,6 +415,14 @@ export const bulkDeleteDeals = async (req, res) => {
         if (!ids || !Array.isArray(ids)) {
             return res.status(400).json({ success: false, error: "Invalid IDs provided" });
         }
+
+        // Reset inventory status for all deals being deleted
+        const deals = await Deal.find({ _id: { $in: ids } }).select('inventoryId');
+        const inventoryIds = deals.map(d => d.inventoryId).filter(Boolean);
+        if (inventoryIds.length > 0) {
+            await Inventory.updateMany({ _id: { $in: inventoryIds } }, { status: 'Available' });
+        }
+
         await Deal.deleteMany({ _id: { $in: ids } });
         res.json({ success: true, message: `${ids.length} deals deleted successfully` });
     } catch (error) {
