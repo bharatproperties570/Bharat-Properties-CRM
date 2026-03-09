@@ -413,7 +413,7 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                                 Professional Quotation
                             </h2>
                             <p style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: 600, marginTop: '4px' }}>
-                                Commercial Asset • {renderValue(deal?.unitNo, 'Unit Details')} • {renderValue(deal?.projectName, 'Project')}
+                                {renderValue(deal?.category)} • {renderValue(deal?.unitNo, 'Unit Details')} • {renderValue(deal?.projectName, 'Project')}
                             </p>
                         </div>
                     </div>
@@ -485,7 +485,7 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                                                             onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                                                         >
                                                             <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>{name}</span>
-                                                            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{lead.mobile || 'N/A'} • {lead.stage || 'New'}</span>
+                                                            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{lead.mobile || 'N/A'} • {renderValue(lead.stage, 'New')}</span>
                                                         </div>
                                                     );
                                                 }) : !isSearchingLeads && (
@@ -576,7 +576,7 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                                 >
                                     <option value="">Choose Local Circle Rate</option>
                                     {collectorRates.map(r => (
-                                        <option key={r._id} value={r._id}>{r.category} - {r.subCategory} (₹{r.rate})</option>
+                                        <option key={r._id} value={r._id}>{renderValue(r.category)} - {renderValue(r.subCategory)} (₹{r.rate})</option>
                                     ))}
                                 </select>
                             </div>
