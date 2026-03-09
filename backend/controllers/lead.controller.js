@@ -493,12 +493,13 @@ export const bulkDeleteLeads = async (req, res, next) => {
 
 export const importLeads = async (req, res, next) => {
     try {
-        const { data } = req.body;
+        const { data, updateDuplicates = false } = req.body;
         if (!data || !Array.isArray(data)) {
-            return res.status(400).json({ success: false, message: "Invalid data format" });
+            return res.status(400).json({ success: false, message: "Invalid data provided" });
         }
 
-        const restructuredData = [];
+        const bulkOps = [];
+        const processedData = [];
 
         for (const item of data) {
             const firstName = item.name || item.firstName || '';
@@ -549,9 +550,7 @@ export const importLeads = async (req, res, next) => {
             };
 
             // Inject "Import" tag
-            if (!leadEntry.tags.includes('Import')) {
-                leadEntry.tags.push('Import');
-            }
+            if (!leadEntry.tags.includes('Import')) leadEntry.tags.push('Import');
 
             // Resolve Lookups
             leadEntry.requirement = await resolveLookup('Requirement', item.requirement || 'Buy');
@@ -560,65 +559,63 @@ export const importLeads = async (req, res, next) => {
             leadEntry.stage = await resolveLookup('Stage', item.stage || 'New');
             leadEntry.location = await resolveLookup('Location', item.location || leadEntry.locArea);
             leadEntry.budget = await resolveLookup('Budget', item.budget);
-
-            // Resolve Owner
             leadEntry.owner = await resolveUser(item.owner);
 
-            restructuredData.push(leadEntry);
+            if (item.mobile) {
+                if (updateDuplicates) {
+                    bulkOps.push({
+                        updateOne: {
+                            filter: { mobile: item.mobile },
+                            update: { $set: leadEntry },
+                            upsert: true
+                        }
+                    });
+                } else {
+                    processedData.push(leadEntry);
+                }
+            } else {
+                processedData.push(leadEntry);
+            }
         }
 
-        const importedLeads = await Lead.insertMany(restructuredData, { ordered: false });
+        let newCount = 0;
+        let updatedCount = 0;
 
-        // Auto-run Enrichment for imported leads (in background, non-blocking for response)
-        // Using Promise.allSettled to not fail the whole import if one enrichment fails
-        if (importedLeads && importedLeads.length > 0) {
-            Promise.allSettled(importedLeads.map(l => runFullLeadEnrichment(l._id)))
-                .then(results => {
-                    const failures = results.filter(r => r.status === 'rejected');
-                    if (failures.length > 0) console.error(`[IMPORT ENRICHMENT] ${failures.length} leads failed to enrich.`);
-                    console.log(`[IMPORT ENRICHMENT] Finished processing ${importedLeads.length} leads.`);
-                });
+        if (bulkOps.length > 0) {
+            const result = await Lead.bulkWrite(bulkOps, { ordered: false });
+            // result.upsertedCount = new items created via upsert
+            // result.modifiedCount = existing items updated
+            newCount += result.upsertedCount;
+            updatedCount += result.modifiedCount;
+        }
+
+        if (processedData.length > 0) {
+            let dataToInsert = processedData;
+            if (!updateDuplicates) {
+                const mobiles = processedData.map(d => d.mobile).filter(Boolean);
+                const existing = await Lead.find({ mobile: { $in: mobiles } }, 'mobile').lean();
+                const existingMobiles = new Set(existing.map(e => e.mobile));
+                dataToInsert = processedData.filter(d => !existingMobiles.has(d.mobile));
+            }
+
+            if (dataToInsert.length > 0) {
+                const result = await Lead.insertMany(dataToInsert, { ordered: false });
+                newCount += result.length;
+            }
         }
 
         res.status(200).json({
             success: true,
-            message: `Successfully imported ${restructuredData.length} leads.`,
-            successCount: restructuredData.length,
+            message: `Import processed. New: ${newCount}, Updated: ${updatedCount}`,
+            successCount: newCount + updatedCount,
+            newCount: newCount,
+            updatedCount: updatedCount,
             errorCount: 0,
             errors: []
         });
-    } catch (error) {
-        if (error.writeErrors) {
-            const successCount = (req.body.data?.length || 0) - error.writeErrors.length;
-            const errorDetails = error.writeErrors.map(e => ({
-                row: e.index + 1,
-                name: (restructuredData[e.index]?.firstName || 'Unknown') + " " + (restructuredData[e.index]?.lastName || ""),
-                reason: e.errmsg?.includes('duplicate key') ? 'Duplicate mobile or email' : e.errmsg
-            }));
 
-            return res.status(200).json({
-                success: true,
-                message: `Imported ${successCount} leads. ${errorDetails.length} failed.`,
-                successCount,
-                errorCount: errorDetails.length,
-                errors: errorDetails
-            });
-        }
-        if (error.name === 'ValidationError') {
-            const errorDetails = Object.values(error.errors).map(err => ({
-                row: 'N/A',
-                name: 'Validation Error',
-                reason: err.message
-            }));
-            return res.status(200).json({
-                success: true,
-                message: `Import failed: ${error.message}`,
-                successCount: 0,
-                errorCount: errorDetails.length,
-                errors: errorDetails
-            });
-        }
-        console.error("[ERROR] importLeads failed:", error);
+    } catch (error) {
+        console.error("Professional Lead Import Error:", error);
         next(error);
     }
 };
@@ -626,7 +623,8 @@ export const importLeads = async (req, res, next) => {
 export const checkDuplicatesImport = async (req, res, next) => {
     try {
         const { mobiles } = req.body;
-        const duplicates = await Lead.find({ mobile: { $in: mobiles } }).lean();
+        if (!mobiles || !Array.isArray(mobiles)) return res.status(400).json({ success: false, message: "Invalid mobile numbers" });
+        const duplicates = await Lead.find({ mobile: { $in: mobiles } }, 'mobile firstName lastName').lean();
         res.status(200).json({ success: true, duplicates: duplicates.map(d => d.mobile) });
     } catch (error) {
         next(error);

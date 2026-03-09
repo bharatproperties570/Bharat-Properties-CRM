@@ -18,6 +18,7 @@ const ImportDataPage = () => {
     const [checkingDuplicates, setCheckingDuplicates] = useState(false);
     const [duplicates, setDuplicates] = useState([]);
     const [importSummary, setImportSummary] = useState({ newItems: 0, updateItems: 0 });
+    const [updateDuplicates, setUpdateDuplicates] = useState(true);
 
     const fileInputRef = useRef(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -219,12 +220,19 @@ const ImportDataPage = () => {
 
             // Determine endpoint
             let endpoint = `/${module}/import`;
-            let payload = { data: transformedData };
+            let payload = {
+                data: transformedData,
+                updateDuplicates: updateDuplicates
+            };
 
             // Special case for sizes
             if (module === 'sizes') {
                 endpoint = '/lookups/import';
                 payload.lookup_type = 'Size';
+            } else if (module === 'inventory') {
+                payload.projectId = selectedProject;
+                payload.projectName = projects.find(p => p._id === selectedProject)?.name;
+                payload.block = selectedBlock;
             }
 
             // Artificial delay for better UX (so progress is seen)
@@ -556,15 +564,40 @@ const ImportDataPage = () => {
                                     {(importSummary.newItems > 0 || importSummary.updateItems > 0) && (
                                         <div style={{ marginTop: '16px', borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
                                             <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>Import Result Summary:</div>
-                                            <div style={{ display: 'flex', gap: '24px' }}>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', alignItems: 'center' }}>
                                                 <div style={{ color: '#16a34a', fontWeight: 600 }}>
                                                     <i className="fas fa-plus-circle" style={{ marginRight: '6px' }}></i>
-                                                    New Units to Add: {importSummary.newItems}
+                                                    New {module.charAt(0).toUpperCase() + module.slice(1)} to Add: {importSummary.newItems}
                                                 </div>
                                                 <div style={{ color: '#2563eb', fontWeight: 600 }}>
                                                     <i className="fas fa-sync-alt" style={{ marginRight: '6px' }}></i>
-                                                    Existing Units to Update: {importSummary.updateItems}
+                                                    Existing {module.charAt(0).toUpperCase() + module.slice(1)} to Update: {importSummary.updateItems}
                                                 </div>
+
+                                                {importSummary.updateItems > 0 && (
+                                                    <label style={{
+                                                        marginLeft: 'auto',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '8px',
+                                                        background: '#eff6ff',
+                                                        padding: '6px 12px',
+                                                        borderRadius: '6px',
+                                                        border: '1px solid #bfdbfe',
+                                                        cursor: 'pointer',
+                                                        fontSize: '0.85rem',
+                                                        color: '#1e40af',
+                                                        fontWeight: 600
+                                                    }}>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={updateDuplicates}
+                                                            onChange={(e) => setUpdateDuplicates(e.target.checked)}
+                                                            style={{ width: '16px', height: '16px' }}
+                                                        />
+                                                        Update Existing Records
+                                                    </label>
+                                                )}
                                             </div>
                                         </div>
                                     )}

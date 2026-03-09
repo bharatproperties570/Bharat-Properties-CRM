@@ -451,14 +451,12 @@ const resolveUser = async (identifier) => {
 
 export const importContacts = async (req, res, next) => {
     try {
-        const { data } = req.body;
-        console.log(`[ImportContacts] Received request with ${data?.length} records`);
-
+        const { data, updateDuplicates = false } = req.body;
         if (!data || !Array.isArray(data)) {
-            console.error("[ImportContacts] Invalid data format");
             return res.status(400).json({ success: false, message: "Invalid data provided" });
         }
 
+        const bulkOps = [];
         const processedData = [];
 
         for (const item of data) {
@@ -473,6 +471,7 @@ export const importContacts = async (req, res, next) => {
             newItem.subSource = await resolveLookup('SubSource', item.subSource);
             newItem.campaign = await resolveLookup('Campaign', item.campaign);
             newItem.owner = await resolveUser(item.owner);
+
             if (item.assignedTo) {
                 if (!newItem.assignment) newItem.assignment = {};
                 newItem.assignment.assignedTo = await resolveUser(item.assignedTo);
@@ -480,22 +479,16 @@ export const importContacts = async (req, res, next) => {
             newItem.status = item.status || 'Active';
             newItem.stage = item.stage || 'New';
 
-            // Automatic 'Import' Tag logic
-            let currentTags = [];
-            if (Array.isArray(item.tags)) {
-                currentTags = [...item.tags];
-            } else if (typeof item.tags === 'string' && item.tags.trim()) {
-                currentTags = item.tags.split(',').map(t => t.trim());
-            }
-
-            if (!currentTags.includes('Import')) {
-                currentTags.push('Import');
-            }
+            // Tag logic
+            let currentTags = Array.isArray(item.tags) ? [...item.tags] :
+                (typeof item.tags === 'string' && item.tags.trim() ? item.tags.split(',').map(t => t.trim()) : []);
+            if (!currentTags.includes('Import')) currentTags.push('Import');
             newItem.tags = currentTags;
 
-            // Restructure phones
-            if (item.mobile) {
-                newItem.phones = [{ number: item.mobile, type: 'Personal' }];
+            // Restructure phones (mobile as main key)
+            const mobile = item.mobile || (item.phones && item.phones[0]?.number);
+            if (mobile) {
+                newItem.phones = [{ number: mobile, type: 'Personal' }];
                 delete newItem.mobile;
             }
 
@@ -505,118 +498,94 @@ export const importContacts = async (req, res, next) => {
                 delete newItem.email;
             }
 
-            // Restructure Personal Address
+            // Resolve Address
             const addressFields = ['hNo', 'street', 'area', 'city', 'tehsil', 'postOffice', 'state', 'country', 'pinCode', 'location'];
             newItem.personalAddress = {};
-
-            // Resolve Address Lookups
             if (item.country) newItem.personalAddress.country = await resolveLookup('Country', item.country);
             if (item.state) newItem.personalAddress.state = await resolveLookup('State', item.state);
             if (item.city) newItem.personalAddress.city = await resolveLookup('City', item.city);
             if (item.tehsil) newItem.personalAddress.tehsil = await resolveLookup('Tehsil', item.tehsil);
             if (item.postOffice) newItem.personalAddress.postOffice = await resolveLookup('PostOffice', item.postOffice);
-            if (item.location) newItem.personalAddress.location = await resolveLookup('Location', item.location); // Assuming Location lookup type
+            if (item.location) newItem.personalAddress.location = await resolveLookup('Location', item.location);
 
             addressFields.forEach(field => {
-                if (item[field]) {
-                    if (!['country', 'state', 'city', 'tehsil', 'postOffice', 'location'].includes(field)) {
-                        newItem.personalAddress[field] = item[field];
-                    }
-                    delete newItem[field];
+                if (item[field] && !['country', 'state', 'city', 'tehsil', 'postOffice', 'location'].includes(field)) {
+                    newItem.personalAddress[field] = item[field];
                 }
+                delete newItem[field];
             });
 
-            // Clean up empty address object
-            if (Object.keys(newItem.personalAddress).length === 0) {
-                delete newItem.personalAddress;
-            }
-
-            // Clean empty strings recursively to prevent Schema validation errors (e.g. casting "" to ObjectId)
-            const cleanEmptyFields = (obj) => {
-                for (const key in obj) {
-                    if (typeof obj[key] === 'string' && obj[key].trim() === '') {
-                        obj[key] = undefined; // Set to undefined so Mongoose ignores it or uses default
-                    } else if (obj[key] && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
-                        cleanEmptyFields(obj[key]);
-                    }
+            // Clean empty fields
+            const cleanObj = (obj) => {
+                for (const k in obj) {
+                    if (typeof obj[k] === 'string' && obj[k].trim() === '') obj[k] = undefined;
+                    else if (obj[k] && typeof obj[k] === 'object' && !Array.isArray(obj[k])) cleanObj(obj[k]);
                 }
             };
-            cleanEmptyFields(newItem);
+            cleanObj(newItem);
 
-            processedData.push(newItem);
+            if (mobile) {
+                if (updateDuplicates) {
+                    bulkOps.push({
+                        updateOne: {
+                            filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }] },
+                            update: { $set: newItem },
+                            upsert: true
+                        }
+                    });
+                } else {
+                    processedData.push(newItem);
+                }
+            } else {
+                processedData.push(newItem);
+            }
         }
 
-        console.log(`[ImportContacts] Processed data sample:`, JSON.stringify(processedData[0], null, 2));
+        let newCount = 0;
+        let updatedCount = 0;
 
-        console.log(`[ImportContacts] Processed data sample:`, JSON.stringify(processedData[0], null, 2));
+        if (bulkOps.length > 0) {
+            const bulkResult = await Contact.bulkWrite(bulkOps, { ordered: false });
+            // bulkResult.upsertedCount = new items created via upsert
+            // bulkResult.modifiedCount = existing items updated
+            newCount += bulkResult.upsertedCount;
+            updatedCount += bulkResult.modifiedCount;
+        }
 
-        // Use rawResult: true to capture validation errors that otherwise fail silently with ordered: false
-        const result = await Contact.insertMany(processedData, { ordered: false, rawResult: true });
-
-        const successCount = result.insertedCount;
-        const validationErrors = result.mongoose ? result.mongoose.validationErrors : [];
-        const errorDetails = [];
-
-        if (validationErrors && validationErrors.length > 0) {
-            validationErrors.forEach((err, idx) => {
-                errorDetails.push({
-                    row: 'Validation',
-                    name: processedData[idx]?.name || 'Unknown',
-                    reason: err.message
+        if (processedData.length > 0) {
+            // For non-upsert path, we need to filter out duplicates manually if we are doing insertMany
+            let dataToInsert = processedData;
+            if (!updateDuplicates) {
+                const mobiles = processedData.map(d => d.phones?.[0]?.number).filter(Boolean);
+                const existing = await Contact.find({
+                    $or: [{ mobile: { $in: mobiles } }, { "phones.number": { $in: mobiles } }]
+                }, 'phones').lean();
+                const existingMobiles = new Set();
+                existing.forEach(e => {
+                    if (e.mobile) existingMobiles.add(e.mobile);
+                    if (e.phones) e.phones.forEach(p => existingMobiles.add(p.number));
                 });
-            });
-        }
+                dataToInsert = processedData.filter(d => !existingMobiles.has(d.phones?.[0]?.number));
+            }
 
-        if (errorDetails.length > 0) {
-            return res.status(200).json({
-                success: true,
-                message: `Imported ${successCount} contacts. ${errorDetails.length} failed validation.`,
-                successCount: successCount,
-                errorCount: errorDetails.length,
-                errors: errorDetails
-            });
+            if (dataToInsert.length > 0) {
+                const insertResult = await Contact.insertMany(dataToInsert, { ordered: false });
+                newCount += insertResult.length;
+            }
         }
 
         res.status(200).json({
             success: true,
-            message: `Imported ${successCount} contacts.`,
-            successCount: successCount,
+            message: `Import processed. New: ${newCount}, Updated: ${updatedCount}`,
+            successCount: newCount + updatedCount,
+            newCount: newCount,
+            updatedCount: updatedCount,
             errorCount: 0,
             errors: []
         });
-    } catch (error) {
-        if (error.writeErrors) {
-            const successCount = (req.body.data?.length || 0) - error.writeErrors.length;
-            const failedCount = error.writeErrors.length;
-            const errorDetails = error.writeErrors.map(e => ({
-                row: e.index + 1,
-                name: (req.body.data[e.index]?.name || 'Unknown'),
-                reason: e.errmsg?.includes('duplicate key') ? 'Duplicate mobile number' : e.errmsg
-            }));
 
-            return res.status(200).json({
-                success: true,
-                message: `Imported ${successCount} contacts. ${failedCount} failed.`,
-                successCount: successCount,
-                errorCount: failedCount,
-                errors: errorDetails
-            });
-        }
-        if (error.name === 'ValidationError') {
-            const errorDetails = Object.values(error.errors).map(err => ({
-                row: 'N/A',
-                name: 'Validation Error',
-                reason: err.message
-            }));
-            return res.status(200).json({
-                success: true,
-                message: `Import failed: ${error.message}`,
-                successCount: 0,
-                errorCount: errorDetails.length,
-                errors: errorDetails
-            });
-        }
-        console.error("Import error (General):", error);
+    } catch (error) {
+        console.error("Professional Import Error:", error);
         next(error);
     }
 };
@@ -625,8 +594,25 @@ export const checkDuplicatesImport = async (req, res, next) => {
     try {
         const { mobiles } = req.body;
         if (!mobiles || !Array.isArray(mobiles)) return res.status(400).json({ success: false, message: "Invalid mobile numbers provided" });
-        const duplicates = await Contact.find({ $or: [{ mobile: { $in: mobiles } }, { "phones.number": { $in: mobiles } }] }, 'mobile phones name').lean();
-        res.status(200).json({ success: true, duplicates: duplicates.map(d => d.mobile) });
+
+        // Find existing contacts by mobile or phone number
+        const duplicates = await Contact.find({
+            $or: [
+                { mobile: { $in: mobiles } },
+                { "phones.number": { $in: mobiles } }
+            ]
+        }, 'mobile phones name surname').lean();
+
+        const duplicateMobiles = new Set();
+        duplicates.forEach(d => {
+            if (d.mobile) duplicateMobiles.add(d.mobile);
+            if (d.phones) d.phones.forEach(p => duplicateMobiles.add(p.number));
+        });
+
+        res.status(200).json({
+            success: true,
+            duplicates: Array.from(duplicateMobiles).filter(m => mobiles.includes(m))
+        });
     } catch (error) {
         next(error);
     }
