@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { X, Calculator, CircleDollarSign, Percent, FileText, User, ChevronDown, CheckCircle2, Mail, MessageSquare, PhoneCall, MessageCircle, Smartphone } from 'lucide-react';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
-import { formatIndianCurrency } from '../utils/numberToWords';
+import { formatIndianCurrency, numberToIndianWords } from '../utils/numberToWords';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { renderValue } from '../utils/renderUtils';
 import { jsPDF } from 'jspdf';
@@ -287,77 +287,191 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
     const generateQuotationPDF = async () => {
         const doc = new jsPDF();
         const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
 
-        // Brand Header
-        doc.setFillColor(37, 99, 235);
-        doc.rect(0, 0, pageWidth, 40, 'F');
+        // 🏙️ --- PROFESSIONAL BRANDING HEADER ---
+        doc.setFillColor(15, 23, 42); // Navy Blue
+        doc.rect(0, 0, pageWidth, 50, 'F');
+
+        // Dynamic Border/Accents for header
+        doc.setDrawColor(37, 99, 235); // Royal Blue accent
+        doc.setLineWidth(1.5);
+        doc.line(15, 38, pageWidth - 15, 38);
+
+        // Company Identity
         doc.setTextColor(255, 255, 255);
-        doc.setFontSize(22);
+        doc.setFontSize(26);
         doc.setFont('helvetica', 'bold');
         doc.text("BHARAT PROPERTIES", 15, 25);
-        doc.setFontSize(10);
-        doc.text("Professional Real Estate Solutions", 15, 32);
 
-        doc.setTextColor(255, 255, 255);
-        doc.text(`DATE: ${new Date().toLocaleDateString()}`, pageWidth - 60, 25);
-        doc.text(`QUOTE #: BP-${Math.floor(Math.random() * 9000) + 1000}`, pageWidth - 60, 32);
-
-        // Client Info
-        doc.setTextColor(30, 41, 59);
-        doc.setFontSize(14);
-        doc.text("QUOTATION PREPARED FOR", 15, 60);
-        doc.setFontSize(11);
+        doc.setFontSize(9);
         doc.setFont('helvetica', 'normal');
-        doc.text(`CLIENT: ${selectedLead?.name || 'Valued Client'}`, 15, 70);
-        doc.text(`PHONE: ${selectedLead?.mobile || 'N/A'}`, 15, 76);
+        doc.setTextColor(148, 163, 184); // Slate-400
+        doc.text("PREMIUM REAL ESTATE SOLUTIONS | INVESTMENT ADVISORY", 15, 32);
 
-        // Property Details
+        // Quotation Label
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(24);
+        doc.setFont('helvetica', 'bold');
+        doc.text("QUOTATION", pageWidth - 15, 28, { align: 'right' });
+
+        // 🛡️ --- HEADER SIDE INFO row ---
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`DATE: ${new Date().toLocaleDateString()}`, 15, 45);
+        doc.text(`REFERENCE ID: BP-QOT-${Math.floor(Math.random() * 90000) + 10000}`, pageWidth - 15, 45, { align: 'right' });
+
+        // 👤 --- CLIENT & QUOTE OVERVIEW ---
+        let currentY = 65;
+
+        // Left Column: Prepared For
+        doc.setDrawColor(226, 232, 240); // Slate-200
+        doc.setLineWidth(0.5);
+        doc.line(15, currentY - 5, 80, currentY - 5);
+
+        doc.setTextColor(71, 85, 105); // Slate-600
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        doc.text("PREPARED FOR", 15, currentY);
+
+        doc.setTextColor(15, 23, 42); // Navy
         doc.setFontSize(14);
-        doc.text("PROPERTY SPECIFICATIONS", 15, 95);
-        doc.setFontSize(11);
-        doc.text(`PROJECT: ${renderValue(deal.projectName)}`, 15, 105);
-        doc.text(`UNIT: ${renderValue(deal.unitNo)}`, 15, 111);
-        doc.text(`LOCATION: ${renderValue(deal.location) || 'As per record'}`, 15, 117);
-        doc.text(`CATEGORY: ${renderValue(deal.category)} / ${renderValue(deal.subCategory)}`, 15, 123);
+        doc.setFont('helvetica', 'bold');
+        doc.text(selectedLead?.name || 'Valued Client', 15, currentY + 10);
 
-        // Economic Breakdown Table
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 116, 139); // Slate-500
+        doc.text(`Mobile: ${selectedLead?.mobile || 'Not Linked'}`, 15, currentY + 17);
+        doc.text(`Lead Type: ${formData.buyerType} Profile`, 15, currentY + 23);
+
+        // Right Column: Property Snapshot
+        const rightColX = pageWidth / 2 + 10;
+        doc.line(rightColX, currentY - 5, pageWidth - 15, currentY - 5);
+
+        doc.setTextColor(71, 85, 105);
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        doc.text("PROPERTY SNAPSHOT", rightColX, currentY);
+
+        doc.setTextColor(15, 23, 42);
+        doc.setFontSize(12);
+        doc.text(deal.projectName || 'Premium Residential Project', rightColX, currentY + 10);
+
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(37, 99, 235); // Accent
+        doc.text(`Unit: ${deal.unitNo} | Block: ${deal.block || 'Main'}`, rightColX, currentY + 17);
+
+        doc.setTextColor(100, 116, 139);
+        doc.text(`${deal.category} / ${deal.subCategory}`, rightColX, currentY + 23);
+
+        // 📊 --- ECONOMIC SUMMARY BREAKDOWN ---
+        currentY = 105;
+        doc.setTextColor(15, 23, 42);
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text("Financial Breakdown", 15, currentY);
+
+        // Table Data Preparation
         const tableData = [
-            ["Description", "Value"],
-            ["Base Price", formatIndianCurrency(quoteCalculations?.basePrice || 0)],
-            [`Stamp Duty (${quoteCalculations?.stampDutyPercent || 0}%)`, formatIndianCurrency(quoteCalculations?.stampDutyAmount || 0)],
-            ["Registration Charges", formatIndianCurrency(quoteCalculations?.registrationAmount || 0)],
-            ["Legal & Admin Fees", formatIndianCurrency(quoteCalculations?.legalFees || 0)]
+            ["Item Description", "Basis", "Calculated Amount"],
+            ["Property Base Value", "Total Area x Rate", formatIndianCurrency(quoteCalculations?.basePrice || 0)],
+            [`Stamp Duty Charges`, `${quoteCalculations?.stampDutyPercent || 0}% Value`, formatIndianCurrency(quoteCalculations?.stampDutyAmount || 0)],
+            ["Registration & Govt. Fees", "Fixed Regulatory", formatIndianCurrency(quoteCalculations?.registrationAmount || 0)],
+            ["Legal & Admin Processing", "Standard BP Fees", formatIndianCurrency(quoteCalculations?.legalFees || 0)]
         ];
 
         if (formData.includeGst) {
-            tableData.push([`GST (${formData.gstPercent}%)`, formatIndianCurrency(quoteCalculations?.gstAmount || 0)]);
+            tableData.push([`GST Compliance`, `${formData.gstPercent}% Standard`, formatIndianCurrency(quoteCalculations?.gstAmount || 0)]);
         }
 
         if (formData.includeTds) {
-            tableData.push(["TDS Reserve", `-${formatIndianCurrency(quoteCalculations?.tdsAmount || 0)}`]);
+            tableData.push(["TDS Reserve", "1% (Ded. at Source)", `-${formatIndianCurrency(quoteCalculations?.tdsAmount || 0)}`]);
         }
 
-        tableData.push([{ content: "Net Payable Value", styles: { fontStyle: 'bold', fillColor: [241, 245, 249] } }, { content: formatIndianCurrency(quoteCalculations?.netPayable || 0), styles: { fontStyle: 'bold', fillColor: [241, 245, 249] } }]);
-
         autoTable(doc, {
-            startY: 135,
+            startY: currentY + 8,
             head: [tableData[0]],
             body: tableData.slice(1),
-            theme: 'grid',
-            headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255] },
+            theme: 'striped',
+            headStyles: {
+                fillColor: [15, 23, 42],
+                textColor: [255, 255, 255],
+                fontSize: 10,
+                fontStyle: 'bold',
+                halign: 'center'
+            },
+            bodyStyles: {
+                textColor: [51, 65, 85],
+                fontSize: 9.5
+            },
+            columnStyles: {
+                2: { halign: 'right', fontStyle: 'bold' }
+            },
             alternateRowStyles: { fillColor: [248, 250, 252] },
             margin: { left: 15, right: 15 }
         });
 
-        // Footer
-        const finalY = doc.lastAutoTable.finalY + 30;
-        doc.setFontSize(10);
-        doc.text("Terms & Conditions:", 15, finalY);
-        doc.setFontSize(8);
+        // 💰 --- TOTAL HIGHLIGHT BOX ---
+        let finalY = doc.lastAutoTable.finalY + 10;
+
+        // Total Box Background
+        doc.setFillColor(248, 250, 252); // Light Slate
+        doc.setDrawColor(226, 232, 240);
+        doc.rect(15, finalY, pageWidth - 30, 25, 'FD');
+
+        doc.setTextColor(71, 85, 105);
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        doc.text("NET PAYABLE ESTIMATE (TOTAL LANDED COST)", 23, finalY + 8);
+
+        doc.setTextColor(37, 99, 235); // Royal Blue
+        doc.setFontSize(18);
+        doc.setFont('helvetica', 'bold');
+        doc.text(formatIndianCurrency(quoteCalculations?.netPayable || 0), pageWidth - 23, finalY + 17, { align: 'right' });
+
+        // Amount in Words
+        const words = numberToIndianWords(quoteCalculations?.netPayable || 0);
         doc.setTextColor(100, 116, 139);
-        doc.text("1. This quotation is valid for 7 days from the date of issue.", 15, finalY + 8);
-        doc.text("2. All government charges and taxes are subject to change as per regulatory updates.", 15, finalY + 14);
-        doc.text("3. Final approval is subject to due diligence and document verification.", 15, finalY + 20);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'italic');
+        doc.text(`Rupees ${words} Only`, 23, finalY + 17);
+
+        // 📋 --- TERMS & SIGN-OFF ---
+        finalY += 40;
+        doc.setTextColor(15, 23, 42);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text("Standard Terms & Conditions", 15, finalY);
+
+        doc.setLineWidth(0.2);
+        doc.line(15, finalY + 2, 80, finalY + 2);
+
+        const terms = [
+            "1. This quotation is valid for 7 business days from the date of issue.",
+            "2. Government charges and taxes are subject to change as per latest regulatory updates.",
+            "3. Final payment schedule will be detailed in the allotment letter upon booking.",
+            "4. Bharat Properties reserves the right to withdraw or modify this quote before booking confirmation."
+        ];
+
+        doc.setFontSize(8.5);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(71, 85, 105);
+        terms.forEach((term, idx) => {
+            doc.text(term, 15, finalY + 10 + (idx * 6));
+        });
+
+        // 🏢 --- FOOTER BRANDING ---
+        doc.setFillColor(15, 23, 42);
+        doc.rect(0, pageHeight - 20, pageWidth, 20, 'F');
+
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'normal');
+        doc.text("BHARAT PROPERTIES | CORPORATE OFFICE: SECTOR 45, GURUGRAM, HARYANA", 15, pageHeight - 8);
+        doc.text("www.bharatproperties.in | info@bharatproperties.in", pageWidth - 15, pageHeight - 8, { align: 'right' });
 
         return doc;
     };
