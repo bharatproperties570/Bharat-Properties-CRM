@@ -54,17 +54,35 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
         const fetchSettings = async () => {
             setLoadingSettings(true);
             try {
-                // Fetch collector rates
-                const rateParams = new URLSearchParams({
-                    category: deal?.category || '',
-                    subCategory: deal?.subCategory || '',
-                    search: deal?.projectId?.address?.city || renderValue(deal?.location) || ''
-                });
-                const ratesRes = await api.get(`/collector-rates?${rateParams.toString()}`);
+                // Fetch collector rates with specific filters
+                const rateParams = new URLSearchParams();
+                const categoryStr = renderValue(deal?.category, '');
+                const subCategoryStr = renderValue(deal?.subCategory, '');
+
+                if (categoryStr) rateParams.append('category', categoryStr);
+                if (subCategoryStr) rateParams.append('subCategory', subCategoryStr);
+
+                // Location filtering if available in deal or inventory
+                const inventory = deal?.inventoryId || {};
+                const stateId = deal?.projectId?.address?.state?._id || inventory.state?._id;
+                const districtId = deal?.projectId?.address?.district?._id || inventory.district?._id;
+
+                if (stateId) rateParams.append('state', stateId);
+                if (districtId) rateParams.append('district', districtId);
+
+                let ratesRes = await api.get(`/collector-rates?${rateParams.toString()}&limit=50`);
+
+                // Fallback: If no specific match, try fetching more general rates
+                if (ratesRes.data?.status === 'success' && (!ratesRes.data.data.docs || ratesRes.data.data.docs.length === 0)) {
+                    // Try without category/subcategory or just fetch all available
+                    ratesRes = await api.get(`/collector-rates?limit=100`);
+                }
+
                 if (ratesRes.data?.status === 'success') {
-                    setCollectorRates(ratesRes.data.data.docs || []);
-                    if (ratesRes.data.data.docs?.length > 0) {
-                        setFormData(prev => ({ ...prev, collectorRateId: ratesRes.data.data.docs[0]._id }));
+                    const rates = ratesRes.data.data.docs || [];
+                    setCollectorRates(rates);
+                    if (rates.length > 0) {
+                        setFormData(prev => ({ ...prev, collectorRateId: rates[0]._id }));
                     }
                 }
 
