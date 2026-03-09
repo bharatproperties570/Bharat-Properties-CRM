@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Calculator, CircleDollarSign, Percent, FileText, User, ChevronDown, CheckCircle2 } from 'lucide-react';
+import { X, Calculator, CircleDollarSign, Percent, FileText, User, ChevronDown, CheckCircle2, Mail, MessageSquare, PhoneCall, MessageCircle } from 'lucide-react';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 import { formatIndianCurrency } from '../utils/numberToWords';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { renderValue } from '../utils/renderUtils';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
+import smsService from '../services/smsService';
 
 const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
     const { dealMasterFields } = usePropertyConfig();
@@ -26,7 +29,8 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
         gstPercent: 18,
         tdsPercent: 1,
         includeBrokerage: true,
-        brokeragePercent: 1
+        brokeragePercent: 1,
+        sendingMedium: 'WhatsApp' // WhatsApp, Email, SMS, RCS
     });
 
     // Initialize form with deal data
@@ -62,13 +66,19 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                 if (categoryStr) rateParams.append('category', categoryStr);
                 if (subCategoryStr) rateParams.append('subCategory', subCategoryStr);
 
-                // Location filtering if available in deal or inventory
+                // Filtering based on strict alignment (State, City, Location, Category, SubCategory, UnitType, BuiltupType)
                 const inventory = deal?.inventoryId || {};
-                const stateId = deal?.projectId?.address?.state?._id || inventory.state?._id;
-                const districtId = deal?.projectId?.address?.district?._id || inventory.district?._id;
+                const stateId = deal?.projectId?.address?.state?._id || inventory.address?.state?._id;
+                const districtId = deal?.projectId?.address?.district?._id || inventory.address?.district?._id;
+                const cityStr = deal?.projectId?.address?.city || inventory.city || '';
+                const unitTypeStr = renderValue(deal?.unitType || inventory.unitType, '');
+                const builtupTypeStr = renderValue(inventory.builtupType, '');
 
                 if (stateId) rateParams.append('state', stateId);
                 if (districtId) rateParams.append('district', districtId);
+                if (unitTypeStr) rateParams.append('unitType', unitTypeStr);
+                if (builtupTypeStr) rateParams.append('builtupType', builtupTypeStr);
+                if (cityStr) rateParams.append('search', cityStr); // Backend controller uses 'search' for general city/location matching
 
                 let ratesRes = await api.get(`/collector-rates?${rateParams.toString()}&limit=50`);
 
@@ -201,7 +211,7 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
         };
     }, [deal, formData, selectedCollectorRate, selectedRevenueRule]);
 
-    const handleSave = async () => {
+    const handleSave = async (generateOnly = true) => {
         setLoading(true);
         try {
             const payload = {
@@ -210,8 +220,28 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                 associatedContact: selectedLead?._id,
                 calculations: quoteCalculations
             };
-            // In a real app, we'd save this to a 'quotes' collection
-            // For now, we update the deal stage to 'Quote' and store basic info
+
+            // 1. Generate PDF
+            const pdfDoc = await generateQuotationPDF();
+            const pdfBlob = pdfDoc.output('blob');
+            const pdfFile = new File([pdfBlob], `Quotation_${deal.unitNo || 'Unit'}.pdf`, { type: 'application/pdf' });
+
+            // 2. Upload to Server (to get a link for WhatsApp/Email)
+            const uploadFormData = new FormData();
+            uploadFormData.append('file', pdfFile);
+
+            let pdfUrl = '';
+            try {
+                const uploadRes = await api.post('/upload', uploadFormData, {
+                    headers: { 'Content-Type': 'multipart/form-data' }
+                });
+                pdfUrl = uploadRes.data.url;
+            } catch (err) {
+                console.error("PDF Upload failed:", err);
+                // Continue anyway, maybe just download
+            }
+
+            // 3. Save Quote to Deal
             const res = await api.put(`deals/${deal._id}`, {
                 stage: 'Quote',
                 associatedContact: selectedLead?._id,
@@ -220,15 +250,118 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
             });
 
             if (res.data?.success) {
-                toast.success("Quote generated successfully!");
+                // 4. Send via selected Medium
+                if (!generateOnly && selectedLead?.mobile) {
+                    await sendQuotation(pdfUrl);
+                }
+
+                toast.success(generateOnly ? "Quote generated successfully!" : `Quote sent via ${formData.sendingMedium}!`);
+
+                // Trigger download for user reference
+                pdfDoc.save(`Quotation_${deal.unitNo || 'Unit'}.pdf`);
+
                 onSave && onSave(res.data.data);
                 onClose();
             }
         } catch (error) {
-            console.error("Quote save failed:", error);
-            toast.error("Failed to save quote");
+            console.error("Quote operation failed:", error);
+            toast.error("Operation failed. See console for details.");
         } finally {
             setLoading(false);
+        }
+    };
+
+    const generateQuotationPDF = async () => {
+        const doc = new jsPDF();
+        const pageWidth = doc.internal.pageSize.getWidth();
+
+        // Brand Header
+        doc.setFillColor(37, 99, 235);
+        doc.rect(0, 0, pageWidth, 40, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(22);
+        doc.setFont('helvetica', 'bold');
+        doc.text("BHARAT PROPERTIES", 15, 25);
+        doc.setFontSize(10);
+        doc.text("Professional Real Estate Solutions", 15, 32);
+
+        doc.setTextColor(255, 255, 255);
+        doc.text(`DATE: ${new Date().toLocaleDateString()}`, pageWidth - 60, 25);
+        doc.text(`QUOTE #: BP-${Math.floor(Math.random() * 9000) + 1000}`, pageWidth - 60, 32);
+
+        // Client Info
+        doc.setTextColor(30, 41, 59);
+        doc.setFontSize(14);
+        doc.text("QUOTATION PREPARED FOR", 15, 60);
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`CLIENT: ${selectedLead?.name || 'Valued Client'}`, 15, 70);
+        doc.text(`PHONE: ${selectedLead?.mobile || 'N/A'}`, 15, 76);
+
+        // Property Details
+        doc.setFontSize(14);
+        doc.text("PROPERTY SPECIFICATIONS", 15, 95);
+        doc.setFontSize(11);
+        doc.text(`PROJECT: ${renderValue(deal.projectName)}`, 15, 105);
+        doc.text(`UNIT: ${renderValue(deal.unitNo)}`, 15, 111);
+        doc.text(`LOCATION: ${renderValue(deal.location) || 'As per record'}`, 15, 117);
+        doc.text(`CATEGORY: ${renderValue(deal.category)} / ${renderValue(deal.subCategory)}`, 15, 123);
+
+        // Economic Breakdown Table
+        const tableData = [
+            ["Description", "Value"],
+            ["Base Price", formatIndianCurrency(quoteCalculations.basePrice)],
+            [`Stamp Duty (${quoteCalculations.stampDutyPercent}%)`, formatIndianCurrency(quoteCalculations.stampDutyAmount)],
+            ["Registration Charges", formatIndianCurrency(quoteCalculations.registrationAmount)],
+            ["Legal & Admin Fees", formatIndianCurrency(quoteCalculations.legalFees)],
+            [`GST (${formData.gstPercent}%)`, formatIndianCurrency(quoteCalculations.gstAmount)],
+            ["TDS Reserve", `-${formatIndianCurrency(quoteCalculations.tdsAmount)}`],
+            [{ content: "Net Payable Value", styles: { fontStyle: 'bold', fillColor: [241, 245, 249] } }, { content: formatIndianCurrency(quoteCalculations.netPayable), styles: { fontStyle: 'bold', fillColor: [241, 245, 249] } }]
+        ];
+
+        doc.autoTable({
+            startY: 135,
+            head: [tableData[0]],
+            body: tableData.slice(1),
+            theme: 'grid',
+            headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255] },
+            alternateRowStyles: { fillColor: [248, 250, 252] },
+            margin: { left: 15, right: 15 }
+        });
+
+        // Footer
+        const finalY = doc.lastAutoTable.finalY + 30;
+        doc.setFontSize(10);
+        doc.text("Terms & Conditions:", 15, finalY);
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text("1. This quotation is valid for 7 days from the date of issue.", 15, finalY + 8);
+        doc.text("2. All government charges and taxes are subject to change as per regulatory updates.", 15, finalY + 14);
+        doc.text("3. Final approval is subject to due diligence and document verification.", 15, finalY + 20);
+
+        return doc;
+    };
+
+    const sendQuotation = async (pdfUrl) => {
+        if (!selectedLead?.mobile) return;
+
+        const message = `Hello ${selectedLead.name},\n\nPlease find your professional quotation for ${deal.projectName} Unit ${deal.unitNo}.\n\nView Document: ${pdfUrl || 'Check email for attachment'}\n\nThank you,\nBharat Properties`;
+
+        const payload = {
+            channel: formData.sendingMedium?.toUpperCase(),
+            recipients: [{ name: selectedLead.name, phone: selectedLead.mobile }],
+            content: {
+                body: message,
+                referenceType: 'Quotation',
+                pdfUrl: pdfUrl
+            }
+        };
+
+        try {
+            await smsService.sendMessage(payload);
+        } catch (err) {
+            console.error("Sending failed:", err);
+            toast.error(`Failed to send via ${formData.sendingMedium}`);
         }
     };
 
@@ -595,9 +728,42 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                                 >
                                     <option value="">Choose Local Circle Rate</option>
                                     {collectorRates.map(r => (
-                                        <option key={r._id} value={r._id}>{renderValue(r.category)} - {renderValue(r.subCategory)} (₹{r.rate})</option>
+                                        <option key={r._id} value={r._id}>
+                                            {renderValue(r.category)} - {renderValue(r.subCategory)}
+                                            {r.unitType ? ` (${r.unitType})` : ''}
+                                            - ₹{r.rate}
+                                        </option>
                                     ))}
                                 </select>
+                            </div>
+
+                            <div style={{ marginTop: '32px' }}>
+                                <h3 style={styles.sectionTitle}>
+                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b' }} />
+                                    Communication Medium
+                                </h3>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+                                    {['WhatsApp', 'Email', 'SMS', 'RCS'].map(medium => (
+                                        <div
+                                            key={medium}
+                                            onClick={() => setFormData(prev => ({ ...prev, sendingMedium: medium }))}
+                                            style={{
+                                                ...styles.pill(formData.sendingMedium === medium),
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '8px',
+                                                padding: '12px'
+                                            }}
+                                        >
+                                            {medium === 'WhatsApp' && <MessageCircle size={16} />}
+                                            {medium === 'Email' && <Mail size={16} />}
+                                            {medium === 'SMS' && <MessageSquare size={16} />}
+                                            {medium === 'RCS' && <Smartphone size={16} />}
+                                            {medium}
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -677,14 +843,14 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                             Cancel
                         </button>
                         <button
-                            onClick={handleSave}
-                            disabled={loading || loadingSettings}
+                            onClick={() => handleSave(false)}
+                            disabled={loading || loadingSettings || !selectedLead}
                             style={styles.primaryBtn}
                         >
                             {loading ? 'Processing...' : (
                                 <>
-                                    <FileText size={18} />
-                                    Generate & Save Quote
+                                    <CheckCircle2 size={18} />
+                                    Generate & Send via {formData.sendingMedium}
                                 </>
                             )}
                         </button>

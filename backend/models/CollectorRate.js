@@ -29,6 +29,14 @@ const collectorRateSchema = new mongoose.Schema({
         required: true,
         index: true
     },
+    unitType: {
+        type: String,
+        index: true
+    },
+    builtupType: {
+        type: String,
+        index: true
+    },
     rate: {
         type: Number,
         required: true

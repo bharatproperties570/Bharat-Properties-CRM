@@ -5,7 +5,7 @@ export const createCollectorRate = async (req, res) => {
     try {
         const {
             state, district, tehsil, location,
-            category, subCategory, rate, rateApplyOn, rateUnit,
+            category, subCategory, unitType, builtupType, rate, rateApplyOn, rateUnit,
             roadMultipliers, floorMultipliers,
             effectiveFrom, effectiveTo, versionNo,
             configName, constructionRateSqFt, constructionRateSqYard
@@ -18,7 +18,7 @@ export const createCollectorRate = async (req, res) => {
 
         const newRate = await CollectorRate.create({
             state, district, tehsil, location,
-            category, subCategory, rate, rateApplyOn, rateUnit,
+            category, subCategory, unitType, builtupType, rate, rateApplyOn, rateUnit,
             roadMultipliers, floorMultipliers,
             effectiveFrom, effectiveTo, versionNo,
             configName, constructionRateSqFt, constructionRateSqYard,
@@ -37,7 +37,7 @@ export const createCollectorRate = async (req, res) => {
 // Get all rates with filters and pagination
 export const getAllCollectorRates = async (req, res) => {
     try {
-        const { page = 1, limit = 10, state, district, tehsil, location, category, subCategory, search } = req.query;
+        const { page = 1, limit = 10, state, district, tehsil, location, category, subCategory, unitType, builtupType, search } = req.query;
         const query = {};
 
         if (state) query.state = state;
@@ -46,6 +46,8 @@ export const getAllCollectorRates = async (req, res) => {
         if (location) query.location = location;
         if (category) query.category = category;
         if (subCategory) query.subCategory = subCategory;
+        if (unitType) query.unitType = unitType;
+        if (builtupType) query.builtupType = builtupType;
 
         if (search) {
             query.$or = [
