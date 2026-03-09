@@ -371,6 +371,7 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
 
         doc.setTextColor(100, 116, 139);
         doc.text(`Category: ${deal.category} Real Estate`, rightColX, currentY + 20);
+        doc.text(`Plot/Unit Size: ${deal.sizeLabel || deal.size || 'Standard'}`, rightColX, currentY + 26);
 
         // 📉 --- FINANCIAL BREAKDOWN (Professional Table) ---
         currentY += 40;
@@ -381,7 +382,7 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
 
         // Table Data Preparation
         const tableData = [
-            ["Description of Charges", "Computation Basis", "Amount (INR)"],
+            ["Description of Charges", "Computation Basis", "Amount (₹)"],
             ["Total Basic Sale Value", "As per Master Pricing", formatFullIndianAmount(quoteCalculations?.basePrice || 0)],
             [`Estimated Stamp Duty (${quoteCalculations?.stampDutyPercent || 0}%)`, "Statutory Regulatory Levy", formatFullIndianAmount(quoteCalculations?.stampDutyAmount || 0)],
             ["Government Registration Fees", "Fixed Document Charges", formatFullIndianAmount(quoteCalculations?.registrationAmount || 0)],
@@ -417,6 +418,7 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                 2: { halign: 'right', fontStyle: 'bold', textColor: [15, 23, 42], cellWidth: 45 }
             },
             didParseCell: function (data) {
+                // Ensure the Amount (INR) header is specifically right-aligned to match the data underneath
                 if (data.section === 'head' && data.column.index === 2) {
                     data.cell.styles.halign = 'right';
                 }
@@ -470,22 +472,13 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
             "Disclaimer: Bharat Properties acts as a facilitator. Final transaction is subject to developer and regulatory approvals."
         ];
 
-        terms.forEach((t, i) => doc.text(`• ${t}`, 15, finalY + i * 5 + 6));
+        terms.forEach((t, i) => doc.text(`- ${t}`, 15, finalY + i * 5 + 6));
 
         // 🏢 --- LETTERHEAD FOOTER ELEMENTS ---
         doc.setTextColor(15, 23, 42);
         doc.setFontSize(10);
-        doc.setFont('helvetica', 'bold');
-        doc.text("HONEST & FAIR DEAL IS OUR MOTTO", pageWidth / 2, pageHeight - 35, { align: 'center' });
-
-        doc.setFontSize(9);
-        doc.text("For BHARAT PROPERTIES", pageWidth - 60, pageHeight - 55);
-        doc.setDrawColor(226, 232, 240);
-        doc.setLineWidth(0.2);
-        doc.line(pageWidth - 65, pageHeight - 42, pageWidth - 15, pageHeight - 42);
-        doc.setTextColor(100, 116, 139);
-        doc.setFontSize(8);
-        doc.text("Authorized Signatory", pageWidth - 15, pageHeight - 38, { align: 'right' });
+        doc.setFont('helvetica', 'italic');
+        doc.text("HONEST & FAIR DEAL IS OUR MOTTO", pageWidth / 2, pageHeight - 15, { align: 'center' });
 
         return doc;
     };

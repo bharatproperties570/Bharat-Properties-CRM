@@ -15,6 +15,9 @@ const ImportDataPage = () => {
     const [progress, setProgress] = useState(0);
     const [importErrors, setImportErrors] = useState([]);
     const [importStats, setImportStats] = useState({ success: 0, failed: 0 });
+    const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+    const [duplicates, setDuplicates] = useState([]);
+    const [importSummary, setImportSummary] = useState({ newItems: 0, updateItems: 0 });
 
     const fileInputRef = useRef(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -101,21 +104,26 @@ const ImportDataPage = () => {
         document.body.removeChild(link);
     };
 
-    const [checkingDuplicates, setCheckingDuplicates] = useState(false);
-    const [duplicates, setDuplicates] = useState([]);
-
     const checkDuplicates = async () => {
         setCheckingDuplicates(true);
+        setImportSummary({ newItems: 0, updateItems: 0 });
         try {
             const transformedData = fileData.data.map(row => {
                 const item = {};
                 Object.entries(mapping).forEach(([systemKey, fileHeader]) => {
                     item[systemKey] = row[fileHeader];
                 });
+                // Inject metadata for sizes and inventory
+                if (module === 'sizes' || module === 'inventory') {
+                    const projectObj = projects.find(p => p._id === selectedProject);
+                    item.projectId = selectedProject;
+                    item.projectName = projectObj ? projectObj.name : '';
+                    item.block = selectedBlock;
+                }
                 return item;
             });
 
-            let endpoint = `/lookups/check-duplicates`; // Use centralized lookup check
+            let endpoint = `/lookups/check-duplicates`;
             let payload = {
                 lookup_type: module === 'sizes' ? 'size' : module,
                 values: []
@@ -131,6 +139,16 @@ const ImportDataPage = () => {
                     subCategory: d.subCategory,
                     unitType: d.unitType
                 }));
+            } else if (module === 'inventory') {
+                endpoint = `/inventory/check-duplicates`;
+                payload = {
+                    items: transformedData.map(d => ({
+                        unitNo: d.unitNo || d.unitNumber,
+                        projectId: selectedProject,
+                        projectName: d.projectName,
+                        block: selectedBlock
+                    }))
+                };
             } else if (module === 'contacts' || module === 'leads') {
                 endpoint = `/${module}/check-duplicates`;
                 payload = { mobiles: transformedData.map(d => d.mobile).filter(Boolean) };
@@ -141,17 +159,26 @@ const ImportDataPage = () => {
                 endpoint = `/${module}/check-duplicates`;
                 payload = { names: transformedData.map(d => d.name).filter(Boolean) };
             } else {
-                // Fallback for other potential lookup-based modules
                 payload.values = transformedData.map(d => d.label || d.value || d.lookup_value).filter(Boolean);
             }
 
             const res = await api.post(endpoint, payload);
             if (res.data.success) {
-                setDuplicates(res.data.duplicates || []);
-                if (res.data.duplicates?.length > 0) {
-                    toast.error(`${res.data.duplicates.length} duplicate records found!`);
+                const duplicateList = res.data.duplicates || [];
+                setDuplicates(duplicateList);
+
+                const dupeCount = duplicateList.length;
+                const totalCount = fileData.data.length;
+
+                setImportSummary({
+                    newItems: totalCount - dupeCount,
+                    updateItems: dupeCount
+                });
+
+                if (dupeCount > 0) {
+                    toast.error(`${dupeCount} matching records found! These will be updated.`);
                 } else {
-                    toast.success('No duplicates found in the backend.');
+                    toast.success('All records are new. No duplicates found.');
                 }
             }
         } catch (err) {
@@ -208,7 +235,7 @@ const ImportDataPage = () => {
             const response = await api.post(endpoint, payload);
 
             if (response.data.success) {
-                const { successCount, errorCount } = response.data;
+                const { successCount, errorCount, newCount, updatedCount } = response.data;
 
                 // Refresh context data if needed
                 if (module === 'sizes') {
@@ -216,7 +243,12 @@ const ImportDataPage = () => {
                 }
 
                 setProgress(100);
-                setImportStats({ success: successCount, failed: errorCount });
+                setImportStats({
+                    success: successCount,
+                    failed: errorCount,
+                    newCount: newCount || 0,
+                    updatedCount: updatedCount || 0
+                });
                 setImportErrors(response.data.errors || []);
                 setStep(5);
             } else {
@@ -519,7 +551,23 @@ const ImportDataPage = () => {
                                 <div style={{ textAlign: 'left', background: '#f8fafc', padding: '20px', borderRadius: '8px', fontSize: '0.9rem', color: '#64748b', marginBottom: '24px' }}>
                                     <div style={{ marginBottom: '8px' }}>• Module: <strong>{MODULE_CONFIG[module].label}</strong></div>
                                     <div style={{ marginBottom: '8px' }}>• File: <strong>{file?.name}</strong></div>
-                                    <div>• Mapped Fields: <strong>{Object.keys(mapping).length} / {MODULE_CONFIG[module].fields.length}</strong></div>
+                                    <div style={{ marginBottom: '8px' }}>• Mapped Fields: <strong>{Object.keys(mapping).length} / {MODULE_CONFIG[module].fields.length}</strong></div>
+
+                                    {(importSummary.newItems > 0 || importSummary.updateItems > 0) && (
+                                        <div style={{ marginTop: '16px', borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+                                            <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>Import Result Summary:</div>
+                                            <div style={{ display: 'flex', gap: '24px' }}>
+                                                <div style={{ color: '#16a34a', fontWeight: 600 }}>
+                                                    <i className="fas fa-plus-circle" style={{ marginRight: '6px' }}></i>
+                                                    New Units to Add: {importSummary.newItems}
+                                                </div>
+                                                <div style={{ color: '#2563eb', fontWeight: 600 }}>
+                                                    <i className="fas fa-sync-alt" style={{ marginRight: '6px' }}></i>
+                                                    Existing Units to Update: {importSummary.updateItems}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -544,7 +592,11 @@ const ImportDataPage = () => {
                         </h2>
 
                         <p style={{ color: '#64748b', marginBottom: '32px' }}>
-                            Successfully imported <strong>{importStats.success}</strong> records.
+                            Successfully processed <strong>{importStats.success}</strong> records.
+                            <div style={{ marginTop: '8px', fontSize: '0.9rem' }}>
+                                <span style={{ color: '#16a34a' }}>• New Added: {importStats.newCount}</span>
+                                <span style={{ marginLeft: '20px', color: '#2563eb' }}>• Updated: {importStats.updatedCount}</span>
+                            </div>
                             {importStats.failed > 0 && <span> <strong>{importStats.failed}</strong> records could not be imported.</span>}
                         </p>
 

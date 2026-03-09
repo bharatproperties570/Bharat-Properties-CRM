@@ -8,6 +8,7 @@ import Team from "../models/Team.js";
 import { paginate } from "../utils/pagination.js";
 import mongoose from "mongoose";
 import Deal from "../models/Deal.js";
+import DuplicationRule from "../models/DuplicationRule.js";
 
 
 // ROBUST FILTER RESOLUTION (Handle both Names and IDs)
@@ -768,46 +769,40 @@ export const importInventory = async (req, res) => {
             }
         }
 
-        console.log(`[IMPORT] Restructuring complete. Inserting ${restructuredData.length} documents...`);
-        const insertedResult = await Inventory.insertMany(restructuredData, { ordered: false });
-        console.log(`[IMPORT] Successfully inserted ${insertedResult.length} documents.`);
+        console.log(`[IMPORT] Restructuring complete. Preparing bulk operations for ${restructuredData.length} documents...`);
+
+        const bulkOps = restructuredData.map(item => ({
+            updateOne: {
+                filter: {
+                    projectName: item.projectName,
+                    block: item.block,
+                    $or: [
+                        { unitNo: item.unitNo },
+                        { unitNumber: item.unitNo }
+                    ]
+                },
+                update: { $set: item },
+                upsert: true
+            }
+        }));
+
+        const result = await Inventory.bulkWrite(bulkOps, { ordered: false });
+
+        const successCount = (result.upsertedCount || 0) + (result.modifiedCount || 0);
+        const newCount = result.upsertedCount || 0;
+        const updatedCount = result.modifiedCount || 0;
+
+        console.log(`[IMPORT] Bulk write complete. New: ${newCount}, Updated: ${updatedCount}`);
 
         res.status(200).json({
             success: true,
-            message: `Successfully imported ${insertedResult.length} inventory items.`,
-            successCount: insertedResult.length,
-            errorCount: restructuredData.length - insertedResult.length
+            message: `Import complete: ${newCount} added, ${updatedCount} updated.`,
+            successCount: successCount,
+            newCount,
+            updatedCount,
+            errorCount: 0
         });
     } catch (error) {
-        if (error.writeErrors || error.name === 'MongooseBulkWriteError') {
-            const insertedCount = error.insertedDocs ? error.insertedDocs.length : 0;
-            const realSuccessCount = insertedCount;
-            return res.status(200).json({
-                success: true,
-                message: `Imported ${realSuccessCount} inventory items. ${error.writeErrors.length} failed.`,
-                successCount: realSuccessCount,
-                errorCount: error.writeErrors.length,
-                errors: error.writeErrors.map(e => ({
-                    row: e.index + 1,
-                    name: `Unit ${req.body.data[e.index]?.unitNo || 'Unknown'}`,
-                    reason: e.errmsg?.includes('duplicate key') ? 'Duplicate Unit Number in this Project/Block' : e.errmsg
-                }))
-            });
-        }
-        if (error.name === 'ValidationError') {
-            const errorDetails = Object.values(error.errors).map(err => ({
-                row: 'N/A',
-                name: 'Validation Error',
-                reason: err.message
-            }));
-            return res.status(200).json({
-                success: true,
-                message: `Import failed: ${error.message}`,
-                successCount: 0,
-                errorCount: errorDetails.length,
-                errors: errorDetails
-            });
-        }
         console.error("Inventory Import Fatal Error:", error);
         res.status(500).json({ success: false, error: error.message });
     }
@@ -820,20 +815,51 @@ export const importInventory = async (req, res) => {
  */
 export const checkDuplicatesImport = async (req, res) => {
     try {
-        const { items } = req.body; // Array of { unitNo, projectId, projectName }
+        const { items } = req.body; // Array of { unitNo, projectId, projectName, block }
         if (!items || !Array.isArray(items)) {
             return res.status(400).json({ success: false, error: "Invalid items provided" });
         }
 
-        const query = {
-            $or: items.map(item => ({
+        // Fetch active rules for Inventory from settings
+        const inventoryRules = await DuplicationRule.find({
+            entityType: 'Inventory',
+            isActive: true
+        }).lean();
+
+        // Default: If no rules, check UnitNo + (Project + Block)
+        const queryItems = items.map(item => {
+            const conditions = [];
+
+            // Standard real-estate identity: Project + Block + Unit
+            const identityMatch = {
                 $and: [
                     { $or: [{ unitNo: item.unitNo }, { unitNumber: item.unitNo }] },
-                    { $or: [{ projectId: item.projectId }, { projectName: item.projectName || item.project }] }
+                    { $or: [{ projectId: item.projectId }, { projectName: item.projectName || item.project }] },
+                    { block: item.block }
                 ]
-            }))
-        };
+            };
+            conditions.push(identityMatch);
 
+            // Add custom rules if defined in settings
+            inventoryRules.forEach(rule => {
+                const ruleFieldQueries = rule.fields.map(field => {
+                    const value = item[field];
+                    if (!value) return null;
+                    return { [field]: value };
+                }).filter(Boolean);
+
+                if (ruleFieldQueries.length > 0) {
+                    conditions.push(rule.matchType === 'all'
+                        ? { $and: ruleFieldQueries }
+                        : { $or: ruleFieldQueries }
+                    );
+                }
+            });
+
+            return { $or: conditions };
+        });
+
+        const query = { $or: queryItems };
         const duplicates = await Inventory.find(query, 'unitNo unitNumber projectId projectName block').lean();
 
         res.status(200).json({

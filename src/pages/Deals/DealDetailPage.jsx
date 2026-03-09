@@ -1104,15 +1104,6 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                     )}
                                 </div>
                             </div>
-                            {/* 🏛️ GOVERNMENT CHARGES & REGISTRATION BREAKDOWN (New) */}
-                            <GovernmentChargesCard
-                                deal={deal}
-                                charges={govtCharges}
-                                setCharges={setGovtCharges}
-                                financials={financials}
-                                loading={valuationLoading}
-                                error={valuationError}
-                            />
 
                             {/* Professional Financial Insights */}
                             <div style={{ background: '#f8fafc', borderRadius: '20px', padding: '24px', border: '1px solid #f1f5f9' }}>
@@ -1591,6 +1582,16 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                             </div>
                         </div>
                     </div>
+
+                    {/* 🏛️ GOVERNMENT CHARGES & REGISTRATION BREAKDOWN */}
+                    <GovernmentChargesCard
+                        deal={deal}
+                        charges={govtCharges}
+                        setCharges={setGovtCharges}
+                        financials={financials}
+                        loading={valuationLoading}
+                        error={valuationError}
+                    />
 
                 </div>
             </div>
