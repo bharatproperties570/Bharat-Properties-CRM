@@ -27,7 +27,9 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
         revenueRuleId: '',
         customPrice: 0,
         gstPercent: 18,
+        includeGst: true,
         tdsPercent: 1,
+        includeTds: true,
         includeBrokerage: true,
         brokeragePercent: 1,
         sendingMedium: 'WhatsApp' // WhatsApp, Email, SMS, RCS
@@ -188,8 +190,8 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
         const applicableValue = Math.max(basePrice, collectorValue) || 0;
         const stampDutyAmount = (applicableValue * (stampDutyPercent / 100)) || 0;
         const registrationAmount = (applicableValue * (registrationPercent / 100)) || 0;
-        const gstAmount = (basePrice * (formData.gstPercent / 100)) || 0;
-        const tdsAmount = (basePrice * (formData.tdsPercent / 100)) || 0;
+        const gstAmount = formData.includeGst ? ((basePrice * (formData.gstPercent / 100)) || 0) : 0;
+        const tdsAmount = formData.includeTds ? ((basePrice * (formData.tdsPercent / 100)) || 0) : 0;
         const brokerageAmount = formData.includeBrokerage ? ((basePrice * (formData.brokeragePercent / 100)) || 0) : 0;
 
         const totalGovtCharges = (stampDutyAmount + registrationAmount + (legalFees || 0)) || 0;
@@ -712,21 +714,59 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
                                 <div style={styles.inputGroup}>
-                                    <label style={styles.label}>GST Calculation (%)</label>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <label style={{ ...styles.label, marginBottom: 0 }}>GST Calculation (%)</label>
+                                        <button
+                                            onClick={() => setFormData(prev => ({ ...prev, includeGst: !prev.includeGst }))}
+                                            style={{
+                                                padding: '4px 12px',
+                                                borderRadius: '20px',
+                                                fontSize: '0.7rem',
+                                                fontWeight: 800,
+                                                border: 'none',
+                                                cursor: 'pointer',
+                                                backgroundColor: formData.includeGst ? '#dcfce7' : '#f1f5f9',
+                                                color: formData.includeGst ? '#166534' : '#64748b',
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            {formData.includeGst ? 'ON' : 'OFF'}
+                                        </button>
+                                    </div>
                                     <input
                                         type="number"
                                         value={formData.gstPercent}
                                         onChange={(e) => setFormData(prev => ({ ...prev, gstPercent: e.target.value }))}
-                                        style={styles.input}
+                                        style={{ ...styles.input, opacity: formData.includeGst ? 1 : 0.5, cursor: formData.includeGst ? 'text' : 'not-allowed' }}
+                                        disabled={!formData.includeGst}
                                     />
                                 </div>
                                 <div style={styles.inputGroup}>
-                                    <label style={styles.label}>TDS Withholding (%)</label>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <label style={{ ...styles.label, marginBottom: 0 }}>TDS Withholding (%)</label>
+                                        <button
+                                            onClick={() => setFormData(prev => ({ ...prev, includeTds: !prev.includeTds }))}
+                                            style={{
+                                                padding: '4px 12px',
+                                                borderRadius: '20px',
+                                                fontSize: '0.7rem',
+                                                fontWeight: 800,
+                                                border: 'none',
+                                                cursor: 'pointer',
+                                                backgroundColor: formData.includeTds ? '#dcfce7' : '#f1f5f9',
+                                                color: formData.includeTds ? '#166534' : '#64748b',
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            {formData.includeTds ? 'ON' : 'OFF'}
+                                        </button>
+                                    </div>
                                     <input
                                         type="number"
                                         value={formData.tdsPercent}
                                         onChange={(e) => setFormData(prev => ({ ...prev, tdsPercent: e.target.value }))}
-                                        style={styles.input}
+                                        style={{ ...styles.input, opacity: formData.includeTds ? 1 : 0.5, cursor: formData.includeTds ? 'text' : 'not-allowed' }}
+                                        disabled={!formData.includeTds}
                                     />
                                 </div>
                             </div>
