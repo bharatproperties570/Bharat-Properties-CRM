@@ -386,36 +386,35 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
         },
         container: {
             backgroundColor: '#ffffff',
-            width: '100%',
-            maxWidth: '1100px',
-            height: '92vh',
-            borderRadius: '40px',
+            width: '94%',
+            maxWidth: '1000px',
+            height: '88vh',
+            borderRadius: '16px',
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
-            border: '1px solid rgba(255, 255, 255, 0.5)',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.05)',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
             position: 'relative',
             fontFamily: "'Outfit', 'Inter', sans-serif"
         },
         header: {
-            padding: '32px 48px',
-            borderBottom: '1px solid #f1f5f9',
+            padding: '24px 32px',
+            borderBottom: '1px solid #e2e8f0',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            background: 'linear-gradient(135deg, #f8fafc 0%, #ffffff 100%)'
+            background: '#ffffff'
         },
         headerIconBox: {
-            width: '56px',
-            height: '56px',
-            background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
-            borderRadius: '20px',
+            width: '42px',
+            height: '42px',
+            background: '#eff6ff',
+            borderRadius: '12px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#fff',
-            boxShadow: '0 10px 15px -3px rgba(37, 99, 235, 0.25)'
+            color: '#2563eb',
+            boxShadow: 'none'
         },
         closeBtn: {
             padding: '12px',
@@ -429,18 +428,25 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
         body: {
             flex: 1,
             overflowY: 'auto',
-            padding: '48px',
-            background: '#ffffff',
+            padding: '24px',
+            background: '#f8fafc',
             display: 'grid',
-            gridTemplateColumns: 'minmax(0, 1fr) 400px',
-            gap: '48px'
+            gridTemplateColumns: 'minmax(0, 1fr) 380px',
+            gap: '24px'
+        },
+        sectionCard: {
+            background: '#fff',
+            padding: '24px',
+            borderRadius: '12px',
+            border: '1px solid #e2e8f0',
+            marginBottom: '24px'
         },
         sectionTitle: {
-            fontSize: '0.65rem',
-            fontWeight: 900,
-            color: '#94a3b8',
-            textTransform: 'uppercase',
-            letterSpacing: '0.15em',
+            fontSize: '0.9rem',
+            fontWeight: 700,
+            color: '#1e293b',
+            textTransform: 'none',
+            letterSpacing: 'normal',
             marginBottom: '20px',
             display: 'flex',
             alignItems: 'center',
@@ -451,38 +457,33 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
         },
         label: {
             display: 'block',
-            fontSize: '0.8rem',
-            fontWeight: 800,
+            fontSize: '0.85rem',
+            fontWeight: 600,
             color: '#64748b',
-            marginBottom: '10px',
-            marginLeft: '4px'
+            marginBottom: '8px'
         },
         input: {
             width: '100%',
-            padding: '16px 20px',
-            backgroundColor: '#f8fafc',
-            border: '2px solid #f1f5f9',
-            borderRadius: '16px',
-            fontSize: '1rem',
-            fontWeight: 600,
-            color: '#1e293b',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            border: '1px solid #cbd5e1',
+            fontSize: '0.9rem',
             outline: 'none',
-            transition: 'all 0.2s',
+            color: '#1e293b',
+            transition: 'border-color 0.2s',
             boxSizing: 'border-box'
         },
         select: {
             width: '100%',
-            padding: '16px 20px',
-            backgroundColor: '#f8fafc',
-            border: '2px solid #f1f5f9',
-            borderRadius: '16px',
-            fontSize: '1rem',
-            fontWeight: 600,
-            color: '#1e293b',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            border: '1px solid #cbd5e1',
+            fontSize: '0.9rem',
             outline: 'none',
+            color: '#1e293b',
             appearance: 'none',
             cursor: 'pointer',
-            background: '#f8fafc url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%2364748b\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\' /%3E%3C/svg%3E") no-repeat right 20px center',
+            background: '#fff url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%2364748b\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\' /%3E%3C/svg%3E") no-repeat right 12px center',
             backgroundSize: '16px',
             boxSizing: 'border-box'
         },
@@ -492,27 +493,28 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
             gap: '12px'
         },
         pill: (active) => ({
-            padding: '14px',
-            borderRadius: '16px',
-            border: `2px solid ${active ? '#2563eb' : '#f1f5f9'}`,
-            backgroundColor: active ? '#eff6ff' : '#f8fafc',
-            color: active ? '#1e40af' : '#64748b',
-            fontWeight: 800,
+            padding: '12px',
+            borderRadius: '10px',
+            border: `2px solid ${active ? '#2563eb' : '#e2e8f0'}`,
+            backgroundColor: active ? '#eff6ff' : '#fff',
+            color: active ? '#2563eb' : '#64748b',
+            fontWeight: 700,
             fontSize: '0.9rem',
             cursor: 'pointer',
             transition: 'all 0.2s',
             textAlign: 'center'
         }),
         summaryCard: {
-            backgroundColor: '#f8fafc',
-            borderRadius: '32px',
-            padding: '40px',
-            border: '1px solid #f1f5f9',
+            backgroundColor: '#fff',
+            borderRadius: '16px',
+            padding: '24px',
+            border: '1px solid #e2e8f0',
             display: 'flex',
             flexDirection: 'column',
             height: 'fit-content',
             position: 'sticky',
-            top: 0
+            top: 0,
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
         },
         summaryRow: (isTotal = false, isGst = false, isTds = false) => ({
             display: 'flex',
@@ -525,29 +527,38 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
             color: isTotal ? '#1e293b' : (isGst ? '#059669' : (isTds ? '#e11d48' : '#475569'))
         }),
         footer: {
-            padding: '32px 48px',
-            borderTop: '1px solid #f1f5f9',
-            backgroundColor: '#f8fafc',
+            padding: '20px 32px',
+            borderTop: '1px solid #e2e8f0',
+            backgroundColor: '#ffffff',
             display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center'
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            gap: '12px'
+        },
+        cancelBtn: {
+            padding: '10px 20px',
+            borderRadius: '8px',
+            border: '1px solid #cbd5e1',
+            background: '#fff',
+            color: '#475569',
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontSize: '0.9rem'
         },
         primaryBtn: {
             backgroundColor: '#2563eb',
             color: '#ffffff',
-            padding: '18px 36px',
-            borderRadius: '20px',
+            padding: '10px 24px',
+            borderRadius: '8px',
             border: 'none',
-            fontSize: '0.85rem',
-            fontWeight: 800,
-            textTransform: 'uppercase',
-            letterSpacing: '0.1em',
+            fontSize: '0.9rem',
+            fontWeight: 600,
             cursor: 'pointer',
-            boxShadow: '0 10px 15px -3px rgba(37, 99, 235, 0.25)',
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
-            transition: 'all 0.2s'
+            gap: '10px',
+            transition: 'all 0.2s',
+            opacity: loading ? 0.7 : 1
         }
     };
 
@@ -561,10 +572,10 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                             <Calculator size={28} />
                         </div>
                         <div>
-                            <h2 style={{ fontSize: '1.6rem', fontWeight: 900, color: '#0f172a', margin: 0, tracking: '-0.02em' }}>
+                            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
                                 Professional Quotation
                             </h2>
-                            <p style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: 600, marginTop: '4px' }}>
+                            <p style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600, marginTop: '4px' }}>
                                 {renderValue(deal?.category)} • {renderValue(deal?.unitNo, 'Unit Details')} • {renderValue(deal?.projectName, 'Project')}
                             </p>
                         </div>
@@ -578,28 +589,28 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                 <div style={styles.body}>
                     {/* Form Left Side */}
                     <div>
-                        <div style={{ marginBottom: '48px' }}>
+                        <div style={styles.sectionCard}>
                             <h3 style={styles.sectionTitle}>
                                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#2563eb' }} />
                                 Buyer Profile Mapping
                             </h3>
 
                             {/* Lead Selection Section */}
-                            <div style={styles.searchContainer}>
+                            <div style={{ marginBottom: '24px' }}>
                                 <label style={styles.label}>Associated Lead / Contact</label>
 
                                 {selectedLead ? (
-                                    <div style={styles.selectedLeadBadge}>
-                                        <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-                                            <User size={20} color="#0369a1" />
+                                    <div style={{ ...styles.selectedLeadBadge, display: 'flex', alignItems: 'center', gap: '15px', padding: '12px', background: '#f0f9ff', borderRadius: '12px', border: '1px solid #bae6fd' }}>
+                                        <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                                            <User size={20} color="#2563eb" />
                                         </div>
                                         <div style={{ flex: 1 }}>
-                                            <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0369a1' }}>{selectedLead.name}</div>
-                                            <div style={{ fontSize: '0.75rem', color: '#0ea5e9', fontWeight: 600 }}>{selectedLead.mobile || 'No Mobile'}</div>
+                                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>{selectedLead.name}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>{selectedLead.mobile || 'No Mobile'}</div>
                                         </div>
                                         <button
                                             onClick={() => { setSelectedLead(null); setLeadSearch(''); }}
-                                            style={{ border: 'none', background: 'transparent', color: '#0ea5e9', cursor: 'pointer', padding: '8px' }}
+                                            style={{ border: 'none', background: 'transparent', color: '#64748b', cursor: 'pointer', padding: '8px' }}
                                         >
                                             <X size={18} />
                                         </button>
@@ -621,13 +632,33 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                                         )}
 
                                         {showLeadResults && leadSearch.length > 0 && (
-                                            <div style={styles.searchResults}>
+                                            <div style={{
+                                                position: 'absolute',
+                                                top: '100%',
+                                                left: 0,
+                                                right: 0,
+                                                backgroundColor: '#fff',
+                                                borderRadius: '12px',
+                                                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                                                border: '1px solid #e2e8f0',
+                                                zIndex: 100,
+                                                marginTop: '8px',
+                                                maxHeight: '200px',
+                                                overflowY: 'auto'
+                                            }}>
                                                 {leads.length > 0 ? leads.map(lead => {
                                                     const name = lead.firstName ? `${lead.salutation || ""} ${lead.firstName} ${lead.lastName || ""}`.trim() : renderValue(lead.name, "Unknown");
                                                     return (
                                                         <div
                                                             key={lead._id}
-                                                            style={styles.resultItem}
+                                                            style={{
+                                                                padding: '12px 16px',
+                                                                cursor: 'pointer',
+                                                                borderBottom: '1px solid #f1f5f9',
+                                                                display: 'flex',
+                                                                flexDirection: 'column',
+                                                                gap: '2px'
+                                                            }}
                                                             onClick={() => {
                                                                 setSelectedLead({ _id: lead._id, name, mobile: lead.mobile });
                                                                 setShowLeadResults(false);
@@ -664,7 +695,7 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                             </div>
                         </div>
 
-                        <div style={{ marginBottom: '48px' }}>
+                        <div style={styles.sectionCard}>
                             <h3 style={styles.sectionTitle}>
                                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#059669' }} />
                                 Valuation & Taxation
@@ -701,7 +732,7 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                             </div>
                         </div>
 
-                        <div>
+                        <div style={styles.sectionCard}>
                             <h3 style={styles.sectionTitle}>
                                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#6366f1' }} />
                                 Regulatory Framework
@@ -736,34 +767,34 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                                     ))}
                                 </select>
                             </div>
+                        </div>
 
-                            <div style={{ marginTop: '32px' }}>
-                                <h3 style={styles.sectionTitle}>
-                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b' }} />
-                                    Communication Medium
-                                </h3>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
-                                    {['WhatsApp', 'Email', 'SMS', 'RCS'].map(medium => (
-                                        <div
-                                            key={medium}
-                                            onClick={() => setFormData(prev => ({ ...prev, sendingMedium: medium }))}
-                                            style={{
-                                                ...styles.pill(formData.sendingMedium === medium),
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                gap: '8px',
-                                                padding: '12px'
-                                            }}
-                                        >
-                                            {medium === 'WhatsApp' && <MessageCircle size={16} />}
-                                            {medium === 'Email' && <Mail size={16} />}
-                                            {medium === 'SMS' && <MessageSquare size={16} />}
-                                            {medium === 'RCS' && <Smartphone size={16} />}
-                                            {medium}
-                                        </div>
-                                    ))}
-                                </div>
+                        <div style={styles.sectionCard}>
+                            <h3 style={styles.sectionTitle}>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b' }} />
+                                Communication Medium
+                            </h3>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+                                {['WhatsApp', 'Email', 'SMS', 'RCS'].map(medium => (
+                                    <div
+                                        key={medium}
+                                        onClick={() => setFormData(prev => ({ ...prev, sendingMedium: medium }))}
+                                        style={{
+                                            ...styles.pill(formData.sendingMedium === medium),
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '8px',
+                                            padding: '12px'
+                                        }}
+                                    >
+                                        {medium === 'WhatsApp' && <MessageCircle size={16} />}
+                                        {medium === 'Email' && <Mail size={16} />}
+                                        {medium === 'SMS' && <MessageSquare size={16} />}
+                                        {medium === 'RCS' && <Smartphone size={16} />}
+                                        {medium}
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     </div>
@@ -829,37 +860,31 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
 
                 {/* Main Footer */}
                 <div style={styles.footer}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: '#94a3b8' }}>
-                        <Calculator size={18} />
-                        <span style={{ fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.2em' }}>
-                            Advanced Quoting Engine v2.5.0
-                        </span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
+                    <button style={styles.cancelBtn} onClick={onClose}>
+                        Cancel
+                    </button>
+                    <div style={{ display: 'flex', gap: '12px' }}>
                         <button
-                            onClick={onClose}
-                            style={{ background: 'none', border: 'none', color: '#64748b', fontWeight: 800, fontSize: '0.85rem', textTransform: 'uppercase', cursor: 'pointer', tracking: '0.05em' }}
+                            style={{ ...styles.primaryBtn, background: '#fff', border: '1px solid #2563eb', color: '#2563eb' }}
+                            onClick={() => handleSave(true)}
+                            disabled={loading || !selectedLead}
                         >
-                            Cancel
+                            <FileText size={18} />
+                            Preview PDF
                         </button>
                         <button
-                            onClick={() => handleSave(false)}
-                            disabled={loading || loadingSettings || !selectedLead}
                             style={styles.primaryBtn}
+                            onClick={() => handleSave(false)}
+                            disabled={loading || !selectedLead}
                         >
-                            {loading ? 'Processing...' : (
-                                <>
-                                    <CheckCircle2 size={18} />
-                                    Generate & Send via {formData.sendingMedium}
-                                </>
-                            )}
+                            <MessageCircle size={18} />
+                            {loading ? 'Sending...' : 'Generate & Send'}
                         </button>
                     </div>
                 </div>
-            </div>
 
-            <style>
-                {`
+                <style>
+                    {`
                 @keyframes fadeIn {
                     from { opacity: 0; transform: scale(0.98) translateY(10px); }
                     to { opacity: 1; transform: scale(1) translateY(0); }
@@ -879,8 +904,9 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
                 .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; borderRadius: 10px; }
                 `}
-            </style>
-        </div >
+                </style>
+            </div>
+        </div>
     );
 };
 
