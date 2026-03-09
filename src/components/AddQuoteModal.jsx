@@ -6,7 +6,7 @@ import { formatIndianCurrency } from '../utils/numberToWords';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { renderValue } from '../utils/renderUtils';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import smsService from '../services/smsService';
 
 const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
@@ -339,7 +339,7 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
 
         tableData.push([{ content: "Net Payable Value", styles: { fontStyle: 'bold', fillColor: [241, 245, 249] } }, { content: formatIndianCurrency(quoteCalculations?.netPayable || 0), styles: { fontStyle: 'bold', fillColor: [241, 245, 249] } }]);
 
-        doc.autoTable({
+        autoTable(doc, {
             startY: 135,
             head: [tableData[0]],
             body: tableData.slice(1),
