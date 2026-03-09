@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Calculator, CircleDollarSign, Percent, FileText, User, ChevronDown, CheckCircle2, Mail, MessageSquare, PhoneCall, MessageCircle } from 'lucide-react';
+import { X, Calculator, CircleDollarSign, Percent, FileText, User, ChevronDown, CheckCircle2, Mail, MessageSquare, PhoneCall, MessageCircle, Smartphone } from 'lucide-react';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 import { formatIndianCurrency } from '../utils/numberToWords';
