@@ -606,24 +606,22 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                     setCurrentPage(1);
                                 }}
                                 style={{
-                                    padding: '10px 35px 10px 30px',
+                                    padding: '10px 30px 10px 20px',
                                     minWidth: '140px',
                                     cursor: 'pointer',
                                     backgroundColor: statusFilter === 'Active' ? '#10b981' : 'transparent',
                                     color: statusFilter === 'Active' ? '#fff' : '#64748b',
                                     transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                                    borderRadius: '4px 8px 8px 4px',
+                                    borderRadius: '8px 4px 4px 8px',
                                     position: 'relative',
-                                    marginLeft: '-15px',
+                                    marginLeft: '10px',
                                     fontWeight: 700,
                                     fontSize: '0.85rem',
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '10px',
-                                    clipPath: statusFilter === 'Active'
-                                        ? 'polygon(0% 50%, 15% 0%, 90% 0%, 100% 50%, 90% 100%, 15% 100%)'
-                                        : 'polygon(0% 50%, 15% 0%, 100% 0%, 100% 100%, 15% 100%)',
-                                    zIndex: statusFilter === 'Active' ? 2 : 0,
+                                    clipPath: 'polygon(0% 0%, 90% 0%, 100% 50%, 90% 100%, 0% 100%)',
+                                    zIndex: statusFilter === 'Active' ? 2 : 1,
                                     boxShadow: statusFilter === 'Active' ? '0 4px 12px rgba(16, 185, 129, 0.2)' : 'none'
                                 }}
                             >

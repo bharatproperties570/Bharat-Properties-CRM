@@ -157,15 +157,15 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
             collectorValue = selectedCollectorRate.rate * area * multiplier;
         }
 
-        const applicableValue = Math.max(basePrice, collectorValue);
-        const stampDutyAmount = applicableValue * (stampDutyPercent / 100);
-        const registrationAmount = applicableValue * (registrationPercent / 100);
-        const gstAmount = basePrice * (formData.gstPercent / 100);
-        const tdsAmount = basePrice * (formData.tdsPercent / 100);
-        const brokerageAmount = formData.includeBrokerage ? (basePrice * (formData.brokeragePercent / 100)) : 0;
+        const applicableValue = Math.max(basePrice, collectorValue) || 0;
+        const stampDutyAmount = (applicableValue * (stampDutyPercent / 100)) || 0;
+        const registrationAmount = (applicableValue * (registrationPercent / 100)) || 0;
+        const gstAmount = (basePrice * (formData.gstPercent / 100)) || 0;
+        const tdsAmount = (basePrice * (formData.tdsPercent / 100)) || 0;
+        const brokerageAmount = formData.includeBrokerage ? ((basePrice * (formData.brokeragePercent / 100)) || 0) : 0;
 
-        const totalGovtCharges = stampDutyAmount + registrationAmount + legalFees;
-        const netPayable = basePrice + totalGovtCharges + gstAmount + brokerageAmount - tdsAmount;
+        const totalGovtCharges = (stampDutyAmount + registrationAmount + (legalFees || 0)) || 0;
+        const netPayable = (basePrice + totalGovtCharges + gstAmount + brokerageAmount - tdsAmount) || 0;
 
         return {
             basePrice,
@@ -196,13 +196,14 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
             // For now, we update the deal stage to 'Quote' and store basic info
             const res = await api.put(`deals/${deal._id}`, {
                 stage: 'Quote',
-                quotePrice: quoteCalculations.basePrice,
-                calculations: quoteCalculations // Optional: store full breakdown
+                associatedContact: selectedLead?._id,
+                quotePrice: quoteCalculations.basePrice || 0,
+                calculations: quoteCalculations
             });
 
             if (res.data?.success) {
                 toast.success("Quote generated successfully!");
-                onSave && onSave(res.data.deal);
+                onSave && onSave(res.data.data);
                 onClose();
             }
         } catch (error) {
