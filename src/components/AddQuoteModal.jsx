@@ -214,41 +214,50 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
     }, [deal, formData, selectedCollectorRate, selectedRevenueRule]);
 
     const handleSave = async (generateOnly = true) => {
+        if (!deal || !quoteCalculations) {
+            toast.error("Quotation data not ready. Please check form fields.");
+            return;
+        }
+
         setLoading(true);
         try {
-            const payload = {
-                dealId: deal._id,
-                ...formData,
-                associatedContact: selectedLead?._id,
-                calculations: quoteCalculations
-            };
+            console.log("Starting Quote Generation...", { generateOnly, dealId: deal._id });
 
             // 1. Generate PDF
-            const pdfDoc = await generateQuotationPDF();
+            let pdfDoc;
+            try {
+                pdfDoc = await generateQuotationPDF();
+            } catch (pdfErr) {
+                console.error("PDF Generation failed internal:", pdfErr);
+                throw new Error(`PDF Generation failed: ${pdfErr.message}`);
+            }
+
             const pdfBlob = pdfDoc.output('blob');
             const pdfFile = new File([pdfBlob], `Quotation_${deal.unitNo || 'Unit'}.pdf`, { type: 'application/pdf' });
 
             // 2. Upload to Server (to get a link for WhatsApp/Email)
+            let pdfUrl = '';
             const uploadFormData = new FormData();
             uploadFormData.append('file', pdfFile);
 
-            let pdfUrl = '';
             try {
                 const uploadRes = await api.post('/upload', uploadFormData, {
                     headers: { 'Content-Type': 'multipart/form-data' }
                 });
                 pdfUrl = uploadRes.data.url;
+                console.log("PDF Uploaded:", pdfUrl);
             } catch (err) {
                 console.error("PDF Upload failed:", err);
-                // Continue anyway, maybe just download
+                // Continue anyway for preview
             }
 
-            // 3. Save Quote to Deal
+            // 3. Save Quote to Deal (Only if send or if we want to track every generation)
             const res = await api.put(`deals/${deal._id}`, {
                 stage: 'Quote',
                 associatedContact: selectedLead?._id,
                 quotePrice: quoteCalculations.basePrice || 0,
-                calculations: quoteCalculations
+                calculations: quoteCalculations,
+                quoteUrl: pdfUrl
             });
 
             if (res.data?.success) {
@@ -263,11 +272,13 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
                 pdfDoc.save(`Quotation_${deal.unitNo || 'Unit'}.pdf`);
 
                 onSave && onSave(res.data.data);
-                onClose();
+                if (!generateOnly) onClose();
+            } else {
+                throw new Error(res.data?.message || "Failed to update deal with quote info");
             }
         } catch (error) {
             console.error("Quote operation failed:", error);
-            toast.error("Operation failed. See console for details.");
+            toast.error(error.message || "Operation failed. See console for details.");
         } finally {
             setLoading(false);
         }
@@ -312,14 +323,21 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
         // Economic Breakdown Table
         const tableData = [
             ["Description", "Value"],
-            ["Base Price", formatIndianCurrency(quoteCalculations.basePrice)],
-            [`Stamp Duty (${quoteCalculations.stampDutyPercent}%)`, formatIndianCurrency(quoteCalculations.stampDutyAmount)],
-            ["Registration Charges", formatIndianCurrency(quoteCalculations.registrationAmount)],
-            ["Legal & Admin Fees", formatIndianCurrency(quoteCalculations.legalFees)],
-            [`GST (${formData.gstPercent}%)`, formatIndianCurrency(quoteCalculations.gstAmount)],
-            ["TDS Reserve", `-${formatIndianCurrency(quoteCalculations.tdsAmount)}`],
-            [{ content: "Net Payable Value", styles: { fontStyle: 'bold', fillColor: [241, 245, 249] } }, { content: formatIndianCurrency(quoteCalculations.netPayable), styles: { fontStyle: 'bold', fillColor: [241, 245, 249] } }]
+            ["Base Price", formatIndianCurrency(quoteCalculations?.basePrice || 0)],
+            [`Stamp Duty (${quoteCalculations?.stampDutyPercent || 0}%)`, formatIndianCurrency(quoteCalculations?.stampDutyAmount || 0)],
+            ["Registration Charges", formatIndianCurrency(quoteCalculations?.registrationAmount || 0)],
+            ["Legal & Admin Fees", formatIndianCurrency(quoteCalculations?.legalFees || 0)]
         ];
+
+        if (formData.includeGst) {
+            tableData.push([`GST (${formData.gstPercent}%)`, formatIndianCurrency(quoteCalculations?.gstAmount || 0)]);
+        }
+
+        if (formData.includeTds) {
+            tableData.push(["TDS Reserve", `-${formatIndianCurrency(quoteCalculations?.tdsAmount || 0)}`]);
+        }
+
+        tableData.push([{ content: "Net Payable Value", styles: { fontStyle: 'bold', fillColor: [241, 245, 249] } }, { content: formatIndianCurrency(quoteCalculations?.netPayable || 0), styles: { fontStyle: 'bold', fillColor: [241, 245, 249] } }]);
 
         doc.autoTable({
             startY: 135,
@@ -366,8 +384,6 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
             toast.error(`Failed to send via ${formData.sendingMedium}`);
         }
     };
-
-    if (!isOpen) return null;
 
     if (!isOpen) return null;
 
