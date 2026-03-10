@@ -285,27 +285,34 @@ export const addDeal = async (req, res) => {
 
         // Rule: One Deal per Type per Inventory
         if (sanitizedData.inventoryId && sanitizedData.intent) {
-            const existingDeals = await Deal.find({
+            const query = {
                 inventoryId: sanitizedData.inventoryId,
-                intent: sanitizedData.intent
-            });
+                stage: { $nin: ['Cancelled', 'Closed Lost'] }
+            };
 
-            // 1. If any deal of this type is already 'Closed', lock the type permanently
-            const hasClosed = existingDeals.some(d => d.stage === 'Closed');
+            // If intent is provided, check for that specific intent
+            if (sanitizedData.intent) {
+                query.intent = sanitizedData.intent;
+            }
+
+            const existingDeals = await Deal.find(query).populate('intent');
+
+            // 1. If any deal of this type is already 'Closed' or 'Won', lock the type permanently
+            const hasClosed = existingDeals.some(d => ['Closed', 'Closed Won', 'Won'].includes(d.stage));
             if (hasClosed) {
                 return res.status(400).json({
                     success: false,
-                    error: `This inventory unit has already been Closed for this transaction type. No further deals are allowed.`
+                    error: `This inventory unit has already been Closed/Won for this transaction type. No further deals are allowed.`
                 });
             }
 
-            // 2. If any deal is NOT 'Cancelled' (meaning it's active/open), block new ones
-            const activeDeal = existingDeals.find(d => d.stage !== 'Cancelled');
+            // 2. If any deal is active (Open, Quote, Negotiation, Booked), block new ones
+            const activeDeal = existingDeals.find(d => ['Open', 'Quote', 'Negotiation', 'Booked'].includes(d.stage));
             if (activeDeal) {
-                const typeName = typeof sanitizedData.intent === 'object' ? sanitizedData.intent?.lookup_value : sanitizedData.intent;
+                const intentName = typeof activeDeal.intent === 'object' ? activeDeal.intent?.lookup_value : (activeDeal.intent || 'active');
                 return res.status(400).json({
                     success: false,
-                    error: `An active ${typeName} deal already exists for this inventory unit (#${activeDeal.dealId || activeDeal._id}). Please cancel the existing deal first.`
+                    error: `An active ${intentName} deal already exists for this inventory unit (#${activeDeal.dealId || activeDeal._id}). Please close or cancel the existing deal first.`
                 });
             }
         }

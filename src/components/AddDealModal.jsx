@@ -541,7 +541,8 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
             onClose();
         } catch (error) {
             console.error("Save Error:", error);
-            toast.error("Failed to save deal", { id: toastId });
+            const errorMessage = error.response?.data?.error || error.message || "Failed to save deal";
+            toast.error(errorMessage, { id: toastId, duration: 5000 });
         } finally {
             setIsSaving(false);
         }
