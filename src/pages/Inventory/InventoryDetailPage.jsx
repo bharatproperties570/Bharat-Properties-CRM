@@ -226,31 +226,20 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
         if (!inventory) return;
 
         // BUG FIX: Ensure intent matches deal discovery logic
-        //Discovery logic uses: dIntent.includes('sell') | dIntent.includes('rent') | dIntent.includes('lease')
         const intentValue = type === 'Lease' ? 'Lease' : (type === 'Rent' ? 'Rent' : 'Sell');
 
-        const dealData = {
+        // Pass full inventory context for inheritance
+        onAddDeal({
+            ...inventory, // Spread original inventory to capture all nested details
             inventoryId: inventory._id,
-            projectName: inventory.projectName,
-            block: inventory.block,
-            unitNo: inventory.unitNo,
-            propertyType: inventory.category,
-            category: inventory.category,
-            subCategory: inventory.subCategory,
-            size: inventory.size,
-            sizeUnit: inventory.sizeUnit,
-            location: inventory.address?.locality || inventory.address?.area || '',
             intent: intentValue,
             owner: inventory.owners?.[0] || {
                 name: inventory.ownerName,
                 phone: inventory.ownerPhone,
                 email: inventory.ownerEmail
             },
-            associatedContact: inventory.associates?.[0]?.contact || inventory.associatedContact,
-            assignedTo: inventory.assignedTo,
-            team: inventory.team
-        };
-        onAddDeal(dealData);
+            associatedContact: inventory.associates?.[0]?.contact || inventory.associatedContact
+        });
     };
 
     const handleToggleIntent = async (type) => {
@@ -372,9 +361,9 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                 if (String(data.reason).includes('Sold Out')) newStatus = 'Sold Out';
                 else if (String(data.reason).includes('Rented Out')) newStatus = 'Rented Out';
                 else newStatus = 'Inactive';
-            } else if (rule?.inventoryStatus === 'Active') {
-                // Professional Fix: Explicitly reset to 'Available' when rule says 'Active'
-                // This ensures "Create Deal" buttons become enabled immediately
+                newStatus = 'Available';
+            } else if (['Interested / Warm', 'Interested / Hot', 'Interested', 'Request Call Back'].includes(data.result)) {
+                // Professional Fix: Explicitly reset to 'Available' for positive interest outcomes
                 newStatus = 'Available';
             }
 
@@ -399,6 +388,11 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                 status: newStatus,
                 history: [newInteraction, ...currentHistory]
             };
+
+            // Automation: If status is set to Available (Active), ensure all transaction types are enabled
+            if (newStatus === 'Available') {
+                updates.intent = ['Sell', 'Rent', 'Lease'];
+            }
 
             const response = await api.put(`inventory/${inventoryId}`, updates);
 
@@ -699,7 +693,9 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                 const priceValue = inventory?.[priceField]?.value || '';
 
                                 return (
-                                    <div key={type}
+                                    <div
+                                        key={type}
+                                        onClick={() => !dealExists && !isDisabled && handleToggleIntent(type)}
                                         style={{
                                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                                             padding: '14px 18px',
@@ -709,11 +705,12 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                             transition: 'all 0.2s ease',
                                             position: 'relative',
                                             overflow: 'hidden',
-                                            opacity: isIntentActive || dealExists ? 1 : 0.7
+                                            opacity: isIntentActive || dealExists ? 1 : 0.7,
+                                            cursor: dealExists || isDisabled ? 'default' : 'pointer'
                                         }}
                                         onMouseEnter={(e) => {
-                                            if (!isDisabled) {
-                                                e.currentTarget.style.background = dealExists ? '#ffe4e6' : '#fff';
+                                            if (!isDisabled && !dealExists) {
+                                                e.currentTarget.style.background = isIntentActive ? '#f1f5f9' : '#fff';
                                                 e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.05)';
                                                 e.currentTarget.style.transform = 'translateY(-1px)';
                                             }

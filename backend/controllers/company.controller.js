@@ -165,8 +165,19 @@ export const getCompanies = async (req, res, next) => {
 
         const results = await paginate(Company, query, page, limit, { createdAt: -1 }, populateFields);
 
+        // Enhanced: Industry-based counts for summary footer
+        const industries = await Lookup.find({ lookup_type: 'Industry' });
+        const industryCounts = await Promise.all(industries.map(async (ind) => {
+            const count = await Company.countDocuments({
+                ...query,
+                industry: ind._id
+            });
+            return { name: ind.lookup_value, count };
+        }));
+
         res.status(200).json({
             success: true,
+            industryStats: industryCounts,
             ...results
         });
     } catch (error) {

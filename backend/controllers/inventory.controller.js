@@ -203,11 +203,31 @@ export const getInventory = async (req, res) => {
         // Enhanced: Category-based counts for list view footer
         const categories = await Lookup.find({ lookup_type: 'Category' });
         const categoryCounts = await Promise.all(categories.map(async (cat) => {
-            const count = await Inventory.countDocuments({ ...query, category: cat._id });
+            const count = await Inventory.countDocuments({
+                ...query,
+                $or: [
+                    { category: cat._id },
+                    { category: cat._id.toString() },
+                    { category: cat.lookup_value }
+                ]
+            });
             return { name: cat.lookup_value, count };
         }));
 
         const results = await paginate(Inventory, query, Number(page), Number(limit), { createdAt: -1 }, populateFields);
+
+        // Professional Fix: Add hasDeal flag to each inventory item for UI highlighting
+        const inventoryIds = results.records.map(item => item._id);
+        const deals = await mongoose.model('Deal').find({ inventoryId: { $in: inventoryIds } }, 'inventoryId').lean();
+        const dealInventoryIds = new Set(deals.map(d => d.inventoryId.toString()));
+
+        results.records = results.records.map(item => {
+            const itemObj = item.toObject ? item.toObject() : item;
+            return {
+                ...itemObj,
+                hasDeal: dealInventoryIds.has(item._id.toString())
+            };
+        });
 
         res.status(200).json({
             success: true,

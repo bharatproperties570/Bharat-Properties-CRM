@@ -129,7 +129,7 @@ const SingleDealLifecycle = ({ deal, activities = [] }) => {
     if (!deal || !lifecycleData) return null;
 
     return (
-        <div style={{ margin: '0 32px 32px 32px' }}>
+        <div style={{ margin: '0 32px 12px 32px' }}>
             <style>{`
                 .deal-journey {
                     display: flex;

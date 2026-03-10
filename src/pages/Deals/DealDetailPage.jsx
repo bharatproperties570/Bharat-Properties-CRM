@@ -481,14 +481,9 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const renderUnitSpecifications = () => {
         const inventory = deal?.inventoryId || {};
         const basicDetails = [
-            { label: 'Category', value: getLookupValue('Category', inventory.category) },
-            { label: 'Subcategory', value: getLookupValue('SubCategory', inventory.subCategory) },
-            { label: 'Unit Number', value: inventory.unitNo || inventory.unitNumber },
-            { label: 'Project', value: inventory.projectName },
-            { label: 'Block', value: inventory.block },
-            { label: 'Unit Type', value: getStrictLookupValue('UnitType', inventory.unitType) },
-            { label: 'Built-up Type', value: getLookupValue('BuiltupType', inventory.builtupType) },
-            { label: 'Inventory Type', value: inventory.inventoryType }
+            // Removed redundant Category, Subcategory, etc. if requested
+            { label: 'Built-up Type', value: getLookupValue('BuiltupType', inventory.builtupType || deal.builtupType) },
+            { label: 'Furnishing', value: getLookupValue('Furnishing', inventory.furnishing || deal.furnishing) }
         ];
 
         return (
@@ -504,25 +499,42 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 <div style={{ padding: '24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
                     <div>
                         <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#475569', marginBottom: '16px', display: 'flex', alignItems: 'center' }}>
-                            <i className="fas fa-home" style={{ marginRight: '8px', fontSize: '0.8rem', color: '#2563eb' }}></i> Basic Details
+                            <i className="fas fa-home" style={{ marginRight: '8px', fontSize: '0.8rem', color: '#2563eb' }}></i> Details
                         </h4>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                             {basicDetails.map((field, idx) => (
                                 <DetailField key={idx} label={field.label} value={field.value} />
                             ))}
-                            <div style={{
-                                gridColumn: 'span 2', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px',
-                                background: 'linear-gradient(90deg, #f8fafc 0%, #eff6ff 100%)',
-                                padding: '16px 20px', borderRadius: '12px', border: '1px solid #dbeafe', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', marginTop: '8px'
-                            }}>
-                                <DetailField label="Size Label" value={getStrictLookupValue('Size', inventory.sizeConfig) || inventory.sizeLabel || 'N/A'} />
-                                <DetailField label="Width" value={inventory.width ? `${inventory.width} ${renderValue(inventory.sizeUnit || 'Ft')}` : 'N/A'} />
-                                <DetailField label="Length" value={inventory.length ? `${inventory.length} ${renderValue(inventory.sizeUnit || 'Ft')}` : 'N/A'} />
-                                <div style={{ gridColumn: 'span 3', height: '1px', background: '#e2e8f0', margin: '4px 0' }}></div>
-                                <DetailField label="Total Area" value={inventory.totalArea ? `${inventory.totalArea} ${renderValue(inventory.sizeUnit || 'Sq.Ft.')}` : 'N/A'} />
-                                <DetailField label="Saleable Area" value={inventory.totalSaleableArea?.value ? `${inventory.totalSaleableArea.value} ${renderValue(inventory.sizeUnit || 'Sq.Ft.')}` : 'N/A'} />
-                                <DetailField label="Built-up Area" value={inventory.builtUpArea?.value ? `${inventory.builtUpArea.value} ${renderValue(inventory.sizeUnit || 'Sq.Ft.')}` : 'N/A'} />
-                            </div>
+                            {(() => {
+                                const subCategoryValue = getLookupValue('SubCategory', inventory.subCategory || deal.subCategory);
+                                const isPlotOrHouse = ['Plot', 'Independent House'].includes(subCategoryValue);
+
+                                if (isPlotOrHouse) {
+                                    return (
+                                        <div style={{
+                                            gridColumn: 'span 2', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px',
+                                            background: 'linear-gradient(90deg, #f8fafc 0%, #eff6ff 100%)',
+                                            padding: '16px 20px', borderRadius: '12px', border: '1px solid #dbeafe', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', marginTop: '8px'
+                                        }}>
+                                            <DetailField label="Size Label" value={getStrictLookupValue('Size', inventory.sizeConfig || deal.sizeConfig) || inventory.sizeLabel || deal.sizeLabel || 'N/A'} />
+                                            <DetailField label="Width" value={(inventory.width || deal.unitSpecification?.width) ? `${inventory.width || deal.unitSpecification?.width} ${renderValue(inventory.sizeUnit || deal.sizeUnit || 'Ft')}` : 'N/A'} />
+                                            <DetailField label="Length" value={(inventory.length || deal.unitSpecification?.length) ? `${inventory.length || deal.unitSpecification?.length} ${renderValue(inventory.sizeUnit || deal.sizeUnit || 'Ft')}` : 'N/A'} />
+                                        </div>
+                                    );
+                                } else {
+                                    return (
+                                        <div style={{
+                                            gridColumn: 'span 2', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px',
+                                            background: 'linear-gradient(90deg, #f8fafc 0%, #f0fdf4 100%)',
+                                            padding: '16px 20px', borderRadius: '12px', border: '1px solid #dcfce7', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', marginTop: '8px'
+                                        }}>
+                                            <DetailField label="Total Saleable Area" value={(inventory.totalSaleableArea?.value || deal.unitSpecification?.totalSaleableArea) ? `${inventory.totalSaleableArea?.value || deal.unitSpecification?.totalSaleableArea} ${renderValue(inventory.sizeUnit || deal.sizeUnit || 'Sq.Ft.')}` : 'N/A'} />
+                                            <DetailField label="Covered Area" value={(inventory.builtUpArea?.value || deal.unitSpecification?.builtUpArea) ? `${inventory.builtUpArea?.value || deal.unitSpecification?.builtUpArea} ${renderValue(inventory.sizeUnit || deal.sizeUnit || 'Sq.Ft.')}` : 'N/A'} />
+                                            <DetailField label="Carpet Area" value={(inventory.carpetArea?.value || deal.unitSpecification?.carpetArea) ? `${inventory.carpetArea?.value || deal.unitSpecification?.carpetArea} ${renderValue(inventory.sizeUnit || deal.sizeUnit || 'Sq.Ft.')}` : 'N/A'} />
+                                        </div>
+                                    );
+                                }
+                            })()}
                         </div>
                     </div>
                     <div>
@@ -967,12 +979,12 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
             {/* STAGE LIFECYCLE TRACKER */}
             <div className="no-scrollbar" style={{
                 width: '100%',
-                padding: '1.5rem 2rem 0.5rem 2rem',
+                padding: '0.75rem 2rem 0.25rem 2rem',
                 borderBottom: '1px solid #e2e8f0',
                 background: '#fff',
                 zIndex: 40
             }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                     <span style={{ fontSize: '0.8rem', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <i className="fas fa-route" style={{ color: '#4f46e5' }}></i> Deal Stage Pipeline
                     </span>
@@ -1105,30 +1117,6 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                 </div>
                             </div>
 
-                            {/* Professional Financial Insights */}
-                            <div style={{ background: '#f8fafc', borderRadius: '20px', padding: '24px', border: '1px solid #f1f5f9' }}>
-                                <h4 style={{ fontSize: '0.65rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <i className="fas fa-calculator text-blue-400"></i> Closing Estimates & Compliance
-                                </h4>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '32px' }}>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>GST Liability (18%)</span>
-                                            <span style={{ fontSize: '0.85rem', color: '#1e293b', fontWeight: 800 }}>{formatIndianCurrency(deal.price * 0.18)}</span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>TDS Deduction (1%)</span>
-                                            <span style={{ fontSize: '0.85rem', color: '#ef4444', fontWeight: 800 }}>-{formatIndianCurrency(deal.price * 0.01)}</span>
-                                        </div>
-                                    </div>
-                                    <div style={{ width: '1px', background: '#e2e8f0' }}></div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                                        <p style={{ fontSize: '0.6rem', color: '#10b981', fontWeight: 800, textTransform: 'uppercase', marginBottom: '4px' }}>Net Fulfillment Value</p>
-                                        <p style={{ fontSize: '1.5rem', fontWeight: 900, color: '#10b981', margin: 0 }}>{formatIndianCurrency(deal.price * 1.17)}</p>
-                                        <p style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600, marginTop: '4px' }}>Includes GST - TDS</p>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
                     </div>
 
@@ -2235,6 +2223,33 @@ const GovernmentChargesCard = ({
                         <option value="female">Female Buyer</option>
                         <option value="joint">Joint</option>
                     </select>
+                </div>
+            </div>
+
+            {/* Professional Financial Insights (Closing Estimates) - Relocated here */}
+            <div style={{ padding: '20px 20px 0 20px' }}>
+                <div style={{ background: '#f8fafc', borderRadius: '16px', padding: '20px', border: '1px solid #f1f5f9' }}>
+                    <h4 style={{ fontSize: '0.65rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <i className="fas fa-calculator text-blue-400"></i> Closing Estimates & Compliance
+                    </h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>GST Liability (18%)</span>
+                                <span style={{ fontSize: '0.85rem', color: '#1e293b', fontWeight: 800 }}>{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(deal.price * 0.18)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>TDS Deduction (1%)</span>
+                                <span style={{ fontSize: '0.85rem', color: '#ef4444', fontWeight: 800 }}>-{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(deal.price * 0.01)}</span>
+                            </div>
+                        </div>
+                        <div style={{ width: '1px', background: '#e2e8f0' }}></div>
+                        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                            <p style={{ fontSize: '0.6rem', color: '#10b981', fontWeight: 800, textTransform: 'uppercase', marginBottom: '4px' }}>Net Fulfillment Value</p>
+                            <p style={{ fontSize: '1.25rem', fontWeight: 900, color: '#10b981', margin: 0 }}>{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(deal.price * 1.17)}</p>
+                            <p style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600, marginTop: '4px' }}>Includes GST - TDS</p>
+                        </div>
+                    </div>
                 </div>
             </div>
 

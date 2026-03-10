@@ -626,225 +626,199 @@ function DealsPage({ onNavigate, onAddActivity }) {
                             <div>Status</div>
                             <div>Interaction</div>
                             <div>Assignment</div>
-                            <div style={{ textAlign: 'center' }}>Actions</div>
                         </div>
                     )}
 
                     {currentView === 'list' ? (
                         <div className="list-content" style={{ background: '#fafbfc' }}>
                             <div className="list-group">
-                                {filteredDeals.map((deal, index) => (<div key={deal._id} className="list-item deals-list-grid" style={{ padding: '18px 1.5rem', borderBottom: '1px solid #e2e8f0', transition: 'all 0.2s ease', background: '#fff', marginBottom: '2px' }}>
-                                    <input
-                                        type="checkbox"
-                                        className="item-check"
-                                        checked={selectedIds.includes(deal._id)}
-                                        onChange={() => toggleSelect(deal._id)}
-                                    />
+                                {filteredDeals.map((deal, index) => (
+                                    <div key={deal._id} className="list-item deals-list-grid" style={{ padding: '18px 1.5rem', borderBottom: '1px solid #e2e8f0', transition: 'all 0.2s ease', background: '#fff', marginBottom: '2px' }}>
+                                        <input
+                                            type="checkbox"
+                                            className="item-check"
+                                            checked={selectedIds.includes(deal._id)}
+                                            onChange={() => toggleSelect(deal._id)}
+                                        />
 
-                                    {/* Col 1: Score — live from Stage Engine */}
-                                    {(() => {
-                                        const s = dealScores[deal._id];
-                                        const scoreVal = s ? s.score : (deal.dealProbability || 0);
-                                        const scoreColor = s ? s.color : '#94a3b8';
-                                        const scoreLabel = s ? s.label : '';
-                                        return (
-                                            <div
-                                                title={scoreLabel ? `${scoreLabel} · Score: ${scoreVal}` : `Score: ${scoreVal}`}
-                                                style={{
-                                                    width: '40px', height: '40px', fontSize: '0.9rem',
-                                                    borderRadius: '50%', display: 'flex',
-                                                    alignItems: 'center', justifyContent: 'center',
-                                                    fontWeight: '800', cursor: 'default',
-                                                    background: scoreColor + '18',
-                                                    border: `2px solid ${scoreColor}`,
-                                                    color: scoreColor
-                                                }}
-                                            >
-                                                {scoreVal}
-                                            </div>
-                                        );
-                                    })()}
-
-                                    {/* Col 2: Property Details */}
-                                    <div className="super-cell">
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                                            <div
-                                                onClick={() => onNavigate('deal-detail', deal._id)}
-                                                className={`project-thumbnail ${deal.status === 'Open' ? 'thumb-active' : 'thumb-inactive'}`}
-                                                style={{
-                                                    width: 'auto',
-                                                    minWidth: '60px',
-                                                    height: '28px',
-                                                    borderRadius: '6px',
-                                                    padding: '0 10px',
-                                                    aspectRatio: 'auto',
-                                                    cursor: 'pointer'
-                                                }}
-                                            >
-                                                {renderValue(deal.unitNo, 'N/A')}
-                                            </div>
-                                            <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                                {renderValue(deal.unitType || deal.corner, '')}
-                                            </div>
-                                        </div>
-                                        <div style={{ paddingLeft: '2px' }}>
-                                            <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>
-                                                {renderValue(getLookupValue('Category', deal.category) || getLookupValue('PropertyType', deal.propertyType), 'N/A')}
-                                                {deal.subCategory ? ` - ${renderValue(getLookupValue('SubCategory', deal.subCategory))}` : ''}
-                                            </div>
-                                            <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>
-                                                {renderValue(deal.size, 'N/A')}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Col 3: Location & Project */}
-                                    <div className="super-cell">
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
-                                            <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem' }}></i>
-                                            <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{renderValue(getLookupValue('Location', deal.location))}</span>
-                                        </div>
-                                        {deal.projectName && (
-                                            <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px' }}>
-                                                <i className="fas fa-building" style={{ marginRight: '4px', fontSize: '0.7rem' }}></i>
-                                                {renderValue(deal.projectName)}
-                                            </div>
-                                        )}
-                                        {deal.block && (
-                                            <span className="verified-badge" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800 }}>BLOCK: {deal.block}</span>
-                                        )}
-                                    </div>
-
-                                    {/* Col 4: Match */}
-                                    <div style={{ lineHeight: 1.4, padding: '8px', background: '#f8fafc', borderRadius: '6px' }}>
-                                        <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', marginBottom: '4px' }}>{renderValue(getLookupValue('Intent', deal.intent))}</div>
-                                        <div style={{ fontSize: '0.7rem' }}>
-                                            <span style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(102, 126, 234, 0.3)' }}>{deal.matched} Matches</span>
-                                        </div>
-                                    </div>
-
-                                    {/* Col 5: Expectation */}
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '8px', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', borderRadius: '6px' }}>
-                                        <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#15803d' }}>{formatIndianCurrency(deal.price)}</div>
-                                        <div style={{ fontSize: '0.65rem', color: '#64748b', lineHeight: 1.2, fontStyle: 'italic' }}>
-                                            {deal.priceInWords || deal.priceWord || numberToIndianWords(deal.price)}
-                                        </div>
-                                    </div>
-
-                                    {/* Col 6: Owner Details */}
-                                    <div className="super-cell" style={{ background: '#fefce8', padding: '8px', borderRadius: '6px', borderLeft: '3px solid #eab308' }}>
-                                        <div className="text-ellipsis" style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.8rem', marginBottom: '4px' }}>{renderValue(deal.owner?.name, 'Unknown')}</div>
-                                        <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600, marginBottom: '2px' }}>
-                                            <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>{renderValue(deal.owner?.phone, 'N/A')}
-                                        </div>
-                                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                            <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>{renderValue(deal.owner?.email, 'N/A')}
-                                        </div>
-                                    </div>
-
-                                    {/* Col 7: Associate */}
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                        {deal.associatedContact?.name ? (
-                                            <>
-                                                <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.8rem' }}>{renderValue(deal.associatedContact.name)}</div>
-                                                <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600 }}>
-                                                    <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>{renderValue(deal.associatedContact.phone)}
+                                        {/* Col 1: Score */}
+                                        {(() => {
+                                            const s = dealScores[deal._id];
+                                            const scoreVal = s ? s.score : (deal.dealProbability || 0);
+                                            const scoreColor = s ? s.color : '#94a3b8';
+                                            const scoreLabel = s ? s.label : '';
+                                            return (
+                                                <div
+                                                    title={scoreLabel ? `${scoreLabel} · Score: ${scoreVal}` : `Score: ${scoreVal}`}
+                                                    style={{
+                                                        width: '40px', height: '40px', fontSize: '0.9rem',
+                                                        borderRadius: '50%', display: 'flex',
+                                                        alignItems: 'center', justifyContent: 'center',
+                                                        fontWeight: '800', cursor: 'default',
+                                                        background: scoreColor + '18',
+                                                        border: `2px solid ${scoreColor}`,
+                                                        color: scoreColor
+                                                    }}
+                                                >
+                                                    {scoreVal}
                                                 </div>
-                                                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                                    <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>{renderValue(deal.associatedContact.email)}
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <div style={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic' }}>--</div>
-                                        )}
-                                    </div>
+                                            );
+                                        })()}
 
-                                    {/* Col 8: Stage (Auto-Computed) */}
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                        <DealStageChip stage={deal.stage || 'Open'} />
-                                        {deal.stageUpdatedAt && (
-                                            <div style={{ fontSize: '0.62rem', color: '#94a3b8' }}>
-                                                <i className="fas fa-robot" style={{ marginRight: '3px', fontSize: '0.58rem' }} />
-                                                Auto · {new Date(deal.stageUpdatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Col 9: Interaction (Remarks + Latest Activity) */}
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                        {deal.remarks ? (
-                                            <div className="address-clamp" style={{ fontSize: '0.78rem', color: '#1e293b', fontWeight: 600, borderLeft: '2px solid #3b82f6', paddingLeft: '6px' }}>
-                                                {deal.remarks}
-                                            </div>
-                                        ) : (
-                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>No Remarks</div>
-                                        )}
-
-                                        {deal.lastActivity ? (
-                                            <div style={{ background: '#f8fafc', padding: '6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                                                <div style={{ fontSize: '0.65rem', color: '#6366f1', fontWeight: 800, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
-                                                    <i className="fas fa-history" style={{ fontSize: '0.6rem' }}></i>
-                                                    {renderValue(deal.lastActivity.type)}
+                                        {/* Col 2: Property Details */}
+                                        <div className="super-cell">
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                                                <div
+                                                    onClick={() => onNavigate('deal-detail', deal._id)}
+                                                    className={`project-thumbnail ${deal.status === 'Open' ? 'thumb-active' : 'thumb-inactive'}`}
+                                                    style={{
+                                                        width: 'auto',
+                                                        minWidth: '60px',
+                                                        height: '28px',
+                                                        borderRadius: '6px',
+                                                        padding: '0 10px',
+                                                        aspectRatio: 'auto',
+                                                        cursor: 'pointer'
+                                                    }}
+                                                >
+                                                    {renderValue(deal.unitNo, 'N/A')}
                                                 </div>
-                                                <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 500 }}>
-                                                    {renderValue(deal.lastActivity.content)}
-                                                </div>
-                                                <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginTop: '2px' }}>
-                                                    {new Date(deal.lastActivity.performedAt).toLocaleDateString()} {new Date(deal.lastActivity.performedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                                    {renderValue(deal.unitType || deal.corner, '')}
                                                 </div>
                                             </div>
-                                        ) : (
-                                            <div style={{ fontSize: '0.7rem', color: '#cbd5e1' }}>No Recent Activity</div>
-                                        )}
-                                    </div>
-
-                                    {/* Col 10: Assignment (Assigned To + Time) */}
-                                    <div className="col-assignment" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                            <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
-                                                {getInitials(getUserName(deal.assignedTo || deal.assigned))}
-                                            </div>
-                                            <div style={{ lineHeight: 1.2 }}>
-                                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>
-                                                    {getUserName(deal.assignedTo || deal.assigned)}
+                                            <div style={{ paddingLeft: '2px' }}>
+                                                <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>
+                                                    {renderValue(getLookupValue('Category', deal.category) || getLookupValue('PropertyType', deal.propertyType), 'N/A')}
+                                                    {deal.subCategory ? ` - ${renderValue(getLookupValue('SubCategory', deal.subCategory))}` : ''}
                                                 </div>
-                                                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
-                                                    {getTeamName(deal.team || deal.assignment?.team)}
-                                                </div>
-                                                <div style={{ fontSize: '0.62rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                                                    <i className="far fa-clock" style={{ fontSize: '0.6rem' }}></i>
-                                                    {new Date(deal.createdAt || deal.date || Date.now()).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                                                <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>
+                                                    {renderValue(deal.size, 'N/A')}
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
 
-                                    {/* Col 11: Actions (Row-level actions) */}
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                        <button
-                                            className="action-btn"
-                                            title="Edit Deal"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleEditClick(deal);
-                                            }}
-                                            style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', width: '30px', height: '30px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer' }}
-                                        >
-                                            <i className="fas fa-edit"></i>
-                                        </button>
-                                        <button
-                                            className="action-btn danger"
-                                            title="Delete Deal"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDelete(deal._id);
-                                            }}
-                                            style={{ background: '#fff1f2', border: '1px solid #fecdd3', color: '#e11d48', width: '30px', height: '30px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer' }}
-                                        >
-                                            <i className="fas fa-trash-alt"></i>
-                                        </button>
+                                        {/* Col 3: Location & Project */}
+                                        <div className="super-cell">
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
+                                                <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem' }}></i>
+                                                <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{renderValue(getLookupValue('Location', deal.location))}</span>
+                                            </div>
+                                            {deal.projectName && (
+                                                <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px' }}>
+                                                    <i className="fas fa-building" style={{ marginRight: '4px', fontSize: '0.7rem' }}></i>
+                                                    {renderValue(deal.projectName)}
+                                                </div>
+                                            )}
+                                            {deal.block && (
+                                                <span className="verified-badge" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800 }}>BLOCK: {deal.block}</span>
+                                            )}
+                                        </div>
+
+                                        {/* Col 4: Match */}
+                                        <div style={{ lineHeight: 1.4, padding: '8px', background: '#f8fafc', borderRadius: '6px' }}>
+                                            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', marginBottom: '4px' }}>{renderValue(getLookupValue('Intent', deal.intent))}</div>
+                                            <div style={{ fontSize: '0.7rem' }}>
+                                                <span style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(102, 126, 234, 0.3)' }}>{deal.matched} Matches</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Col 5: Expectation */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '8px', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', borderRadius: '6px' }}>
+                                            <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#15803d' }}>{formatIndianCurrency(deal.price)}</div>
+                                            <div style={{ fontSize: '0.65rem', color: '#64748b', lineHeight: 1.2, fontStyle: 'italic' }}>
+                                                {deal.priceInWords || deal.priceWord || numberToIndianWords(deal.price)}
+                                            </div>
+                                        </div>
+
+                                        {/* Col 6: Owner Details */}
+                                        <div className="super-cell" style={{ background: '#fefce8', padding: '8px', borderRadius: '6px', borderLeft: '3px solid #eab308' }}>
+                                            <div className="text-ellipsis" style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.8rem', marginBottom: '4px' }}>{renderValue(deal.owner?.name, 'Unknown')}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600, marginBottom: '2px' }}>
+                                                <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>{renderValue(deal.owner?.phone, 'N/A')}
+                                            </div>
+                                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                                                <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>{renderValue(deal.owner?.email, 'N/A')}
+                                            </div>
+                                        </div>
+
+                                        {/* Col 7: Associate */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                            {deal.associatedContact?.name ? (
+                                                <>
+                                                    <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.8rem' }}>{renderValue(deal.associatedContact.name)}</div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600 }}>
+                                                        <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>{renderValue(deal.associatedContact.phone)}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                                                        <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>{renderValue(deal.associatedContact.email)}
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                <div style={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic' }}>--</div>
+                                            )}
+                                        </div>
+
+                                        {/* Col 8: Stage */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                            <DealStageChip stage={deal.stage || 'Open'} />
+                                            {deal.stageUpdatedAt && (
+                                                <div style={{ fontSize: '0.62rem', color: '#94a3b8' }}>
+                                                    <i className="fas fa-robot" style={{ marginRight: '3px', fontSize: '0.58rem' }} />
+                                                    Auto · {new Date(deal.stageUpdatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Col 9: Interaction */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                            {deal.remarks ? (
+                                                <div className="address-clamp" style={{ fontSize: '0.78rem', color: '#1e293b', fontWeight: 600, borderLeft: '2px solid #3b82f6', paddingLeft: '6px' }}>
+                                                    {deal.remarks}
+                                                </div>
+                                            ) : (
+                                                <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>No Remarks</div>
+                                            )}
+
+                                            {deal.lastActivity ? (
+                                                <div style={{ background: '#f8fafc', padding: '6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                                                    <div style={{ fontSize: '0.65rem', color: '#6366f1', fontWeight: 800, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
+                                                        <i className="fas fa-history" style={{ fontSize: '0.6rem' }}></i>
+                                                        {renderValue(deal.lastActivity.type)}
+                                                    </div>
+                                                    <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 500 }}>
+                                                        {renderValue(deal.lastActivity.content)}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginTop: '2px' }}>
+                                                        {new Date(deal.lastActivity.performedAt).toLocaleDateString()} {new Date(deal.lastActivity.performedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div style={{ fontSize: '0.7rem', color: '#cbd5e1' }}>No Recent Activity</div>
+                                            )}
+                                        </div>
+
+                                        {/* Col 10: Assignment */}
+                                        <div className="col-assignment" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
+                                                    {getInitials(getUserName(deal.assignedTo || deal.assigned))}
+                                                </div>
+                                                <div style={{ lineHeight: 1.2 }}>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>
+                                                        {getUserName(deal.assignedTo || deal.assigned)}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
+                                                        {getTeamName(deal.team || deal.assignment?.team)}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.62rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                                                        <i className="far fa-clock" style={{ fontSize: '0.6rem' }}></i>
+                                                        {new Date(deal.createdAt || deal.date || Date.now()).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
                                 ))}
                             </div>
                         </div>
@@ -953,38 +927,6 @@ function DealsPage({ onNavigate, onAddActivity }) {
                         </div>
                     )}
 
-                    {/* Footer - Shows in both list and map view */}
-                    <div className="list-footer" style={{ height: '55px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', gap: '20px', alignItems: 'center', padding: '0 2rem', width: '100%', overflowX: 'auto' }}>
-                            <div className="summary-label" style={{ background: '#334155', color: '#fff', borderRadius: '8px', fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800, whiteSpace: 'nowrap' }}>DEAL CATEGORY SYNC</div>
-                            {categoryStats && categoryStats.length > 0 ? (
-                                categoryStats.map((stat, idx) => {
-                                    const colors = ['#6366f1', 'var(--primary-color)', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6'];
-                                    const color = colors[idx % colors.length];
-                                    const labelMap = {
-                                        'Residential': 'RESI',
-                                        'Commercial': 'COMM',
-                                        'Agricultural': 'AGRI',
-                                        'Industrial': 'INDU',
-                                        'Institutional': 'INST'
-                                    };
-                                    const label = labelMap[stat.name] || stat.name.substring(0, 4).toUpperCase();
-                                    return (
-                                        <div key={idx} className="stat-pill" style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
-                                            <span style={{ color: color, fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase' }}>{label}:</span>
-                                            <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '0.85rem' }}>{stat.count.toLocaleString()}</span>
-                                        </div>
-                                    );
-                                })
-                            ) : (
-                                <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>Calculating deals distribution...</div>
-                            )}
-                            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>Total Deals</div>
-                                <div style={{ background: '#10b98120', color: '#10b981', padding: '4px 12px', borderRadius: '6px', fontWeight: 800, fontSize: '1rem' }}>{totalRecords}</div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div >
 
@@ -1076,6 +1018,27 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     />
                 )
             }
+
+            <footer className="summary-footer" style={{ height: '55px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', marginTop: 'auto' }}>
+                <div style={{ display: 'flex', gap: '20px', alignItems: 'center', padding: '0 2rem', width: '100%', overflowX: 'auto' }}>
+                    <div className="summary-label" style={{ background: '#334155', color: '#fff', borderRadius: '8px', fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800, whiteSpace: 'nowrap' }}>SUMMARY</div>
+                    {categoryStats && categoryStats.length > 0 ? (
+                        categoryStats.map((stat, idx) => {
+                            const colors = ['#6366f1', 'var(--primary-color)', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6'];
+                            const color = colors[idx % colors.length];
+                            const label = stat.name.toUpperCase();
+                            return (
+                                <div key={idx} className="stat-pill" style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                                    <span style={{ color: color, fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase' }}>{label}:</span>
+                                    <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem' }}>{stat.count.toLocaleString()}</span>
+                                </div>
+                            );
+                        })
+                    ) : (
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>Calculating distribution...</div>
+                    )}
+                </div>
+            </footer>
         </section >
     );
 }

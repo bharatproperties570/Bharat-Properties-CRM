@@ -34,8 +34,17 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         category: '',
         subCategory: '',
         size: '',
+        sizeUnit: 'Sq Yard',
         location: '',
         intent: 'Sell', // Sell, Rent, Lease
+
+        // Inheritance fields
+        inventoryId: null,
+        unitSpecification: {},
+        locationDetails: {},
+        builtupDetails: [],
+        furnishing: {},
+        documents: [],
 
         // Pricing
         price: '',
@@ -49,6 +58,11 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
             negotiable: false,
             fixed: false
         },
+
+        // Rent/Lease specifics
+        securityDeposit: '',
+        lockInMonths: '',
+        leaseTermMonths: '',
 
         status: 'Open', // Open, Quote, Negotiation, Booked, Won, Lost
 
@@ -121,10 +135,24 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         if (deal && isOpen) {
             const normalizeId = (val) => (val && typeof val === 'object') ? (val._id || val.id) : val;
 
-            // Merge with existing defaults to avoid undefined property crashes
+            // Handle nested price objects from inventory
+            const getPriceValue = (priceObj, intent) => {
+                if (!priceObj) return '';
+                if (typeof priceObj === 'object') {
+                    return priceObj.value || priceObj.total || '';
+                }
+                return priceObj;
+            };
+
+            const intent = deal.intent || 'Sell';
+            const inventoryPrice = intent === 'Rent' ? deal.rentPrice : (intent === 'Lease' ? deal.leasePrice : deal.price || deal.sellPrice);
+            const initialPrice = getPriceValue(inventoryPrice);
+
             setFormData(prev => ({
                 ...prev,
                 ...deal,
+                price: initialPrice || deal.price || prev.price,
+                intent: intent,
                 owner: typeof deal.owner === 'object' ? { ...prev.owner, ...deal.owner } : (deal.owner ? { ...prev.owner, _id: deal.owner } : prev.owner),
                 associatedContact: typeof deal.associatedContact === 'object' ? { ...prev.associatedContact, ...deal.associatedContact } : (deal.associatedContact ? { ...prev.associatedContact, _id: deal.associatedContact } : prev.associatedContact),
                 assignedTo: normalizeId(deal.assignedTo) || prev.assignedTo,
@@ -136,6 +164,9 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 isOwnerSelected: !!deal.owner,
                 isAssociateSelected: !!deal.associatedContact
             }));
+
+            // If we have unit data but not inventoryId, it's likely a direct inventory-to-deal transition
+            // We should give handleUnitChange a chance to run once units are loaded
         }
     }, [deal, isOpen]);
 
@@ -197,13 +228,22 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
             try {
                 const params = new URLSearchParams();
                 params.append('area', formData.projectName);
-                params.append('status', 'Active'); // Only show Active properties
+                params.append('statusCategory', 'Active'); // Only show active units in Add Deal modal
                 if (formData.block) {
                     params.append('location', formData.block);
                 }
                 const response = await api.get(`/inventory?${params.toString()}`);
                 if (response.data && response.data.success) {
-                    setUnits(response.data.records || response.data.data || []);
+                    const fetchedUnits = response.data.records || response.data.data || [];
+                    setUnits(fetchedUnits);
+
+                    // AUTO-TRIGGER: If unitNo is set (from deal prop) but no inheritance has happened yet
+                    if (formData.unitNo && (deal || restrictToProperties)) {
+                        const unit = fetchedUnits.find(u => (u.unitNo === formData.unitNo || u.unitNumber === formData.unitNo));
+                        if (unit && !formData.inventoryId) {
+                            handleUnitChange(formData.unitNo);
+                        }
+                    }
                 }
             } catch (error) {
                 console.error("Error fetching units:", error);
@@ -266,10 +306,38 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 // Recalculate prices if size changes and we have rates/totals
                 let updates = {
                     unitNo,
+                    inventoryId: unit._id,
                     propertyType: unit.type || unit.category || prev.propertyType,
                     category: unit.category || '',
                     subCategory: unit.subCategory || '',
                     size: newSize,
+                    sizeUnit: unit.sizeUnit || prev.sizeUnit,
+
+                    // Detailed Data Inheritance
+                    unitSpecification: {
+                        facing: unit.facing,
+                        direction: unit.direction,
+                        orientation: unit.orientation,
+                        roadWidth: unit.roadWidth,
+                        builtupType: unit.builtupType,
+                        ownership: unit.ownership,
+                        length: unit.length,
+                        width: unit.width,
+                        sizeLabel: unit.sizeLabel,
+                        totalSaleableArea: unit.totalSaleableArea,
+                        builtUpArea: unit.builtUpArea,
+                        carpetArea: unit.carpetArea
+                    },
+                    locationDetails: unit.address || {},
+                    builtupDetails: unit.builtupDetails || [],
+                    furnishing: {
+                        furnishType: unit.furnishType,
+                        furnishedItems: unit.furnishedItems,
+                        possessionStatus: unit.possessionStatus,
+                        constructionAge: unit.constructionAge || unit.ageOfConstruction
+                    },
+                    documents: unit.inventoryDocuments || [],
+
                     owner: {
                         _id: unit.owners?.[0]?._id || null,
                         name: unit.owners?.[0]?.name || unit.ownerName || '',
@@ -282,8 +350,8 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                         phone: unit.associates?.[0]?.phone || unit.associatedPhone || '',
                         email: unit.associates?.[0]?.email || unit.associatedEmail || ''
                     },
-                    isOwnerSelected: false,
-                    isAssociateSelected: false
+                    isOwnerSelected: unit.owners?.[0]?._id ? true : false,
+                    isAssociateSelected: unit.associates?.[0]?._id ? true : false
                 };
 
                 // Trigger Recalculation logic if size changed
@@ -413,7 +481,19 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 subCategory: getLookupId('SubCategory', formData.subCategory),
                 propertyType: getLookupId('PropertyType', formData.propertyType),
                 source: getLookupId('Source', formData.source),
-                status: formData.status // Status might be enum or lookup, keeping as is if matches enum
+                status: formData.status,
+                // Ensure inherited data is saved
+                unitSpecification: formData.unitSpecification,
+                locationDetails: formData.locationDetails,
+                builtupDetails: formData.builtupDetails,
+                furnishing: formData.furnishing,
+                documents: formData.documents,
+                financialDetails: {
+                    securityDeposit: formData.securityDeposit,
+                    lockInMonths: formData.lockInMonths,
+                    leaseTermMonths: formData.leaseTermMonths,
+                    monthlyRent: (formData.intent === 'Rent' || formData.intent === 'Lease') ? formData.price : null
+                }
             };
 
             if (formData.isOwnerSelected && formData.owner?._id) {
@@ -597,7 +677,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                                         setFormData(prev => ({
                                             ...prev,
                                             block,
-                                            unitNo: '',
+                                            unitNo: '', // RESET UNIT WHEN BLOCK CHANGES
                                             propertyType: '',
                                             size: '',
                                             owner: { name: '', phone: '', email: '' },
@@ -606,7 +686,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                                     }}
                                     disabled={!formData.projectName}
                                 >
-                                    <option value="">Select Block</option>
+                                    <option value="">{isLoadingUnits ? 'Refreshing Units...' : 'Select Block'}</option>
                                     {projects.find(p => p.name === formData.projectName)?.blocks?.map(block => (
                                         <option key={typeof block === 'string' ? block : block.name} value={typeof block === 'string' ? block : block.name}>
                                             {typeof block === 'string' ? block : block.name}
@@ -631,37 +711,6 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                             </div>
                         </div>
 
-                        {/* Unit Owner Information Strip */}
-                        {formData.unitNo && units.find(u => (u.unitNo === formData.unitNo || u.unitNumber === formData.unitNo)) && (
-                            <div style={{ background: '#f0fdf4', borderLeft: '4px solid #10b981', padding: '16px 20px', borderRadius: '8px', marginTop: '20px', display: 'flex', gap: '32px', animation: 'fadeIn 0.3s ease-in-out', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
-                                {(() => {
-                                    const unit = units.find(u => (u.unitNo === formData.unitNo || u.unitNumber === formData.unitNo));
-                                    const owner = unit.owners?.[0];
-                                    if (!owner) return <div style={{ color: '#64748b', fontSize: '0.85rem' }}>No owner information found in inventory.</div>;
-
-                                    const name = owner.name || 'N/A';
-                                    const fatherName = owner.fatherName || owner.guardian || 'N/A';
-                                    const address = owner.personalAddress || owner.address?.locality || owner.address?.city || 'N/A';
-
-                                    return (
-                                        <>
-                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#10b981', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>Current Owner</span>
-                                                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>{name}</span>
-                                            </div>
-                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#10b981', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>Father's Name</span>
-                                                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>{fatherName}</span>
-                                            </div>
-                                            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                                                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#10b981', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>Full Address</span>
-                                                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569', lineHeight: 1.4 }}>{address}</span>
-                                            </div>
-                                        </>
-                                    );
-                                })()}
-                            </div>
-                        )}
 
                         {/* Owner & Associate Details (Read-only with Selection) */}
                         {formData.unitNo && (
@@ -750,7 +799,9 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                         {/* Expected Price Row */}
                         <div style={{ marginBottom: '24px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '8px' }}>
-                                <label style={{ ...labelStyle, marginBottom: 0 }}>Expected Price {formData.pricingMode === 'Rate' ? `(Per ${unitLabel})` : '(Total)'}</label>
+                                <label style={{ ...labelStyle, marginBottom: 0 }}>
+                                    {(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'Expected Rent' : 'Expected Price'} {formData.pricingMode === 'Rate' ? `(Per ${unitLabel})` : '(Total)'}
+                                </label>
                                 {formData.priceInWords && (
                                     <span style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: 500, fontStyle: 'italic' }}>
                                         ({formData.priceInWords} Rupees Only)
@@ -762,7 +813,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                                     style={{ ...inputStyle, paddingRight: (formData.pricingMode === 'Total' && formData.ratePrice) ? '130px' : (formData.pricingMode === 'Rate' && formData.price) ? '160px' : '12px' }}
                                     value={formData.pricingMode === 'Total' ? formData.price : formData.ratePrice}
                                     onChange={e => handlePriceChange(formData.pricingMode === 'Total' ? 'price' : 'ratePrice', e.target.value)}
-                                    placeholder={formData.pricingMode === 'Total' ? "Enter total expected amount" : `Enter rate per ${unitLabel}`}
+                                    placeholder={formData.pricingMode === 'Total' ? `Enter total ${(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'rent' : 'expected amount'}` : `Enter rate per ${unitLabel}`}
                                 />
                                 {formData.pricingMode === 'Total' && formData.ratePrice && (
                                     <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: '#64748b', fontWeight: 600, background: '#f8fafc', padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
@@ -778,9 +829,11 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                         </div>
 
                         {/* Quote Price Row */}
-                        <div style={{ marginBottom: '20px' }}>
+                        <div style={{ marginBottom: '24px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '8px' }}>
-                                <label style={{ ...labelStyle, marginBottom: 0 }}>Quote Price {formData.pricingMode === 'Rate' ? `(Per ${unitLabel})` : '(Total)'}</label>
+                                <label style={{ ...labelStyle, marginBottom: 0 }}>
+                                    {(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'Quote Rent' : 'Quote Price'} {formData.pricingMode === 'Rate' ? `(Per ${unitLabel})` : '(Total)'}
+                                </label>
                                 {formData.quotePriceInWords && (
                                     <span style={{ fontSize: '0.75rem', color: '#2563eb', fontWeight: 500, fontStyle: 'italic' }}>
                                         ({formData.quotePriceInWords} Rupees Only)
@@ -792,7 +845,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                                     style={{ ...inputStyle, paddingRight: (formData.pricingMode === 'Total' && formData.quoteRatePrice) ? '130px' : (formData.pricingMode === 'Rate' && formData.quotePrice) ? '160px' : '12px' }}
                                     value={formData.pricingMode === 'Total' ? formData.quotePrice : formData.quoteRatePrice}
                                     onChange={e => handlePriceChange(formData.pricingMode === 'Total' ? 'quotePrice' : 'quoteRatePrice', e.target.value)}
-                                    placeholder={formData.pricingMode === 'Total' ? "Enter total quote amount" : `Enter quote rate per ${unitLabel}`}
+                                    placeholder={formData.pricingMode === 'Total' ? `Enter total ${(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'rent' : 'quote amount'}` : `Enter quote rate per ${unitLabel}`}
                                 />
                                 {formData.pricingMode === 'Total' && formData.quoteRatePrice && (
                                     <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: '#64748b', fontWeight: 600, background: '#f8fafc', padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
@@ -806,6 +859,41 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                                 )}
                             </div>
                         </div>
+                        {/* Rent Specific Fields */}
+                        {(formData.intent === 'Rent' || formData.intent === 'Lease') && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '24px', animation: 'fadeIn 0.3s ease-in-out' }}>
+                                <div>
+                                    <label style={labelStyle}>Security Amount</label>
+                                    <input
+                                        type="number"
+                                        style={inputStyle}
+                                        value={formData.securityDeposit}
+                                        onChange={e => handleInputChange('securityDeposit', e.target.value)}
+                                        placeholder="Enter Security"
+                                    />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Term (Months)</label>
+                                    <input
+                                        type="number"
+                                        style={inputStyle}
+                                        value={formData.leaseTermMonths}
+                                        onChange={e => handleInputChange('leaseTermMonths', e.target.value)}
+                                        placeholder="Lease Period"
+                                    />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Lock-in (Months)</label>
+                                    <input
+                                        type="number"
+                                        style={inputStyle}
+                                        value={formData.lockInMonths}
+                                        onChange={e => handleInputChange('lockInMonths', e.target.value)}
+                                        placeholder="Lock-in Period"
+                                    />
+                                </div>
+                            </div>
+                        )}
 
                         {/* Negotiable Checkboxes */}
                         <div style={{ display: 'flex', gap: '24px', marginTop: '20px' }}>

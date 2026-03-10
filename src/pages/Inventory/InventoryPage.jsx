@@ -848,7 +848,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 </div>
                             ) : (
                                 filteredInventory.map((item) => (
-                                    <div key={item._id} className="list-item inventory-list-grid" style={{ padding: '10px 1.5rem', alignItems: 'flex-start' }}>
+                                    <div key={item._id} className="list-item inventory-list-grid" style={{ padding: '10px 1.5rem', alignItems: 'flex-start', backgroundColor: (item.deals && item.deals.length > 0) ? '#fffbeb' : 'transparent', transition: 'background-color 0.3s' }}>
                                         <input
                                             type="checkbox"
                                             className="item-check"
@@ -945,7 +945,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                 })()}
                                             </div>
                                             <div className="text-ellipsis" style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 500, marginTop: '1px' }}>
-                                                {renderVal(item.projectId?.address?.locality || item.address?.locality || item.address?.area || item.location, "Area")}
+                                                {renderVal(item.projectId?.address?.locality || item.address?.locality || item.address?.area || item.location, "Area") === '-' ? '' : renderVal(item.projectId?.address?.locality || item.address?.locality || item.address?.area || item.location, "Area")}
                                             </div>
                                             <div style={{ marginTop: '6px' }}>
                                                 <span className="verified-badge text-ellipsis" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800, display: 'inline-block', maxWidth: '100%' }}>
@@ -955,9 +955,8 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                         </div>
 
                                         <div className="super-cell">
-                                            <div className="cell-label" style={{ marginTop: 0, color: '#94a3b8' }}>Orientation</div>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                                {(item.direction || item.orientation) && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-compass" style={{ color: '#3b82f6', width: '14px' }}></i> {renderVal(item.direction || item.orientation, 'Direction')}</div>}
+                                                {(item.direction || item.orientation) && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-compass" style={{ color: '#3b82f6', width: '14px' }}></i> {String(renderVal(item.direction || item.orientation, 'Direction')).replace(/Orientation:\s*/i, '')}</div>}
                                                 {item.facing && <div style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500 }}><i className="fas fa-map-signs" style={{ color: '#f59e0b', width: '14px' }}></i> {renderVal(item.facing, 'Facing')}</div>}
                                                 {(item.roadWidth || item.road) && <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}><i className="fas fa-road" style={{ width: '14px' }}></i> {renderVal(item.roadWidth || item.road, 'RoadWidth')}</div>}
                                                 {(!item.direction && !item.facing && !item.orientation && !item.roadWidth) && <div style={{ fontSize: '0.7rem', color: '#cbd5e1', fontStyle: 'italic' }}>Not specified</div>}
@@ -1278,8 +1277,8 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                             const label = stat.name.toUpperCase();
                             return (
                                 <div key={idx} className="stat-pill" style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
-                                    <span style={{ color: color, fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase' }}>{label}:</span>
-                                    <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '0.85rem' }}>{stat.count.toLocaleString()}</span>
+                                    <span style={{ color: color, fontWeight: 700, fontSize: '0.8rem', textTransform: 'uppercase' }}>{label}:</span>
+                                    <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem' }}>{stat.count.toLocaleString()}</span>
                                 </div>
                             );
                         })

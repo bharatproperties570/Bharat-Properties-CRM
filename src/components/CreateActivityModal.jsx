@@ -63,142 +63,8 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
 
     const [projects, setProjects] = useState([]);
     const [rowUnits, setRowUnits] = useState({}); // Map of rowIndex -> array of units
-
     const [errors, setErrors] = useState({});
 
-    useEffect(() => {
-        if (isOpen) {
-            let relations = [];
-            // If we have related items passed in, use them
-            if (initialData?.relatedTo && Array.isArray(initialData.relatedTo)) {
-                relations = [...initialData.relatedTo];
-            }
-
-            // Logic for auto-selecting owner/associate if we're coming from Inventory or Deal
-            if (initialData?.inventory || initialData?.deal) {
-                const source = initialData.inventory || initialData.deal;
-                const owners = [];
-
-                // Handle Inventory & Deal structure
-                // Exhaustive Name & ID Extraction Helper
-                const getVal = (obj, fields) => {
-                    for (const f of fields) {
-                        const v = obj?.[f];
-                        if (v) return v;
-                    }
-                    return null;
-                };
-
-                const parseContact = (primary, prefix, secondary) => {
-                    // Try all possible name locations
-                    const name = primary?.[prefix + 'Name'] ||
-                        primary?.[prefix + 'ContactName'] ||
-                        primary?.[prefix + 'Contact']?.name ||
-                        (typeof primary?.[prefix] === 'object' ? primary?.[prefix]?.name : null) ||
-                        (typeof primary?.[prefix + 'Contact'] === 'string' ? primary?.[prefix + 'Contact'] : null) ||
-                        (typeof primary?.[prefix] === 'string' ? primary?.[prefix] : null) ||
-                        secondary?.name ||
-                        secondary?.contactName ||
-                        '';
-
-                    if (!name || typeof name !== 'string' || !name.trim()) return null;
-
-                    // Try all possible phone locations
-                    const phone = primary?.[prefix + 'Phone'] ||
-                        primary?.[prefix + 'Mobile'] ||
-                        primary?.[prefix + 'ContactPhone'] ||
-                        primary?.[prefix + 'Contact']?.phone ||
-                        primary?.[prefix + 'Contact']?.mobile ||
-                        (typeof primary?.[prefix] === 'object' ? (primary?.[prefix]?.phone || primary?.[prefix]?.mobile) : null) ||
-                        secondary?.phone ||
-                        secondary?.mobile ||
-                        '';
-
-                    // Try all possible ID locations
-                    const id = primary?.[prefix + 'Id'] ||
-                        primary?.[prefix + 'ContactId'] ||
-                        (typeof primary?.[prefix] === 'object' ? (primary?.[prefix]?._id || primary?.[prefix]?.id) : null) ||
-                        secondary?._id ||
-                        secondary?.id ||
-                        (phone ? `contact-${phone}` : `contact-${name.trim()}-${Date.now()}`);
-
-                    return { id, name: name.trim(), mobile: phone || '' };
-                };
-
-                const ownerInfo = parseContact(source, 'owner', source.partyStructure?.owner);
-                if (ownerInfo) {
-                    owners.push({ ...ownerInfo, model: 'Contact', role: 'Owner' });
-                }
-
-                // Handle 'associated' or 'associate' or 'buyer'
-                let assocInfo = parseContact(source, 'associated', source.partyStructure?.buyer || source.associatedContact);
-                if (!assocInfo) assocInfo = parseContact(source, 'associate', null);
-                if (!assocInfo) assocInfo = parseContact(source, 'buyer', null);
-
-                if (assocInfo) {
-                    owners.push({ ...assocInfo, model: 'Contact', role: 'Associate' });
-                }
-
-                // If we found owners/associates, add them to relations
-                if (owners.length > 0) {
-                    const existingNames = relations.map(r => typeof r.name === 'string' ? r.name.toLowerCase() : '');
-                    const uniqueOwners = owners.filter(o => o.name && !existingNames.includes(o.name.toLowerCase()));
-                    relations = [...uniqueOwners, ...relations];
-                }
-            }
-
-            // Reset form on open
-            setFormData({
-                activityType: initialData?.activityType || 'Call',
-                subject: '',
-                relatedTo: relations,
-                participants: [],
-                dueDate: new Date().toISOString().split('T')[0],
-                dueTime: '10:00',
-                priority: 'Normal',
-                description: '', // Remark
-                tasks: [{ id: Date.now(), subject: '', reminder: false, reminderTime: '' }],
-                status: initialData?.status || 'Not Started',
-
-                // New fields from instruction
-                result: '',
-                nextActivityDate: '',
-                nextActivityTime: '',
-                location: '',
-                tags: initialData?.tags || [],
-                meetingLink: '',
-                isInternal: false,
-                notifyTeam: false,
-
-                // Existing dynamic fields
-                purpose: initialData?.purpose || '',
-                duration: '15',
-                callOutcome: '',
-
-                meetingType: 'Office',
-                meetingLocation: '',
-                clientFeedback: '',
-
-                visitConfirmation: 'Tentative',
-
-                reminder: false,
-                reminderTime: '',
-
-                direction: 'Outgoing Call',
-                completionResult: '',
-                completionDate: new Date().toISOString().split('T')[0],
-                completionTime: new Date().toTimeString().slice(0, 5),
-                completionDuration: '',
-                meetingOutcomeStatus: '',
-                visitedProperties: initialData?.visitedProperties || [{ project: '', block: '', property: '', result: '', feedback: '' }],
-                selectedPropertyNo: '',
-                cancellationReason: '',
-                mailStatus: '',
-                mailFollowUp: false
-            });
-            setErrors({});
-        }
-    }, [isOpen, initialData]);
 
     const fetchProjects = useCallback(async () => {
         try {
@@ -232,6 +98,116 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
             console.error("Error fetching units:", error);
         }
     }, []);
+
+    useEffect(() => {
+        if (isOpen) {
+            let relations = [];
+            // If we have related items passed in, use them
+            if (initialData?.relatedTo && Array.isArray(initialData.relatedTo)) {
+                relations = [...initialData.relatedTo];
+            }
+
+            // Logic for auto-selecting owner/associate if we're coming from Inventory or Deal
+            const source = initialData?.inventory || initialData?.deal;
+            if (source) {
+                const contactsToAdd = [];
+
+                // Better contact extraction helper
+                const extractContacts = (src) => {
+                    const list = [];
+                    // Check direct owners array (preferred)
+                    if (src.owners && Array.isArray(src.owners)) {
+                        src.owners.forEach(o => {
+                            if (o.name) list.push({ id: o._id || o.id, name: o.name, model: 'Contact', role: 'Owner' });
+                        });
+                    }
+                    // Check direct associates array
+                    if (src.associates && Array.isArray(src.associates)) {
+                        src.associates.forEach(a => {
+                            const c = a.contact || a;
+                            if (c.name) list.push({ id: c._id || c.id, name: c.name, model: 'Contact', role: 'Associate' });
+                        });
+                    }
+                    // Fallback to owner/associatedContact properties
+                    if (list.length === 0) {
+                        if (src.ownerName) list.push({ id: src.ownerId || `owner-${Date.now()}`, name: src.ownerName, model: 'Contact', role: 'Owner' });
+                        if (src.owner && typeof src.owner === 'object' && src.owner.name) list.push({ id: src.owner._id || src.owner.id || `owner-${Date.now()}`, name: src.owner.name, model: 'Contact', role: 'Owner' });
+                        if (src.associatedContact) list.push({ id: src.associatedContactId || `assoc-${Date.now()}`, name: typeof src.associatedContact === 'string' ? src.associatedContact : src.associatedContact.name, model: 'Contact', role: 'Associate' });
+                    }
+                    return list;
+                };
+
+                const extracted = extractContacts(source);
+                if (extracted.length > 0) {
+                    const existingNames = relations.map(r => typeof r.name === 'string' ? r.name.toLowerCase() : '');
+                    const uniqueNew = extracted.filter(o => o.name && !existingNames.includes(o.name.toLowerCase()));
+
+                    // Filter out the Inventory itself if we found people
+                    const filteredRelations = relations.filter(r => r.model !== 'Inventory' && r.type !== 'Inventory');
+                    relations = [...uniqueNew, ...filteredRelations];
+                }
+            }
+
+            const initialType = initialData?.activityType || 'Call';
+
+            // Reset form on open
+            setFormData(prev => ({
+                ...prev,
+                activityType: initialType,
+                subject: '',
+                relatedTo: relations,
+                participants: [],
+                dueDate: new Date().toISOString().split('T')[0],
+                dueTime: '10:00',
+                priority: 'Normal',
+                description: '',
+                status: initialData?.status || 'Not Started',
+                purpose: initialData?.purpose || '',
+                duration: '15',
+                completionDate: new Date().toISOString().split('T')[0],
+                completionTime: new Date().toTimeString().slice(0, 5),
+                // Pre-fill site visit if it's the initial type
+                visitedProperties: (initialType === 'Site Visit' && (initialData?.inventory || initialData?.deal?.inventoryId))
+                    ? [{
+                        project: (initialData?.inventory || initialData?.deal?.inventoryId).projectName || (initialData?.inventory || initialData?.deal?.inventoryId).project || '',
+                        block: (initialData?.inventory || initialData?.deal?.inventoryId).block || '',
+                        property: (initialData?.inventory || initialData?.deal?.inventoryId).unitNo || (initialData?.inventory || initialData?.deal?.inventoryId).unitNumber || '',
+                        result: '',
+                        feedback: ''
+                    }]
+                    : [{ project: '', block: '', property: '', result: '', feedback: '' }]
+            }));
+            setErrors({});
+        }
+    }, [isOpen, initialData]);
+
+    // Dynamic Pre-fill for Site Visit Type change
+    useEffect(() => {
+        if (formData.activityType === 'Site Visit' && (initialData?.inventory || initialData?.deal?.inventoryId)) {
+            const inventory = initialData.inventory || initialData.deal?.inventoryId;
+            if (inventory && formData.visitedProperties.length === 1 && !formData.visitedProperties[0].project) {
+                const projectName = inventory.projectName || inventory.project || '';
+                const blockName = inventory.block || '';
+                const unitNo = inventory.unitNo || inventory.unitNumber || '';
+
+                setFormData(prev => ({
+                    ...prev,
+                    visitedProperties: [{
+                        project: projectName,
+                        block: blockName,
+                        property: unitNo,
+                        result: '',
+                        feedback: ''
+                    }]
+                }));
+
+                // Crucial: Trigger unit fetch for this project/block so the dropdown has the data
+                if (projectName) {
+                    fetchUnits(0, projectName, blockName);
+                }
+            }
+        }
+    }, [formData.activityType, initialData, fetchUnits]);
 
     useEffect(() => {
         if (isOpen) {

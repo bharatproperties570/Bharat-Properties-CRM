@@ -55,7 +55,10 @@ export const applyInventoryFilters = (items, filters) => {
         // 4. Size Type Filter (e.g. "1 Kanal", "10 Marla")
         // ------------------------------------------------------------------------------
         if (filters.sizeType && filters.sizeType.length > 0) {
-            const sizeTypeMatch = filters.sizeType.some(st => item.size && item.size.toLowerCase().includes(st.toLowerCase()));
+            const sizeTypeMatch = filters.sizeType.some(st => {
+                const sizeStr = item.sizeConfig || item.sizeLabel || (item.size?.value ? `${item.size.value} ${item.size.unit}` : String(item.size || ''));
+                return sizeStr.toLowerCase().includes(st.toLowerCase());
+            });
             if (!sizeTypeMatch) return false;
         }
 

@@ -127,8 +127,33 @@ export const getDeals = async (req, res) => {
         // Enhanced: Category-based counts for deal list view footer
         const categories = await Lookup.find({ lookup_type: 'Category' });
         const categoryCounts = await Promise.all(categories.map(async (cat) => {
-            const count = await Deal.countDocuments({ ...query, category: cat._id });
-            return { name: cat.lookup_value, count };
+            // Count where deal has category OR deal's linked inventory has category
+            const count = await Deal.aggregate([
+                { $match: { ...query } },
+                {
+                    $lookup: {
+                        from: 'inventories',
+                        localField: 'inventoryId',
+                        foreignField: '_id',
+                        as: 'inventory'
+                    }
+                },
+                { $unwind: { path: '$inventory', preserveNullAndEmptyArrays: true } },
+                {
+                    $match: {
+                        $or: [
+                            { category: cat._id },
+                            { category: cat._id.toString() },
+                            { category: cat.lookup_value },
+                            { 'inventory.category': cat._id },
+                            { 'inventory.category': cat._id.toString() },
+                            { 'inventory.category': cat.lookup_value }
+                        ]
+                    }
+                },
+                { $count: 'total' }
+            ]);
+            return { name: cat.lookup_value, count: count[0]?.total || 0 };
         }));
 
         // Fetch latest activities for owners and associates

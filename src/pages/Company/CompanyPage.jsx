@@ -28,6 +28,7 @@ function CompanyPage({ onEdit, onNavigate }) {
     const [totalCount, setTotalCount] = useState(0);
     const [totalPages, setTotalPages] = useState(0);
     const [loading, setLoading] = useState(false);
+    const [industryStats, setIndustryStats] = useState([]);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -43,6 +44,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                 setCompanies(response.data.records || []);
                 setTotalCount(response.data.totalCount || 0);
                 setTotalPages(response.data.totalPages || 0);
+                setIndustryStats(response.data.industryStats || []);
             }
         } catch (error) {
             console.error("Error fetching companies:", error);
@@ -697,27 +699,26 @@ function CompanyPage({ onEdit, onNavigate }) {
                         </div>
                     )}
 
-                    {/* Footer Summary */}
-                    <div style={{
-                        position: 'sticky',
-                        bottom: 0,
-                        background: '#f8fafc',
-                        borderTop: '2px solid #e2e8f0',
-                        padding: '16px 2rem',
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        gap: '20px',
-                        alignItems: 'center',
-                        fontSize: '0.85rem',
-                        fontWeight: 600,
-                        color: '#475569',
-                        zIndex: 100,
-                        boxShadow: '0 -4px 6px -1px rgba(0, 0, 0, 0.02)'
-                    }}>
-                        <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.95rem' }}>
-                            Total Companies: <span style={{ color: 'var(--primary-color)' }}>{totalCount}</span>
+                    {/* Footer Summary - Standard Style matching Contacts */}
+                    <footer className="summary-footer" style={{ height: "55px", background: "#f8fafc", borderTop: "1px solid #e2e8f0", display: "flex", alignItems: "center" }}>
+                        <div style={{ display: "flex", gap: "20px", alignItems: "center", padding: "0 2rem", width: "100%", overflowX: "auto" }}>
+                            <div className="summary-label" style={{ background: "#334155", color: "#fff", borderRadius: "8px", fontSize: "0.65rem", padding: "4px 12px", fontWeight: 800, whiteSpace: "nowrap" }}>SUMMARY</div>
+                            <div className="stat-pill" style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                                <span style={{ color: "var(--primary-color)", fontWeight: 700, fontSize: "0.80rem", textTransform: "uppercase" }}>TOTAL COMPANIES:</span>
+                                <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: "1.1rem" }}>{totalCount.toLocaleString()}</span>
+                            </div>
+                            {industryStats && industryStats.filter(s => s.count > 0).map((stat, idx) => {
+                                const colors = ['#6366f1', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6', '#38bdf8'];
+                                const color = colors[idx % colors.length];
+                                return (
+                                    <div key={idx} className="stat-pill" style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                                        <span style={{ color: color, fontWeight: 700, fontSize: '0.80rem', textTransform: 'uppercase' }}>{stat.name}:</span>
+                                        <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: '1.1rem' }}>{stat.count.toLocaleString()}</span>
+                                    </div>
+                                );
+                            })}
                         </div>
-                    </div>
+                    </footer>
                 </div>
             </div>
             {/* Filter Panel */}
