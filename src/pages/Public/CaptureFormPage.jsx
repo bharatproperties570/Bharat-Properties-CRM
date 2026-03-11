@@ -9,7 +9,8 @@ const CaptureFormPage = ({ slug = 'professional-deal-capture' }) => {
     const [inventoryData, setInventoryData] = useState({
         projects: [],
         blocks: [],
-        units: []
+        units: [],
+        relations: []
     });
 
     useEffect(() => {
@@ -30,6 +31,7 @@ const CaptureFormPage = ({ slug = 'professional-deal-capture' }) => {
     useEffect(() => {
         if (status === 'ready') {
             fetchProjects();
+            fetchRelations();
         }
     }, [status]);
 
@@ -71,6 +73,15 @@ const CaptureFormPage = ({ slug = 'professional-deal-capture' }) => {
             setInventoryData(prev => ({ ...prev, units: res.data.data }));
         } catch (err) {
             console.error("Error fetching units", err);
+        }
+    };
+    
+    const fetchRelations = async () => {
+        try {
+            const res = await api.get('/deal-forms/public/inventory/relations');
+            setInventoryData(prev => ({ ...prev, relations: res.data.data }));
+        } catch (err) {
+            console.error("Error fetching relations", err);
         }
     };
 
@@ -228,6 +239,16 @@ const CaptureFormPage = ({ slug = 'professional-deal-capture' }) => {
                                                 >
                                                     <option value="">Select Unit</option>
                                                     {inventoryData.units.map(u => <option key={u} value={u}>{u}</option>)}
+                                                </select>
+                                            ) : field.mappingField === 'relationship' ? (
+                                                <select
+                                                    required={field.required}
+                                                    value={formData[field.id] || ""}
+                                                    onChange={e => handleInputChange(field.id, e.target.value)}
+                                                    className="premium-input"
+                                                >
+                                                    <option value="">Select Relationship</option>
+                                                    {inventoryData.relations.map(rel => <option key={rel} value={rel}>{rel}</option>)}
                                                 </select>
                                             ) : field.type === 'select' ? (
                                                 <select

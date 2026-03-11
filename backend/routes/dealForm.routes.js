@@ -9,7 +9,8 @@ import {
     submitDealForm,
     getPublicInventoryProjects,
     getPublicInventoryBlocks,
-    getPublicInventoryUnits
+    getPublicInventoryUnits,
+    getPublicRelations
 } from "../controllers/dealForm.controller.js";
 
 const router = express.Router();
@@ -25,6 +26,7 @@ router.delete("/:id", deleteForm);
 router.get("/public/inventory/projects", getPublicInventoryProjects);
 router.get("/public/inventory/blocks", getPublicInventoryBlocks);
 router.get("/public/inventory/units", getPublicInventoryUnits);
+router.get("/public/inventory/relations", getPublicRelations);
 router.get("/public/:slug", getFormBySlug);
 router.post("/public/:slug/submit", submitDealForm);
 

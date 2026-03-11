@@ -11,7 +11,8 @@ const PublicDealForm = ({ slug }) => {
     const [inventoryData, setInventoryData] = useState({
         projects: [],
         blocks: [],
-        units: []
+        units: [],
+        relations: []
     });
 
     useEffect(() => {
@@ -46,6 +47,7 @@ const PublicDealForm = ({ slug }) => {
     useEffect(() => {
         if (status === 'ready') {
             fetchProjects();
+            fetchRelations();
         }
     }, [status]);
 
@@ -73,6 +75,15 @@ const PublicDealForm = ({ slug }) => {
             setInventoryData(prev => ({ ...prev, units: res.data.data }));
         } catch (err) {
             console.error("Error fetching units", err);
+        }
+    };
+
+    const fetchRelations = async () => {
+        try {
+            const res = await api.get('/deal-forms/public/inventory/relations');
+            setInventoryData(prev => ({ ...prev, relations: res.data.data }));
+        } catch (err) {
+            console.error("Error fetching relations", err);
         }
     };
 
@@ -214,8 +225,15 @@ const PublicDealForm = ({ slug }) => {
                             </h3>
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}>
-                                {section.fields.map(field => (
-                                    <div key={field.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                {section.fields.map(field => {
+                                    // Conditional Logic for Relationship field
+                                    if (field.mappingField === 'relationship') {
+                                        const roleField = formConfig.sections.flatMap(s => s.fields).find(f => f.mappingField === 'role');
+                                        if (formData[roleField?.id] !== 'Associate') return null;
+                                    }
+
+                                    return (
+                                        <div key={field.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                         <label style={{ fontSize: '0.95rem', fontWeight: 700, color: '#475569' }}>
                                             {field.label}
                                             {field.required && <span style={{ color: '#ef4444', marginLeft: '4px' }}>*</span>}
@@ -258,6 +276,18 @@ const PublicDealForm = ({ slug }) => {
                                             >
                                                 <option value="">Select Unit</option>
                                                 {inventoryData.units.map(u => <option key={u} value={u}>{u}</option>)}
+                                            </select>
+                                        ) : field.mappingField === 'relationship' ? (
+                                            <select
+                                                required={field.required}
+                                                value={formData[field.id] || ""}
+                                                onChange={e => handleInputChange(field.id, e.target.value)}
+                                                style={{ padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '1rem', outline: 'none', transition: 'border-color 0.2s' }}
+                                                onFocus={e => e.target.style.borderColor = formConfig.settings.theme?.primaryColor || '#3b82f6'}
+                                                onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                                            >
+                                                <option value="">Select Relationship</option>
+                                                {inventoryData.relations.map(rel => <option key={rel} value={rel}>{rel}</option>)}
                                             </select>
                                         ) : field.type === 'select' || field.type === 'multi-select' ? (
                                             <select
@@ -308,7 +338,8 @@ const PublicDealForm = ({ slug }) => {
                                         )}
                                         {field.helpText && <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{field.helpText}</span>}
                                     </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         </div>
                     ))}

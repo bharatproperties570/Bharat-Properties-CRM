@@ -112,13 +112,13 @@ const DealFormBuilder = ({ form, onSave, onCancel }) => {
 
         const mappingOptions = [
             { label: 'None', value: '' },
-            { label: 'Project Name', value: 'projectName' },
-            { label: 'Block', value: 'block' },
+            { label: 'Project/Location/Sector', value: 'projectName' },
+            { label: 'Block/Tower', value: 'block' },
             { label: 'Unit Number', value: 'unitNo' },
             { label: 'Price (Expected)', value: 'price' },
             { label: 'Unit Type', value: 'unitType' },
             { label: 'Property Type', value: 'propertyType' },
-            { label: 'Intent (Sell/Rent)', value: 'intent' },
+            { label: 'Deal Intent', value: 'intent' },
             { label: 'Size', value: 'size' },
             { label: 'Location/City', value: 'location' },
             { label: 'Owner Name', value: 'ownerName' },
@@ -127,7 +127,7 @@ const DealFormBuilder = ({ form, onSave, onCancel }) => {
             { label: 'Associate Name', value: 'associateName' },
             { label: 'Associate Phone', value: 'associatePhone' },
             { label: 'Associate Relationship', value: 'relationship' },
-            { label: 'Remarks/Notes', value: 'remarks' }
+            { label: 'Remarks', value: 'remarks' }
         ];
 
         return (
