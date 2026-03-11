@@ -39,6 +39,7 @@ const FormsPage = () => {
         { id: 'add-user', label: 'Add User', icon: 'fa-user-shield', description: 'Add a new user to the system', category: 'System Management' },
         { id: 'add-lead', label: 'Add Lead', icon: 'fa-filter', description: 'Create a new lead entry', category: 'Sales Pipeline' },
         { id: 'add-deal', label: 'Add Deal', icon: 'fa-handshake', description: 'Create a new deal', category: 'Sales Pipeline' },
+        { id: 'professional-deal-capture', label: 'Professional Deal Capture', icon: 'fa-file-signature', description: 'High-end dynamic deal intake form', category: 'Sales Pipeline', premium: true },
         { id: 'add-property', label: 'Add Property', icon: 'fa-building', description: 'Add a new property to inventory', category: 'Inventory' }
     ];
     return (
@@ -61,6 +62,7 @@ const FormsPage = () => {
                                         else if (form.id === 'create-online-campaign') setIsCreateOnlineCampaignOpen(true);
                                         else if (form.id === 'create-offline-campaign') setIsCreateOfflineCampaignOpen(true);
                                         else if (form.id === 'create-organic-campaign') setIsCreateOrganicCampaignOpen(true);
+                                        else if (form.id === 'professional-deal-capture') window.open('/capture/professional-deal-capture', '_blank');
                                     }}
                                     style={{
                                         padding: '8px 24px',
@@ -99,7 +101,7 @@ const FormsPage = () => {
                             gap: '24px'
                         }}>
                             {formsList.map(form => {
-                                const isClickable = ['add-contact', 'send-email', 'create-activity', 'call-contact', 'send-message', 'create-online-campaign', 'create-offline-campaign', 'create-organic-campaign'].includes(form.id);
+                                const isClickable = ['add-contact', 'send-email', 'create-activity', 'call-contact', 'send-message', 'create-online-campaign', 'create-offline-campaign', 'create-organic-campaign', 'professional-deal-capture'].includes(form.id);
                                 return (
                                     <div
                                         key={form.id}
@@ -112,6 +114,7 @@ const FormsPage = () => {
                                             else if (form.id === 'create-online-campaign') setIsCreateOnlineCampaignOpen(true);
                                             else if (form.id === 'create-offline-campaign') setIsCreateOfflineCampaignOpen(true);
                                             else if (form.id === 'create-organic-campaign') setIsCreateOrganicCampaignOpen(true);
+                                            else if (form.id === 'professional-deal-capture') window.open('/capture/professional-deal-capture', '_blank');
                                         }}
                                         style={{
                                             background: '#fff',

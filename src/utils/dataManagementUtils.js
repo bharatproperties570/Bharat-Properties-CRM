@@ -335,6 +335,30 @@ export const MODULE_CONFIG = {
             { key: 'superArea', label: 'Super Area' },
             { key: 'description', label: 'Description' }
         ]
+    },
+    propertyOwners: {
+        id: 'propertyOwners',
+        label: 'Property Owner',
+        icon: 'fa-user-shield',
+        description: 'Bulk update owners and associates',
+        data: [],
+        fields: [
+            // Inventory Match Keys
+            { key: 'projectName', label: 'Project Name', required: true },
+            { key: 'block', label: 'Block', required: true },
+            { key: 'unitNo', label: 'Unit Number', required: true },
+
+            // Owner Details
+            { key: 'ownerName', label: 'Owner Name' },
+            { key: 'ownerMobile', label: 'Owner Mobile' },
+            { key: 'ownerEmail', label: 'Owner Email' },
+
+            // Associate Details
+            { key: 'associateName', label: 'Associate Name' },
+            { key: 'associateMobile', label: 'Associate Mobile' },
+            { key: 'associateEmail', label: 'Associate Email' },
+            { key: 'relationship', label: 'Relationship' }
+        ]
     }
 };
 

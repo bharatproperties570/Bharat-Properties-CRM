@@ -895,3 +895,171 @@ export const checkDuplicatesImport = async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+
+/**
+ * @desc    Bulk update property owners and associates
+ * @route   POST /inventory/bulk-update-owners
+ * @access  Private
+ */
+export const bulkUpdatePropertyOwners = async (req, res) => {
+    try {
+        const { data } = req.body;
+        if (!data || !Array.isArray(data)) {
+            return res.status(400).json({ success: false, error: "Invalid data provided" });
+        }
+
+        console.log(`[BULK OWNER UPDATE] Processing ${data.length} records`);
+
+        const results = {
+            total: data.length,
+            inventoryMatched: 0,
+            inventoryNotFound: 0,
+            contactsCreated: 0,
+            contactsFound: 0,
+            errors: []
+        };
+
+        // Cache for resolved contacts to avoid redundant DB hits within the same bulk job
+        const contactCache = new Map(); // mobile -> contactId
+
+        for (let i = 0; i < data.length; i++) {
+            const row = data[i];
+            const {
+                projectName, block, unitNo,
+                ownerName, ownerMobile, ownerEmail,
+                associateName, associateMobile, associateEmail, relationship
+            } = row;
+
+            try {
+                // 1. Find Inventory Record
+                const inventory = await Inventory.findOne({
+                    projectName: { $regex: new RegExp(`^${escapeRegExp(projectName)}$`, 'i') },
+                    block: { $regex: new RegExp(`^${escapeRegExp(block)}$`, 'i') },
+                    $or: [
+                        { unitNo: { $regex: new RegExp(`^${escapeRegExp(unitNo)}$`, 'i') } },
+                        { unitNumber: { $regex: new RegExp(`^${escapeRegExp(unitNo)}$`, 'i') } }
+                    ]
+                });
+
+                if (!inventory) {
+                    results.inventoryNotFound++;
+                    results.errors.push({ row: i + 1, item: unitNo, reason: `Inventory not found for ${projectName} | ${block} | ${unitNo}` });
+                    continue;
+                }
+
+                results.inventoryMatched++;
+
+                const updates = {};
+
+                // 2. Resolve/Create Owner
+                if (ownerMobile || ownerName) {
+                    let ownerId = null;
+                    const mobile = String(ownerMobile || '').trim();
+
+                    if (mobile && contactCache.has(mobile)) {
+                        ownerId = contactCache.get(mobile);
+                        results.contactsFound++;
+                    } else {
+                        // Search in DB
+                        let contact = null;
+                        if (mobile) {
+                            contact = await Contact.findOne({ 'phones.number': { $regex: new RegExp(escapeRegExp(mobile), 'i') } });
+                        }
+                        if (!contact && ownerName) {
+                            contact = await Contact.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(ownerName)}$`, 'i') } });
+                        }
+
+                        if (contact) {
+                            ownerId = contact._id;
+                            results.contactsFound++;
+                        } else if (ownerName && mobile) {
+                            // Create new contact
+                            const newContact = await Contact.create({
+                                name: ownerName,
+                                phones: [{ number: mobile, type: 'Personal' }],
+                                emails: ownerEmail ? [{ address: ownerEmail, type: 'Personal' }] : [],
+                                source: await resolveLookup('Source', 'Bulk Owner Update')
+                            });
+                            ownerId = newContact._id;
+                            results.contactsCreated++;
+                        }
+
+                        if (ownerId && mobile) contactCache.set(mobile, ownerId);
+                    }
+
+                    if (ownerId) {
+                        // Ensure ownerId is in inventory.owners array if not already
+                        if (!inventory.owners.some(id => id.toString() === ownerId.toString())) {
+                            updates.owners = [...inventory.owners, ownerId];
+                        }
+                    }
+                }
+
+                // 3. Resolve/Create Associate
+                if (associateMobile || associateName) {
+                    let associateId = null;
+                    const mobile = String(associateMobile || '').trim();
+
+                    if (mobile && contactCache.has(mobile)) {
+                        associateId = contactCache.get(mobile);
+                        results.contactsFound++;
+                    } else {
+                        let contact = null;
+                        if (mobile) {
+                            contact = await Contact.findOne({ 'phones.number': { $regex: new RegExp(escapeRegExp(mobile), 'i') } });
+                        }
+                        if (!contact && associateName) {
+                            contact = await Contact.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(associateName)}$`, 'i') } });
+                        }
+
+                        if (contact) {
+                            associateId = contact._id;
+                            results.contactsFound++;
+                        } else if (associateName && mobile) {
+                            const newContact = await Contact.create({
+                                name: associateName,
+                                phones: [{ number: mobile, type: 'Personal' }],
+                                emails: associateEmail ? [{ address: associateEmail, type: 'Personal' }] : [],
+                                source: await resolveLookup('Source', 'Bulk Owner Update')
+                            });
+                            associateId = newContact._id;
+                            results.contactsCreated++;
+                        }
+
+                        if (associateId && mobile) contactCache.set(mobile, associateId);
+                    }
+
+                    if (associateId) {
+                        // Ensure associate is in inventory.associates array if not already
+                        if (!inventory.associates.some(a => a.contact && a.contact.toString() === associateId.toString())) {
+                            const newAssociate = {
+                                contact: associateId,
+                                relationship: relationship || 'Associate'
+                            };
+                            updates.associates = [...inventory.associates, newAssociate];
+                        }
+                    }
+                }
+
+                // 4. Save Updates
+                if (Object.keys(updates).length > 0) {
+                    await Inventory.findByIdAndUpdate(inventory._id, { $set: updates });
+                }
+
+            } catch (itemErr) {
+                console.error(`[BULK OWNER UPDATE] Error at row ${i + 1}:`, itemErr);
+                results.errors.push({ row: i + 1, item: unitNo, reason: itemErr.message });
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `Bulk update complete. Matched: ${results.inventoryMatched}, Created Contacts: ${results.contactsCreated}`,
+            results
+        });
+
+    } catch (error) {
+        console.error("Bulk Owner Update Fatal Error:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};

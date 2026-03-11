@@ -1,22 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast, Toaster } from 'react-hot-toast';
+import { api } from '../../utils/api';
 
-const PublicLeadForm = ({ slug }) => {
+const PublicDealForm = ({ slug }) => {
     const [formConfig, setFormConfig] = useState(null);
     const [formData, setFormData] = useState({});
     const [status, setStatus] = useState('loading'); // loading, ready, submitting, success, error
     const [error, setError] = useState(null);
+    const [inventoryData, setInventoryData] = useState({
+        projects: [],
+        blocks: [],
+        units: []
+    });
 
     useEffect(() => {
         const fetchForm = async () => {
             try {
                 setStatus('loading');
-                const response = await axios.get(`/api/lead-forms/public/${slug}`);
+                const response = await api.get(`/deal-forms/public/${slug}`);
                 setFormConfig(response.data.data);
                 setStatus('ready');
             } catch (err) {
-                setError(err.response?.data?.message || 'Form not found');
+                setError(err.message || 'Form not found');
                 setStatus('error');
             }
         };
@@ -37,8 +43,65 @@ const PublicLeadForm = ({ slug }) => {
         };
     }, []);
 
+    useEffect(() => {
+        if (status === 'ready') {
+            fetchProjects();
+        }
+    }, [status]);
+
+    const fetchProjects = async () => {
+        try {
+            const res = await api.get('/deal-forms/public/inventory/projects');
+            setInventoryData(prev => ({ ...prev, projects: res.data.data }));
+        } catch (err) {
+            console.error("Error fetching projects", err);
+        }
+    };
+
+    const fetchBlocks = async (projectName) => {
+        try {
+            const res = await api.get(`/deal-forms/public/inventory/blocks?projectName=${projectName}`);
+            setInventoryData(prev => ({ ...prev, blocks: res.data.data, units: [] }));
+        } catch (err) {
+            console.error("Error fetching blocks", err);
+        }
+    };
+
+    const fetchUnits = async (projectName, block) => {
+        try {
+            const res = await api.get(`/deal-forms/public/inventory/units?projectName=${projectName}&block=${block}`);
+            setInventoryData(prev => ({ ...prev, units: res.data.data }));
+        } catch (err) {
+            console.error("Error fetching units", err);
+        }
+    };
+
     const handleInputChange = (fieldId, value) => {
-        setFormData({ ...formData, [fieldId]: value });
+        setFormData(prev => {
+            const newData = { ...prev, [fieldId]: value };
+
+            const field = formConfig.sections.flatMap(s => s.fields).find(f => f.id === fieldId);
+
+            if (field?.mappingField === 'projectName') {
+                const bField = formConfig.sections.flatMap(s => s.fields).find(f => f.mappingField === 'block');
+                const uField = formConfig.sections.flatMap(s => s.fields).find(f => f.mappingField === 'unitNo');
+                if (bField) newData[bField.id] = "";
+                if (uField) newData[uField.id] = "";
+
+                setInventoryData(prevInv => ({ ...prevInv, blocks: [], units: [] }));
+                if (value) fetchBlocks(value);
+            } else if (field?.mappingField === 'block') {
+                const uField = formConfig.sections.flatMap(s => s.fields).find(f => f.mappingField === 'unitNo');
+                if (uField) newData[uField.id] = "";
+
+                setInventoryData(prevInv => ({ ...prevInv, units: [] }));
+                const pField = formConfig.sections.flatMap(s => s.fields).find(f => f.mappingField === 'projectName');
+                const pValue = newData[pField?.id];
+                if (value && pValue) fetchUnits(pValue, value);
+            }
+
+            return newData;
+        });
     };
 
     const handleSubmit = async (e) => {
@@ -68,7 +131,7 @@ const PublicLeadForm = ({ slug }) => {
                 userAgent: navigator.userAgent
             };
 
-            const response = await axios.post(`/api/lead-forms/public/${slug}/submit`, {
+            const response = await api.post(`/deal-forms/public/${slug}/submit`, {
                 formData,
                 sourceMeta
             });
@@ -80,7 +143,7 @@ const PublicLeadForm = ({ slug }) => {
                 }, 2000);
             }
         } catch (err) {
-            toast.error(err.response?.data?.message || 'Submission failed');
+            toast.error(err.message || 'Submission failed');
             setStatus('ready');
         }
     };
@@ -89,7 +152,7 @@ const PublicLeadForm = ({ slug }) => {
         return (
             <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}>
                 <div style={{ textAlign: 'center' }}>
-                    <div style={{ width: '40px', height: '40px', border: '3px solid #e2e8f0', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto' }}></div>
+                    <div style={{ width: '40px', height: '40px', border: '3px solid #e2e8f0', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto' }}></div>
                     <p style={{ marginTop: '16px', color: '#64748b', fontWeight: 600 }}>Loading Form...</p>
                     <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
                 </div>
@@ -115,10 +178,10 @@ const PublicLeadForm = ({ slug }) => {
         return (
             <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}>
                 <div style={{ textAlign: 'center', padding: '60px', background: '#fff', borderRadius: '32px', boxShadow: '0 20px 50px -12px rgba(0,0,0,0.1)', maxWidth: '500px' }}>
-                    <div style={{ width: '80px', height: '80px', background: '#dcfce7', color: '#10b981', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', margin: '0 auto 24px' }}>
+                    <div style={{ width: '80px', height: '80px', background: '#dbeafe', color: '#3b82f6', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', margin: '0 auto 24px' }}>
                         <i className="fas fa-check"></i>
                     </div>
-                    <h2 style={{ margin: 0, color: '#1e293b', fontSize: '1.75rem', fontWeight: 900 }}>Submission Sent!</h2>
+                    <h2 style={{ margin: 0, color: '#1e293b', fontSize: '1.75rem', fontWeight: 900 }}>Deal Captured!</h2>
                     <p style={{ color: '#64748b', marginTop: '16px', lineHeight: '1.6', fontSize: '1.1rem' }}>{formConfig.settings.successMessage}</p>
                     {formConfig.settings.redirectUrl && (
                         <p style={{ marginTop: '24px', color: '#94a3b8', fontSize: '0.9rem' }}>Redirecting you shortly...</p>
@@ -134,7 +197,7 @@ const PublicLeadForm = ({ slug }) => {
             <div style={{ maxWidth: '700px', margin: '0 auto', background: '#fff', borderRadius: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
 
                 {/* Header */}
-                <div style={{ padding: '60px 40px', textAlign: 'center', background: `linear-gradient(135deg, ${formConfig.settings.theme?.primaryColor || '#10b981'}05 0%, #ffffff 100%)`, borderBottom: '1px solid #f1f5f9' }}>
+                <div style={{ padding: '60px 40px', textAlign: 'center', background: `linear-gradient(135deg, ${formConfig.settings.theme?.primaryColor || '#3b82f6'}05 0%, #ffffff 100%)`, borderBottom: '1px solid #f1f5f9' }}>
                     <h1 style={{ margin: 0, fontSize: '2.25rem', fontWeight: 900, color: '#1e293b' }}>{formConfig.name}</h1>
                     {formConfig.description && (
                         <p style={{ margin: '16px 0 0', color: '#64748b', fontSize: '1.1rem', lineHeight: '1.6' }}>{formConfig.description}</p>
@@ -146,7 +209,7 @@ const PublicLeadForm = ({ slug }) => {
                     {formConfig.sections.map(section => (
                         <div key={section.id} style={{ marginBottom: '40px' }}>
                             <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1e293b', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <span style={{ width: '4px', height: '24px', background: formConfig.settings.theme?.primaryColor || '#10b981', borderRadius: '2px' }}></span>
+                                <span style={{ width: '4px', height: '24px', background: formConfig.settings.theme?.primaryColor || '#3b82f6', borderRadius: '2px' }}></span>
                                 {section.title}
                             </h3>
 
@@ -158,13 +221,52 @@ const PublicLeadForm = ({ slug }) => {
                                             {field.required && <span style={{ color: '#ef4444', marginLeft: '4px' }}>*</span>}
                                         </label>
 
-                                        {field.type === 'select' || field.type === 'multi-select' ? (
+                                        {field.mappingField === 'projectName' ? (
+                                            <select
+                                                required={field.required}
+                                                value={formData[field.id] || ""}
+                                                onChange={e => handleInputChange(field.id, e.target.value)}
+                                                style={{ padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '1rem', outline: 'none', transition: 'border-color 0.2s' }}
+                                                onFocus={e => e.target.style.borderColor = formConfig.settings.theme?.primaryColor || '#3b82f6'}
+                                                onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                                            >
+                                                <option value="">Select Project</option>
+                                                {inventoryData.projects.map(p => <option key={p} value={p}>{p}</option>)}
+                                            </select>
+                                        ) : field.mappingField === 'block' ? (
+                                            <select
+                                                required={field.required}
+                                                value={formData[field.id] || ""}
+                                                onChange={e => handleInputChange(field.id, e.target.value)}
+                                                style={{ padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '1rem', outline: 'none', transition: 'border-color 0.2s' }}
+                                                onFocus={e => e.target.style.borderColor = formConfig.settings.theme?.primaryColor || '#3b82f6'}
+                                                onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                                                disabled={!formData[formConfig.sections.flatMap(s => s.fields).find(f => f.mappingField === 'projectName')?.id]}
+                                            >
+                                                <option value="">Select Block</option>
+                                                {inventoryData.blocks.map(b => <option key={b} value={b}>{b}</option>)}
+                                            </select>
+                                        ) : field.mappingField === 'unitNo' ? (
+                                            <select
+                                                required={field.required}
+                                                value={formData[field.id] || ""}
+                                                onChange={e => handleInputChange(field.id, e.target.value)}
+                                                style={{ padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '1rem', outline: 'none', transition: 'border-color 0.2s' }}
+                                                onFocus={e => e.target.style.borderColor = formConfig.settings.theme?.primaryColor || '#3b82f6'}
+                                                onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                                                disabled={!formData[formConfig.sections.flatMap(s => s.fields).find(f => f.mappingField === 'block')?.id]}
+                                            >
+                                                <option value="">Select Unit</option>
+                                                {inventoryData.units.map(u => <option key={u} value={u}>{u}</option>)}
+                                            </select>
+                                        ) : field.type === 'select' || field.type === 'multi-select' ? (
                                             <select
                                                 required={field.required}
                                                 multiple={field.type === 'multi-select'}
+                                                value={formData[field.id] || (field.type === 'multi-select' ? [] : "")}
                                                 onChange={e => handleInputChange(field.id, field.type === 'multi-select' ? Array.from(e.target.selectedOptions, option => option.value) : e.target.value)}
                                                 style={{ padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '1rem', outline: 'none', transition: 'border-color 0.2s' }}
-                                                onFocus={e => e.target.style.borderColor = formConfig.settings.theme?.primaryColor || '#10b981'}
+                                                onFocus={e => e.target.style.borderColor = formConfig.settings.theme?.primaryColor || '#3b82f6'}
                                                 onBlur={e => e.target.style.borderColor = '#e2e8f0'}
                                             >
                                                 <option value="">Select an option</option>
@@ -178,6 +280,7 @@ const PublicLeadForm = ({ slug }) => {
                                                             type="radio"
                                                             name={field.id}
                                                             value={opt}
+                                                            checked={formData[field.id] === opt}
                                                             onChange={e => handleInputChange(field.id, e.target.value)}
                                                             required={field.required}
                                                         />
@@ -190,11 +293,12 @@ const PublicLeadForm = ({ slug }) => {
                                                 type={field.type === 'phone' ? 'tel' : field.type}
                                                 placeholder={field.placeholder}
                                                 required={field.required}
+                                                value={formData[field.id] || ""}
                                                 onChange={e => handleInputChange(field.id, e.target.value)}
                                                 style={{ padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '1rem', outline: 'none', transition: 'all 0.2s' }}
                                                 onFocus={e => {
-                                                    e.target.style.borderColor = formConfig.settings.theme?.primaryColor || '#10b981';
-                                                    e.target.style.boxShadow = `0 0 0 4px ${formConfig.settings.theme?.primaryColor || '#10b981'}10`;
+                                                    e.target.style.borderColor = formConfig.settings.theme?.primaryColor || '#3b82f6';
+                                                    e.target.style.boxShadow = `0 0 0 4px ${formConfig.settings.theme?.primaryColor || '#3b82f6'}10`;
                                                 }}
                                                 onBlur={e => {
                                                     e.target.style.borderColor = '#e2e8f0';
@@ -217,13 +321,13 @@ const PublicLeadForm = ({ slug }) => {
                             padding: '18px',
                             borderRadius: '16px',
                             border: 'none',
-                            background: formConfig.settings.theme?.primaryColor || '#10b981',
+                            background: formConfig.settings.theme?.primaryColor || '#3b82f6',
                             color: '#fff',
                             fontWeight: 900,
                             fontSize: '1.2rem',
                             cursor: 'pointer',
                             marginTop: '20px',
-                            boxShadow: `0 15px 30px -10px ${formConfig.settings.theme?.primaryColor || '#10b981'}60`,
+                            boxShadow: `0 15px 30px -10px ${formConfig.settings.theme?.primaryColor || '#3b82f6'}60`,
                             transition: 'all 0.3s ease',
                             display: 'flex',
                             alignItems: 'center',
@@ -234,7 +338,7 @@ const PublicLeadForm = ({ slug }) => {
                         {status === 'submitting' ? (
                             <><i className="fas fa-spinner fa-spin"></i> Submitting...</>
                         ) : (
-                            'Submit Interest'
+                            'Submit Deal Details'
                         )}
                     </button>
                 </form>
@@ -243,7 +347,7 @@ const PublicLeadForm = ({ slug }) => {
                 <div style={{ padding: '24px 40px', background: '#f8fafc', borderTop: '1px solid #f1f5f9', textAlign: 'center' }}>
                     <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                         <i className="fas fa-shield-alt"></i>
-                        Powered by Bharat Properties Secure Form Engine
+                        Powered by Bharat Properties Secure Deal Entry
                     </p>
                 </div>
             </div>
@@ -251,4 +355,4 @@ const PublicLeadForm = ({ slug }) => {
     );
 };
 
-export default PublicLeadForm;
+export default PublicDealForm;

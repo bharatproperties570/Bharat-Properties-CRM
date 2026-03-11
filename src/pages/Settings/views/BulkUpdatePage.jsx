@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MODULE_CONFIG, parseCSV } from '../../../utils/dataManagementUtils';
 import toast from 'react-hot-toast';
+import { api } from '../../../utils/api';
 
 const BulkUpdatePage = () => {
     const [module, setModule] = useState('inventory'); // Default to inventory for this use case
@@ -36,24 +37,32 @@ const BulkUpdatePage = () => {
         if (activeConfig) {
             setFilters([{ field: availableFields[0]?.key || '', operator: 'is', value: '' }]);
             setUpdateField(availableFields[0]?.key || '');
-            setAffectedCount(activeConfig.data.length);
+            setAffectedCount(module === 'propertyOwners' ? 0 : activeConfig.data.length);
+
             // Reset file state
             setFile(null);
             setCsvData([]);
             setCsvHeaders([]);
             setColumnMapping({});
-            setMatchKeys([]);
+
+            // Auto-set match keys for propertyOwners module
+            if (module === 'propertyOwners') {
+                setMatchKeys(['projectName', 'block', 'unitNo']);
+            } else {
+                setMatchKeys([]);
+            }
+
             setMatchedCount(0);
             setContactsToCreate(0);
             setContactsToUpdate(0);
         }
-    }, [module]);
+    }, [module, activeConfig, availableFields]);
 
     // Calculate affected records for Condition Mode
     useEffect(() => {
-        if (!activeConfig || updateMode === 'file') return;
+        if (!activeConfig || updateMode === 'file' || module === 'propertyOwners') return;
 
-        const count = activeConfig.data.filter(item => {
+        const count = (activeConfig.data || []).filter(item => {
             return filters.every(filter => {
                 if (!filter.field || !filter.value) return true;
                 const itemValue = String(item[filter.field] || '').toLowerCase();
@@ -69,7 +78,7 @@ const BulkUpdatePage = () => {
         }).length;
 
         setAffectedCount(count);
-    }, [filters, activeConfig, updateMode]);
+    }, [filters, activeConfig, updateMode, module]);
 
     // Handle File Upload and Parse
     const handleFileUpload = async (e) => {
@@ -105,19 +114,24 @@ const BulkUpdatePage = () => {
             return;
         }
 
+        // For propertyOwners, we don't have local 'data' to match against if it's empty in config
+        // but we'll simulate based on CSV size for UI feedback
+        if (module === 'propertyOwners') {
+            setMatchedCount(csvData.length);
+            setAffectedCount(csvData.length);
+            return;
+        }
+
         let matches = 0;
         let newContacts = 0;
         let existingContacts = 0;
 
         csvData.forEach(row => {
             // 1. Inventory Matching Logic (Composite Key)
-            // All selected matchKeys must match
-            const isMatch = activeConfig.data.some(systemItem => {
+            const isMatch = (activeConfig.data || []).some(systemItem => {
                 return matchKeys.every(key => {
-                    // Find CSV header mapped to this system key
                     const mappedHeader = Object.keys(columnMapping).find(h => columnMapping[h] === key);
-                    if (!mappedHeader) return false; // Key not mapped, cannot match
-
+                    if (!mappedHeader) return false;
                     const csvVal = String(row[mappedHeader] || '').trim().toLowerCase();
                     const sysVal = String(systemItem[key] || '').trim().toLowerCase();
                     return csvVal === sysVal;
@@ -126,29 +140,11 @@ const BulkUpdatePage = () => {
 
             if (isMatch) {
                 matches++;
-
-                // 2. Contact Sync Logic (Only if Owner details are present)
-                // Check if Owner Name/Phone/Email is mapped
+                // Simple logic for UI preview
                 const ownerNameHeader = Object.keys(columnMapping).find(h => columnMapping[h] === 'ownerName');
-                const ownerPhoneHeader = Object.keys(columnMapping).find(h => columnMapping[h] === 'ownerPhone'); // assuming strict key
-                const ownerEmailHeader = Object.keys(columnMapping).find(h => columnMapping[h] === 'ownerEmail');
-
                 if (ownerNameHeader) {
-                    const csvPhone = ownerPhoneHeader ? String(row[ownerPhoneHeader] || '').trim() : '';
-                    const csvEmail = ownerEmailHeader ? String(row[ownerEmailHeader] || '').trim() : '';
-
-                    // Simple logic: If Phone or Email exists in dummy contact DB, it's an Update. Else Create.
-                    // Accessing GLOBAL contacts (mock) - practically we'd need to import it or pass it down.
-                    // For UI simulation, we'll assume we check against MODULE_CONFIG.contacts.data
-                    const existingContact = MODULE_CONFIG.contacts.data.find(c =>
-                        (csvPhone && c.mobile === csvPhone) || (csvEmail && c.email === csvEmail)
-                    );
-
-                    if (existingContact) {
-                        existingContacts++;
-                    } else if (csvPhone || csvEmail) {
-                        newContacts++;
-                    }
+                    // For UI simulation, we'll just count them as potential creates/updates
+                    newContacts++;
                 }
             }
         });
@@ -158,10 +154,11 @@ const BulkUpdatePage = () => {
         setContactsToUpdate(existingContacts);
         setAffectedCount(matches);
 
-    }, [matchKeys, columnMapping, csvData, activeConfig, updateMode]);
+    }, [matchKeys, columnMapping, csvData, activeConfig, updateMode, module]);
 
-    const handleReview = () => {
+    const handleReview = async () => {
         if (updateMode === 'condition') {
+            if (module === 'propertyOwners') return toast.error('Condition mode is not supported for Property Owner module. Please use CSV upload.');
             if (!updateField || !newValue) return toast.error('Please select a field to update and a new value.');
             if (affectedCount === 0) return toast.error('No records match your filters.');
         } else {
@@ -171,10 +168,42 @@ const BulkUpdatePage = () => {
         }
 
         setIsSimulating(true);
-        setTimeout(() => {
-            setIsSimulating(false);
-            setSimulationComplete(true);
-        }, 1500);
+
+        if (updateMode === 'file' && module === 'propertyOwners') {
+            try {
+                // Use standard API helper
+                const response = await api.post('/inventory/bulk-update-owners', {
+                    data: csvData.map(row => {
+                        const mappedRow = {};
+                        Object.keys(columnMapping).forEach(header => {
+                            mappedRow[columnMapping[header]] = row[header];
+                        });
+                        return mappedRow;
+                    })
+                });
+
+                if (response.success) {
+                    setMatchedCount(response.results.inventoryMatched);
+                    setContactsToCreate(response.results.contactsCreated);
+                    setContactsToUpdate(response.results.contactsFound);
+                    setSimulationComplete(true);
+                    toast.success('Bulk update completed successfully!');
+                } else {
+                    toast.error(response.error || 'Failed to perform bulk update');
+                }
+            } catch (error) {
+                console.error("Bulk update error:", error);
+                toast.error(error.message || 'Error connecting to server');
+            } finally {
+                setIsSimulating(false);
+            }
+        } else {
+            // Standard simulation for other modules
+            setTimeout(() => {
+                setIsSimulating(false);
+                setSimulationComplete(true);
+            }, 1000);
+        }
     };
 
     const handleMatchKeyToggle = (key) => {

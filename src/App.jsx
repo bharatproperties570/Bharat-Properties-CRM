@@ -16,6 +16,8 @@ import { ParsingProvider } from './context/ParsingContext'; // Import ParsingPro
 import { UserProvider } from './context/UserContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import PublicLeadForm from './pages/Public/PublicLeadForm';
+import PublicDealForm from './pages/Public/PublicDealForm';
+import CaptureFormPage from './pages/Public/CaptureFormPage';
 import CallModal from './components/CallModal'; // Import CallModal
 
 // Helper Wrapper to connect Context to Modal
@@ -56,7 +58,9 @@ const AppContent = () => {
         if (path === '/deal-intake') return 'deal-intake';
         if (path.startsWith('/deals/match/')) return 'deal-matching';
         if (path.startsWith('/leads/match/')) return 'lead-matching';
-        if (path.startsWith('/public/form/')) return 'public-form';
+        if (path.startsWith('/public/form/')) return 'public-lead-form';
+        if (path.startsWith('/public/deal/')) return 'public-deal-form';
+        if (path.startsWith('/capture/')) return 'deal-capture';
         if (path === '/settings') return 'settings';
         if (path.startsWith('/settings/')) return 'settings';
         if (path === '/marketing') return 'marketing';
@@ -166,10 +170,27 @@ const AppContent = () => {
         return () => window.removeEventListener('popstate', handlePopState);
     }, []);
 
-    if (currentView === 'public-form') {
+    if (currentView === 'public-lead-form') {
         return (
             <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
                 <PublicLeadForm slug={window.location.pathname.split('/').pop()} />
+            </Suspense>
+        );
+    }
+
+    if (currentView === 'public-deal-form') {
+        return (
+            <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
+                <PublicDealForm slug={window.location.pathname.split('/').pop()} />
+            </Suspense>
+        );
+    }
+
+    if (currentView === 'deal-capture') {
+        const slug = window.location.pathname.split('/').pop() || 'professional-deal-capture';
+        return (
+            <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
+                <CaptureFormPage slug={slug} />
             </Suspense>
         );
     }
