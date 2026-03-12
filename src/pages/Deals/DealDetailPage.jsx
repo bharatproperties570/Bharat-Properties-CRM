@@ -24,6 +24,52 @@ import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModa
 import AddQuoteModal from '../../components/AddQuoteModal';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 
+// ---------------- STYLED COMPONENTS & SHARED STYLES ----------------
+const cardStyle = {
+    background: '#fff',
+    borderRadius: '16px',
+    border: '1px solid #e2e8f0',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
+    marginBottom: '24px',
+    overflow: 'hidden'
+};
+
+const sectionHeaderStyle = {
+    padding: '16px 20px',
+    borderBottom: '1px solid #f1f5f9',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    background: '#fff'
+};
+
+const sectionTitleStyle = {
+    fontSize: '0.9rem',
+    fontWeight: 800,
+    color: '#1e293b',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    margin: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px'
+};
+
+const thStyle = { padding: '14px 20px', fontSize: '0.65rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' };
+const tdStyle = { padding: '16px 20px', fontSize: '0.85rem', color: '#1e293b' };
+
+const TableContainer = ({ children }) => (
+    <div style={{ width: '100%', overflowX: 'auto' }}>
+        {children}
+    </div>
+);
+
+const DetailField = ({ label, value }) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</span>
+        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>{value || 'N/A'}</span>
+    </div>
+);
 
 const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const { propertyConfig, getLookupValue } = usePropertyConfig();
@@ -633,35 +679,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     };
     const stageStyle = stageColors[currentStage] || stageColors['Open'];
 
-    const cardStyle = {
-        background: '#fff',
-        borderRadius: '16px',
-        border: '1px solid #e2e8f0',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
-        marginBottom: '12px',
-        overflow: 'hidden'
-    };
-
-    const sectionHeaderStyle = {
-        padding: '16px 20px',
-        borderBottom: '1px solid #f1f5f9',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        background: '#fff'
-    };
-
-    const sectionTitleStyle = {
-        fontSize: '0.9rem',
-        fontWeight: 800,
-        color: '#1e293b',
-        textTransform: 'uppercase',
-        letterSpacing: '0.05em',
-        margin: 0,
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px'
-    };
+    const stageStyle = stageColors[currentStage] || stageColors['Open'];
 
     return (
         <div className="deal-detail-page" style={{ background: '#f8fafc', minHeight: '100vh', paddingBottom: '60px', fontFamily: '"Inter", sans-serif' }}>
@@ -2057,46 +2075,6 @@ const SplitMeter = ({ label, value, suffix = '', prefix = '', color }) => (
         </div>
     </div>
 );
-
-const thStyle = { padding: '14px 20px', fontSize: '0.65rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' };
-const tdStyle = { padding: '16px 20px', fontSize: '0.85rem', color: '#1e293b' };
-
-const TableContainer = ({ children }) => (
-    <div style={{ width: '100%', overflowX: 'auto' }}>
-        {children}
-    </div>
-);
-
-// 🏛️ Government Charges Card Component
-const cardStyle = {
-    background: '#fff',
-    borderRadius: '16px',
-    border: '1px solid #e2e8f0',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
-    marginBottom: '24px',
-    overflow: 'hidden'
-};
-
-const sectionHeaderStyle = {
-    padding: '16px 20px',
-    borderBottom: '1px solid #f1f5f9',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    background: '#fff'
-};
-
-const sectionTitleStyle = {
-    fontSize: '0.9rem',
-    fontWeight: 800,
-    color: '#1e293b',
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-    margin: 0,
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px'
-};
 
 // ---------------- GOVERNMENT CHARGES CARD ----------------
 const GovernmentChargesCard = ({
