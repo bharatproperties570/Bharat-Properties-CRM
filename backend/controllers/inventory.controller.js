@@ -64,7 +64,7 @@ export const getInventory = async (req, res) => {
         if (contactId) {
             query.$or = [
                 { owners: contactId },
-                { associates: contactId }
+                { 'associates.contact': contactId }
             ];
         }
 
@@ -445,7 +445,11 @@ export const matchInventory = async (req, res) => {
                 return res.status(200).json({ success: true, count: 0, data: [] });
             }
 
-            const leads = await Lead.find({ $or: queryConditions }).limit(50).sort({ updatedAt: -1 }).lean();
+            const leads = await Lead.find({ $or: queryConditions })
+                .populate('contactDetails')
+                .limit(50)
+                .sort({ updatedAt: -1 })
+                .lean();
             const interestedLeadsCount = await Lead.countDocuments({ interestedInventory: inventoryId });
             return res.status(200).json({ success: true, count: leads.length, data: leads, interestedCount: interestedLeadsCount });
         }
@@ -955,42 +959,72 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                 if (ownerMobile || ownerName) {
                     let ownerId = null;
                     const mobile = String(ownerMobile || '').trim();
+                    const name = String(ownerName || '').trim();
 
                     if (mobile && contactCache.has(mobile)) {
                         ownerId = contactCache.get(mobile);
                         results.contactsFound++;
                     } else {
-                        // Search in DB
-                        let contact = null;
+                        // Strict Matching: Both mobile and name must match for auto-alignment
+                        let contactByMobile = null;
+                        let contactByName = null;
+
                         if (mobile) {
-                            contact = await Contact.findOne({ 'phones.number': { $regex: new RegExp(escapeRegExp(mobile), 'i') } });
+                            contactByMobile = await Contact.findOne({ 'phones.number': { $regex: new RegExp(escapeRegExp(mobile), 'i') } });
                         }
-                        if (!contact && ownerName) {
-                            contact = await Contact.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(ownerName)}$`, 'i') } });
+                        if (name) {
+                            contactByName = await Contact.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(name)}$`, 'i') } });
                         }
 
-                        if (contact) {
-                            ownerId = contact._id;
+                        // Case 1: Perfect Match (Both match the same person)
+                        if (contactByMobile && contactByName && contactByMobile._id.toString() === contactByName._id.toString()) {
+                            ownerId = contactByMobile._id;
                             results.contactsFound++;
-                        } else if (ownerName && mobile) {
-                            // Create new contact
+                        }
+                        // Case 2: Only Mobile found (Completely new Name or partial match)
+                        else if (contactByMobile && !contactByName) {
+                            // Flag as recommendation if names are significantly different
+                            results.errors.push({
+                                row: i + 1,
+                                item: unitNo,
+                                reason: `RECOMMENDATION: Mobile ${mobile} found as "${contactByMobile.name}", but import says "${name}". Please check and align manually.`
+                            });
+                        }
+                        // Case 3: Only Name found (New mobile for existing name)
+                        else if (!contactByMobile && contactByName) {
+                            results.errors.push({
+                                row: i + 1,
+                                item: unitNo,
+                                reason: `RECOMMENDATION: Name "${name}" found, but Mobile in system is different. Please check and align manually.`
+                            });
+                        }
+                        // Case 4: No match at all (New contact)
+                        else if (!contactByMobile && !contactByName) {
                             const newContact = await Contact.create({
-                                name: ownerName,
-                                phones: [{ number: mobile, type: 'Personal' }],
+                                name: name || 'Unknown Owner',
+                                phones: mobile ? [{ number: mobile, type: 'Personal' }] : [],
                                 emails: ownerEmail ? [{ address: ownerEmail, type: 'Personal' }] : [],
                                 source: await resolveLookup('Source', 'Bulk Owner Update')
                             });
                             ownerId = newContact._id;
                             results.contactsCreated++;
                         }
+                        // Case 5: Conflict (Both match different people)
+                        else if (contactByMobile && contactByName) {
+                            results.errors.push({
+                                row: i + 1,
+                                item: unitNo,
+                                reason: `CONFLICT: Mobile matches ${contactByMobile.name} and Name matches ${contactByName.name}. Skipped auto-alignment.`
+                            });
+                        }
 
                         if (ownerId && mobile) contactCache.set(mobile, ownerId);
                     }
 
                     if (ownerId) {
-                        // Ensure ownerId is in inventory.owners array if not already
-                        if (!inventory.owners.some(id => id.toString() === ownerId.toString())) {
-                            updates.owners = [...inventory.owners, ownerId];
+                        const existingOwners = inventory.owners || [];
+                        if (!existingOwners.some(id => id.toString() === ownerId.toString())) {
+                            updates.owners = [...existingOwners, ownerId];
                         }
                     }
                 }
@@ -999,44 +1033,69 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                 if (associateMobile || associateName) {
                     let associateId = null;
                     const mobile = String(associateMobile || '').trim();
+                    const name = String(associateName || '').trim();
 
                     if (mobile && contactCache.has(mobile)) {
                         associateId = contactCache.get(mobile);
                         results.contactsFound++;
                     } else {
-                        let contact = null;
+                        let contactByMobile = null;
+                        let contactByName = null;
+
                         if (mobile) {
-                            contact = await Contact.findOne({ 'phones.number': { $regex: new RegExp(escapeRegExp(mobile), 'i') } });
+                            contactByMobile = await Contact.findOne({ 'phones.number': { $regex: new RegExp(escapeRegExp(mobile), 'i') } });
                         }
-                        if (!contact && associateName) {
-                            contact = await Contact.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(associateName)}$`, 'i') } });
+                        if (name) {
+                            contactByName = await Contact.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(name)}$`, 'i') } });
                         }
 
-                        if (contact) {
-                            associateId = contact._id;
+                        if (contactByMobile && contactByName && contactByMobile._id.toString() === contactByName._id.toString()) {
+                            associateId = contactByMobile._id;
                             results.contactsFound++;
-                        } else if (associateName && mobile) {
+                        }
+                        else if (contactByMobile && !contactByName) {
+                            results.errors.push({
+                                row: i + 1,
+                                item: unitNo,
+                                reason: `RECOMMENDATION: Mobile ${mobile} found as "${contactByMobile.name}", but import says "${name}". Please check and align manually.`
+                            });
+                        }
+                        else if (!contactByMobile && contactByName) {
+                            results.errors.push({
+                                row: i + 1,
+                                item: unitNo,
+                                reason: `RECOMMENDATION: Name "${name}" found, but Mobile is different. Please check and align manually.`
+                            });
+                        }
+                        else if (!contactByMobile && !contactByName) {
                             const newContact = await Contact.create({
-                                name: associateName,
-                                phones: [{ number: mobile, type: 'Personal' }],
+                                name: name || 'Unknown Associate',
+                                phones: mobile ? [{ number: mobile, type: 'Personal' }] : [],
                                 emails: associateEmail ? [{ address: associateEmail, type: 'Personal' }] : [],
                                 source: await resolveLookup('Source', 'Bulk Owner Update')
                             });
                             associateId = newContact._id;
                             results.contactsCreated++;
                         }
+                        else if (contactByMobile && contactByName) {
+                            results.errors.push({
+                                row: i + 1,
+                                item: unitNo,
+                                reason: `CONFLICT: Mobile matches ${contactByMobile.name} and Name matches ${contactByName.name}. Skipped auto-alignment.`
+                            });
+                        }
 
                         if (associateId && mobile) contactCache.set(mobile, associateId);
                     }
 
                     if (associateId) {
-                        // Ensure associate is in inventory.associates array if not already
-                        if (!inventory.associates.some(a => a.contact && a.contact.toString() === associateId.toString())) {
+                        const existingAssociates = inventory.associates || [];
+                        if (!existingAssociates.some(a => a.contact && a.contact.toString() === associateId.toString())) {
                             const newAssociate = {
                                 contact: associateId,
                                 relationship: relationship || 'Associate'
                             };
-                            updates.associates = [...inventory.associates, newAssociate];
+                            updates.associates = [...existingAssociates, newAssociate];
                         }
                     }
                 }
@@ -1054,8 +1113,13 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            message: `Bulk update complete. Matched: ${results.inventoryMatched}, Created Contacts: ${results.contactsCreated}`,
-            results
+            message: `Bulk update complete. Matched Properties: ${results.inventoryMatched}, New Contacts: ${results.contactsCreated}`,
+            successCount: results.inventoryMatched,
+            newCount: results.contactsCreated,
+            updatedCount: results.inventoryMatched,
+            errorCount: results.errors.length,
+            errors: results.errors,
+            results // Keep for debugging if needed
         });
 
     } catch (error) {

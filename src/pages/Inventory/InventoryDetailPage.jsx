@@ -208,14 +208,14 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
 
     const handleWhatsAppShare = () => {
         if (!inventory) return;
-        const text = `*Property Listing:* ${inventory.unitNo}\n*Project:* ${inventory.projectName}\n*Block:* ${inventory.block}\n*Type:* ${inventory.category} (${inventory.subCategory})\n*Size:* ${inventory.size} ${inventory.sizeUnit}\n*Locality:* ${inventory.address?.locality || inventory.address?.area}\n*Price:* ${inventory.price || 'Ask for Price'}\n\nInterested? Let me know!`;
+        const text = `*Property Listing:* ${inventory.unitNo}\n*Project:* ${inventory.projectName}\n*Block:* ${inventory.block}\n*Type:* ${inventory.category} (${inventory.subCategory})\n*Size:* ${inventory.size?.value || inventory.size} ${inventory.sizeUnit}\n*Locality:* ${inventory.address?.locality || inventory.address?.area}\n*Price:* ${inventory.price?.value || inventory.price || 'Ask for Price'}\n\nInterested? Let me know!`;
         const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
         window.open(url, '_blank');
     };
 
     const handleCopyDetails = () => {
         if (!inventory) return;
-        const text = `Property: ${inventory.unitNo} | Project: ${inventory.projectName} | Block: ${inventory.block} | Type: ${inventory.category} | Size: ${inventory.size} ${inventory.sizeUnit} | Locality: ${inventory.address?.locality || inventory.address?.area}`;
+        const text = `Property: ${inventory.unitNo} | Project: ${inventory.projectName} | Block: ${inventory.block} | Type: ${inventory.category} | Size: ${inventory.size?.value || inventory.size} ${inventory.sizeUnit} | Locality: ${inventory.address?.locality || inventory.address?.area}`;
         navigator.clipboard.writeText(text);
         setIsCopying(true);
         toast.success("Listing details copied to clipboard!");
@@ -844,11 +844,11 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                         }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                                 <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#e0f2fe', color: '#0369a1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>
-                                                    {getInitials(lead.name || lead.firstName)}
+                                                    {getInitials(lead.contactDetails?.name || lead.name || lead.firstName)}
                                                 </div>
                                                 <div>
-                                                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{lead.name || `${lead.firstName || ''} ${lead.lastName || ''}`}</div>
-                                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{lead.mobile || lead.phone || 'N/A'} • {lead.intent || 'Buying'}</div>
+                                                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{lead.contactDetails?.name || lead.name || `${lead.firstName || ''} ${lead.lastName || ''}`}</div>
+                                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{lead.contactDetails?.mobile || lead.mobile || lead.phone || 'N/A'} • {lead.intent || 'Buying'}</div>
                                                 </div>
                                             </div>
                                             <button

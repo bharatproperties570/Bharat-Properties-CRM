@@ -704,16 +704,18 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     useEffect(() => {
         if (mode === 'edit' && initialData) {
             const normalizeId = (val) => (val && typeof val === 'object') ? (val._id || val.id) : val;
-            const normalizeArray = (arr) => Array.isArray(arr) ? arr.map(normalizeId).filter(Boolean) : (arr ? [normalizeId(arr)].filter(Boolean) : []);
-
+            
+            // PRIORITY LOGIC: Use contactDetails if available for live updates
+            const cd = initialData.contactDetails && typeof initialData.contactDetails === 'object' ? initialData.contactDetails : null;
+            
             setFormData(prev => ({
                 ...prev,
                 ...initialData,
-                title: initialData.title || prev.title,
-                name: initialData.firstName || initialData.name || '',
-                surname: initialData.lastName || initialData.surname || '',
-                phones: initialData.phones && initialData.phones.length > 0 ? initialData.phones : prev.phones,
-                emails: initialData.emails && initialData.emails.length > 0 ? initialData.emails : prev.emails,
+                title: (cd?.title?.lookup_value || cd?.title) || (initialData.title?.lookup_value || initialData.title) || prev.title,
+                name: cd?.name || initialData.firstName || initialData.name || '',
+                surname: cd?.surname || initialData.lastName || initialData.surname || '',
+                phones: cd?.mobile ? [{ number: cd.mobile, type: 'Personal' }] : (initialData.phones && initialData.phones.length > 0 ? initialData.phones : prev.phones),
+                emails: cd?.email ? [{ address: cd.email, type: 'Personal' }] : (initialData.emails && initialData.emails.length > 0 ? initialData.emails : prev.emails),
                 team: normalizeId(initialData.team) || prev.team,
                 owner: normalizeId(initialData.owner) || prev.owner,
                 visibleTo: initialData.visibleTo || prev.visibleTo,
@@ -740,8 +742,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 campaign: normalizeId(initialData.campaign) || prev.campaign,
             }));
 
-            if (initialData.contactDetails && typeof initialData.contactDetails === 'object') {
-                setSelectedContact(initialData.contactDetails);
+            if (cd) {
+                setSelectedContact(cd);
             }
         }
     }, [initialData, mode]);
@@ -1426,8 +1428,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             >
                                                 <option value="">Select</option>
                                                 {titleOptions.map(opt => (
-                                                    <option key={opt._id} value={opt.lookup_value}>
-                                                        {opt.lookup_value}
+                                                    <option key={opt._id} value={opt._id || opt}>
+                                                        {opt.lookup_value || opt}
                                                     </option>
                                                 ))}
                                             </select>
@@ -1695,8 +1697,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         >
                                             <option value="">Select</option>
                                             {titleOptions.map(opt => (
-                                                <option key={opt._id} value={opt.lookup_value}>
-                                                    {opt.lookup_value}
+                                                <option key={opt._id} value={opt._id || opt}>
+                                                    {opt.lookup_value || opt}
                                                 </option>
                                             ))}
                                         </select>

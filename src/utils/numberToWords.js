@@ -1,7 +1,11 @@
 export const numberToIndianWords = (num) => {
     if (num === undefined || num === null || num === '') return '';
+    let value = num;
+    if (typeof num === 'object' && num !== null) {
+        value = num.value;
+    }
     try {
-        const n = Number(num);
+        const n = Number(value);
         if (isNaN(n)) return '';
 
         // Words conversion logic
@@ -30,8 +34,12 @@ export const numberToIndianWords = (num) => {
 
 export const formatIndianCurrency = (num) => {
     if (num === undefined || num === null || num === '') return '₹0';
+    let value = num;
+    if (typeof num === 'object' && num !== null) {
+        value = num.value;
+    }
     try {
-        const n = Number(num);
+        const n = Number(value);
         if (isNaN(n)) return '₹0';
 
         if (n >= 10000000) {
@@ -49,8 +57,12 @@ export const formatIndianCurrency = (num) => {
 };
 export const formatFullIndianAmount = (num) => {
     if (num === undefined || num === null || num === '') return '₹ 0/-';
+    let value = num;
+    if (typeof num === 'object' && num !== null) {
+        value = num.value;
+    }
     try {
-        const n = Math.abs(Number(num));
+        const n = Math.abs(Number(value));
         if (isNaN(n)) return '₹ 0/-';
 
         let x = Math.round(n).toString();

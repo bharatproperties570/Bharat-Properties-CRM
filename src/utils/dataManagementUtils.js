@@ -344,20 +344,20 @@ export const MODULE_CONFIG = {
         data: [],
         fields: [
             // Inventory Match Keys
-            { key: 'projectName', label: 'Project Name', required: true },
-            { key: 'block', label: 'Block', required: true },
-            { key: 'unitNo', label: 'Unit Number', required: true },
+            { key: 'projectName', label: 'Project Name', required: true, sample: 'Green Valley' },
+            { key: 'block', label: 'Block', required: true, sample: 'Phase 1' },
+            { key: 'unitNo', label: 'Unit Number', required: true, sample: '101' },
 
             // Owner Details
-            { key: 'ownerName', label: 'Owner Name' },
-            { key: 'ownerMobile', label: 'Owner Mobile' },
-            { key: 'ownerEmail', label: 'Owner Email' },
+            { key: 'ownerName', label: 'Owner Name', sample: 'John Doe' },
+            { key: 'ownerMobile', label: 'Owner Mobile', sample: '9876543210' },
+            { key: 'ownerEmail', label: 'Owner Email', sample: 'john@example.com' },
 
             // Associate Details
-            { key: 'associateName', label: 'Associate Name' },
-            { key: 'associateMobile', label: 'Associate Mobile' },
-            { key: 'associateEmail', label: 'Associate Email' },
-            { key: 'relationship', label: 'Relationship' }
+            { key: 'associateName', label: 'Associate Name', sample: 'Jane Doe' },
+            { key: 'associateMobile', label: 'Associate Mobile', sample: '9876543211' },
+            { key: 'associateEmail', label: 'Associate Email', sample: 'jane@example.com' },
+            { key: 'relationship', label: 'Relationship', sample: 'Spouse' }
         ]
     }
 };

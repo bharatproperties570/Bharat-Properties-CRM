@@ -1,4 +1,24 @@
 node_modules
+dist
+dist-*
+build
+.next
+.cache
+.parcel-cache
+.turbo
+.vercel
+.netlify
+.serverless
+.fusebox
+.dynamodb
+.tern-port
+.vscode-test
+.yarn
+.pnp.*
+coverage
+*.lcov
+.nyc_output
+
 
 # Logs
 logs
@@ -126,3 +146,12 @@ dist-ssr/
 # Editor
 .vscode/
 *.DS_Store
+
+# Antigravity History & Logs
+conversations/
+daemon/
+brain/
+implicit/
+prompting/
+*.log
+

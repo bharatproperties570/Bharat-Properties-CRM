@@ -179,6 +179,7 @@ LeadSchema.pre('save', async function (next) {
     if (this.campaign && typeof this.campaign === 'string') this.campaign = await resolveLookupLocal('Campaign', this.campaign);
     if (this.status && typeof this.status === 'string') this.status = await resolveLookupLocal('Status', this.status);
     if (this.stage && typeof this.stage === 'string') this.stage = await resolveLookupLocal('Stage', this.stage);
+    if (this.salutation && typeof this.salutation === 'string') this.salutation = await resolveLookupLocal('Title', this.salutation);
 
     // Handle arrays
     const arrayFields = ['propertyType', 'subType', 'unitType', 'facing', 'roadWidth', 'direction'];
@@ -213,6 +214,7 @@ LeadSchema.pre('findOneAndUpdate', async function (next) {
     if (update.campaign && typeof update.campaign === 'string') update.campaign = await resolveLookupLocal('Campaign', update.campaign);
     if (update.status && typeof update.status === 'string') update.status = await resolveLookupLocal('Status', update.status);
     if (update.stage && typeof update.stage === 'string') update.stage = await resolveLookupLocal('Stage', update.stage);
+    if (update.salutation && typeof update.salutation === 'string') update.salutation = await resolveLookupLocal('Title', update.salutation);
 
     const arrayTypes = {
         propertyType: 'PropertyType',

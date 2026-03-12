@@ -506,9 +506,13 @@ const PropertySettingsPage = () => {
         openInputModal(`Enter new ${activeOrientationField.slice(0, -1)}`, '', (value) => {
             if (value) {
                 const currentList = masterFields[activeOrientationField];
-                if (!currentList.includes(value)) {
+                const itemExists = currentList.some(item => {
+                    const itemName = typeof item === 'object' ? item.name : item;
+                    return itemName?.toLowerCase() === value.toLowerCase();
+                });
+
+                if (!itemExists) {
                     updateMasterFields(activeOrientationField, value, 'add');
-                    // showToast moved to context for consistency if possible, or keep here
                 } else {
                     alert("Item already exists.");
                 }
@@ -517,8 +521,11 @@ const PropertySettingsPage = () => {
     };
 
     const handleDeleteMasterItem = (item) => {
-        openConfirmModal(`Remove '${item}'?`, () => {
-            updateMasterFields(activeOrientationField, item, 'delete');
+        const itemName = typeof item === 'object' ? item.name : item;
+        const deleteValue = typeof item === 'object' ? (item.id || item.name) : item;
+        
+        openConfirmModal(`Remove '${itemName}'?`, () => {
+            updateMasterFields(activeOrientationField, deleteValue, 'delete');
         });
     };
 
@@ -1216,12 +1223,16 @@ const PropertySettingsPage = () => {
                             </div>
                             <div style={{ overflowY: 'auto', flex: 1, padding: '20px' }}>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
-                                    {masterFields && masterFields[activeOrientationField].map(item => (
-                                        <div key={item} style={{ padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="group">
-                                            <span>{item}</span>
-                                            <button onClick={() => handleDeleteMasterItem(item)} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }}><i className="fas fa-trash-alt" style={{ fontSize: '0.85rem' }}></i></button>
-                                        </div>
-                                    ))}
+                                    {masterFields && masterFields[activeOrientationField].map((item, idx) => {
+                                        const itemName = typeof item === 'object' ? item.name : item;
+                                        const itemKey = typeof item === 'object' ? (item.id || idx) : item;
+                                        return (
+                                            <div key={itemKey} style={{ padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="group">
+                                                <span>{itemName}</span>
+                                                <button onClick={() => handleDeleteMasterItem(item)} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }}><i className="fas fa-trash-alt" style={{ fontSize: '0.85rem' }}></i></button>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </div>

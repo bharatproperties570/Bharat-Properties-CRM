@@ -4,11 +4,12 @@
  * @param {any} val - The value to render
  * @returns {string|number|React.ReactNode} - The safely rendered value
  */
-export const renderValue = (val, emptyValue = '-') => {
+export const renderValue = (val, emptyValue = '-', prefix = '') => {
     if (val === null || val === undefined || val === '') return emptyValue;
+    let result = val;
     if (typeof val === 'object') {
-        const result = val.lookup_value || val.fullName || val.name || val.label || val.value || val.displayName;
-        return result || emptyValue;
+        result = val.lookup_value || val.fullName || val.name || val.label || val.value || val.displayName;
     }
-    return val;
+    if (result === null || result === undefined || result === '') return emptyValue;
+    return prefix ? `${prefix}${result}` : result;
 };

@@ -76,8 +76,11 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
         // Ensure name is present for display
         if (!lead.name) {
-            lead.name = lead.firstName ? `${lead.salutation || ""} ${lead.firstName} ${lead.lastName || ""}`.trim() : (lead.name || "Unknown");
+            lead.name = lead.contactDetails?.name || (lead.firstName ? `${lead.salutation || ""} ${lead.firstName} ${lead.lastName || ""}`.trim() : (lead.name || "Unknown"));
         }
+        
+        // Ensure mobile is prioritized for display/communication
+        lead.mobile = lead.contactDetails?.mobile || lead.mobile;
 
         const requirementVal = lead.requirement?.lookup_value || (typeof lead.requirement === 'string' ? lead.requirement : "");
         const locationVal = lead.location?.lookup_value || (typeof lead.location === 'string' ? lead.location : "");

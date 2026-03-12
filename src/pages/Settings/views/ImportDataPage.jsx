@@ -93,7 +93,12 @@ const ImportDataPage = () => {
     const generateSampleCSV = () => {
         const fields = MODULE_CONFIG[module].fields;
         const headers = fields.map(f => f.label);
-        const csvContent = headers.join(',');
+        const sampleRow = fields.map(f => f.sample || '');
+        
+        const csvContent = [
+            headers.join(','),
+            sampleRow.join(',')
+        ].join('\n');
 
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
@@ -233,6 +238,8 @@ const ImportDataPage = () => {
                 payload.projectId = selectedProject;
                 payload.projectName = projects.find(p => p._id === selectedProject)?.name;
                 payload.block = selectedBlock;
+            } else if (module === 'propertyOwners') {
+                endpoint = '/inventory/bulk-update-owners';
             }
 
             // Artificial delay for better UX (so progress is seen)

@@ -93,14 +93,14 @@ export const submitDealForm = async (req, res, next) => {
         const dealData = {
             source: 'Capture Form',
             capture_form: form._id,
-            status: 'Open',
+            status: 'Unverified',
             stage: 'Open',
             tags: form.settings.autoTags || []
         };
 
         const allFields = form.sections.flatMap(s => s.fields);
-        const contactInfo = {};
-        const transactionInfo = {};
+        const ownerInfo = {};
+        const associateInfo = {};
 
         for (const field of allFields) {
             const value = formData[field.id];
@@ -109,12 +109,20 @@ export const submitDealForm = async (req, res, next) => {
             if (!field.mappingField) continue;
 
             // Direct Mapping
-            if (['projectName', 'block', 'unitNo', 'intent', 'remarks'].includes(field.mappingField)) {
-                dealData[field.mappingField] = value;
-            } else if (['price'].includes(field.mappingField)) {
-                dealData[field.mappingField] = Number(value);
-            } else if (['fullName', 'phone', 'email', 'role', 'relationship'].includes(field.mappingField)) {
-                contactInfo[field.mappingField] = value;
+            if (['projectName', 'block', 'unitNo', 'intent', 'remarks', 'price', 'unitType', 'propertyType', 'size', 'location'].includes(field.mappingField)) {
+                dealData[field.mappingField] = (field.mappingField === 'price' || field.mappingField === 'size' && !isNaN(value)) ? Number(value) : value;
+            } 
+            // Owner Mapping
+            else if (['ownerName', 'ownerPhone', 'ownerEmail', 'fullName', 'phone', 'email'].includes(field.mappingField)) {
+                if (field.mappingField === 'ownerName' || field.mappingField === 'fullName') ownerInfo.name = value;
+                if (field.mappingField === 'ownerPhone' || field.mappingField === 'phone') ownerInfo.phone = value;
+                if (field.mappingField === 'ownerEmail' || field.mappingField === 'email') ownerInfo.email = value;
+            }
+            // Associate Mapping
+            else if (['associateName', 'associatePhone', 'relationship'].includes(field.mappingField)) {
+                if (field.mappingField === 'associateName') associateInfo.name = value;
+                if (field.mappingField === 'associatePhone') associateInfo.phone = value;
+                if (field.mappingField === 'relationship') associateInfo.relationship = value;
             }
         }
 
@@ -130,49 +138,54 @@ export const submitDealForm = async (req, res, next) => {
         }
 
         // 2. Handle Contact Creation/Linking
-        let contactId = null;
-        if (contactInfo.phone || contactInfo.fullName) {
+        const resolveContact = async (info) => {
+            if (!info.name && !info.phone) return null;
             let contact = await Contact.findOne({
                 $or: [
-                    { 'phones.number': contactInfo.phone },
-                    { name: contactInfo.fullName }
+                    { 'phones.number': info.phone },
+                    { name: info.name }
                 ].filter(q => Object.values(q)[0])
             });
 
-            if (!contact && (contactInfo.phone || contactInfo.fullName)) {
+            if (!contact) {
                 contact = await Contact.create({
-                    name: contactInfo.fullName || 'New Lead from Form',
-                    phones: contactInfo.phone ? [{ number: contactInfo.phone, type: 'Personal' }] : [],
-                    emails: contactInfo.email ? [{ address: contactInfo.email, type: 'Personal' }] : [],
+                    name: info.name || 'New Lead from Form',
+                    phones: info.phone ? [{ number: info.phone, type: 'Personal' }] : [],
+                    emails: info.email ? [{ address: info.email, type: 'Personal' }] : [],
                     tags: ['Form Submission']
                 });
             }
-            contactId = contact._id;
-            dealData.owner = contactId; // Primary contact for the deal
-        }
+            return contact;
+        };
+
+        const ownerContact = await resolveContact(ownerInfo);
+        const associateContact = await resolveContact(associateInfo);
+
+        if (ownerContact) dealData.owner = ownerContact._id;
+        if (associateContact) dealData.associatedContact = associateContact._id;
 
         // 3. Update Inventory Assignment
-        if (inventory && contactId) {
-            const isOwner = contactInfo.role === 'Owner';
-            if (isOwner) {
-                // Add to owners if not already there
+        if (inventory) {
+            // Update owner
+            if (ownerContact) {
                 if (!inventory.owners) inventory.owners = [];
-                if (!inventory.owners.includes(contactId)) {
-                    inventory.owners.push(contactId);
+                if (!inventory.owners.includes(ownerContact._id)) {
+                    inventory.owners.push(ownerContact._id);
                 }
-            } else {
-                // Add to associates
+            }
+            // Update associate
+            if (associateContact) {
                 if (!inventory.associates) inventory.associates = [];
-                const exists = inventory.associates.some(a => a.contact && a.contact.toString() === contactId.toString());
+                const exists = inventory.associates.some(a => a.contact && a.contact.toString() === associateContact._id.toString());
                 if (!exists) {
                     inventory.associates.push({
-                        contact: contactId,
-                        relationship: contactInfo.relationship || 'Associate'
+                        contact: associateContact._id,
+                        relationship: associateInfo.relationship || 'Associate'
                     });
                 }
             }
             
-            // Also update inventory intent if provided
+            // Update inventory intent if provided
             if (dealData.intent) {
                 if (!inventory.intent) inventory.intent = [];
                 if (!inventory.intent.includes(dealData.intent)) {
@@ -182,10 +195,6 @@ export const submitDealForm = async (req, res, next) => {
 
             await inventory.save();
         }
-
-        // 4. Force status to Unverified as requested
-        dealData.status = 'Unverified';
-        dealData.stage = 'Open';
 
         // Auto Assignment
         if (form.settings.autoAssignTo) {

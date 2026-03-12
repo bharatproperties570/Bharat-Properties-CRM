@@ -1,25 +1,39 @@
 import mongoose from "mongoose";
 import config from "./env.js";
+import dns from "node:dns";
 
-const connectDB = async () => {
+// Force IPv4 first for DNS resolution to avoid Atlas connection issues in certain environments
+if (dns.setDefaultResultOrder) {
+    dns.setDefaultResultOrder('ipv4first');
+}
+
+const connectDB = async (retryCount = 5) => {
     if (config.mockMode) {
         console.log("🛠️  Mock Mode Enabled: Skipping MongoDB connection.");
         mongoose.set('bufferCommands', false);
         return;
     }
 
-    try {
-        if (config.mockMode) {
-            mongoose.set('bufferCommands', false);
+    for (let i = 0; i < retryCount; i++) {
+        try {
+            const conn = await mongoose.connect(config.mongoUri, {
+                autoIndex: false, // Prevent startup hang during index building
+                connectTimeoutMS: 10000,
+                socketTimeoutMS: 45000,
+            });
+            console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+            return; // Success
+        } catch (error) {
+            console.error(`❌ MongoDB Connection Attempt ${i + 1} Failed: ${error.message}`);
+            if (i === retryCount - 1) {
+                console.error("❌ All MongoDB connection attempts failed.");
+                process.exit(1);
+            }
+            // Wait for 2 seconds before retrying
+            await new Promise(resolve => setTimeout(resolve, 2000));
         }
-        const conn = await mongoose.connect(config.mongoUri, {
-            autoIndex: false // Prevent startup hang during index building
-        });
-        console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
-    } catch (error) {
-        console.error(`❌ MongoDB Connection Error: ${error.message}`);
-        process.exit(1);
     }
 };
 
 export default connectDB;
+

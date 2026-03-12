@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api, enrichmentAPI } from '../../utils/api';
+import { renderValue } from '../../utils/renderUtils';
 // Mock data removed
 const contactData = [];
 const leadData = [];
@@ -33,7 +34,7 @@ import EnterprisePipeline from '../../components/EnterprisePipeline';
 import UnifiedActivitySection from '../../components/Activities/UnifiedActivitySection';
 
 const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
-    const { scoringAttributes, activityMasterFields, scoreBands } = usePropertyConfig(); // Inject Context
+    const { scoringAttributes, activityMasterFields, scoreBands, getLookupValue } = usePropertyConfig(); // Inject Context
     const { sequences, enrollments, updateEnrollmentStatus } = useSequences();
     const { users: contextUsers } = useUserContext();
     const [contact, setContact] = useState(null);
@@ -90,8 +91,18 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
 
     const renderLookup = (field, fallback = '-') => {
         if (!field) return fallback;
-        if (typeof field === 'object' && field.lookup_value) return field.lookup_value;
-        if (typeof field === 'object' && Object.keys(field).length > 0 && !field.lookup_value) return fallback;
+        
+        // 1. Handle objects (already populated)
+        if (typeof field === 'object') {
+            return field.lookup_value || field.name || field.projectName || field.title || field.label || fallback;
+        }
+        
+        // 2. Handle ID strings (needs resolution)
+        if (typeof field === 'string' && field.match(/^[0-9a-fA-F]{24}$/) && getLookupValue) {
+            const resolved = getLookupValue(null, field);
+            return resolved || fallback; // Return name or fallback, NEVER the raw ID
+        }
+
         return typeof field === 'string' ? field : fallback;
     };
 
@@ -227,8 +238,8 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                 }));
             }
 
-            // Fetch Inventory where contact is owner
-            const invRes = await api.get(`inventory?search=${recordData.mobile || recordData.name || ''}`);
+            // Fetch Inventory where contact is owner or associate
+            const invRes = await api.get(`inventory`, { params: { contactId: id, limit: 100 } });
             if (invRes.data && invRes.data.success) {
                 const inventory = invRes.data.records || [];
                 const owned = [];
@@ -237,10 +248,39 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                 const contactPhone = normalize(recordData?.mobile);
 
                 inventory.forEach(item => {
-                    const ownerPhone = normalize(item.ownerPhone);
                     const prevOwnerPhone = normalize(item.previousOwnerPhone);
-                    if (ownerPhone === contactPhone) owned.push(item);
-                    else if (prevOwnerPhone === contactPhone) history.push(item);
+                    
+                    // Check main owner fields (legacy/history)
+                    if (contactPhone && prevOwnerPhone === contactPhone) {
+                        history.push(item);
+                    }
+
+                    // Check formal owner link
+                    const isFormalOwner = item.owners?.some(o => (o._id === id || o === id));
+                    if (isFormalOwner) {
+                        owned.push({ ...item, matchRole: 'OWNER' });
+                        return;
+                    }
+
+                    // Check formal associate link
+                    const associateMatch = item.associates?.find(a => {
+                        const aContact = a.contact || a;
+                        return (aContact._id === id || aContact === id);
+                    });
+                    if (associateMatch) {
+                        owned.push({ 
+                            ...item, 
+                            matchRole: 'ASSOCIATE', 
+                            relationship: associateMatch.relationship || 'Associate' 
+                        });
+                        return;
+                    }
+
+                    // Fallback to phone/email heuristic if formal link is missing (for legacy data)
+                    const ownerPhone = normalize(item.ownerPhone);
+                    if (contactPhone && ownerPhone === contactPhone) {
+                        owned.push({ ...item, matchRole: 'OWNER' });
+                    }
                 });
                 setOwnedProperties(owned);
                 setHistoryProperties(history);
@@ -1795,8 +1835,10 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                             </div>
                                                         </div>
                                                         <div style={{ textAlign: 'right' }}>
-                                                            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#10b981' }}>₹{deal.price}</div>
-                                                            <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 700 }}>{deal.size}</div>
+                                                            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#10b981' }}>{renderValue(deal.price, 'Price TBA', '₹')}</div>
+                                                            <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 700 }}>
+                                                                {deal.size?.value ? `${deal.size.value} ${deal.size.unit || ''}` : (typeof deal.size === 'string' ? deal.size : 'Size N/A')}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 ))}
@@ -2188,17 +2230,18 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                             <div key={idx} style={{ background: '#fff7ed', padding: '12px', borderRadius: '12px', border: '1px solid #ffedd5', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
                                                     <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', marginBottom: '4px' }}>
-                                                        ₹{renderValue(deal.budgetMin) || renderValue(deal.price) || 'Price TBA'} Deal
+                                                        {deal.unitNo && `Unit #${deal.unitNo} • `}₹{renderValue(deal.budgetMin) || renderValue(deal.price) || 'Price TBA'} Deal
                                                     </div>
                                                     <span style={{ background: '#ea580c', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '0.6rem', fontWeight: 700 }}>
                                                         {(renderLookup(deal.stage) || 'ACTIVE').toUpperCase()}
                                                     </span>
                                                 </div>
                                                 <div style={{ fontSize: '0.75rem', color: '#9a3412', fontWeight: 700, marginBottom: '2px' }}>
-                                                    {renderLookup(deal.project) || 'General Category'}
+                                                    {renderLookup(deal.projectId) || renderValue(deal.projectName) || renderLookup(deal.project) || 'General Category'}
+                                                    {deal.block && ` (Block: ${renderValue(deal.block)})`}
                                                 </div>
                                                 <div style={{ fontSize: '0.65rem', color: '#9a3412', fontWeight: 600, opacity: 0.8 }}>
-                                                    at {renderLookup(deal.location) || deal.locArea || 'TBD Location'}
+                                                    at {renderValue(deal.locationDisplay) || renderLookup(deal.location) || deal.locArea || 'TBD Location'}
                                                 </div>
                                             </div>
                                         ))
@@ -2280,27 +2323,31 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
                                                             <div>
                                                                 <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>
-                                                                    {(prop.unitNumber || prop.unitNo) && `Unit #${prop.unitNumber || prop.unitNo} • `}{prop.type}
+                                                                    {(renderValue(prop.unitNumber) || renderValue(prop.unitNo)) && `Unit #${renderValue(prop.unitNumber) || renderValue(prop.unitNo)} • `}{renderLookup(prop.projectId) || renderLookup(prop.projectName) || 'Property'} {prop.block && `(Block: ${renderLookup(prop.block)})`}
                                                                 </div>
-                                                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>{renderLookup(prop.location) || renderLookup(prop.area)}</div>
+                                                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>
+                                                                    {renderLookup(prop.subCategory) || renderLookup(prop.category) || renderLookup(prop.type)} • {renderLookup(prop.location) || renderLookup(prop.area) || renderValue(prop.locArea)}
+                                                                </div>
                                                             </div>
                                                             <span style={{
-                                                                background: '#ecfdf5',
-                                                                color: '#059669',
+                                                                background: prop.matchRole === 'ASSOCIATE' ? '#eff6ff' : '#ecfdf5',
+                                                                color: prop.matchRole === 'ASSOCIATE' ? '#2563eb' : '#059669',
                                                                 fontSize: '0.5rem',
                                                                 padding: '2px 6px',
                                                                 borderRadius: '4px',
                                                                 fontWeight: 900,
-                                                                border: '1px solid #d1fae5',
+                                                                border: `1px solid ${prop.matchRole === 'ASSOCIATE' ? '#dbeafe' : '#d1fae5'}`,
                                                                 textTransform: 'uppercase',
                                                                 whiteSpace: 'nowrap'
                                                             }}>
-                                                                OWNED
+                                                                {prop.matchRole === 'ASSOCIATE' ? `ASSOCIATE${prop.relationship ? ` - ${prop.relationship}` : ''}` : 'OWNER'}
                                                             </span>
                                                         </div>
                                                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
                                                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                                <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700 }}>{prop.size || 'Size N/A'}</span>
+                                                                    <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700 }}>
+                                                                        {prop.sizeLabel ? prop.sizeLabel : (prop.size?.value ? `${prop.size.value} ${prop.size.unit || ''}` : (typeof prop.size === 'string' ? prop.size : 'Size N/A'))}
+                                                                    </span>
                                                                 <span style={{ width: '3px', height: '3px', background: '#e2e8f0', borderRadius: '50%' }}></span>
                                                                 <span style={{ fontSize: '0.65rem', color: prop.status === 'Active' ? '#10b981' : '#ef4444', fontWeight: 800 }}>{renderLookup(prop.status)}</span>
                                                             </div>
@@ -2535,7 +2582,9 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                                                         </div>
                                                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
                                                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                                <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700 }}>{prop.size}</span>
+                                                                <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700 }}>
+                                                                    {prop.size?.value ? `${prop.size.value} ${prop.size.unit || ''}` : (typeof prop.size === 'string' ? prop.size : 'Size N/A')}
+                                                                </span>
                                                             </div>
                                                         </div>
                                                     </div>

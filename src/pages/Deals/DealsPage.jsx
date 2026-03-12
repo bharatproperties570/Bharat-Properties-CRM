@@ -733,25 +733,33 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
                                         {/* Col 6: Owner Details */}
                                         <div className="super-cell" style={{ background: '#fefce8', padding: '8px', borderRadius: '6px', borderLeft: '3px solid #eab308' }}>
-                                            <div className="text-ellipsis" style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.8rem', marginBottom: '4px' }}>{renderValue(deal.owner?.name, 'Unknown')}</div>
+                                            <div className="text-ellipsis" style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.8rem', marginBottom: '4px' }}>
+                                                {renderValue(deal.owner?.name || deal.ownerName, 'Unknown')}
+                                            </div>
                                             <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600, marginBottom: '2px' }}>
-                                                <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>{renderValue(deal.owner?.phone, 'N/A')}
+                                                <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>
+                                                {renderValue(deal.owner?.mobile || deal.owner?.phone || deal.ownerPhone, 'N/A')}
                                             </div>
                                             <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                                <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>{renderValue(deal.owner?.email, 'N/A')}
+                                                <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>
+                                                {renderValue(deal.owner?.email || deal.ownerEmail, 'N/A')}
                                             </div>
                                         </div>
 
                                         {/* Col 7: Associate */}
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                            {deal.associatedContact?.name ? (
+                                            { (deal.associatedContact?.name || deal.associateName) ? (
                                                 <>
-                                                    <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.8rem' }}>{renderValue(deal.associatedContact.name)}</div>
+                                                    <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.8rem' }}>
+                                                        {renderValue(deal.associatedContact?.name || deal.associateName)}
+                                                    </div>
                                                     <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600 }}>
-                                                        <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>{renderValue(deal.associatedContact.phone)}
+                                                        <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>
+                                                        {renderValue(deal.associatedContact?.mobile || deal.associatedContact?.phone || deal.associatePhone)}
                                                     </div>
                                                     <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                                        <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>{renderValue(deal.associatedContact.email)}
+                                                        <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>
+                                                        {renderValue(deal.associatedContact?.email || deal.associateEmail)}
                                                     </div>
                                                 </>
                                             ) : (

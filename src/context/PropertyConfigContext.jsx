@@ -116,6 +116,12 @@ export const PropertyConfigProvider = ({ children }) => {
             }
         }
 
+        // 3. Project Fallback: Check if it's a project ID
+        if (projects && Array.isArray(projects)) {
+            const foundProject = projects.find(p => p._id === id || p.id === id);
+            if (foundProject) return foundProject.name || foundProject.projectName || foundProject.title;
+        }
+
         // Professional Fix: If it's a string (likely an ID) and we didn't find it, return null 
         // This allows the component to use its own fallback logic (e.g. lead.sourceFallback)
         if (typeof id === 'string' && id.match(/^[0-9a-fA-F]{24}$/)) {
@@ -165,6 +171,7 @@ export const PropertyConfigProvider = ({ children }) => {
                 directions: newLookups['Direction']?.map(l => l.lookup_value) || [],
                 roadWidths: newLookups['RoadWidth']?.map(l => l.lookup_value) || [],
                 unitTypes: newLookups['UnitType']?.map(l => l.lookup_value) || [],
+                titles: newLookups['Title'] || [],
                 relations: newLookups['Relation']?.map(l => ({
                     id: l._id,
                     name: l.lookup_value

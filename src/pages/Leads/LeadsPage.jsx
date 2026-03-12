@@ -201,7 +201,10 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 const mappedLeads = sourceData.map((lead, index) => {
                     // Handle both API shape and Fallback
                     const contact = lead.contactDetails || {};
-                    const name = lead.firstName ? `${lead.salutation || ""} ${lead.firstName} ${lead.lastName || ""}`.trim() : (lead.name || "Unknown");
+                    const firstName = contact.name || lead.firstName || "";
+                    const lastName = contact.surname || lead.lastName || "";
+                    const salutation = (contact.title?.lookup_value || contact.title || lead.salutation || "").trim();
+                    const name = firstName ? `${salutation} ${firstName} ${lastName}`.trim() : (lead.name || "Unknown");
 
                     // EXPIRY LOGIC
                     let expiryBadge = null;
@@ -226,8 +229,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     return {
                         _id: lead._id?.toString() || lead._id || `lead-${index}`,
                         name: name,
-                        mobile: lead.mobile || contact.phones?.[0]?.number || "",
-                        email: lead.email || contact.emails?.[0]?.address || "",
+                        mobile: contact.phones?.[0]?.number || lead.mobile || "",
+                        email: contact.emails?.[0]?.address || lead.email || "",
 
                         // ===== SCORE DATA & CONTEXT (CRITICAL FOR LIST VIEW) =====
                         detailedReq: lead.detailedReq,
