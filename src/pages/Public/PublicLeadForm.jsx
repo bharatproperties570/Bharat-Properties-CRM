@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { api } from '../../utils/api';
 import { toast, Toaster } from 'react-hot-toast';
 
 const PublicLeadForm = ({ slug }) => {
@@ -12,7 +12,7 @@ const PublicLeadForm = ({ slug }) => {
         const fetchForm = async () => {
             try {
                 setStatus('loading');
-                const response = await axios.get(`/api/lead-forms/public/${slug}`);
+                const response = await api.get(`/lead-forms/public/${slug}`);
                 setFormConfig(response.data.data);
                 setStatus('ready');
             } catch (err) {
@@ -68,7 +68,7 @@ const PublicLeadForm = ({ slug }) => {
                 userAgent: navigator.userAgent
             };
 
-            const response = await axios.post(`/api/lead-forms/public/${slug}/submit`, {
+            const response = await api.post(`/lead-forms/public/${slug}/submit`, {
                 formData,
                 sourceMeta
             });
