@@ -2061,6 +2061,12 @@ const SplitMeter = ({ label, value, suffix = '', prefix = '', color }) => (
 const thStyle = { padding: '14px 20px', fontSize: '0.65rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' };
 const tdStyle = { padding: '16px 20px', fontSize: '0.85rem', color: '#1e293b' };
 
+const TableContainer = ({ children }) => (
+    <div style={{ width: '100%', overflowX: 'auto' }}>
+        {children}
+    </div>
+);
+
 // 🏛️ Government Charges Card Component
 const cardStyle = {
     background: '#fff',
