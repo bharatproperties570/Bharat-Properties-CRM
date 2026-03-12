@@ -1,7 +1,9 @@
+import mongoose from "mongoose";
 import Deal from "../models/Deal.js";
 import Activity from "../models/Activity.js";
 import Inventory from "../models/Inventory.js";
 import Lead from "../models/Lead.js";
+import Contact from "../models/Contact.js";
 import { paginate } from "../utils/pagination.js";
 import smsService from "../src/modules/sms/sms.service.js";
 import Lookup from "../models/Lookup.js";
@@ -99,12 +101,58 @@ export const getDeals = async (req, res) => {
         if (req.query.contactId) {
             const contactIds = req.query.contactId.split(',');
             query.$or = query.$or || [];
+            
+            // 1. Exact ID Matching
             query.$or.push(
                 { owner: { $in: contactIds } },
                 { "partyStructure.owner": { $in: contactIds } },
                 { associatedContact: { $in: contactIds } },
                 { "partyStructure.buyer": { $in: contactIds } }
             );
+
+            // 2. Smart Identity Matching (Phone/Email) for Legacy data or Cross-Entity links
+            const identities = await Promise.all(contactIds.map(async (id) => {
+                if (!mongoose.Types.ObjectId.isValid(id)) return null;
+                const [c, l] = await Promise.all([
+                    Contact.findById(id).lean(),
+                    Lead.findById(id).lean()
+                ]);
+                
+                const profile = { phones: [], emails: [] };
+                if (c) {
+                    if (c.phones) profile.phones.push(...c.phones.map(p => p.number));
+                    if (c.emails) profile.emails.push(...c.emails.map(e => e.address));
+                }
+                if (l) {
+                    if (l.mobile) profile.phones.push(l.mobile);
+                    if (l.email) profile.emails.push(l.email);
+                }
+                return profile;
+            }));
+
+            const phones = [...new Set(identities.filter(Boolean).flatMap(i => i.phones).filter(Boolean))];
+            const emails = [...new Set(identities.filter(Boolean).flatMap(i => i.emails).filter(Boolean))];
+
+            if (phones.length > 0 || emails.length > 0) {
+                const identityMatches = [];
+                phones.forEach(phone => {
+                    identityMatches.push(
+                        { owner: phone },
+                        { "partyStructure.owner": phone },
+                        { associatedContact: phone },
+                        { "partyStructure.buyer": phone }
+                    );
+                });
+                emails.forEach(email => {
+                    identityMatches.push(
+                        { owner: email },
+                        { "partyStructure.owner": email },
+                        { associatedContact: email },
+                        { "partyStructure.buyer": email }
+                    );
+                });
+                query.$or.push(...identityMatches);
+            }
         }
 
         const populateFields = [

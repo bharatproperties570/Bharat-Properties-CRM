@@ -85,6 +85,7 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
             const payload = {
                 status: 'Completed',
                 completedAt: new Date(`${formData.completionDate}T${formData.completionTime}`),
+                outcome: formData.completionResult || formData.outcomeStatus,
                 details: {
                     ...activity.details,
                     meetingOutcomeStatus: formData.outcomeStatus,

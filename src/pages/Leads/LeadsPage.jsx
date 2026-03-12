@@ -203,7 +203,10 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     const contact = lead.contactDetails || {};
                     const firstName = contact.name || lead.firstName || "";
                     const lastName = contact.surname || lead.lastName || "";
-                    const salutation = (contact.title?.lookup_value || contact.title || lead.salutation || "").trim();
+                    const rawSalutation = contact.title?.lookup_value || contact.title || lead.salutation || "";
+                    const salutation = (typeof rawSalutation === 'string' && rawSalutation.match(/^[0-9a-fA-F]{24}$/)) 
+                        ? (getLookupValue('Title', rawSalutation) || "") 
+                        : (rawSalutation || "").trim();
                     const name = firstName ? `${salutation} ${firstName} ${lastName}`.trim() : (lead.name || "Unknown");
 
                     // EXPIRY LOGIC
@@ -808,9 +811,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                     };
                                     const scoring = calculateLeadScore(normalizedLead, lead.activities || [], scoringConfig);
                                     const calculatedScore = Math.max(scoring?.total || 0, lead.intentIndex || 0);
-                                    const displayScore = (liveBackendScore && liveBackendScore.score > 0) ? liveBackendScore.score : calculatedScore;
-                                    const displayColor = (liveBackendScore && liveBackendScore.score > 0) ? liveBackendScore.color : (scoring?.temperature?.color || '#94a3b8');
-                                    const tempClass = (liveBackendScore && liveBackendScore.tempClass) ? liveBackendScore.tempClass : (scoring?.temperature?.class || 'cold');
+                                    const displayScore = Math.max(liveBackendScore?.score || 0, calculatedScore);
+                                    const displayColor = (liveBackendScore && liveBackendScore.score >= displayScore) ? liveBackendScore.color : (scoring?.temperature?.color || '#94a3b8');
+                                    const tempClass = (liveBackendScore && liveBackendScore.score >= displayScore) ? liveBackendScore.tempClass : (scoring?.temperature?.class || 'cold');
 
                                     return (
                                         <div
@@ -1015,9 +1018,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                 };
                                 const scoring = calculateLeadScore(normalizedLead, c.activities || [], scoringConfig);
                                 const calculatedScore = Math.max(scoring?.total || 0, c.intentIndex || 0);
-                                const displayScore = (liveBackendScore && liveBackendScore.score > 0) ? liveBackendScore.score : calculatedScore;
-                                const displayColor = (liveBackendScore && liveBackendScore.score > 0) ? liveBackendScore.color : (scoring?.temperature?.color || '#94a3b8');
-                                const tempClass = (liveBackendScore && liveBackendScore.tempClass) ? liveBackendScore.tempClass : (scoring?.temperature?.class || 'cold');
+                                const displayScore = Math.max(liveBackendScore?.score || 0, calculatedScore);
+                                const displayColor = (liveBackendScore && liveBackendScore.score >= displayScore) ? liveBackendScore.color : (scoring?.temperature?.color || '#94a3b8');
+                                const tempClass = (liveBackendScore && liveBackendScore.score >= displayScore) ? liveBackendScore.tempClass : (scoring?.temperature?.class || 'cold');
 
                                 return (
                                     <div

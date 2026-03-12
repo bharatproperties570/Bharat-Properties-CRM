@@ -62,10 +62,71 @@ export const getInventory = async (req, res) => {
         }
 
         if (contactId) {
+            const ids = contactId.split(',');
+            const allIds = [...ids];
+
+            // ROBUST: Resolve linked IDs (Lead <-> Contact) via phone/email
+            const identities = await Promise.all(ids.map(async (id) => {
+                if (!mongoose.Types.ObjectId.isValid(id)) return null;
+                const [c, l] = await Promise.all([
+                    Contact.findById(id).lean(),
+                    Lead.findById(id).lean()
+                ]);
+                const profile = { phones: [], emails: [] };
+                if (c) {
+                    if (c.phones) profile.phones.push(...c.phones.map(p => p.number));
+                    if (c.emails) profile.emails.push(...c.emails.map(e => e.address));
+                }
+                if (l) {
+                    if (l.mobile) profile.phones.push(l.mobile);
+                    if (l.email) profile.emails.push(l.email);
+                }
+                return profile;
+            }));
+
+            const phones = [...new Set(identities.filter(Boolean).flatMap(i => i.phones).filter(Boolean))];
+            const emails = [...new Set(identities.filter(Boolean).flatMap(i => i.emails).filter(Boolean))];
+
+            if (phones.length > 0 || emails.length > 0) {
+                const linkedEntities = await Promise.all([
+                    Contact.find({
+                        $or: [
+                            { 'phones.number': { $in: phones } },
+                            { 'emails.address': { $in: emails } }
+                        ]
+                    }).select('_id').lean(),
+                    Lead.find({
+                        $or: [
+                            { mobile: { $in: phones } },
+                            { email: { $in: emails } }
+                        ]
+                    }).select('_id').lean()
+                ]);
+
+                linkedEntities.flat().forEach(e => {
+                    if (e && e._id) allIds.push(e._id.toString());
+                });
+            }
+
+            const uniqueIds = [...new Set(allIds)];
             query.$or = [
-                { owners: contactId },
-                { 'associates.contact': contactId }
+                { owners: { $in: uniqueIds } },
+                { 'associates.contact': { $in: uniqueIds } }
             ];
+            
+            // Heuristic fallback for legacy data fields if they exist
+            if (phones.length > 0) {
+                phones.forEach(p => {
+                    query.$or.push({ ownerPhone: p });
+                    query.$or.push({ previousOwnerPhone: p });
+                });
+            }
+            if (emails.length > 0) {
+                emails.forEach(e => {
+                    query.$or.push({ ownerEmail: e });
+                    query.$or.push({ previousOwnerEmail: e });
+                });
+            }
         }
 
         // Search in unitNo, unitNumber, ownerName, ownerPhone

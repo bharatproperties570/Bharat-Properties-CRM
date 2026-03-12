@@ -227,25 +227,49 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
 
             // Fetch Deals where contact is involved
             const dealsRes = await api.get(`deals?contactId=${id}`);
+            console.log(`[DEBUG] Deals for ${id}:`, dealsRes.data);
             if (dealsRes.data && dealsRes.data.success) {
-                const deals = dealsRes.data.records || [];
+                const deals = (dealsRes.data.records || dealsRes.data.data) || [];
+                const normalize = (phone) => phone?.toString()?.replace(/\D/g, '')?.slice(-10);
+                const contactPhone = normalize(recordData?.mobile || recordData?.phones?.[0]?.number);
+                const contactEmail = recordData?.email || recordData?.emails?.[0]?.address;
+
                 setActiveDeals(deals.filter(d => {
-                    if (d.stage === 'lost' || d.stage === 'won' || d.stage === 'Cancelled') return false;
-                    const isOwner = (d.owner && (d.owner._id === id || d.owner === id)) ||
+                    // Filter out closed/cancelled deals for the "Active" section
+                    const closedStages = ['lost', 'won', 'Cancelled', 'Closed Won', 'Closed Lost'];
+                    if (closedStages.some(s => d.stage?.toLowerCase()?.includes(s.toLowerCase()))) return false;
+
+                    // Formal ID matches
+                    const isOwnerFormal = (d.owner && (d.owner._id === id || d.owner === id)) ||
                         (d.partyStructure?.owner && (d.partyStructure.owner._id === id || d.partyStructure.owner === id));
-                    const isAssociate = d.associatedContact && (d.associatedContact._id === id || d.associatedContact === id);
-                    return isOwner || isAssociate;
+                    const isAssociateFormal = d.associatedContact && (d.associatedContact._id === id || d.associatedContact === id);
+                    const isBuyerFormal = d.partyStructure?.buyer && (d.partyStructure.buyer._id === id || d.partyStructure.buyer === id);
+                    
+                    if (isOwnerFormal || isAssociateFormal || isBuyerFormal) return true;
+
+                    // Heuristic fallback for legacy/unlinked data
+                    const dOwnerPhone = normalize(d.owner?.phone || d.owner);
+                    const dBuyerPhone = normalize(d.partyStructure?.buyer?.phone || d.partyStructure?.buyer);
+                    const dOwnerEmail = d.owner?.email || (typeof d.owner === 'string' && d.owner.includes('@') ? d.owner : null);
+                    const dBuyerEmail = d.partyStructure?.buyer?.email || (typeof d.partyStructure?.buyer === 'string' && d.partyStructure.buyer.includes('@') ? d.partyStructure.buyer : null);
+
+                    const phoneMatch = contactPhone && (dOwnerPhone === contactPhone || dBuyerPhone === contactPhone);
+                    const emailMatch = contactEmail && (dOwnerEmail === contactEmail || dBuyerEmail === contactEmail);
+                    
+                    return phoneMatch || emailMatch;
                 }));
             }
 
             // Fetch Inventory where contact is owner or associate
             const invRes = await api.get(`inventory`, { params: { contactId: id, limit: 100 } });
+            console.log(`[DEBUG] Inventory for ${id}:`, invRes.data);
             if (invRes.data && invRes.data.success) {
-                const inventory = invRes.data.records || [];
+                const inventory = (invRes.data.records || invRes.data.data) || [];
                 const owned = [];
                 const history = [];
                 const normalize = (phone) => phone?.toString()?.replace(/\D/g, '')?.slice(-10);
-                const contactPhone = normalize(recordData?.mobile);
+                const contactPhone = normalize(recordData?.mobile || recordData?.phones?.[0]?.number);
+                const contactEmail = recordData?.email || recordData?.emails?.[0]?.address;
 
                 inventory.forEach(item => {
                     const prevOwnerPhone = normalize(item.previousOwnerPhone);
@@ -278,7 +302,12 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
 
                     // Fallback to phone/email heuristic if formal link is missing (for legacy data)
                     const ownerPhone = normalize(item.ownerPhone);
-                    if (contactPhone && ownerPhone === contactPhone) {
+                    const ownerEmail = item.ownerEmail;
+                    
+                    const phoneMatch = contactPhone && ownerPhone === contactPhone;
+                    const emailMatch = contactEmail && ownerEmail === contactEmail;
+                    
+                    if (phoneMatch || emailMatch) {
                         owned.push({ ...item, matchRole: 'OWNER' });
                     }
                 });
