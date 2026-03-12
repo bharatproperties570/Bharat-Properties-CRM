@@ -466,7 +466,7 @@ export const updateDeal = async (req, res) => {
             }
         }
 
-        res.json({ success: true, data: deal });
+        res.json({ success: true, data: deal, deal: deal });
     } catch (error) {
         console.error('Error in updateDeal:', error);
         res.status(500).json({ success: false, error: error.message, message: error.message });

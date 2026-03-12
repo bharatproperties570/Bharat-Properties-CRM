@@ -201,6 +201,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const handleAddOffer = async (newOffer) => {
         try {
             const offerData = {
+                round: (deal.negotiationRounds || []).length + 1,
                 date: newOffer.date,
                 offerBy: newOffer.leadName,
                 buyerOffer: newOffer.amount,

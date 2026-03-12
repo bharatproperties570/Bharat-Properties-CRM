@@ -9,6 +9,7 @@ router.get("/:id", getDealById);
 router.post("/", addDeal);
 router.post("/bulk-delete", bulkDeleteDeals);
 router.put("/:id", updateDeal);
+router.patch("/:id", updateDeal);
 router.post("/:id/close", closeDeal);
 router.delete("/:id", deleteDeal);
 

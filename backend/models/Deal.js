@@ -53,8 +53,12 @@ const DealSchema = new mongoose.Schema({
 
     negotiationRounds: [{
         round: Number,
+        date: { type: Date, default: Date.now },
+        offerBy: String,
         buyerOffer: Number,
         ownerCounter: Number,
+        status: { type: String, default: 'Active' },
+        notes: String,
         adjustment: Number,
         final: Number
     }],
