@@ -132,7 +132,7 @@ const DealSettingsPage = () => {
             // 2. Fetch Registration Charges (formerly Global Settings)
             const globalRes = await api.get('/system-settings', {
                 params: {
-                    category: 'sales_config',
+                    category: 'govt_charges',
                     search: registrationSearch,
                     page: registrationPagination.page,
                     limit: registrationPagination.limit,
@@ -474,57 +474,31 @@ const DealSettingsPage = () => {
         }
     };
 
-    const handleSaveRegistrationCharge = async () => { // Renamed from handleSaveConfig
-        if (!rateForm.configName || !rateForm.stampDuty || !rateForm.registrationFee) {
-            toast.error("Configuration Name, Stamp Duty, and Registration Fee are required.");
-            return;
-        }
+    const handleSaveConfig = async (newConfig) => {
         setSaving(true);
         try {
-            if (editingRegistrationChargeId) {
-                const response = await api.put(`/system-settings/${editingRegistrationChargeId}`, {
-                    value: {
-                        configName: rateForm.configName,
-                        stampDuty: Number(rateForm.stampDuty),
-                        registrationFee: Number(rateForm.registrationFee),
-                        courtFee: Number(rateForm.courtFee),
-                        otherCharges: Number(rateForm.otherCharges),
-                        notes: rateForm.notes
-                    }
-                });
-                if (response.data.status === "success") {
-                    toast.success('Registration charge updated');
+            const configName = newConfig.configName;
+            const key = `govt_charges_${configName.toLowerCase().replace(/\s+/g, '_')}`;
+
+            const payload = {
+                key,
+                category: 'govt_charges',
+                value: {
+                    ...newConfig,
+                    updatedAt: new Date().toISOString()
                 }
-            } else {
-                const response = await api.post('/system-settings/upsert', {
-                    key: `sales_config_${rateForm.configName.toLowerCase().replace(/\s+/g, '_')}`,
-                    category: 'sales_config',
-                    value: {
-                        configName: rateForm.configName,
-                        stampDuty: Number(rateForm.stampDuty),
-                        registrationFee: Number(rateForm.registrationFee),
-                        courtFee: Number(rateForm.courtFee),
-                        otherCharges: Number(rateForm.otherCharges),
-                        notes: rateForm.notes
-                    }
-                });
-                if (response.data.status === "success") {
-                    toast.success('Registration charge saved');
-                }
+            };
+
+            const response = await api.post('/system-settings/upsert', payload);
+
+            if (response.data.status === "success") {
+                toast.success('Configuration saved successfully');
+                setIsConfigModalOpen(false);
+                fetchData();
             }
-            setShowRegistrationChargeModal(false);
-            setEditingRegistrationChargeId(null);
-            setRateForm({
-                state: '', district: '', tehsil: '', location: '', category: '', subCategory: '', rate: '',
-                rateApplyOn: 'Land Area', rateUnit: 'Sq Yard', roadMultipliers: [], floorMultipliers: [],
-                effectiveFrom: '', effectiveTo: '', versionNo: '', configName: '', constructionRateSqFt: '',
-                constructionRateSqYard: '', queuedRates: [], stampDuty: '', registrationFee: '', courtFee: '',
-                otherCharges: '', notes: ''
-            });
-            fetchData();
         } catch (error) {
             console.error(error);
-            toast.error(error.response?.data?.message || "Failed to save registration charge");
+            toast.error("Failed to save configuration");
         } finally {
             setSaving(false);
         }
@@ -1057,10 +1031,9 @@ const DealSettingsPage = () => {
                             <thead>
                                 <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                                     <th style={tableHeaderStyle}>Config Name</th>
-                                    <th style={tableHeaderStyle}>Stamp Duty (%)</th>
-                                    <th style={tableHeaderStyle}>Regis. Fee (%)</th>
-                                    <th style={tableHeaderStyle}>Court Fee</th>
-                                    <th style={tableHeaderStyle}>Other Charges</th>
+                                    <th style={tableHeaderStyle}>Stamp Duty (M/F/J)</th>
+                                    <th style={tableHeaderStyle}>Regis. Fee</th>
+                                    <th style={tableHeaderStyle}>Legal Fees</th>
                                     <th style={tableHeaderStyle}>Last Updated</th>
                                     <th style={{ ...tableHeaderStyle, textAlign: 'right' }}>Actions</th>
                                 </tr>
@@ -1068,27 +1041,28 @@ const DealSettingsPage = () => {
                             <tbody>
                                 {registrationCharges.length === 0 ? (
                                     <tr>
-                                        <td colSpan="7" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
-                                            No registration charges found. Add one to get started.
+                                        <td colSpan="6" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                                            No configuration found. Add one to get started.
                                         </td>
                                     </tr>
                                 ) : (
                                     registrationCharges.map(charge => (
                                         <tr key={charge._id} style={{ transition: 'background 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                                             <td style={tableCellStyle}>
-                                                <div style={{ fontWeight: 600, color: '#1e293b' }}>{charge.value?.configName || 'Unnamed'}</div>
+                                                <div style={{ fontWeight: 600, color: '#1e293b' }}>{charge.key.replace('govt_charges_', '')}</div>
                                             </td>
                                             <td style={tableCellStyle}>
-                                                <div style={{ color: '#475569' }}>{charge.value?.stampDuty}%</div>
+                                                <div style={{ color: '#475569' }}>
+                                                    {charge.value?.stampDutyMale}% / {charge.value?.stampDutyFemale}% / {charge.value?.stampDutyJoint}%
+                                                </div>
                                             </td>
                                             <td style={tableCellStyle}>
-                                                <div style={{ color: '#475569' }}>{charge.value?.registrationFee}%</div>
+                                                <div style={{ color: '#475569' }}>
+                                                    {charge.value?.registrationMode === 'percent' ? `${charge.value?.registrationPercent}%` : 'Slab-based'}
+                                                </div>
                                             </td>
                                             <td style={tableCellStyle}>
-                                                <div style={{ color: '#475569' }}>₹{charge.value?.courtFee?.toLocaleString()}</div>
-                                            </td>
-                                            <td style={tableCellStyle}>
-                                                <div style={{ color: '#475569' }}>₹{charge.value?.otherCharges?.toLocaleString()}</div>
+                                                <div style={{ color: '#475569' }}>₹{charge.value?.legalFees?.toLocaleString()}</div>
                                             </td>
                                             <td style={tableCellStyle}>
                                                 <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{new Date(charge.updatedAt).toLocaleDateString()}</div>
@@ -1097,16 +1071,8 @@ const DealSettingsPage = () => {
                                                 <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                                                     <button
                                                         onClick={() => {
-                                                            setEditingRegistrationChargeId(charge.key);
-                                                            setRateForm({
-                                                                configName: charge.value.configName,
-                                                                stampDuty: charge.value.stampDuty,
-                                                                registrationFee: charge.value.registrationFee,
-                                                                courtFee: charge.value.courtFee,
-                                                                otherCharges: charge.value.otherCharges,
-                                                                notes: charge.value.notes
-                                                            });
-                                                            setShowRegistrationChargeModal(true);
+                                                            setConfig(charge.value);
+                                                            setIsConfigModalOpen(true);
                                                         }}
                                                         style={{ background: '#f1f5f9', color: '#475569', border: 'none', width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                                                         title="Edit"
@@ -1484,99 +1450,14 @@ const DealSettingsPage = () => {
                 </div>
             )}
 
-            {showRegistrationChargeModal && (
-                <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', zIndex: 1100, display: 'flex', justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(4px)' }}>
-                    <div style={{ background: '#fff', width: '90%', maxWidth: '600px', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
-                        <div style={{ padding: '24px 32px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                <div style={{ width: '42px', height: '42px', background: '#eff6ff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <i className="fas fa-file-invoice-dollar" style={{ color: '#2563eb', fontSize: '1.2rem' }}></i>
-                                </div>
-                                <div>
-                                    <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#1e293b' }}>
-                                        {editingRegistrationChargeId ? 'Edit Registration Charge' : 'Add Registration Charge'}
-                                    </h2>
-                                    <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#64748b' }}>Configure stamp duty and registration fees</p>
-                                </div>
-                            </div>
-                            <button onClick={() => setShowRegistrationChargeModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '1.2rem' }}>
-                                <i className="fas fa-times"></i>
-                            </button>
-                        </div>
-
-                        <div style={{ padding: '32px' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                                <div>
-                                    <label style={labelStyle}>Configuration Name</label>
-                                    <input
-                                        type="text"
-                                        style={inputStyle}
-                                        value={rateForm.configName}
-                                        onChange={e => setRateForm({ ...rateForm, configName: e.target.value })}
-                                        placeholder="e.g. Standard, Premium"
-                                    />
-                                </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                    <div>
-                                        <label style={labelStyle}>Stamp Duty (%)</label>
-                                        <input
-                                            type="number"
-                                            style={inputStyle}
-                                            value={rateForm.stampDuty}
-                                            onChange={e => setRateForm({ ...rateForm, stampDuty: e.target.value })}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label style={labelStyle}>Registration Fee (%)</label>
-                                        <input
-                                            type="number"
-                                            style={inputStyle}
-                                            value={rateForm.registrationFee}
-                                            onChange={e => setRateForm({ ...rateForm, registrationFee: e.target.value })}
-                                        />
-                                    </div>
-                                </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                    <div>
-                                        <label style={labelStyle}>Court Fee</label>
-                                        <input
-                                            type="number"
-                                            style={inputStyle}
-                                            value={rateForm.courtFee}
-                                            onChange={e => setRateForm({ ...rateForm, courtFee: e.target.value })}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label style={labelStyle}>Other Charges</label>
-                                        <input
-                                            type="number"
-                                            style={inputStyle}
-                                            value={rateForm.otherCharges}
-                                            onChange={e => setRateForm({ ...rateForm, otherCharges: e.target.value })}
-                                        />
-                                    </div>
-                                </div>
-                                <div>
-                                    <label style={labelStyle}>Notes</label>
-                                    <textarea
-                                        style={{ ...inputStyle, minHeight: '80px', paddingTop: '10px' }}
-                                        value={rateForm.notes}
-                                        onChange={e => setRateForm({ ...rateForm, notes: e.target.value })}
-                                        placeholder="Any additional information..."
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        <div style={{ padding: '24px 32px', background: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                            <button onClick={() => setShowRegistrationChargeModal(false)} style={btnOutlineStyle}>Cancel</button>
-                            <button onClick={handleSaveRegistrationCharge} style={btnPrimaryStyle} disabled={saving}>
-                                {saving ? <span className="loader-sm"></span> : (editingRegistrationChargeId ? 'Update Charge' : 'Save Charge')}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* Global Config Modal */}
+            <CreateGlobalConfigModal
+                isOpen={isConfigModalOpen}
+                onClose={() => setIsConfigModalOpen(false)}
+                onSave={handleSaveConfig}
+                initialConfig={config}
+                saving={saving}
+            />
 
             <style>{`
                 @keyframes slideUp {
