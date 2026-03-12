@@ -256,7 +256,7 @@ export const getPublicInventoryUnits = async (req, res, next) => {
 };
 export const getPublicRelations = async (req, res, next) => {
     try {
-        const relations = await Lookup.find({ lookup_type: 'Relation', is_active: true });
+        const relations = await Lookup.find({ lookup_type: 'Relation', isActive: true });
         res.json({ success: true, data: relations.map(r => r.lookup_value).sort() });
     } catch (error) {
         next(error);

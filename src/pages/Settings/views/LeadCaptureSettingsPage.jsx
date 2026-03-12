@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { api } from '../../../utils/api';
 import { toast } from 'react-hot-toast';
 import LeadFormBuilder from '../../../components/LeadFormBuilder/LeadFormBuilder';
 
@@ -17,7 +17,7 @@ const LeadCaptureSettingsPage = () => {
     const fetchForms = async () => {
         try {
             setIsLoading(true);
-            const response = await axios.get('/api/lead-forms');
+            const response = await api.get('/lead-forms');
             setForms(response.data.data);
         } catch (error) {
             toast.error('Failed to fetch lead forms');
@@ -39,7 +39,7 @@ const LeadCaptureSettingsPage = () => {
     const handleDelete = async (id) => {
         if (!window.confirm('Are you sure you want to delete this form?')) return;
         try {
-            await axios.delete(`/api/lead-forms/${id}`);
+            await api.delete(`/lead-forms/${id}`);
             toast.success('Form deleted');
             fetchForms();
         } catch (error) {
@@ -118,6 +118,13 @@ const LeadCaptureSettingsPage = () => {
                                             <button onClick={() => { setSelectedForm(form); setShowEmbedModal(true); }} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }} title="Embed Code">
                                                 <i className="fas fa-code"></i>
                                             </button>
+                                            <button onClick={() => {
+                                                const url = window.location.origin + '/public/form/' + form.slug;
+                                                navigator.clipboard.writeText(url);
+                                                toast.success('Public URL copied!');
+                                            }} style={{ background: 'none', border: 'none', color: 'var(--primary-color)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }} title="Copy Link">
+                                                <i className="fas fa-link"></i> Copy Link
+                                            </button>
                                             <button onClick={() => window.open(`/public/form/${form.slug}`, '_blank')} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }} title="Public View">
                                                 <i className="fas fa-external-link-alt"></i>
                                             </button>
@@ -125,7 +132,7 @@ const LeadCaptureSettingsPage = () => {
                                     </div>
 
                                     <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>{form.name}</h3>
-                                    <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px' }}>/{form.slug}</p>
+                                    <p style={{ fontSize: '0.85rem', color: 'var(--primary-color)', fontWeight: 600, marginTop: '4px', background: '#f0fdf4', padding: '4px 10px', borderRadius: '6px', display: 'inline-block' }}>/public/form/{form.slug}</p>
 
                                     {/* Stats Grid */}
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginTop: '24px', padding: '16px', background: '#f8fafc', borderRadius: '12px' }}>

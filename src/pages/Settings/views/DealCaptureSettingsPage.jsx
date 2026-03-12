@@ -118,14 +118,21 @@ const DealCaptureSettingsPage = () => {
                                             <button onClick={() => { setSelectedForm(form); setShowEmbedModal(true); }} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }} title="Embed Code">
                                                 <i className="fas fa-code"></i>
                                             </button>
-                                            <button onClick={() => window.open(`/public/deal/${form.slug}`, '_blank')} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }} title="Public View">
+                                            <button onClick={() => {
+                                                const url = window.location.origin + '/capture/' + form.slug;
+                                                navigator.clipboard.writeText(url);
+                                                toast.success('Public URL copied!');
+                                            }} style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }} title="Copy Link">
+                                                <i className="fas fa-link"></i> Copy Link
+                                            </button>
+                                            <button onClick={() => window.open(`/capture/${form.slug}`, '_blank')} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }} title="Public View">
                                                 <i className="fas fa-external-link-alt"></i>
                                             </button>
                                         </div>
                                     </div>
 
                                     <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>{form.name}</h3>
-                                    <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px' }}>/public/deal/{form.slug}</p>
+                                    <p style={{ fontSize: '0.85rem', color: '#3b82f6', fontWeight: 600, marginTop: '4px', background: '#eff6ff', padding: '4px 10px', borderRadius: '6px', display: 'inline-block' }}>/capture/{form.slug}</p>
 
                                     {/* Stats Grid */}
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginTop: '24px', padding: '16px', background: '#f8fafc', borderRadius: '12px' }}>
