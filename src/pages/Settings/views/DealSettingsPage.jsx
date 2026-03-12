@@ -46,7 +46,7 @@ const DealSettingsPage = () => {
     });
 
     const [activeTab, setActiveTab] = useState('collector'); // 'collector' or 'global'
-    const [globalConfigs, setGlobalConfigs] = useState([]);
+    const [registrationCharges, setRegistrationCharges] = useState([]);
 
     // Collector Rate Data State (for Form)
     const [rateForm, setRateForm] = useState({
@@ -82,41 +82,36 @@ const DealSettingsPage = () => {
     const [collectorSearch, setCollectorSearch] = useState('');
     const [collectorPagination, setCollectorPagination] = useState({ page: 1, limit: 10, totalPages: 1, totalDocs: 0 });
 
-    const [globalSearch, setGlobalSearch] = useState('');
-    const [globalPagination, setGlobalPagination] = useState({ page: 1, limit: 10, totalPages: 1, totalDocs: 0 });
+    const [registrationSearch, setRegistrationSearch] = useState(''); // Renamed from globalSearch
+    const [registrationPagination, setRegistrationPagination] = useState({ page: 1, limit: 10, totalDocs: 0, totalPages: 1 }); // Renamed from globalPagination
+
+    // --- Advanced Filtering State ---
+    const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+    const [collectorFilters, setCollectorFilters] = useState({
+        state: '',
+        district: '',
+        tehsil: '',
+        location: '',
+        category: '',
+        subCategory: ''
+    });
+    const [registrationFilters, setRegistrationFilters] = useState({ // Renamed from globalFilters
+        configName: ''
+    });
+
+    const [showRegistrationChargeModal, setShowRegistrationChargeModal] = useState(false);
+    const [editingRegistrationChargeId, setEditingRegistrationChargeId] = useState(null);
 
     // --- Fetch Data ---
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            // 1. Fetch Global Configs
-            const configParams = new URLSearchParams({
-                category: 'govt_charges_config',
-                page: globalPagination.page,
-                limit: globalPagination.limit,
-                search: globalSearch
-            });
-            const configRes = await api.get(`/system-settings?${configParams.toString()}`);
-            if (configRes.data?.status === 'success') {
-                const result = configRes.data.data;
-                // result might be an array (old) or object with docs (new)
-                const docs = Array.isArray(result) ? result : (result.docs || []);
-                setGlobalConfigs(docs);
-                if (result.totalPages) {
-                    setGlobalPagination(prev => ({ ...prev, totalPages: result.totalPages, totalDocs: result.totalDocs }));
-                }
-
-                if (docs.length > 0 && !config.key) {
-                    setConfig(prev => ({ ...prev, ...docs[0].value }));
-                }
-            }
-
-            // 2. Fetch Collector Rates
-            console.log("Fetching Collector Rates...");
+            // 1. Fetch Collector Rates
             const rateParams = new URLSearchParams({
                 page: collectorPagination.page,
                 limit: collectorPagination.limit,
-                search: collectorSearch
+                search: collectorSearch,
+                ...collectorFilters
             });
             const ratesRes = await api.get(`/collector-rates?${rateParams.toString()}`);
             console.log("Collector Rates Response:", ratesRes);
@@ -134,6 +129,29 @@ const DealSettingsPage = () => {
                 toast.error("Failed to load Collector Rates: " + (ratesRes.data?.message || "Unknown error"));
             }
 
+            // 2. Fetch Registration Charges (formerly Global Settings)
+            const globalRes = await api.get('/system-settings', {
+                params: {
+                    category: 'sales_config',
+                    search: registrationSearch,
+                    page: registrationPagination.page,
+                    limit: registrationPagination.limit,
+                    configName: registrationFilters.configName
+                }
+            });
+            if (globalRes.data?.status === "success") {
+                setRegistrationCharges(globalRes.data.docs || []);
+                setRegistrationPagination(prev => ({
+                    ...prev,
+                    totalDocs: globalRes.data.totalDocs,
+                    totalPages: globalRes.data.totalPages
+                }));
+            } else {
+                console.error("Registration Charges API failed:", globalRes);
+                toast.error("Failed to load Registration Charges: " + (globalRes.data?.message || "Unknown error"));
+            }
+
+
         } catch (error) {
             console.error("DealSettingsPage Error:", error);
             console.error("Error Details:", error.response || error.message);
@@ -141,7 +159,7 @@ const DealSettingsPage = () => {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [collectorPagination.page, collectorPagination.limit, collectorSearch, collectorFilters, registrationPagination.page, registrationPagination.limit, registrationSearch, registrationFilters]);
 
     // Initial Load & States
     useEffect(() => {
@@ -156,24 +174,27 @@ const DealSettingsPage = () => {
         } catch (e) { console.error(e); }
     };
 
-    // Dependent Lookups
+    // Dependent Lookups for Form & Filters
     useEffect(() => {
-        if (rateForm.state) {
-            fetchDistricts(rateForm.state);
+        const stateId = rateForm.state || collectorFilters.state;
+        if (stateId) {
+            fetchDistricts(stateId);
         } else {
             setDistricts([]);
             setTehsils([]);
+            setLocations([]);
         }
-    }, [rateForm.state]);
+    }, [rateForm.state, collectorFilters.state]);
 
     useEffect(() => {
-        if (rateForm.district) {
-            fetchTehsilsAndLocations(rateForm.district);
+        const districtId = rateForm.district || collectorFilters.district;
+        if (districtId) {
+            fetchTehsilsAndLocations(districtId);
         } else {
             setTehsils([]);
             setLocations([]);
         }
-    }, [rateForm.district]);
+    }, [rateForm.district, collectorFilters.district]);
 
     // Search & Pagination Logic
     useEffect(() => {
@@ -181,7 +202,29 @@ const DealSettingsPage = () => {
             fetchData();
         }, 500);
         return () => clearTimeout(timer);
-    }, [collectorSearch, collectorPagination.page, collectorPagination.limit, globalSearch, globalPagination.page, globalPagination.limit, fetchData]);
+    }, [fetchData, collectorPagination.page, collectorPagination.limit, registrationPagination.page, registrationPagination.limit, collectorSearch, registrationSearch, collectorFilters, registrationFilters]);
+
+    // --- Filter Handlers ---
+    const handleCollectorFilterChange = (field, value) => {
+        setCollectorFilters(prev => ({ ...prev, [field]: value }));
+        setCollectorPagination(prev => ({ ...prev, page: 1 }));
+    };
+
+    const handleRegistrationFilterChange = (field, value) => { // Renamed from handleGlobalFilterChange
+        setRegistrationFilters(prev => ({ ...prev, [field]: value }));
+        setRegistrationPagination(prev => ({ ...prev, page: 1 }));
+    };
+
+    const clearFilters = () => {
+        if (activeTab === 'collector') {
+            setCollectorFilters({ state: '', district: '', tehsil: '', location: '', category: '', subCategory: '' });
+            setCollectorSearch('');
+        } else {
+            setRegistrationFilters({ configName: '' }); // Renamed from globalFilters
+            setRegistrationSearch(''); // Renamed from globalSearch
+        }
+        setIsFilterPanelOpen(false);
+    };
 
     // Reset page on search or tab change
     useEffect(() => {
@@ -189,8 +232,8 @@ const DealSettingsPage = () => {
     }, [collectorSearch]);
 
     useEffect(() => {
-        setGlobalPagination(prev => ({ ...prev, page: 1 }));
-    }, [globalSearch]);
+        setRegistrationPagination(prev => ({ ...prev, page: 1 })); // Renamed from setGlobalPagination
+    }, [registrationSearch]); // Renamed from globalSearch
 
     const fetchDistricts = async (stateId) => {
         try {
@@ -415,7 +458,12 @@ const DealSettingsPage = () => {
                 configName: '',
                 constructionRateSqFt: '',
                 constructionRateSqYard: '',
-                queuedRates: []
+                queuedRates: [],
+                stampDuty: '',
+                registrationFee: '',
+                courtFee: '',
+                otherCharges: '',
+                notes: ''
             });
         } catch (error) {
             console.error('Error saving rates:', error);
@@ -425,35 +473,67 @@ const DealSettingsPage = () => {
         }
     };
 
-    const handleSaveConfig = async (newConfig) => {
-        if (!newConfig.configName) {
-            toast.error("Configuration name is required");
+    const handleSaveRegistrationCharge = async () => { // Renamed from handleSaveConfig
+        if (!rateForm.configName || !rateForm.stampDuty || !rateForm.registrationFee) {
+            toast.error("Configuration Name, Stamp Duty, and Registration Fee are required.");
             return;
         }
         setSaving(true);
         try {
-            const configKey = `govt_charges_${newConfig.configName.replace(/\s+/g, '_').toLowerCase()}`;
-            await api.post('/system-settings/upsert', {
-                key: configKey,
-                category: 'govt_charges_config',
-                value: newConfig
+            if (editingRegistrationChargeId) {
+                const response = await api.put(`/system-settings/${editingRegistrationChargeId}`, {
+                    value: {
+                        configName: rateForm.configName,
+                        stampDuty: Number(rateForm.stampDuty),
+                        registrationFee: Number(rateForm.registrationFee),
+                        courtFee: Number(rateForm.courtFee),
+                        otherCharges: Number(rateForm.otherCharges),
+                        notes: rateForm.notes
+                    }
+                });
+                if (response.data.status === "success") {
+                    toast.success('Registration charge updated');
+                }
+            } else {
+                const response = await api.post('/system-settings/upsert', {
+                    key: `sales_config_${rateForm.configName.toLowerCase().replace(/\s+/g, '_')}`,
+                    category: 'sales_config',
+                    value: {
+                        configName: rateForm.configName,
+                        stampDuty: Number(rateForm.stampDuty),
+                        registrationFee: Number(rateForm.registrationFee),
+                        courtFee: Number(rateForm.courtFee),
+                        otherCharges: Number(rateForm.otherCharges),
+                        notes: rateForm.notes
+                    }
+                });
+                if (response.data.status === "success") {
+                    toast.success('Registration charge saved');
+                }
+            }
+            setShowRegistrationChargeModal(false);
+            setEditingRegistrationChargeId(null);
+            setRateForm({
+                state: '', district: '', tehsil: '', location: '', category: '', subCategory: '', rate: '',
+                rateApplyOn: 'Land Area', rateUnit: 'Sq Yard', roadMultipliers: [], floorMultipliers: [],
+                effectiveFrom: '', effectiveTo: '', versionNo: '', configName: '', constructionRateSqFt: '',
+                constructionRateSqYard: '', queuedRates: [], stampDuty: '', registrationFee: '', courtFee: '',
+                otherCharges: '', notes: ''
             });
-            setIsConfigModalOpen(false);
-            toast.success("Global Configuration Saved!");
             fetchData();
         } catch (error) {
             console.error(error);
-            toast.error("Failed to update configuration");
+            toast.error(error.response?.data?.message || "Failed to save registration charge");
         } finally {
             setSaving(false);
         }
     };
 
-    const handleDeleteConfig = async (key) => {
-        if (!window.confirm("Delete this configuration?")) return;
+    const handleDeleteRegistrationCharge = async (key) => { // Renamed from handleDeleteConfig
+        if (!window.confirm("Delete this registration charge?")) return;
         try {
             await api.delete(`/system-settings/${key}`);
-            toast.success("Configuration deleted");
+            toast.success("Registration charge deleted");
             fetchData();
         } catch (e) {
             toast.error("Failed to delete");
@@ -560,10 +640,94 @@ const DealSettingsPage = () => {
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                 <div>
-                    <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Deal Settings</h1>
+                    <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Govt. Charges Configuration</h1>
                     <p style={{ fontSize: '0.9rem', color: '#64748b', marginTop: '4px' }}>Manage financial configurations and collector rates</p>
                 </div>
             </div>
+
+            {/* Filter Side Panel */}
+            {isFilterPanelOpen && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.4)', zIndex: 2000, display: 'flex', justifyContent: 'flex-end', backdropFilter: 'blur(2px)' }}>
+                    <div style={{ width: '380px', background: '#fff', height: '100%', boxShadow: '-4px 0 25px rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column', animation: 'slideInRight 0.3s ease-out' }}>
+                        <div style={{ padding: '24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Advanced Filters</h2>
+                            <button onClick={() => setIsFilterPanelOpen(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                                <i className="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        <div style={{ padding: '24px', flex: 1, overflowY: 'auto' }}>
+                            {activeTab === 'collector' ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                    <div>
+                                        <label style={labelStyle}>State</label>
+                                        <select style={selectStyle} value={collectorFilters.state} onChange={e => handleCollectorFilterChange('state', e.target.value)}>
+                                            <option value="">All States</option>
+                                            {states.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={labelStyle}>District</label>
+                                        <select style={selectStyle} value={collectorFilters.district} onChange={e => handleCollectorFilterChange('district', e.target.value)} disabled={!collectorFilters.state}>
+                                            <option value="">All Districts</option>
+                                            {districts.map(d => <option key={d._id} value={d._id}>{d.lookup_value}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={labelStyle}>Tehsil</label>
+                                        <select style={selectStyle} value={collectorFilters.tehsil} onChange={e => handleCollectorFilterChange('tehsil', e.target.value)} disabled={!collectorFilters.district}>
+                                            <option value="">All Tehsils</option>
+                                            {tehsils.map(t => <option key={t._id} value={t._id}>{t.lookup_value}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={labelStyle}>Location</label>
+                                        <select style={selectStyle} value={collectorFilters.location} onChange={e => handleCollectorFilterChange('location', e.target.value)} disabled={!collectorFilters.tehsil}>
+                                            <option value="">All Locations</option>
+                                            {locations.map(l => <option key={l._id} value={l._id}>{l.lookup_value}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={labelStyle}>Category</label>
+                                        <select style={selectStyle} value={collectorFilters.category} onChange={e => handleCollectorFilterChange('category', e.target.value)}>
+                                            <option value="">All Categories</option>
+                                            {Object.keys(PROPERTY_CATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={labelStyle}>Sub Category</label>
+                                        <input
+                                            type="text"
+                                            style={selectStyle}
+                                            placeholder="Filter sub category..."
+                                            value={collectorFilters.subCategory}
+                                            onChange={e => handleCollectorFilterChange('subCategory', e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                    <div>
+                                        <label style={labelStyle}>Configuration Name</label>
+                                        <input
+                                            type="text"
+                                            style={selectStyle}
+                                            placeholder="Search by name..."
+                                            value={registrationFilters.configName} // Renamed from globalFilters
+                                            onChange={e => handleRegistrationFilterChange('configName', e.target.value)} // Renamed from handleGlobalFilterChange
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{ padding: '24px', borderTop: '1px solid #f1f5f9', display: 'flex', gap: '12px' }}>
+                            <button onClick={clearFilters} style={{ ...btnOutlineStyle, flex: 1, height: '42px' }}>Clear All</button>
+                            <button onClick={() => setIsFilterPanelOpen(false)} style={{ ...btnPrimaryStyle, flex: 1, height: '42px' }}>Apply Filters</button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Collector Rates Section (First) */}
             <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '32px' }}>
@@ -585,7 +749,7 @@ const DealSettingsPage = () => {
                                     transition: 'all 0.2s'
                                 }}
                             >
-                                Collector Rates
+                                Govt. Charges
                             </button>
                             <button
                                 onClick={() => setActiveTab('global')}
@@ -602,43 +766,97 @@ const DealSettingsPage = () => {
                                     transition: 'all 0.2s'
                                 }}
                             >
-                                Global Configuration
+                                Registration Charges
                             </button>
                         </div>
                         <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '2px' }}>
-                            {activeTab === 'collector' ? 'Manage government circle rates based on location' : 'Manage global financial configurations and standard rates'}
+                            {activeTab === 'collector' ? 'Manage government circle rates and charges based on location' : 'Manage global financial configurations and standard registration charges'}
                         </p>
                     </div>
+                </div>
+
+                {/* Sub-Header: Search & Add Row */}
+                <div style={{ padding: '16px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px' }}>
+                    {/* Search Bar (Left) */}
+                    <div style={{ position: 'relative', flex: 1, maxWidth: '500px' }}>
+                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.8rem' }}></i>
+                        <input
+                            type="text"
+                            placeholder={`Search ${activeTab === 'collector' ? 'by Category, SubCategory or Config...' : 'by Config Name...'}`}
+                            style={{
+                                padding: '10px 12px 10px 36px',
+                                borderRadius: '10px',
+                                border: '1px solid #e2e8f0',
+                                fontSize: '0.85rem',
+                                width: '100%',
+                                outline: 'none',
+                                transition: 'all 0.2s'
+                            }}
+                            value={activeTab === 'collector' ? collectorSearch : registrationSearch}
+                            onChange={e => activeTab === 'collector' ? setCollectorSearch(e.target.value) : setRegistrationSearch(e.target.value)}
+                            onFocus={e => { e.target.style.borderColor = '#2563eb'; e.target.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.1)'; }}
+                            onBlur={e => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
+                        />
+                    </div>
+
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        {/* Search Bar */}
-                        <div style={{ position: 'relative' }}>
-                            <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.8rem' }}></i>
-                            <input
-                                type="text"
-                                placeholder="Search..."
-                                autoFocus
-                                style={{
-                                    padding: '8px 12px 8px 32px',
-                                    borderRadius: '8px',
-                                    border: '1px solid #cbd5e1',
-                                    fontSize: '0.85rem',
-                                    width: '200px',
-                                    outline: 'none'
-                                }}
-                                value={activeTab === 'collector' ? collectorSearch : globalSearch}
-                                onChange={e => activeTab === 'collector' ? setCollectorSearch(e.target.value) : setGlobalSearch(e.target.value)}
-                                onFocus={e => e.target.style.borderColor = '#2563eb'}
-                                onBlur={e => e.target.style.borderColor = '#cbd5e1'}
-                            />
+                        {/* Pagination Summary */}
+                        <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
+                            {activeTab === 'collector' ? (
+                                <span>Total: <b>{collectorPagination.totalDocs}</b> Rates</span>
+                            ) : (
+                                <span>Total: <b>{registrationPagination.totalDocs}</b> Configs</span>
+                            )}
                         </div>
 
+                        {/* Add Button (Icon) */}
                         {activeTab === 'global' ? (
-                            <button onClick={() => { setConfig({ configName: '', stampDutyMale: 7, stampDutyFemale: 5, stampDutyJoint: 6, registrationPercent: 1, registrationMode: 'percent', registrationSlabs: [], legalFees: 15000 }); setIsConfigModalOpen(true); }} style={btnPrimaryStyle}>
-                                <i className="fas fa-plus"></i> Add Global Config
+                            <button
+                                onClick={() => {
+                                    setEditingRegistrationChargeId(null);
+                                    setRateForm({
+                                        configName: '', stampDuty: '', registrationFee: '', courtFee: '', otherCharges: '', notes: ''
+                                    });
+                                    setShowRegistrationChargeModal(true);
+                                }}
+                                style={{
+                                    width: '38px',
+                                    height: '38px',
+                                    borderRadius: '10px',
+                                    border: 'none',
+                                    background: '#2563eb',
+                                    color: '#fff',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    transition: 'all 0.2s',
+                                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)'
+                                }}
+                                title="Add Registration Charge"
+                            >
+                                <i className="fas fa-plus"></i>
                             </button>
                         ) : (
-                            <button onClick={() => setViewMode('add')} style={btnPrimaryStyle}>
-                                <i className="fas fa-plus"></i> Add New Rate
+                            <button
+                                onClick={() => setViewMode('add')}
+                                style={{
+                                    width: '38px',
+                                    height: '38px',
+                                    borderRadius: '10px',
+                                    border: 'none',
+                                    background: '#2563eb',
+                                    color: '#fff',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    transition: 'all 0.2s',
+                                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)'
+                                }}
+                                title="Add Govt. Charge"
+                            >
+                                <i className="fas fa-plus"></i>
                             </button>
                         )}
                     </div>
@@ -734,50 +952,68 @@ const DealSettingsPage = () => {
                     ) : (
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
-                                <tr>
+                                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                                     <th style={tableHeaderStyle}>Config Name</th>
-                                    <th style={tableHeaderStyle}>Stamp Duty (M/F/J)</th>
+                                    <th style={tableHeaderStyle}>Stamp Duty (%)</th>
+                                    <th style={tableHeaderStyle}>Regis. Fee (%)</th>
+                                    <th style={tableHeaderStyle}>Court Fee</th>
+                                    <th style={tableHeaderStyle}>Other Charges</th>
+                                    <th style={tableHeaderStyle}>Last Updated</th>
                                     <th style={{ ...tableHeaderStyle, textAlign: 'right' }}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {globalConfigs.length === 0 ? (
+                                {registrationCharges.length === 0 ? (
                                     <tr>
-                                        <td colSpan="4" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
-                                            No global configurations found.
+                                        <td colSpan="7" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                                            No registration charges found. Add one to get started.
                                         </td>
                                     </tr>
                                 ) : (
-                                    globalConfigs.map((cfg) => (
-                                        <tr key={cfg._id} style={{ transition: 'background 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                                    registrationCharges.map(charge => (
+                                        <tr key={charge._id} style={{ transition: 'background 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                                             <td style={tableCellStyle}>
-                                                <div style={{ fontWeight: 600, color: '#1e293b' }}>{cfg.value?.configName || 'Unnamed Config'}</div>
-                                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{new Date(cfg.updatedAt).toLocaleDateString()}</div>
+                                                <div style={{ fontWeight: 600, color: '#1e293b' }}>{charge.value?.configName || 'Unnamed'}</div>
                                             </td>
                                             <td style={tableCellStyle}>
-                                                <div style={{ display: 'flex', gap: '8px' }}>
-                                                    <span title="Male" style={{ background: '#dbeafe', color: '#1e40af', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem' }}>{cfg.value?.stampDutyMale}%</span>
-                                                    <span title="Female" style={{ background: '#fce7f3', color: '#9d174d', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem' }}>{cfg.value?.stampDutyFemale}%</span>
-                                                    <span title="Joint" style={{ background: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem' }}>{cfg.value?.stampDutyJoint}%</span>
-                                                </div>
+                                                <div style={{ color: '#475569' }}>{charge.value?.stampDuty}%</div>
+                                            </td>
+                                            <td style={tableCellStyle}>
+                                                <div style={{ color: '#475569' }}>{charge.value?.registrationFee}%</div>
+                                            </td>
+                                            <td style={tableCellStyle}>
+                                                <div style={{ color: '#475569' }}>₹{charge.value?.courtFee?.toLocaleString()}</div>
+                                            </td>
+                                            <td style={tableCellStyle}>
+                                                <div style={{ color: '#475569' }}>₹{charge.value?.otherCharges?.toLocaleString()}</div>
+                                            </td>
+                                            <td style={tableCellStyle}>
+                                                <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{new Date(charge.updatedAt).toLocaleDateString()}</div>
                                             </td>
                                             <td style={{ ...tableCellStyle, textAlign: 'right' }}>
                                                 <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                                                     <button
                                                         onClick={() => {
-                                                            const { coveredAreaPriceSqYds, coveredAreaPriceSqFt, ...restConfig } = cfg.value;
-                                                            setConfig(restConfig);
-                                                            setIsConfigModalOpen(true);
+                                                            setEditingRegistrationChargeId(charge.key);
+                                                            setRateForm({
+                                                                configName: charge.value.configName,
+                                                                stampDuty: charge.value.stampDuty,
+                                                                registrationFee: charge.value.registrationFee,
+                                                                courtFee: charge.value.courtFee,
+                                                                otherCharges: charge.value.otherCharges,
+                                                                notes: charge.value.notes
+                                                            });
+                                                            setShowRegistrationChargeModal(true);
                                                         }}
                                                         style={{ background: '#f1f5f9', color: '#475569', border: 'none', width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                                                        title="Edit Config"
+                                                        title="Edit"
                                                     >
                                                         <i className="fas fa-edit" style={{ fontSize: '0.8rem' }}></i>
                                                     </button>
                                                     <button
-                                                        onClick={() => handleDeleteConfig(cfg.key)}
+                                                        onClick={() => handleDeleteRegistrationCharge(charge.key)}
                                                         style={{ background: '#fee2e2', color: '#ef4444', border: 'none', width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                                                        title="Delete Config"
+                                                        title="Delete"
                                                     >
                                                         <i className="fas fa-trash-alt" style={{ fontSize: '0.8rem' }}></i>
                                                     </button>
@@ -794,26 +1030,33 @@ const DealSettingsPage = () => {
                 {/* Pagination Controls */}
                 <div style={{ padding: '16px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                        <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                            Showing <b>{activeTab === 'collector' ? collectorRates.length : globalConfigs.length}</b> records
+                        <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
                             {activeTab === 'collector' ? (
-                                collectorPagination.totalDocs > 0 && ` of ${collectorPagination.totalDocs}`
+                                collectorPagination.totalDocs > 0 ? (
+                                    <span>
+                                        Showing <b>{(collectorPagination.page - 1) * collectorPagination.limit + 1}</b> to <b>{Math.min(collectorPagination.page * collectorPagination.limit, collectorPagination.totalDocs)}</b> of <b>{collectorPagination.totalDocs}</b> records
+                                    </span>
+                                ) : "No records found"
                             ) : (
-                                globalPagination.totalDocs > 0 && ` of ${globalPagination.totalDocs}`
+                                registrationPagination.totalDocs > 0 ? (
+                                    <span>
+                                        Showing <b>{(registrationPagination.page - 1) * registrationPagination.limit + 1}</b> to <b>{Math.min(registrationPagination.page * registrationPagination.limit, registrationPagination.totalDocs)}</b> of <b>{registrationPagination.totalDocs}</b> records
+                                    </span>
+                                ) : "No records found"
                             )}
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 12px', background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>Show:</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8' }}>Rows per page:</span>
                             <select
                                 style={{ border: 'none', background: 'transparent', fontSize: '0.8rem', fontWeight: 700, color: '#1e293b', outline: 'none', cursor: 'pointer' }}
-                                value={activeTab === 'collector' ? collectorPagination.limit : globalPagination.limit}
+                                value={activeTab === 'collector' ? collectorPagination.limit : registrationPagination.limit}
                                 onChange={(e) => {
                                     const val = parseInt(e.target.value);
                                     if (activeTab === 'collector') {
                                         setCollectorPagination(prev => ({ ...prev, limit: val, page: 1 }));
                                     } else {
-                                        setGlobalPagination(prev => ({ ...prev, limit: val, page: 1 }));
+                                        setRegistrationPagination(prev => ({ ...prev, limit: val, page: 1 }));
                                     }
                                 }}
                             >
@@ -825,33 +1068,127 @@ const DealSettingsPage = () => {
                         </div>
                     </div>
 
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                            disabled={(activeTab === 'collector' ? collectorPagination.page : globalPagination.page) <= 1}
-                            onClick={() => (activeTab === 'collector' ? setCollectorPagination : setGlobalPagination)(prev => ({ ...prev, page: prev.page - 1 }))}
-                            style={{ ...btnOutlineStyle, padding: '6px 12px', fontSize: '0.8rem', opacity: ((activeTab === 'collector' ? collectorPagination.page : globalPagination.page) <= 1) ? 0.5 : 1 }}
-                        >
-                            Previous
-                        </button>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '0 8px' }}>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>
-                                {activeTab === 'collector' ? collectorPagination.page : globalPagination.page}
-                            </span>
-                            <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>/</span>
-                            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                                {activeTab === 'collector' ? collectorPagination.totalPages : globalPagination.totalPages}
-                            </span>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                                disabled={(activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1}
+                                onClick={() => (activeTab === 'collector' ? setCollectorPagination : setRegistrationPagination)(prev => ({ ...prev, page: 1 }))}
+                                style={{
+                                    ...btnOutlineStyle,
+                                    width: '36px',
+                                    height: '36px',
+                                    padding: 0,
+                                    borderRadius: '8px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    opacity: ((activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1) ? 0.4 : 1,
+                                    cursor: ((activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1) ? 'not-allowed' : 'pointer'
+                                }}
+                                title="First Page"
+                            >
+                                <i className="fas fa-angle-double-left" style={{ fontSize: '0.75rem' }}></i>
+                            </button>
+
+                            <button
+                                disabled={(activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1}
+                                onClick={() => (activeTab === 'collector' ? setCollectorPagination : setRegistrationPagination)(prev => ({ ...prev, page: prev.page - 1 }))}
+                                style={{
+                                    ...btnOutlineStyle,
+                                    width: '36px',
+                                    height: '36px',
+                                    padding: 0,
+                                    borderRadius: '8px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    opacity: ((activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1) ? 0.4 : 1,
+                                    cursor: ((activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1) ? 'not-allowed' : 'pointer'
+                                }}
+                                title="Previous Page"
+                            >
+                                <i className="fas fa-chevron-left" style={{ fontSize: '0.75rem' }}></i>
+                            </button>
+                            
+                            <div style={{ display: 'flex', alignItems: 'center', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0 12px', height: '36px' }}>
+                                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>
+                                    {activeTab === 'collector' ? collectorPagination.page : registrationPagination.page}
+                                </span>
+                                <span style={{ fontSize: '0.85rem', color: '#94a3b8', margin: '0 6px' }}>of</span>
+                                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>
+                                    {activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages}
+                                </span>
+                            </div>
+
+                            <button
+                                disabled={(activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages)}
+                                onClick={() => (activeTab === 'collector' ? setCollectorPagination : setRegistrationPagination)(prev => ({ ...prev, page: prev.page + 1 }))}
+                                style={{
+                                    ...btnOutlineStyle,
+                                    width: '36px',
+                                    height: '36px',
+                                    padding: 0,
+                                    borderRadius: '8px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    opacity: ((activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages)) ? 0.4 : 1,
+                                    cursor: ((activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages)) ? 'not-allowed' : 'pointer'
+                                }}
+                                title="Next Page"
+                            >
+                                <i className="fas fa-chevron-right" style={{ fontSize: '0.75rem' }}></i>
+                            </button>
+
+                            <button
+                                disabled={(activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages)}
+                                onClick={() => (activeTab === 'collector' ? setCollectorPagination : setRegistrationPagination)(prev => ({ ...prev, page: (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages) }))}
+                                style={{
+                                    ...btnOutlineStyle,
+                                    width: '36px',
+                                    height: '36px',
+                                    padding: 0,
+                                    borderRadius: '8px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    opacity: ((activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages)) ? 0.4 : 1,
+                                    cursor: ((activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages)) ? 'not-allowed' : 'pointer'
+                                }}
+                                title="Last Page"
+                            >
+                                <i className="fas fa-angle-double-right" style={{ fontSize: '0.75rem' }}></i>
+                            </button>
                         </div>
+
+                        {/* Filter Button (Icon) - Moved to far right */}
                         <button
-                            disabled={(activeTab === 'collector' ? collectorPagination.page : globalPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : globalPagination.totalPages)}
-                            onClick={() => (activeTab === 'collector' ? setCollectorPagination : setGlobalPagination)(prev => ({ ...prev, page: prev.page + 1 }))}
-                            style={{ ...btnOutlineStyle, padding: '6px 12px', fontSize: '0.8rem', opacity: ((activeTab === 'collector' ? collectorPagination.page : globalPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : globalPagination.totalPages)) ? 0.5 : 1 }}
+                            onClick={() => setIsFilterPanelOpen(true)}
+                            style={{
+                                width: '38px',
+                                height: '38px',
+                                borderRadius: '10px',
+                                border: '1px solid #e2e8f0',
+                                background: Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') ? '#eff6ff' : '#fff',
+                                color: Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') ? '#2563eb' : '#64748b',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.2s',
+                                position: 'relative',
+                                marginLeft: '8px'
+                            }}
+                            title="Filter"
                         >
-                            Next
+                            <i className="fas fa-filter"></i>
+                            {Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') && (
+                                <span style={{ position: 'absolute', top: '-4px', right: '-4px', width: '8px', height: '8px', background: '#2563eb', borderRadius: '50%', border: '2px solid #fff' }}></span>
+                            )}
                         </button>
+                        </div>
                     </div>
                 </div>
-            </div>
 
             {/* Removed Global Standard Rates Section */}
 
@@ -870,7 +1207,7 @@ const DealSettingsPage = () => {
                                 </div>
                                 <div>
                                     <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
-                                        Add Collector Rate
+                                        Add Govt. Charge
                                     </h2>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
                                         <LiveClock />
@@ -1169,7 +1506,7 @@ const DealSettingsPage = () => {
                                                 placeholder="v1.0"
                                             />
                                         </div>
-                                        <div>
+                                         <div>
                                             <label style={labelStyle}>Target Config</label>
                                             <select
                                                 style={selectStyle}
@@ -1177,9 +1514,9 @@ const DealSettingsPage = () => {
                                                 onChange={e => handleRateChange('configName', e.target.value)}
                                             >
                                                 <option value="">Select Config</option>
-                                                {globalConfigs.map(cfg => (
-                                                    <option key={cfg._id} value={cfg.key.replace('govt_charges_', '')}>
-                                                        {cfg.key.replace('govt_charges_', '')}
+                                                {registrationCharges.map(charge => (
+                                                    <option key={charge._id} value={charge.value.configName}>
+                                                        {charge.value.configName}
                                                     </option>
                                                 ))}
                                             </select>
@@ -1206,14 +1543,90 @@ const DealSettingsPage = () => {
                 </div>
             )}
 
-            {/* Global Config Modal */}
-            <CreateGlobalConfigModal
-                isOpen={isConfigModalOpen}
-                onClose={() => setIsConfigModalOpen(false)}
-                onSave={handleSaveConfig}
-                initialConfig={config}
-                saving={saving}
-            />
+            {/* Registration Charge Modal */}
+            {showRegistrationChargeModal && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', zIndex: 1100, display: 'flex', justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(4px)' }}>
+                    <div style={{ background: '#fff', width: '500px', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
+                        <div style={{ padding: '24px 32px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>{editingRegistrationChargeId ? 'Edit Registration Charge' : 'Add Registration Charge'}</h2>
+                            <button onClick={() => setShowRegistrationChargeModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                                <i className="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        <div style={{ padding: '32px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                <div>
+                                    <label style={labelStyle}>Configuration Name</label>
+                                    <input
+                                        type="text"
+                                        style={inputStyle}
+                                        value={rateForm.configName}
+                                        onChange={e => setRateForm({ ...rateForm, configName: e.target.value })}
+                                        placeholder="e.g. Standard, Premium"
+                                    />
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                    <div>
+                                        <label style={labelStyle}>Stamp Duty (%)</label>
+                                        <input
+                                            type="number"
+                                            style={inputStyle}
+                                            value={rateForm.stampDuty}
+                                            onChange={e => setRateForm({ ...rateForm, stampDuty: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={labelStyle}>Registration Fee (%)</label>
+                                        <input
+                                            type="number"
+                                            style={inputStyle}
+                                            value={rateForm.registrationFee}
+                                            onChange={e => setRateForm({ ...rateForm, registrationFee: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                    <div>
+                                        <label style={labelStyle}>Court Fee</label>
+                                        <input
+                                            type="number"
+                                            style={inputStyle}
+                                            value={rateForm.courtFee}
+                                            onChange={e => setRateForm({ ...rateForm, courtFee: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={labelStyle}>Other Charges</label>
+                                        <input
+                                            type="number"
+                                            style={inputStyle}
+                                            value={rateForm.otherCharges}
+                                            onChange={e => setRateForm({ ...rateForm, otherCharges: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Notes</label>
+                                    <textarea
+                                        style={{ ...inputStyle, minHeight: '80px', paddingTop: '10px' }}
+                                        value={rateForm.notes}
+                                        onChange={e => setRateForm({ ...rateForm, notes: e.target.value })}
+                                        placeholder="Any additional information..."
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{ padding: '24px 32px', background: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                            <button onClick={() => setShowRegistrationChargeModal(false)} style={btnOutlineStyle}>Cancel</button>
+                            <button onClick={handleSaveRegistrationCharge} style={btnPrimaryStyle} disabled={saving}>
+                                {saving ? <span className="loader-sm"></span> : (editingRegistrationChargeId ? 'Update Charge' : 'Save Charge')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <style>{`
                 @keyframes slideUp {

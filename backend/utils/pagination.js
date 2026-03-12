@@ -1,10 +1,14 @@
 import '../models/Lookup.js'; // Ensure Lookup model is registered for population
 
-export const paginate = async (model, query, page, limit, sort = {}, populate = "") => {
+export const paginate = async (model, query, page, limit, sort = {}, populate = "", collation = null) => {
     const skip = (page - 1) * limit;
 
     try {
         let mongoQuery = model.find(query).sort(sort).skip(skip).limit(limit);
+
+        if (collation) {
+            mongoQuery = mongoQuery.collation(collation);
+        }
 
         if (populate) {
             mongoQuery = mongoQuery.populate(populate);

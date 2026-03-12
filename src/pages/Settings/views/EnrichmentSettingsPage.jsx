@@ -19,6 +19,28 @@ const EnrichmentSettingsPage = () => {
         isActive: true
     });
 
+    // General Rules State
+    const [formulaConfig, setFormulaConfig] = useState([
+        { label: 'Requirement Depth', weight: 25, key: 'reqDepth' },
+        { label: 'Timeline Urgency', weight: 25, key: 'timeline' },
+        { label: 'Budget Clarity', weight: 20, key: 'budget' },
+        { label: 'Visit Readiness', weight: 20, key: 'visit' },
+        { label: 'Response Speed', weight: 10, key: 'response' },
+    ]);
+
+    const [classificationConfig, setClassificationConfig] = useState([
+        { label: 'Serious Buyer', min: 80, max: 100, color: '#ef4444', key: 'serious' },
+        { label: 'Qualified', min: 60, max: 80, color: '#f59e0b', key: 'qualified' },
+        { label: 'Explorer', min: 40, max: 60, color: '#3b82f6', key: 'explorer' },
+        { label: 'Low Intent', min: 0, max: 40, color: '#94a3b8', key: 'low' },
+    ]);
+
+    const [marginConfig, setMarginConfig] = useState({
+        enabled: true,
+        ageThreshold: 30,
+        priceGapThreshold: 12
+    });
+
     useEffect(() => {
         fetchRules();
     }, []);
@@ -29,6 +51,15 @@ const EnrichmentSettingsPage = () => {
             const response = await enrichmentAPI.getRules();
             if (response.success) {
                 setRules(response.data);
+                // Initialize general rules
+                const formula = response.data.generalRules.find(r => r.type === 'formula');
+                if (formula && formula.config) setFormulaConfig(formula.config);
+
+                const classification = response.data.generalRules.find(r => r.type === 'classification');
+                if (classification && classification.config) setClassificationConfig(classification.config);
+
+                const margin = response.data.generalRules.find(r => r.type === 'margin');
+                if (margin && margin.config) setMarginConfig(margin.config);
             }
         } catch (error) {
             showToast('Failed to fetch enrichment rules', 'error');
@@ -60,15 +91,19 @@ const EnrichmentSettingsPage = () => {
         }
     };
 
-    const handleDeleteKeyword = async (id) => {
-        if (window.confirm('Are you sure you want to delete this rule?')) {
-            try {
-                await enrichmentAPI.deleteKeywordRule(id);
-                showToast('Rule deleted');
+    const handleSaveGeneralRule = async (type, config) => {
+        try {
+            const response = await enrichmentAPI.saveGeneralRule({
+                type,
+                name: type.charAt(0).toUpperCase() + type.slice(1) + ' Settings',
+                config
+            });
+            if (response.success) {
+                showToast(`${type.charAt(0).toUpperCase() + type.slice(1)} settings updated`);
                 fetchRules();
-            } catch (error) {
-                showToast('Error deleting rule', 'error');
             }
+        } catch (error) {
+            showToast(`Error saving ${type} settings`, 'error');
         }
     };
 
@@ -174,26 +209,45 @@ const EnrichmentSettingsPage = () => {
                     {activeTab === 'formula' && (
                         <div style={{ maxWidth: '600px' }}>
                             <SectionHeader title="Intent Index Formula" subtitle="Weighted calculation of 0-100 score" icon="fa-calculator" color="#8b5cf6" />
-                            <div style={{ padding: '24px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '0 0 12px 12px' }}>
-                                {[
-                                    { label: 'Requirement Depth', weight: 25, desc: 'How much profile data is filled (budget, location etc)' },
-                                    { label: 'Timeline Urgency', weight: 25, desc: 'Immediate/Urgent timeline detection' },
-                                    { label: 'Budget Clarity', weight: 20, desc: 'Fixed budget range provided' },
-                                    { label: 'Visit Readiness', weight: 20, desc: 'Historical site visits or meetings' },
-                                    { label: 'Response Speed', weight: 10, desc: 'Average time to reply or contact' },
-                                ].map((item, i) => (
+                            <div style={{ padding: '24px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 0 }}>
+                                {formulaConfig.map((item, i) => (
                                     <div key={i} style={{ marginBottom: '20px', paddingBottom: '20px', borderBottom: i < 4 ? '1px dashed #f1f5f9' : 'none' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                                             <span style={{ fontWeight: 700, color: '#334155' }}>{item.label}</span>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <input type="number" defaultValue={item.weight} style={{ width: '60px', padding: '6px', borderRadius: '6px', border: '1px solid #cbd5e1', textAlign: 'center', fontWeight: 700 }} />
-                                                <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>%</span>
+                                                <input
+                                                    type="number"
+                                                    value={item.weight}
+                                                    onChange={(e) => {
+                                                        const newFormula = [...formulaConfig];
+                                                        newFormula[i].weight = parseInt(e.target.value) || 0;
+                                                        setFormulaConfig(newFormula);
+                                                    }}
+                                                    style={{ width: '80px', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', textAlign: 'center', fontWeight: 800, color: '#2563eb' }}
+                                                />
+                                                <span style={{ fontSize: '0.9rem', color: '#94a3b8', fontWeight: 700 }}>%</span>
                                             </div>
                                         </div>
-                                        <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>{item.desc}</p>
+                                        <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>Weighted impact of this parameter on the final intent score.</p>
                                     </div>
                                 ))}
-                                <button className="btn-primary" style={{ width: '100%', marginTop: '12px', padding: '12px' }}>Update Formula Weights</button>
+                                <div style={{ marginTop: '24px', padding: '16px', background: '#f8fafc', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#444' }}>Total Weight</div>
+                                    <div style={{ fontSize: '1.1rem', fontWeight: 900, color: formulaConfig.reduce((acc, curr) => acc + curr.weight, 0) === 100 ? '#10b981' : '#ef4444' }}>
+                                        {formulaConfig.reduce((acc, curr) => acc + curr.weight, 0)}%
+                                    </div>
+                                </div>
+                                <button
+                                    className="btn-primary"
+                                    onClick={() => handleSaveGeneralRule('formula', formulaConfig)}
+                                    disabled={formulaConfig.reduce((acc, curr) => acc + curr.weight, 0) !== 100}
+                                    style={{ width: '100%', marginTop: '20px', padding: '14px', borderRadius: '10px', fontWeight: 800 }}
+                                >
+                                    Update Formula Weights
+                                </button>
+                                {formulaConfig.reduce((acc, curr) => acc + curr.weight, 0) !== 100 && (
+                                    <p style={{ color: '#ef4444', fontSize: '0.75rem', textAlign: 'center', marginTop: '8px', fontWeight: 600 }}>Total weights must equal exactly 100%</p>
+                                )}
                             </div>
                         </div>
                     )}
@@ -203,23 +257,47 @@ const EnrichmentSettingsPage = () => {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
                             <div>
                                 <SectionHeader title="Score Thresholds" subtitle="Auto-label leads by Intent Index" icon="fa-thermometer-half" color="#f59e0b" />
-                                <div style={{ padding: '24px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '0 0 12px 12px' }}>
-                                    {[
-                                        { label: 'Serious Buyer', min: 80, max: 100, color: '#ef4444' },
-                                        { label: 'Qualified', min: 60, max: 80, color: '#f59e0b' },
-                                        { label: 'Explorer', min: 40, max: 60, color: '#3b82f6' },
-                                        { label: 'Low Intent', min: 0, max: 40, color: '#94a3b8' },
-                                    ].map((band, i) => (
-                                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px' }}>
-                                            <div style={{ width: '120px', fontWeight: 700, color: band.color }}>{band.label}</div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
-                                                <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{band.min} - {band.max}</span>
-                                                <div style={{ flex: 1, height: '6px', background: '#f1f5f9', borderRadius: '3px', position: 'relative' }}>
-                                                    <div style={{ position: 'absolute', left: `${band.min}%`, width: `${band.max - band.min}%`, height: '100%', background: band.color, borderRadius: '3px' }}></div>
+                                <div style={{ padding: '24px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 0 }}>
+                                    {classificationConfig.map((band, i) => (
+                                        <div key={i} style={{ marginBottom: '24px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                                <div style={{ fontWeight: 800, color: band.color, fontSize: '0.9rem', textTransform: 'uppercase' }}>{band.label}</div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <input
+                                                        type="number"
+                                                        value={band.min}
+                                                        onChange={(e) => {
+                                                            const newConfig = [...classificationConfig];
+                                                            newConfig[i].min = parseInt(e.target.value) || 0;
+                                                            setClassificationConfig(newConfig);
+                                                        }}
+                                                        style={{ width: '60px', padding: '6px', borderRadius: '6px', border: '1px solid #cbd5e1', textAlign: 'center', fontWeight: 700 }}
+                                                    />
+                                                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>to</span>
+                                                    <input
+                                                        type="number"
+                                                        value={band.max}
+                                                        onChange={(e) => {
+                                                            const newConfig = [...classificationConfig];
+                                                            newConfig[i].max = parseInt(e.target.value) || 0;
+                                                            setClassificationConfig(newConfig);
+                                                        }}
+                                                        style={{ width: '60px', padding: '6px', borderRadius: '6px', border: '1px solid #cbd5e1', textAlign: 'center', fontWeight: 700 }}
+                                                    />
                                                 </div>
+                                            </div>
+                                            <div style={{ height: '8px', background: '#f1f5f9', borderRadius: '4px', position: 'relative', overflow: 'hidden' }}>
+                                                <div style={{ position: 'absolute', left: `${band.min}%`, width: `${band.max - band.min}%`, height: '100%', background: band.color }}></div>
                                             </div>
                                         </div>
                                     ))}
+                                    <button
+                                        className="btn-primary"
+                                        onClick={() => handleSaveGeneralRule('classification', classificationConfig)}
+                                        style={{ width: '100%', marginTop: '12px', padding: '12px', borderRadius: '10px', fontWeight: 800 }}
+                                    >
+                                        Save Thresholds
+                                    </button>
                                 </div>
                             </div>
                             <div>
@@ -243,29 +321,50 @@ const EnrichmentSettingsPage = () => {
                     {activeTab === 'margin' && (
                         <div style={{ maxWidth: '600px' }}>
                             <SectionHeader title="Margin Opportunity Engine" subtitle="Identify high-negotiation deals" icon="fa-funnel-dollar" color="#10b981" />
-                            <div style={{ padding: '24px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '0 0 12px 12px' }}>
+                            <div style={{ padding: '24px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 0 }}>
                                 <div style={{ marginBottom: '24px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                                         <div style={{ fontWeight: 700, color: '#334155' }}>Enable Auto-Detection</div>
-                                        <input type="checkbox" defaultChecked style={{ zoom: 1.5 }} />
+                                        <input
+                                            type="checkbox"
+                                            checked={marginConfig.enabled}
+                                            onChange={(e) => setMarginConfig({ ...marginConfig, enabled: e.target.checked })}
+                                            style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+                                        />
                                     </div>
                                     <p style={{ margin: 0, fontSize: '0.85rem', color: '#94a3b8' }}>System will mark deals with "High Margin Opportunity" badge based on rules below.</p>
                                 </div>
                                 <div style={{ marginBottom: '20px' }}>
                                     <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: '#475569' }}>Inventory Age Threshold</label>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                        <input type="number" defaultValue={30} style={{ width: '80px', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1' }} />
+                                        <input
+                                            type="number"
+                                            value={marginConfig.ageThreshold}
+                                            onChange={(e) => setMarginConfig({ ...marginConfig, ageThreshold: parseInt(e.target.value) || 0 })}
+                                            style={{ width: '100px', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 700 }}
+                                        />
                                         <span style={{ fontSize: '0.9rem', color: '#64748b' }}>days listed</span>
                                     </div>
                                 </div>
-                                <div style={{ marginBottom: '20px' }}>
+                                <div style={{ marginBottom: '32px' }}>
                                     <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: '#475569' }}>Price Gap Requirement</label>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                        <input type="number" defaultValue={12} style={{ width: '80px', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1' }} />
+                                        <input
+                                            type="number"
+                                            value={marginConfig.priceGapThreshold}
+                                            onChange={(e) => setMarginConfig({ ...marginConfig, priceGapThreshold: parseInt(e.target.value) || 0 })}
+                                            style={{ width: '100px', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 700 }}
+                                        />
                                         <span style={{ fontSize: '0.9rem', color: '#64748b' }}>% max gap between Budget & Quote</span>
                                     </div>
                                 </div>
-                                <button className="btn-primary" style={{ width: '100%', padding: '12px' }}>Save Margin Engine Settings</button>
+                                <button
+                                    className="btn-primary"
+                                    onClick={() => handleSaveGeneralRule('margin', marginConfig)}
+                                    style={{ width: '100%', padding: '14px', borderRadius: '10px', fontWeight: 800 }}
+                                >
+                                    Save Margin Engine Settings
+                                </button>
                             </div>
                         </div>
                     )}

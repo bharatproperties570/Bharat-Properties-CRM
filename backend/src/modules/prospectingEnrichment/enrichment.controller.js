@@ -80,6 +80,30 @@ export const deleteKeywordRule = async (req, res, next) => {
 };
 
 /**
+ * Create/Update General Enrichment Rule (Formula, Classification, Margin)
+ */
+export const saveGeneralRule = async (req, res, next) => {
+    try {
+        const { type, name, config, isActive } = req.body;
+
+        if (!type || !config) {
+            return next(new AppError('Type and Config are required', 400));
+        }
+
+        // Upsert by type (since we usually only have one active rule per type: formula, classification, margin)
+        const rule = await ProspectEnrichmentRule.findOneAndUpdate(
+            { type },
+            { name, config, isActive: isActive !== undefined ? isActive : true },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+
+        res.status(200).json({ success: true, data: rule });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
  * Run Manual Enrichment for a Lead
  */
 export const runEnrichment = async (req, res, next) => {

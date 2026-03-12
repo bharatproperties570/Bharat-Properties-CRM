@@ -767,13 +767,21 @@ const SettingsHubPage = () => {
         { title: 'Manage', items: [{ id: 'users', label: 'Users' }, { id: 'notifications', label: 'Notifications' }, { id: 'sales-goals', label: 'Sales goals' }] },
         { title: 'Data', items: [{ id: 'import', label: 'Import' }, { id: 'bulk-update', label: 'Bulk update' }, { id: 'export', label: 'Export' }, { id: 'lead-capture', label: 'Lead capture' }, { id: 'deal-capture', label: 'Deal capture' }, { id: 'enrichment', label: 'Prospecting and enrichment' }, { id: 'duplicate-mgt', label: 'Duplicate Management' }] },
         { title: 'Communication channels', items: [{ id: 'email', label: 'Email' }, { id: 'calls', label: 'Calls' }, { id: 'messaging', label: 'Messaging' }, { id: 'feedback-templates', label: 'Message Templates' }] },
-        { title: 'Customize', items: [{ id: 'company-c', label: 'Company' }, { id: 'project-c', label: 'Project' }, { id: 'leads-c', label: 'Leads' }, { id: 'contacts-c', label: 'Contacts' }, { id: 'properties-c', label: 'Properties' }, { id: 'parsing-rules', label: 'Parsing Rules' }, { id: 'deals-c', label: 'Deals' }, { id: 'deal-details', label: 'Deal Details' }, { id: 'task-c', label: 'Activities' }] },
-        { title: 'Notes', items: [{ id: 'post-sales', label: 'Post Sales' }, { id: 'layouts', label: 'Layouts' }] },
+        { title: 'Customize', items: [{ id: 'company-c', label: 'Company' }, { id: 'project-c', label: 'Project' }, { id: 'leads-c', label: 'Leads' }, { id: 'contacts-c', label: 'Contacts' }, { id: 'properties-c', label: 'Properties' }, { id: 'parsing-rules', label: 'Parsing Rules' }, { id: 'post-sales', label: 'Post Sales' }, { id: 'deal-details', label: 'Deals' }, { id: 'task-c', label: 'Activities' }] },
         { title: 'Integrations', items: [{ id: 'integrations', label: 'Integrations' }, { id: 'api', label: 'API' }] },
-        { title: 'Business rules', items: [{ id: 'field-rules', label: 'Field rules' }, { id: 'distributions', label: 'Distributions' }, { id: 'sequences', label: 'Sequences' }, { id: 'automated-actions', label: 'Automated actions' }, { id: 'triggers', label: 'Triggers' }, { id: 'scoring', label: 'Scoring' }, { id: 'stage-c', label: 'Stage' }] }
+        { title: 'Business rules', items: [{ id: 'field-rules', label: 'Field rules' }, { id: 'distributions', label: 'Distributions' }, { id: 'sequences', label: 'Sequences' }, { id: 'automated-actions', label: 'Automated actions' }, { id: 'triggers', label: 'Triggers' }, { id: 'scoring', label: 'Scoring' }, { id: 'stage-c', label: 'Stage' }] },
+        { title: 'Notes', items: [{ id: 'layouts', label: 'Layouts' }] }
     ];
 
-    const currentLabel = sidebarSections.flatMap(s => s.items).find(i => i.id === activeTab)?.label || 'Settings';
+    const allSidebarItems = sidebarSections.flatMap(s => {
+        const items = [];
+        s.items.forEach(item => {
+            items.push(item);
+            if (item.children) items.push(...item.children);
+        });
+        return items;
+    });
+    const currentLabel = allSidebarItems.find(i => i.id === activeTab)?.label || 'Settings';
 
     if (loading) {
         return (
@@ -821,7 +829,46 @@ const SettingsHubPage = () => {
                         {section.title && <div style={{ padding: '0 24px 8px 24px', fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{section.title}</div>}
                         <div className="nav-items-group">
                             {section.items.map(item => (
-                                <div key={item.id} onClick={() => setActiveTab(item.id)} style={{ padding: '8px 24px', fontSize: '0.85rem', fontWeight: activeTab === item.id ? 700 : 500, color: activeTab === item.id ? '#0f172a' : '#64748b', background: activeTab === item.id ? '#e2e8f1' : 'transparent', cursor: 'pointer', borderLeft: activeTab === item.id ? '4px solid var(--primary-color)' : '4px solid transparent', transition: 'all 0.2s' }}>{item.label}</div>
+                                <React.Fragment key={item.id}>
+                                    <div
+                                        onClick={() => setActiveTab(item.id)}
+                                        style={{
+                                            padding: '8px 24px',
+                                            fontSize: '0.85rem',
+                                            fontWeight: activeTab === item.id ? 700 : 500,
+                                            color: activeTab === item.id ? '#0f172a' : '#64748b',
+                                            background: activeTab === item.id ? '#e2e8f1' : 'transparent',
+                                            cursor: 'pointer',
+                                            borderLeft: activeTab === item.id ? '4px solid var(--primary-color)' : '4px solid transparent',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        {item.label}
+                                    </div>
+                                    {item.children && (
+                                        <div className="sub-items-group" style={{ marginBottom: '4px' }}>
+                                            {item.children.map(child => (
+                                                <div
+                                                    key={child.id}
+                                                    onClick={() => setActiveTab(child.id)}
+                                                    style={{
+                                                        padding: '6px 24px 6px 44px',
+                                                        fontSize: '0.8rem',
+                                                        fontWeight: activeTab === child.id ? 700 : 500,
+                                                        color: activeTab === child.id ? '#0f172a' : '#94a3b8',
+                                                        background: activeTab === child.id ? '#f1f5f9' : 'transparent',
+                                                        cursor: 'pointer',
+                                                        borderLeft: activeTab === child.id ? '4px solid var(--primary-color)' : '4px solid transparent',
+                                                        transition: 'all 0.2s'
+                                                    }}
+                                                >
+                                                    <i className="fas fa-level-up-alt fa-rotate-90" style={{ marginRight: '8px', fontSize: '0.7rem', opacity: 0.5 }}></i>
+                                                    {child.label}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </React.Fragment>
                             ))}
                         </div>
                     </div>
@@ -927,7 +974,7 @@ const SettingsHubPage = () => {
                         <EnrichmentSettingsPage />
                     ) : activeTab === 'duplicate-mgt' ? (
                         <DuplicationSettingsPage />
-                    ) : activeTab === 'deals-c' ? (
+                    ) : activeTab === 'post-sales' || activeTab === 'deals-c' ? (
                         <DealSettingsPage />
                     ) : activeTab === 'deal-details' ? (
                         <DealDetailsPage />

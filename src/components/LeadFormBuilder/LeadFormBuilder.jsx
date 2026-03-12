@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { toast } from 'react-hot-toast';
-import { LucidePlus, LucideTrash2, LucideSettings, LucideMoveUp, LucideMoveDown, LucideChevronLeft, LucideSave, LucideEye } from 'lucide-react';
+import { api } from '../../utils/api';
 
 const LeadFormBuilder = ({ form, onSave, onCancel }) => {
     const [formData, setFormData] = useState(form || {
@@ -28,14 +26,14 @@ const LeadFormBuilder = ({ form, onSave, onCancel }) => {
     const handleSave = async () => {
         try {
             if (formData._id) {
-                await axios.put(`/api/lead-forms/${formData._id}`, formData);
+                await api.put(`/lead-forms/${formData._id}`, formData);
             } else {
-                await axios.post('/api/lead-forms', formData);
+                await api.post('/lead-forms', formData);
             }
             toast.success('Form saved successfully');
             onSave();
         } catch (error) {
-            toast.error(error.response?.data?.message || 'Failed to save form');
+            toast.error(error.message || 'Failed to save form');
         }
     };
 

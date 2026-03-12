@@ -206,7 +206,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                         <div>
                             <label style={labelStyle}>Size Type</label>
                             <select value={sizeData.unitType} onChange={e => setSizeData({ ...sizeData, unitType: e.target.value })} style={customSelectStyle}>
-                                <option value="">Select Type</option>
+                                <option value="">Select Size Type</option>
                                 {(() => {
                                     if (!propertyConfig) return null;
                                     const subCatObj = Array.isArray(propertyConfig[sizeData.category]?.subCategories)
@@ -627,7 +627,7 @@ const PropertySettingsPage = () => {
 
     const handleAddType = () => {
         if (!configCategory || !configSubCategory) return;
-        openInputModal(`Enter new Type for ${configSubCategory}:`, '', async (name) => {
+        openInputModal(`Enter new Size Type for ${configSubCategory}:`, '', async (name) => {
             if (name) {
                 const newConfig = JSON.parse(JSON.stringify(propertyConfig));
                 const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
@@ -637,9 +637,9 @@ const PropertySettingsPage = () => {
                         types.push({ name, builtupTypes: [] });
                         await updateConfig(newConfig);
                         await syncPropertyTypeLookup(configCategory, configSubCategory, name, 'add');
-                        showToast(`Type '${name}' added`);
+                        showToast(`Size Type '${name}' added`);
                     } else {
-                        alert("Type already exists.");
+                        alert("Size Type already exists.");
                     }
                 }
             }
@@ -647,7 +647,7 @@ const PropertySettingsPage = () => {
     };
 
     const handleEditType = (oldName) => {
-        openInputModal("Edit Type name:", oldName, async (newName) => {
+        openInputModal("Edit Size Type name:", oldName, async (newName) => {
             if (newName && newName !== oldName) {
                 const newConfig = JSON.parse(JSON.stringify(propertyConfig));
                 const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
@@ -659,7 +659,7 @@ const PropertySettingsPage = () => {
                         await updateConfig(newConfig);
                         await syncPropertyTypeLookup(configCategory, configSubCategory, newName, 'update', oldName);
                         if (configType === oldName) setConfigType(newName);
-                        showToast(`Type updated to '${newName}'`);
+                        showToast(`Size Type updated to '${newName}'`);
                     }
                 }
             }
@@ -667,7 +667,7 @@ const PropertySettingsPage = () => {
     };
 
     const handleDeleteType = (name) => {
-        openConfirmModal(`Delete type '${name}'?`, async () => {
+        openConfirmModal(`Delete size type '${name}'?`, async () => {
             const newConfig = JSON.parse(JSON.stringify(propertyConfig));
             const subCategories = newConfig[configCategory]?.subCategories;
             if (!Array.isArray(subCategories)) return;
@@ -680,7 +680,7 @@ const PropertySettingsPage = () => {
                     await updateConfig(newConfig);
                     await syncPropertyTypeLookup(configCategory, configSubCategory, name, 'delete');
                     if (configType === name) setConfigType(null);
-                    showToast(`Type '${name}' deleted`);
+                    showToast(`Size Type '${name}' deleted`);
                 }
             }
         });
@@ -835,7 +835,7 @@ const PropertySettingsPage = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
                     <div>
                         <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px 0' }}>Property Configuration</h1>
-                        <p style={{ margin: 0, color: '#64748b' }}>Manage property sizes, dimensions, and types.</p>
+                        <p style={{ margin: 0, color: '#64748b' }}>Manage property sizes, dimensions, and size types.</p>
                     </div>
                 </div>
 
@@ -1084,7 +1084,7 @@ const PropertySettingsPage = () => {
                                             disabled={!sizeFilters.subCategory}
                                             style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.9rem', outline: 'none', background: sizeFilters.subCategory ? '#f8fafc' : '#f1f5f9', color: '#1e293b' }}
                                         >
-                                            <option value="">All Types</option>
+                                            <option value="">All Size Types</option>
                                             {(() => {
                                                 if (!sizeFilters.category || !sizeFilters.subCategory) return null;
                                                 const subCatObj = propertyConfig[sizeFilters.category]?.subCategories?.find(s => s.name === sizeFilters.subCategory);
@@ -1156,9 +1156,9 @@ const PropertySettingsPage = () => {
                             </div>
                             <div style={{ width: '320px', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#fff' }}>
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    Types
+                                    Size Type
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                        <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(propertyConfig[configCategory]?.subCategories.find(s => s.name === configSubCategory)?.types || [], 'Types')} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', opacity: configSubCategory ? 1 : 0.4 }} title="Download Types"></i>
+                                        <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(propertyConfig[configCategory]?.subCategories.find(s => s.name === configSubCategory)?.types || [], 'Types')} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', opacity: configSubCategory ? 1 : 0.4 }} title="Download Size Types"></i>
                                         <button type="button" onClick={(e) => { e.preventDefault(); handleAddType(); }} disabled={!configSubCategory} style={{ border: 'none', background: configSubCategory ? '#e2e8f0' : '#f1f5f9', color: configSubCategory ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
                                     </div>
                                 </div>
@@ -1175,7 +1175,7 @@ const PropertySettingsPage = () => {
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     Builtup
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                        <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(propertyConfig[configCategory]?.subCategories.find(s => s.name === configSubCategory)?.types.find(t => t.name === configType)?.builtupTypes || [], 'Builtup')} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', opacity: configType ? 1 : 0.4 }} title="Download Builtup Types"></i>
+                                        <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(propertyConfig[configCategory]?.subCategories.find(s => s.name === configSubCategory)?.types.find(t => t.name === configType)?.builtupTypes || [], 'Builtup')} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', opacity: configType ? 1 : 0.4 }} title="Download Builtup Size Types"></i>
                                         <button type="button" onClick={(e) => { e.preventDefault(); handleAddBuiltupType(); }} disabled={!configType} style={{ border: 'none', background: configType ? '#e2e8f0' : '#f1f5f9', color: configType ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
                                     </div>
                                 </div>

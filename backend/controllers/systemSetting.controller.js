@@ -14,15 +14,20 @@ export const getSystemSettings = async (req, res) => {
             return res.json({ status: "success", data: Object.values(mockSettingsStore) });
         }
 
-        const { category, isPublic, page = 1, limit = 100, search } = req.query;
+        const { category, isPublic, page = 1, limit = 100, search, configName } = req.query;
         const query = {};
         if (category) query.category = category;
         if (isPublic === 'true') query.isPublic = true;
 
+        if (configName) {
+            query['value.configName'] = { $regex: configName, $options: 'i' };
+        }
+
         if (search) {
             query.$or = [
                 { key: { $regex: search, $options: 'i' } },
-                { description: { $regex: search, $options: 'i' } }
+                { description: { $regex: search, $options: 'i' } },
+                { 'value.configName': { $regex: search, $options: 'i' } }
             ];
         }
 

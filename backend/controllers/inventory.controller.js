@@ -214,7 +214,7 @@ export const getInventory = async (req, res) => {
             return { name: cat.lookup_value, count };
         }));
 
-        const results = await paginate(Inventory, query, Number(page), Number(limit), { createdAt: -1 }, populateFields);
+        const results = await paginate(Inventory, query, Number(page), Number(limit), { unitNo: 1 }, populateFields, { locale: 'en', numericOrdering: true });
 
         // Professional Fix: Add hasDeal flag to each inventory item for UI highlighting
         const inventoryIds = results.records.map(item => item._id);

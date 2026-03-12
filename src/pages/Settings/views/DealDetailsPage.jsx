@@ -172,7 +172,7 @@ const DealDetailsPage = () => {
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
                     <div>
-                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px 0' }}>Deal Configuration</h1>
+                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px 0' }}>Deals</h1>
                         <p style={{ margin: 0, color: '#64748b' }}>Manage deal types, buyer preferences, and transaction details.</p>
                     </div>
                 </div>

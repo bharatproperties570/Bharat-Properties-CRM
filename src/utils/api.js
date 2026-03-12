@@ -272,8 +272,15 @@ export const teamsAPI = {
 // Enrichment API
 export const enrichmentAPI = {
     getRules: () => apiRequest('/enrichment/rules'),
-    saveKeywordRule: (data) => apiRequest('/enrichment/rules/keyword', { method: 'POST', body: JSON.stringify(data) }),
-    deleteKeywordRule: (id) => apiRequest(`/enrichment/rules/keyword/${id}`, { method: 'DELETE' }),
+    async saveKeywordRule(data) {
+        return apiRequest('/enrichment/rules/keyword', { method: 'POST', body: data });
+    },
+    async deleteKeywordRule(id) {
+        return apiRequest(`/enrichment/rules/keyword/${id}`, { method: 'DELETE' });
+    },
+    async saveGeneralRule(data) {
+        return apiRequest('/enrichment/rules/general', { method: 'POST', body: data });
+    },
     runLead: (leadId) => apiRequest(`/enrichment/run/lead/${leadId}`, { method: 'POST' }),
     runDeal: (dealId) => apiRequest(`/enrichment/run/deal/${dealId}`, { method: 'POST' }),
     getLogs: (params) => apiRequest('/enrichment/logs', { params }),
