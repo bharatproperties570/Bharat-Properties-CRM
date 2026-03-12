@@ -776,32 +776,34 @@ const DealSettingsPage = () => {
                     </div>
                 </div>
 
-                {/* Sub-Header: Search & Add Row */}
-                <div style={{ padding: '16px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px' }}>
-                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flex: 1, maxWidth: '600px' }}>
-                        {/* Search Bar */}
-                        <div style={{ position: 'relative', flex: 1 }}>
-                            <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.8rem' }}></i>
+                {/* Consolidated Header: Search, Add, Pagination & Filter */}
+                <div style={{ padding: '12px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap', background: '#f8fafc' }}>
+                    
+                    {/* Left Section: Search & Add */}
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+                        {/* Search Bar (Shrunken) */}
+                        <div style={{ position: 'relative', width: '220px' }}>
+                            <i className="fas fa-search" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.75rem' }}></i>
                             <input
                                 type="text"
-                                placeholder={`Search ${activeTab === 'collector' ? 'by Category, SubCategory or Config...' : 'by Config Name...'}`}
+                                placeholder="Search..."
                                 style={{
-                                    padding: '10px 12px 10px 36px',
-                                    borderRadius: '10px',
+                                    padding: '8px 10px 8px 32px',
+                                    borderRadius: '8px',
                                     border: '1px solid #e2e8f0',
-                                    fontSize: '0.85rem',
+                                    fontSize: '0.8rem',
                                     width: '100%',
                                     outline: 'none',
                                     transition: 'all 0.2s'
                                 }}
                                 value={activeTab === 'collector' ? collectorSearch : registrationSearch}
                                 onChange={e => activeTab === 'collector' ? setCollectorSearch(e.target.value) : setRegistrationSearch(e.target.value)}
-                                onFocus={e => { e.target.style.borderColor = '#2563eb'; e.target.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.1)'; }}
+                                onFocus={e => { e.target.style.borderColor = '#2563eb'; e.target.style.boxShadow = '0 0 0 2px rgba(37, 99, 235, 0.1)'; }}
                                 onBlur={e => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
                             />
                         </div>
 
-                        {/* Add Button (Moved next to search) */}
+                        {/* Add Button (Icon Only) */}
                         {activeTab === 'global' ? (
                             <button
                                 onClick={() => {
@@ -812,64 +814,154 @@ const DealSettingsPage = () => {
                                     setShowRegistrationChargeModal(true);
                                 }}
                                 style={{
-                                    height: '38px',
-                                    padding: '0 16px',
-                                    borderRadius: '10px',
+                                    width: '34px',
+                                    height: '34px',
+                                    borderRadius: '8px',
                                     border: 'none',
                                     background: '#2563eb',
                                     color: '#fff',
                                     cursor: 'pointer',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: '8px',
-                                    fontSize: '0.85rem',
-                                    fontWeight: 700,
+                                    justifyContent: 'center',
+                                    fontSize: '0.9rem',
                                     transition: 'all 0.2s',
-                                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)',
-                                    whiteSpace: 'nowrap'
+                                    boxShadow: '0 2px 6px rgba(37, 99, 235, 0.2)'
                                 }}
                                 title="Add Registration Charge"
                             >
                                 <i className="fas fa-plus"></i>
-                                <span>Add New</span>
                             </button>
                         ) : (
                             <button
                                 onClick={() => setViewMode('add')}
                                 style={{
-                                    height: '38px',
-                                    padding: '0 16px',
-                                    borderRadius: '10px',
+                                    width: '34px',
+                                    height: '34px',
+                                    borderRadius: '8px',
                                     border: 'none',
                                     background: '#2563eb',
                                     color: '#fff',
                                     cursor: 'pointer',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: '8px',
-                                    fontSize: '0.85rem',
-                                    fontWeight: 700,
+                                    justifyContent: 'center',
+                                    fontSize: '0.9rem',
                                     transition: 'all 0.2s',
-                                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)',
-                                    whiteSpace: 'nowrap'
+                                    boxShadow: '0 2px 6px rgba(37, 99, 235, 0.2)'
                                 }}
                                 title="Add Govt. Charge"
                             >
                                 <i className="fas fa-plus"></i>
-                                <span>Add New</span>
                             </button>
                         )}
                     </div>
 
-                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        {/* Pagination Summary (Moved to right) */}
-                        <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
+                    {/* Middle Section: Pagination & Limit */}
+                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flex: 1, justifyContent: 'center' }}>
+                        {/* Pagination Summary */}
+                        <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500, whiteSpace: 'nowrap' }}>
                             {activeTab === 'collector' ? (
-                                <span>Total: <b>{collectorPagination.totalDocs}</b> Rates</span>
+                                collectorPagination.totalDocs > 0 ? (
+                                    <span><b>{(collectorPagination.page - 1) * collectorPagination.limit + 1}-{Math.min(collectorPagination.page * collectorPagination.limit, collectorPagination.totalDocs)}</b> of <b>{collectorPagination.totalDocs}</b></span>
+                                ) : "0 records"
                             ) : (
-                                <span>Total: <b>{registrationPagination.totalDocs}</b> Configs</span>
+                                registrationPagination.totalDocs > 0 ? (
+                                    <span><b>{(registrationPagination.page - 1) * registrationPagination.limit + 1}-{Math.min(registrationPagination.page * registrationPagination.limit, registrationPagination.totalDocs)}</b> of <b>{registrationPagination.totalDocs}</b></span>
+                                ) : "0 records"
                             )}
                         </div>
+
+                        {/* Rows per page */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <select
+                                style={{ border: '1px solid #e2e8f0', background: '#fff', fontSize: '0.75rem', fontWeight: 600, color: '#1e293b', outline: 'none', cursor: 'pointer', padding: '4px 6px', borderRadius: '6px' }}
+                                value={activeTab === 'collector' ? collectorPagination.limit : registrationPagination.limit}
+                                onChange={(e) => {
+                                    const val = parseInt(e.target.value);
+                                    if (activeTab === 'collector') {
+                                        setCollectorPagination(prev => ({ ...prev, limit: val, page: 1 }));
+                                    } else {
+                                        setRegistrationPagination(prev => ({ ...prev, limit: val, page: 1 }));
+                                    }
+                                }}
+                            >
+                                <option value="10">10</option>
+                                <option value="25">25</option>
+                                <option value="50">50</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* Right Section: Navigation & Filter */}
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                            <button
+                                disabled={(activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1}
+                                onClick={() => (activeTab === 'collector' ? setCollectorPagination : setRegistrationPagination)(prev => ({ ...prev, page: 1 }))}
+                                style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: (activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1 ? 0.4 : 1 }}
+                                title="First Page"
+                            >
+                                <i className="fas fa-angle-double-left" style={{ fontSize: '0.7rem' }}></i>
+                            </button>
+                            <button
+                                disabled={(activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1}
+                                onClick={() => (activeTab === 'collector' ? setCollectorPagination : setRegistrationPagination)(prev => ({ ...prev, page: prev.page - 1 }))}
+                                style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: (activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1 ? 0.4 : 1 }}
+                                title="Previous Page"
+                            >
+                                <i className="fas fa-chevron-left" style={{ fontSize: '0.7rem' }}></i>
+                            </button>
+                            
+                            <span style={{ fontSize: '0.8rem', fontWeight: 700, margin: '0 4px', color: '#1e293b' }}>
+                                {activeTab === 'collector' ? collectorPagination.page : registrationPagination.page} / {activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages}
+                            </span>
+
+                            <button
+                                disabled={(activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages)}
+                                onClick={() => (activeTab === 'collector' ? setCollectorPagination : setRegistrationPagination)(prev => ({ ...prev, page: prev.page + 1 }))}
+                                style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: (activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages) ? 0.4 : 1 }}
+                                title="Next Page"
+                            >
+                                <i className="fas fa-chevron-right" style={{ fontSize: '0.7rem' }}></i>
+                            </button>
+                            <button
+                                disabled={(activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages)}
+                                onClick={() => (activeTab === 'collector' ? setCollectorPagination : setRegistrationPagination)(prev => ({ ...prev, page: (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages) }))}
+                                style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: (activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages) ? 0.4 : 1 }}
+                                title="Last Page"
+                            >
+                                <i className="fas fa-angle-double-right" style={{ fontSize: '0.7rem' }}></i>
+                            </button>
+                        </div>
+
+                        {/* Filter Button (Icon) */}
+                        <button
+                            onClick={() => setIsFilterPanelOpen(true)}
+                            style={{
+                                width: '34px',
+                                height: '34px',
+                                borderRadius: '8px',
+                                border: '1px solid #e2e8f0',
+                                background: Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') ? '#eff6ff' : '#fff',
+                                color: Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') ? '#2563eb' : '#64748b',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.2s',
+                                marginLeft: '8px',
+                                position: 'relative'
+                            }}
+                            title="Filter"
+                            onMouseEnter={e => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#2563eb'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') ? '#eff6ff' : '#fff'; e.currentTarget.style.color = Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') ? '#2563eb' : '#64748b'; }}
+                        >
+                            <i className="fas fa-filter" style={{ fontSize: '0.85rem' }}></i>
+                            {Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') && (
+                                <span style={{ position: 'absolute', top: '-4px', right: '-4px', width: '8px', height: '8px', background: '#2563eb', borderRadius: '50%', border: '2px solid #fff' }}></span>
+                            )}
+                        </button>
                     </div>
                 </div>
 
@@ -1037,169 +1129,7 @@ const DealSettingsPage = () => {
                         </table>
                     )}
                 </div>
-
-                {/* Pagination Controls */}
-                <div style={{ padding: '16px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                        <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
-                            {activeTab === 'collector' ? (
-                                collectorPagination.totalDocs > 0 ? (
-                                    <span>
-                                        Showing <b>{(collectorPagination.page - 1) * collectorPagination.limit + 1}</b> to <b>{Math.min(collectorPagination.page * collectorPagination.limit, collectorPagination.totalDocs)}</b> of <b>{collectorPagination.totalDocs}</b> records
-                                    </span>
-                                ) : "No records found"
-                            ) : (
-                                registrationPagination.totalDocs > 0 ? (
-                                    <span>
-                                        Showing <b>{(registrationPagination.page - 1) * registrationPagination.limit + 1}</b> to <b>{Math.min(registrationPagination.page * registrationPagination.limit, registrationPagination.totalDocs)}</b> of <b>{registrationPagination.totalDocs}</b> records
-                                    </span>
-                                ) : "No records found"
-                            )}
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8' }}>Rows per page:</span>
-                            <select
-                                style={{ border: 'none', background: 'transparent', fontSize: '0.8rem', fontWeight: 700, color: '#1e293b', outline: 'none', cursor: 'pointer' }}
-                                value={activeTab === 'collector' ? collectorPagination.limit : registrationPagination.limit}
-                                onChange={(e) => {
-                                    const val = parseInt(e.target.value);
-                                    if (activeTab === 'collector') {
-                                        setCollectorPagination(prev => ({ ...prev, limit: val, page: 1 }));
-                                    } else {
-                                        setRegistrationPagination(prev => ({ ...prev, limit: val, page: 1 }));
-                                    }
-                                }}
-                            >
-                                <option value="10">10</option>
-                                <option value="25">25</option>
-                                <option value="50">50</option>
-                                <option value="100">100</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                            <button
-                                disabled={(activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1}
-                                onClick={() => (activeTab === 'collector' ? setCollectorPagination : setRegistrationPagination)(prev => ({ ...prev, page: 1 }))}
-                                style={{
-                                    ...btnOutlineStyle,
-                                    width: '36px',
-                                    height: '36px',
-                                    padding: 0,
-                                    borderRadius: '8px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    opacity: ((activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1) ? 0.4 : 1,
-                                    cursor: ((activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1) ? 'not-allowed' : 'pointer'
-                                }}
-                                title="First Page"
-                            >
-                                <i className="fas fa-angle-double-left" style={{ fontSize: '0.75rem' }}></i>
-                            </button>
-
-                            <button
-                                disabled={(activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1}
-                                onClick={() => (activeTab === 'collector' ? setCollectorPagination : setRegistrationPagination)(prev => ({ ...prev, page: prev.page - 1 }))}
-                                style={{
-                                    ...btnOutlineStyle,
-                                    width: '36px',
-                                    height: '36px',
-                                    padding: 0,
-                                    borderRadius: '8px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    opacity: ((activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1) ? 0.4 : 1,
-                                    cursor: ((activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1) ? 'not-allowed' : 'pointer'
-                                }}
-                                title="Previous Page"
-                            >
-                                <i className="fas fa-chevron-left" style={{ fontSize: '0.75rem' }}></i>
-                            </button>
-                            
-                            <div style={{ display: 'flex', alignItems: 'center', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0 12px', height: '36px' }}>
-                                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>
-                                    {activeTab === 'collector' ? collectorPagination.page : registrationPagination.page}
-                                </span>
-                                <span style={{ fontSize: '0.85rem', color: '#94a3b8', margin: '0 6px' }}>of</span>
-                                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>
-                                    {activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages}
-                                </span>
-                            </div>
-
-                            <button
-                                disabled={(activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages)}
-                                onClick={() => (activeTab === 'collector' ? setCollectorPagination : setRegistrationPagination)(prev => ({ ...prev, page: prev.page + 1 }))}
-                                style={{
-                                    ...btnOutlineStyle,
-                                    width: '36px',
-                                    height: '36px',
-                                    padding: 0,
-                                    borderRadius: '8px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    opacity: ((activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages)) ? 0.4 : 1,
-                                    cursor: ((activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages)) ? 'not-allowed' : 'pointer'
-                                }}
-                                title="Next Page"
-                            >
-                                <i className="fas fa-chevron-right" style={{ fontSize: '0.75rem' }}></i>
-                            </button>
-
-                            <button
-                                disabled={(activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages)}
-                                onClick={() => (activeTab === 'collector' ? setCollectorPagination : setRegistrationPagination)(prev => ({ ...prev, page: (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages) }))}
-                                style={{
-                                    ...btnOutlineStyle,
-                                    width: '36px',
-                                    height: '36px',
-                                    padding: 0,
-                                    borderRadius: '8px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    opacity: ((activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages)) ? 0.4 : 1,
-                                    cursor: ((activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages)) ? 'not-allowed' : 'pointer'
-                                }}
-                                title="Last Page"
-                            >
-                                <i className="fas fa-angle-double-right" style={{ fontSize: '0.75rem' }}></i>
-                            </button>
-                        </div>
-
-                        {/* Filter Button (Icon) - Moved to far right */}
-                        <button
-                            onClick={() => setIsFilterPanelOpen(true)}
-                            style={{
-                                width: '38px',
-                                height: '38px',
-                                borderRadius: '10px',
-                                border: '1px solid #e2e8f0',
-                                background: Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') ? '#eff6ff' : '#fff',
-                                color: Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') ? '#2563eb' : '#64748b',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                transition: 'all 0.2s',
-                                position: 'relative',
-                                marginLeft: '8px'
-                            }}
-                            title="Filter"
-                        >
-                            <i className="fas fa-filter"></i>
-                            {Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') && (
-                                <span style={{ position: 'absolute', top: '-4px', right: '-4px', width: '8px', height: '8px', background: '#2563eb', borderRadius: '50%', border: '2px solid #fff' }}></span>
-                            )}
-                        </button>
-                        </div>
-                    </div>
-                </div>
+            </div>
 
             {/* Removed Global Standard Rates Section */}
 
