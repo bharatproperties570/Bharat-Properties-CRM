@@ -140,11 +140,12 @@ const DealSettingsPage = () => {
                 }
             });
             if (globalRes.data?.status === "success") {
-                setRegistrationCharges(globalRes.data.docs || []);
+                const result = globalRes.data.data;
+                setRegistrationCharges(result.docs || []);
                 setRegistrationPagination(prev => ({
                     ...prev,
-                    totalDocs: globalRes.data.totalDocs,
-                    totalPages: globalRes.data.totalPages
+                    totalDocs: result.totalDocs || 0,
+                    totalPages: result.totalPages || 1
                 }));
             } else {
                 console.error("Registration Charges API failed:", globalRes);
@@ -777,39 +778,30 @@ const DealSettingsPage = () => {
 
                 {/* Sub-Header: Search & Add Row */}
                 <div style={{ padding: '16px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px' }}>
-                    {/* Search Bar (Left) */}
-                    <div style={{ position: 'relative', flex: 1, maxWidth: '500px' }}>
-                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.8rem' }}></i>
-                        <input
-                            type="text"
-                            placeholder={`Search ${activeTab === 'collector' ? 'by Category, SubCategory or Config...' : 'by Config Name...'}`}
-                            style={{
-                                padding: '10px 12px 10px 36px',
-                                borderRadius: '10px',
-                                border: '1px solid #e2e8f0',
-                                fontSize: '0.85rem',
-                                width: '100%',
-                                outline: 'none',
-                                transition: 'all 0.2s'
-                            }}
-                            value={activeTab === 'collector' ? collectorSearch : registrationSearch}
-                            onChange={e => activeTab === 'collector' ? setCollectorSearch(e.target.value) : setRegistrationSearch(e.target.value)}
-                            onFocus={e => { e.target.style.borderColor = '#2563eb'; e.target.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.1)'; }}
-                            onBlur={e => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
-                        />
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        {/* Pagination Summary */}
-                        <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
-                            {activeTab === 'collector' ? (
-                                <span>Total: <b>{collectorPagination.totalDocs}</b> Rates</span>
-                            ) : (
-                                <span>Total: <b>{registrationPagination.totalDocs}</b> Configs</span>
-                            )}
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flex: 1, maxWidth: '600px' }}>
+                        {/* Search Bar */}
+                        <div style={{ position: 'relative', flex: 1 }}>
+                            <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.8rem' }}></i>
+                            <input
+                                type="text"
+                                placeholder={`Search ${activeTab === 'collector' ? 'by Category, SubCategory or Config...' : 'by Config Name...'}`}
+                                style={{
+                                    padding: '10px 12px 10px 36px',
+                                    borderRadius: '10px',
+                                    border: '1px solid #e2e8f0',
+                                    fontSize: '0.85rem',
+                                    width: '100%',
+                                    outline: 'none',
+                                    transition: 'all 0.2s'
+                                }}
+                                value={activeTab === 'collector' ? collectorSearch : registrationSearch}
+                                onChange={e => activeTab === 'collector' ? setCollectorSearch(e.target.value) : setRegistrationSearch(e.target.value)}
+                                onFocus={e => { e.target.style.borderColor = '#2563eb'; e.target.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.1)'; }}
+                                onBlur={e => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
+                            />
                         </div>
 
-                        {/* Add Button (Icon) */}
+                        {/* Add Button (Moved next to search) */}
                         {activeTab === 'global' ? (
                             <button
                                 onClick={() => {
@@ -820,8 +812,8 @@ const DealSettingsPage = () => {
                                     setShowRegistrationChargeModal(true);
                                 }}
                                 style={{
-                                    width: '38px',
                                     height: '38px',
+                                    padding: '0 16px',
                                     borderRadius: '10px',
                                     border: 'none',
                                     background: '#2563eb',
@@ -829,20 +821,24 @@ const DealSettingsPage = () => {
                                     cursor: 'pointer',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'center',
+                                    gap: '8px',
+                                    fontSize: '0.85rem',
+                                    fontWeight: 700,
                                     transition: 'all 0.2s',
-                                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)'
+                                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)',
+                                    whiteSpace: 'nowrap'
                                 }}
                                 title="Add Registration Charge"
                             >
                                 <i className="fas fa-plus"></i>
+                                <span>Add New</span>
                             </button>
                         ) : (
                             <button
                                 onClick={() => setViewMode('add')}
                                 style={{
-                                    width: '38px',
                                     height: '38px',
+                                    padding: '0 16px',
                                     borderRadius: '10px',
                                     border: 'none',
                                     background: '#2563eb',
@@ -850,15 +846,30 @@ const DealSettingsPage = () => {
                                     cursor: 'pointer',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'center',
+                                    gap: '8px',
+                                    fontSize: '0.85rem',
+                                    fontWeight: 700,
                                     transition: 'all 0.2s',
-                                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)'
+                                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)',
+                                    whiteSpace: 'nowrap'
                                 }}
                                 title="Add Govt. Charge"
                             >
                                 <i className="fas fa-plus"></i>
+                                <span>Add New</span>
                             </button>
                         )}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                        {/* Pagination Summary (Moved to right) */}
+                        <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>
+                            {activeTab === 'collector' ? (
+                                <span>Total: <b>{collectorPagination.totalDocs}</b> Rates</span>
+                            ) : (
+                                <span>Total: <b>{registrationPagination.totalDocs}</b> Configs</span>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -1543,13 +1554,22 @@ const DealSettingsPage = () => {
                 </div>
             )}
 
-            {/* Registration Charge Modal */}
             {showRegistrationChargeModal && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', zIndex: 1100, display: 'flex', justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(4px)' }}>
-                    <div style={{ background: '#fff', width: '500px', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
+                    <div style={{ background: '#fff', width: '90%', maxWidth: '600px', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
                         <div style={{ padding: '24px 32px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>{editingRegistrationChargeId ? 'Edit Registration Charge' : 'Add Registration Charge'}</h2>
-                            <button onClick={() => setShowRegistrationChargeModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                <div style={{ width: '42px', height: '42px', background: '#eff6ff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <i className="fas fa-file-invoice-dollar" style={{ color: '#2563eb', fontSize: '1.2rem' }}></i>
+                                </div>
+                                <div>
+                                    <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#1e293b' }}>
+                                        {editingRegistrationChargeId ? 'Edit Registration Charge' : 'Add Registration Charge'}
+                                    </h2>
+                                    <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#64748b' }}>Configure stamp duty and registration fees</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setShowRegistrationChargeModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '1.2rem' }}>
                                 <i className="fas fa-times"></i>
                             </button>
                         </div>
