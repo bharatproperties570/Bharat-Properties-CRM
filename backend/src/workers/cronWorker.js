@@ -5,6 +5,7 @@ import Lookup from '../../models/Lookup.js';
 import Activity from '../../models/Activity.js';
 import AuditLog from '../../models/AuditLog.js';
 import { notificationQueue } from '../queues/queueManager.js';
+import { computeAndSave as computeScore } from '../services/LeadScoringService.js';
 
 // Setup connection options
 const workerOptions = { connection: redisConnection };
@@ -18,7 +19,7 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
 
         // Resolve Dormant Stage ID
         let dormantStageId = null;
-        const dormantLookup = await Lookup.findOne({ lookup_type: 'Stage', lookup_value: { $regex: /^Dormant$/i } });
+        const dormantLookup = await Lookup.findOne({ lookup_type: { $regex: /^stage$/i }, lookup_value: { $regex: /^Dormant$/i } });
         if (dormantLookup) dormantStageId = dormantLookup._id;
 
         // Find leads with no activity for 7 days, currently not Dormant
@@ -29,36 +30,44 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
 
         let updatedCount = 0;
         for (const lead of leadsToDecay) {
-            // Apply Penalty (-10)
-            const newScore = Math.max(0, (lead.intent_index || 0) - 10);
+            // ✅ FIX: Write penalty to decay_score (NOT intent_index)
+            // LeadScoringService reads decay_score and factors it into leadScore.
+            // intent_index belongs to enrichmentEngine only — do not touch it here.
+            const prevDecay = lead.decay_score || 0;
+            const newDecay = Math.min(prevDecay + 10, 50); // Cap at 50
 
-            lead.intent_index = newScore;
-
-            // Shift classification if score plummeted
-            if (newScore < 40) lead.lead_classification = 'Low Intent';
+            const updatePayload = { decay_score: newDecay };
 
             // Shift Stage to Dormant
             if (dormantStageId) {
-                lead.stage = dormantStageId;
+                updatePayload.stage = dormantStageId;
+                updatePayload.stageChangedAt = new Date();
             }
 
-            await lead.save();
+            await Lead.findByIdAndUpdate(lead._id, updatePayload);
 
-            // Track System Log for Decay
+            // ✅ FIX: Recompute leadScore via LeadScoringService (picks up decay_score correctly)
+            try {
+                await computeScore(lead._id, { triggeredBy: 'cron' });
+            } catch (err) {
+                console.error(`[Cron Worker] Scoring failed for ${lead._id}:`, err.message);
+            }
+
+            // Audit log for decay
             await AuditLog.logEntityUpdate(
                 'score_changed',
                 'lead',
                 lead._id,
-                `${lead.firstName || ''} ${lead.lastName || ''}`,
+                `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
                 null,
-                { before: lead.intent_index + 10, after: newScore },
-                `System Cron penalization: Follow-up decayed due to 7 days inactivity.`
+                { before: prevDecay, after: newDecay },
+                `System Cron: decay_score +10 (inactivity >7 days). leadScore recalculated.`
             );
 
             updatedCount++;
         }
 
-        console.log(`[Cron Worker] Decayed intent score and shifted to Dormant for ${updatedCount} leads.`);
+        console.log(`[Cron Worker] Updated decay_score and recomputed leadScore for ${updatedCount} leads.`);
         return { decayed: updatedCount };
     }
 
@@ -85,7 +94,6 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
                 metadata: { activityId: activity._id }
             };
 
-            // Dispatch to Notification Queue
             await notificationQueue.add('sendNotification', payload);
             remindersSent++;
         }

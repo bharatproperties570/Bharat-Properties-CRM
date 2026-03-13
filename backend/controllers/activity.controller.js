@@ -5,124 +5,66 @@ import Lead from "../models/Lead.js";
 import Deal from "../models/Deal.js";
 import { enrichmentQueue } from "../src/queues/queueManager.js";
 import { updateLeadStage } from "./stage.controller.js";
+import StageTransitionEngine from "../src/services/StageTransitionEngine.js";
+import LeadScoringService from "../src/services/LeadScoringService.js";
 
 /**
  * Bug 6 Fix: Auto-trigger stage change when a completed activity is saved for a lead.
  * Looks up the mapped stage from activityMasterFields settings, then calls updateLeadStage.
  * This makes stage auto-computation truly automatic without requiring the frontend hook.
  */
+/**
+ * Professionals Fix: Auto-trigger stage change and recalculate score.
+ * Delegates to StageTransitionEngine for stage logic and LeadScoringService for scoring.
+ */
 const autoTriggerStageChange = async (activity, userId = null) => {
     try {
-        // Only trigger for completed activities on Lead entities
         if (activity.entityType?.toLowerCase() !== 'lead') return;
         if (activity.status?.toLowerCase() !== 'completed') return;
         if (!activity.entityId) return;
 
-        // Load activityMasterFields from SystemSettings
-        const SystemSetting = mongoose.model('SystemSetting');
-        const settingDoc = await SystemSetting.findOne({ key: 'activityMasterFields' }).lean();
-        const activityMasterFields = settingDoc?.value || {};
+        const leadId = activity.entityId;
+        const actType = activity.type;
+        const outcome = activity.details?.completionResult ||
+                        activity.details?.meetingOutcomeStatus ||
+                        activity.details?.callOutcome ||
+                        activity.details?.outcome ||
+                        activity.completionResult || '';
+        const reason = activity.details?.outcomeReason || activity.details?.reason || '';
+        const purpose = activity.details?.purpose || activity.details?.meetingPurpose || activity.details?.callPurpose || activity.purpose || '';
 
-        const actType = (activity.type || '').toLowerCase();
-        const typeConfig = activityMasterFields.activities?.find(a => (a.name || '').toLowerCase() === actType);
-        if (!typeConfig) return;
-
-        const purposeStr = (activity.details?.purpose || activity.purpose || '').toLowerCase();
-        const purposeConfig = typeConfig.purposes?.find(p => (p.name || '').toLowerCase() === purposeStr);
-        if (!purposeConfig) return;
-
-        let outcomeLabel = (
-            activity.details?.completionResult ||
-            activity.details?.meetingOutcomeStatus ||
-            activity.details?.callOutcome ||
-            activity.details?.outcome ||
-            activity.completionResult || ''
-        ).toLowerCase();
-
-        // Site Visit: scan nested visitedProperties for result
-        if (!outcomeLabel && actType === 'site visit' && Array.isArray(activity.details?.visitedProperties)) {
-            const priority = { 'very interested': 1, 'shortlisted': 2, 'somewhat interested': 3 };
-            const foundResult = activity.details.visitedProperties
+        // Site Visit special outcome resolution
+        let resolvedOutcome = outcome;
+        if (!resolvedOutcome && actType?.toLowerCase() === 'site visit' && Array.isArray(activity.details?.visitedProperties)) {
+            const priorityMap = { 'very interested': 1, 'shortlisted': 2, 'somewhat interested': 3 };
+            resolvedOutcome = activity.details.visitedProperties
                 .map(p => (p.result || '').toLowerCase())
-                .filter(r => r)
-                .sort((a, b) => (priority[a] || 99) - (priority[b] || 99))[0];
-            if (foundResult) outcomeLabel = foundResult;
+                .filter(Boolean)
+                .sort((a, b) => (priorityMap[a] || 99) - (priorityMap[b] || 99))[0] || '';
         }
 
-        const outcomeConfig = purposeConfig.outcomes?.find(o => {
-            const label = (o.label || '').toLowerCase();
-            return label === outcomeLabel || outcomeLabel.includes(label) || label.includes(outcomeLabel);
-        });
-
-        const mappedStage = outcomeConfig?.stage || outcomeConfig?.defaultStage;
-        if (!mappedStage) return;
-
-        // Also check override rules (from stageMappingRules setting)
-        const stageRulesSetting = await SystemSetting.findOne({ key: 'stageMappingRules' }).lean();
-        const overrideRules = (stageRulesSetting?.value || [])
-            .filter(r => r.isActive)
-            .sort((a, b) => (a.priority || 99) - (b.priority || 99));
-
-        let finalStage = mappedStage;
-        for (const rule of overrideRules) {
-            const ruleActType = (rule.activityType || '').toLowerCase();
-            const rulePurpose = (rule.purpose || '').toLowerCase();
-            const ruleOutcome = (rule.outcome || '').toLowerCase();
-            const matchAct = !ruleActType || ruleActType === actType;
-            const matchPurpose = !rulePurpose || rulePurpose === purposeStr;
-            const matchOutcome = !ruleOutcome || ruleOutcome === outcomeLabel;
-            if (matchAct && matchPurpose && matchOutcome) {
-                finalStage = rule.stage;
-                break;
+        // 1. Evaluate Stage Transition (backend rule engine)
+        const transition = await StageTransitionEngine.evaluateAndTransition(
+            leadId,
+            actType,
+            resolvedOutcome,
+            reason,
+            {}, // stageFormData already synced in previous steps if any
+            {
+                activityId: activity._id,
+                triggeredByUser: userId,
+                purpose
             }
-        }
-
-        // Call stage update (uses the existing updateLeadStage logic)
-        const lead = await Lead.findById(activity.entityId).select('stage').populate('stage', 'lookup_value').lean();
-        const currentStage = lead?.stage?.lookup_value || lead?.stage || 'New';
-        if (currentStage === finalStage) return; // No change needed
-
-        // Import Lookup to resolve the stage ID
-        const Lookup = mongoose.model('Lookup');
-        let stageId;
-        const lookup = await Lookup.findOne({ lookup_type: 'Stage', lookup_value: { $regex: new RegExp(`^${finalStage}$`, 'i') } });
-        if (lookup) {
-            stageId = lookup._id;
-        } else {
-            const newLookup = await Lookup.create({ lookup_type: 'Stage', lookup_value: finalStage });
-            stageId = newLookup._id;
-        }
-
-        // Write stage history and update the lead
-        await Lead.findByIdAndUpdate(activity.entityId, {
-            $push: {
-                stageHistory: {
-                    stage: finalStage,
-                    enteredAt: new Date(),
-                    triggeredBy: 'activity',
-                    activityType: activity.type,
-                    outcome: outcomeLabel,
-                    activityId: activity._id,
-                    triggeredByUser: userId || null
-                }
-            },
-            $set: {
-                stage: stageId,
-                stageChangedAt: new Date()
-            }
-        });
-
-        await AuditLog.logEntityUpdate(
-            'stage_changed', 'lead', activity.entityId,
-            `Lead`, userId,
-            { before: currentStage, after: finalStage },
-            `Stage auto-changed by ${activity.type} activity outcome: "${outcomeLabel}"`
         );
 
-        console.log(`[StageEngine] Auto-triggered: Lead ${activity.entityId} → ${finalStage} (from ${actType}/${outcomeLabel})`);
+        // 2. Recalculate Lead Score (unified scoring engine)
+        await LeadScoringService.computeAndSave(leadId, { triggeredBy: 'activity_completion' });
+
+        if (transition.stageChanged) {
+            console.log(`[StageAlignment] Lead ${leadId} moved: ${transition.prevStage} → ${transition.newStage}`);
+        }
     } catch (err) {
-        // Non-fatal: log the error but don't fail the activity save
-        console.error('[StageEngine] autoTriggerStageChange failed:', err.message);
+        console.error('[ActivityController] autoTriggerStageChange failed:', err.message);
     }
 };
 

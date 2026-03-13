@@ -1,7 +1,7 @@
 // API Configuration
 import axios from 'axios';
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4001/api';
 
 // Create and export axios instance
 export const api = axios.create({
@@ -224,6 +224,7 @@ export const leadsAPI = {
     create: (data) => apiRequest('/leads', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => apiRequest(`/leads/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => apiRequest(`/leads/${id}`, { method: 'DELETE' }),
+    recalculateScore: (leadId) => apiRequest(`/activities/leads/${leadId}/recalculate-score`, { method: 'POST' }),
 };
 
 // Contacts API
@@ -243,6 +244,19 @@ export const activitiesAPI = {
     create: (data) => apiRequest('/activities', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => apiRequest(`/activities/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => apiRequest(`/activities/${id}`, { method: 'DELETE' }),
+    // ── Unified Backend Pipeline: Stage + Scoring ──
+    complete: (id, data) => apiRequest(`/activities/${id}/complete`, { method: 'POST', body: JSON.stringify(data) }),
+    completeWithForm: (id, data) => apiRequest(`/activities/${id}/complete-with-form`, { method: 'POST', body: JSON.stringify(data) }),
+};
+
+// Stage Transition Rules API
+export const stageTransitionRulesAPI = {
+    getAll: () => apiRequest('/rules/stage-transitions'),
+    save: (rules) => apiRequest('/rules/stage-transitions', { method: 'POST', body: JSON.stringify({ rules }) }),
+    add: (rule) => apiRequest('/rules/stage-transitions/add', { method: 'POST', body: JSON.stringify(rule) }),
+    update: (ruleId, data) => apiRequest(`/rules/stage-transitions/${ruleId}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (ruleId) => apiRequest(`/rules/stage-transitions/${ruleId}`, { method: 'DELETE' }),
+    seedDefaults: () => apiRequest('/rules/stage-transitions/seed', { method: 'POST' }),
 };
 
 // Email API
@@ -335,6 +349,7 @@ export default {
     fieldRules: fieldRulesAPI,
     distributionRules: distributionRulesAPI,
     scoringRules: scoringRulesAPI,
+    stageTransitionRules: stageTransitionRulesAPI,
     systemSettings: systemSettingsAPI,
     settings: systemSettingsAPI, // Map settings to systemSettingsAPI for compatibility
     deals: dealsAPI,

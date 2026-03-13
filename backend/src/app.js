@@ -30,7 +30,8 @@ import parsingRoutes from "./modules/parsing/parsingRule.routes.js";
 import intakeRoutes from "./modules/intake/intake.routes.js";
 import smsRoutes from "./modules/sms/sms.routes.js";
 import enrichmentRoutes from "./modules/prospectingEnrichment/enrichment.routes.js";
-
+import activityCompletionRoutes from "./modules/activity/activityCompletion.routes.js";
+import stageTransitionRoutes from "./modules/rules/stageTransition.routes.js";
 
 // Middleware
 import { errorHandler } from "./middlewares/error.middleware.js";
@@ -102,6 +103,8 @@ app.use("/system-settings", systemRoutes);
 app.use("/parsing-rules", parsingRoutes);
 app.use("/intake", intakeRoutes);
 app.use("/enrichment", enrichmentRoutes);
+app.use("/activities", activityCompletionRoutes);   // Activity completion pipeline (stage + scoring)
+app.use("/rules/stage-transitions", stageTransitionRoutes); // Stage transition rules CRUD
 // app.use("/sms-gateway", smsRoutes); (Managed in backend/app.js)
 
 // Error Handling Middleware (must be last)

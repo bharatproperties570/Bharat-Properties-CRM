@@ -9,4 +9,4 @@ const SystemSettingSchema = new mongoose.Schema({
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
-export default mongoose.model("SystemSetting", SystemSettingSchema);
+export default mongoose.models.SystemSetting || mongoose.model("SystemSetting", SystemSettingSchema);

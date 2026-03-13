@@ -12,6 +12,7 @@ import { enrichmentQueue } from "../src/queues/queueManager.js";
 import smsService from "../src/modules/sms/sms.service.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
 import { runFullLeadEnrichment } from "../src/utils/enrichmentEngine.js";
+import { autoAssign } from "../src/services/DistributionService.js";
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -329,6 +330,25 @@ export const addLead = async (req, res, next) => {
             console.error("[ENRICHMENT ERROR] Failed in addLead:", enrichError.message);
         }
 
+        // ─── Auto-Assign via DistributionService ───────────────────────────────────
+        let assignedAgent = null;
+        try {
+            const assignment = await autoAssign(lead.toObject());
+            if (assignment?.assignedTo) {
+                await Lead.findByIdAndUpdate(lead._id, {
+                    owner: assignment.assignedTo,
+                    'assignment.assignedTo': assignment.assignedTo
+                });
+                assignedAgent = {
+                    userId: assignment.assignedTo,
+                    ruleName: assignment.ruleName
+                };
+                console.log(`[DISTRIBUTION] Lead ${lead._id} auto-assigned to ${assignment.assignedTo} via rule "${assignment.ruleName}"`);
+            }
+        } catch (distErr) {
+            console.warn('[DISTRIBUTION] autoAssign failed (non-critical):', distErr.message);
+        }
+
         await lead.populate(leadPopulateFields);
 
         // SMS Trigger: Welcome Message via registered DLT template
@@ -341,7 +361,7 @@ export const addLead = async (req, res, next) => {
             ).catch(err => console.error('[SMS Trigger Error] Welcome failed:', err.message));
         }
 
-        res.status(201).json({ success: true, data: lead });
+        res.status(201).json({ success: true, data: lead, assignedAgent });
     } catch (error) {
         console.error("[ERROR] addLead failed:", error);
         next(error);

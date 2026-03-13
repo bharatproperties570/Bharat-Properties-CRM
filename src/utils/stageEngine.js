@@ -127,7 +127,7 @@ export const computeStage = (activityType, purpose, outcome, stageMappingRules =
     const outLower = (outcome || '').toLowerCase();
 
     let computedStage = 'New';
-    let requiredForm = null;
+    let requiredForms = []; // ← array (was single string)
 
     // 1. Check explicit override rules (ordered by priority ascending)
     const sortedRules = [...stageMappingRules]
@@ -140,8 +140,11 @@ export const computeStage = (activityType, purpose, outcome, stageMappingRules =
         const outcMatch = !rule.outcome || rule.outcome.toLowerCase() === outLower;
         if (typeMatch && purpMatch && outcMatch) {
             computedStage = rule.stage;
-            requiredForm = rule.requiredForm || null;
-            return { stage: computedStage, requiredForm };
+            // Support both old single requiredForm and new requiredForms[]
+            requiredForms = Array.isArray(rule.requiredForms)
+                ? rule.requiredForms
+                : (rule.requiredForm ? [rule.requiredForm] : []);
+            return { stage: computedStage, requiredForms };
         }
     }
 
@@ -154,14 +157,16 @@ export const computeStage = (activityType, purpose, outcome, stageMappingRules =
             const out = purp.outcomes?.find(o => (o.label || '').toLowerCase() === outLower);
             if (out?.stage) {
                 computedStage = out.stage;
-                requiredForm = out.requiredForm || null;
-                return { stage: computedStage, requiredForm };
+                requiredForms = Array.isArray(out.requiredForms)
+                    ? out.requiredForms
+                    : (out.requiredForm ? [out.requiredForm] : []);
+                return { stage: computedStage, requiredForms };
             }
         }
     }
 
     // 3. Fallback
-    return { stage: computedStage, requiredForm: null };
+    return { stage: computedStage, requiredForms: [] };
 };
 
 /**
@@ -177,6 +182,10 @@ export const flattenOutcomeMappings = (activityMasterFields = {}) => {
         for (const purp of (act.purposes || [])) {
             for (const out of (purp.outcomes || [])) {
                 const stageName = out.stage || 'New';
+                // Support both old requiredForm (string) and new requiredForms (array)
+                const requiredForms = Array.isArray(out.requiredForms)
+                    ? out.requiredForms
+                    : (out.requiredForm ? [out.requiredForm] : []);
                 rows.push({
                     activityType: act.name,
                     purpose: purp.name,
@@ -184,7 +193,7 @@ export const flattenOutcomeMappings = (activityMasterFields = {}) => {
                     stage: stageName,
                     score: out.score || 0,
                     probability: getStageProbability(stageName),
-                    requiredForm: out.requiredForm || null
+                    requiredForms   // ← array
                 });
             }
         }

@@ -464,6 +464,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     const [hiddenFields, setHiddenFields] = useState([]);
     const [readOnlyFields, setReadOnlyFields] = useState([]);
     const [isSaving, setIsSaving] = useState(false);
+    const [fieldErrors, setFieldErrors] = useState({}); // Fix #5: inline per-field error state
 
 
 
@@ -888,14 +889,18 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             const validationResult = await validateAsync('lead', formData, { stage: formData.stage || 'New' });
 
             if (!validationResult.isValid) {
-                const errorMessages = Object.entries(validationResult.errors)
-                    .map(([field, msg]) => `• ${msg}`)
-                    .join('\n');
-
-                alert(`Validation Failed:\n${errorMessages}`);
+                setFieldErrors(validationResult.errors || {});
+                // Scroll to first error field
+                const firstErrorField = Object.keys(validationResult.errors)[0];
+                if (firstErrorField) {
+                    const el = document.getElementById(`field-${firstErrorField}`);
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
                 setIsSaving(false);
                 return;
             }
+            // Clear errors if validation passed
+            setFieldErrors({});
 
             // Basic sanity check (Hardcoded backup)
             if (!formData.name && !formData.phones[0].number) {
@@ -993,7 +998,9 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             if (finalContactId) {
                 leadPayload.contactDetails = finalContactId;
             }
-            // --- DISTRIBUTION ENGINE EXECUTION ---
+            // ─── DISTRIBUTION ENGINE ───
+            // Backend handles primary assignment via DistributionService.autoAssign().
+            // Frontend executeDistribution() runs as a best-effort fallback for immediate UI feedback.
             if (!formData.owner) {
                 try {
                     const distributionResult = executeDistribution('leads', {
@@ -1003,7 +1010,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                         location: formData.locArea || formData.searchLocation,
                         propertyType: formData.propertyType[0],
                         leadScore: formData.leadScore || 0
-                    }, { users: [], teams: [], leads: [], activities: [] });
+                    }, { users, teams, leads: [], activities: [] });
 
                     if (distributionResult.success) {
                         leadPayload.owner = distributionResult.assignedTo;
@@ -1097,6 +1104,18 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             onAdd(leadPayload);
             window.dispatchEvent(new CustomEvent('lead-updated'));
             window.dispatchEvent(new CustomEvent('contact-updated'));
+
+            // Fix #6: Show auto-assignment toast if backend assigned the lead via DistributionRule
+            if (response.data?.assignedAgent?.userId) {
+                const agentUser = users?.find(u => u._id === response.data.assignedAgent.userId);
+                const agentName = agentUser?.fullName || agentUser?.name || 'an agent';
+                const toastEl = document.createElement('div');
+                toastEl.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:12px 24px;border-radius:10px;font-size:0.85rem;font-weight:500;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,0.35);display:flex;align-items:center;gap:10px;animation:fadeIn .3s ease;';
+                toastEl.innerHTML = `<span style="color:#22c55e;font-size:1rem;">✓</span> Auto-assigned to <strong style="margin-left:4px">${agentName}</strong><span style="margin-left:8px;opacity:0.5;font-size:0.75rem;">via ${response.data.assignedAgent.ruleName}</span>`;
+                document.body.appendChild(toastEl);
+                setTimeout(() => toastEl.remove(), 4500);
+            }
+
             onClose();
 
         } catch (error) {
@@ -2740,6 +2759,35 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                 </div>
                             );
                         })()}
+
+                        {/* Fix #5 — FieldRule Inline Validation Errors Banner */}
+                        {Object.keys(fieldErrors).length > 0 && (
+                            <div style={{
+                                background: '#fef2f2',
+                                border: '1px solid #fca5a5',
+                                borderRadius: '10px',
+                                padding: '12px 16px',
+                                marginBottom: '12px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '6px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                    <i className="fas fa-exclamation-triangle" style={{ color: '#dc2626', fontSize: '0.85rem' }}></i>
+                                    <span style={{ fontWeight: 700, fontSize: '0.85rem', color: '#991b1b' }}>
+                                        Please fix these errors before saving:
+                                    </span>
+                                </div>
+                                {Object.entries(fieldErrors).map(([field, msg]) => (
+                                    <div key={field} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.82rem', color: '#7f1d1d' }}>
+                                        <span style={{ color: '#dc2626', fontWeight: 700, minWidth: '12px' }}>•</span>
+                                        <span>
+                                            <strong style={{ textTransform: 'capitalize' }}>{field.replace(/([A-Z])/g, ' $1').trim()}</strong>: {msg}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
 
                         <div style={{ display: 'flex', gap: '12px' }}>
                             {/* Previous Button - Hide on first tab */}

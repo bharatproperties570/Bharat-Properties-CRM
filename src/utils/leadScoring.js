@@ -1,15 +1,59 @@
 /**
- * Lead Scoring Engine — Final Formula (v2, Double-Count Fixed)
+ * leadScoring.js — Display Layer (v3 — Backend Authoritative)
  *
- * Formula:  (StaticBase + ActivityScore + SourceScore + FitScore + DecayPenalty) × StageMultiplier
+ * ⚠️ IMPORTANT: As of v3, all scoring is computed EXCLUSIVELY by the backend.
+ *   - Primary source: lead.leadScore (computed by LeadScoringService.js in MongoDB)
+ *   - Primary activity score: lead.activityScore (backend-computed)
+ *   - Score breakdown for explainability: lead.scoreBreakdown
  *
- * StaticBase = lead.enrichment_formula_score (set by enrichmentEngine.js — NO activities counted there)
- * ActivityScore = points from completed activities (counted HERE once, not in enrichment)
- * StageMultiplier = progression boost based on funnel stage
+ * This file now only provides:
+ *   1. getDisplayScore(lead)    — returns the backend-stored score for display
+ *   2. calculateLeadScore(...)  — FALLBACK ONLY (used if leadScore not yet computed)
  *
- * Max: 100 (soft cap). Temperature > 80 = Super Hot.
+ * Do NOT use calculateLeadScore() as the authoritative source.
+ * All changes to scoring weights/logic should be made via Settings > Scoring Configuration
+ * which updates SystemSetting key 'lead_scoring_config' on the backend.
  */
 
+// ─── PRIMARY: Read backend-computed score ─────────────────────────────────────
+/**
+ * Get the display score from the backend-persisted lead.leadScore.
+ * Falls back to 0 if not computed yet (triggers from LeadScoringService on activity/enrichment events).
+ *
+ * @param {Object} lead - Lead document with leadScore, activityScore, scoreBreakdown
+ * @returns {{ total: number, activityScore: number, temperature: Object, intent: string, breakdown: Object }}
+ */
+export const getDisplayScore = (lead) => {
+    const total = Math.max(0, Math.min(100, lead?.leadScore || 0));
+    const activityScore = lead?.activityScore || 0;
+    const breakdown = lead?.scoreBreakdown || {};
+
+    // Determine temperature from breakdown (backend computed) or derive here
+    const temperature = breakdown.temperature || deriveTemperature(total);
+    const intent = breakdown.intent || deriveIntent(total);
+
+    return { total, activityScore, temperature, intent, breakdown };
+};
+
+const deriveTemperature = (score) => {
+    if (score >= 81) return { label: 'SUPER HOT', class: 'super-hot', color: '#7c3aed' };
+    if (score >= 61) return { label: 'HOT', class: 'hot', color: '#ef4444' };
+    if (score >= 31) return { label: 'WARM', class: 'warm', color: '#f59e0b' };
+    return { label: 'COLD', class: 'cold', color: '#64748b' };
+};
+
+const deriveIntent = (score) => {
+    if (score >= 80) return 'Closing Soon';
+    if (score >= 60) return 'High Intent';
+    if (score >= 30) return 'Nurture';
+    return 'Low Intent';
+};
+
+// ─── FALLBACK: Frontend calculation (used only when backend score absent) ─────
+/**
+ * @deprecated Use getDisplayScore(lead) instead. This fallback remains for components
+ * that haven't migrated yet. Will be removed in a future cleanup.
+ */
 export const calculateLeadScore = (lead, activities = [], config = {}) => {
     const {
         scoringAttributes = {},

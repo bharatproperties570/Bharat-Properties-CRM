@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
+import { stageTransitionRulesAPI } from '../../../utils/api';
 import Toast from '../../../components/Toast';
 import {
     STAGE_PIPELINE, STAGE_LABELS, flattenOutcomeMappings,
@@ -11,12 +12,12 @@ import {
 } from '../../../utils/agingEngine';
 
 const REQUIRED_FORMS = [
-    { value: 'Requirement Form', label: 'Requirement Form (Add Lead - Req. Page)' },
-    { value: 'Meetings Form', label: 'Meetings Form (Activity - Meeting)' },
-    { value: 'Site visit Form', label: 'Site visit Form (Activity - Site Visit)' },
-    { value: 'Quotation Form', label: 'Quotation Form (Deal List - Quote)' },
-    { value: 'Offer Form', label: 'Offer Form (Deal Detail - Add Offer)' },
-    { value: 'Feedback Form', label: 'Feedback Form (Post Sale - Feedback)' },
+    { value: 'Requirement Form', label: 'Requirement Form', short: 'Req', color: '#3b82f6' },
+    { value: 'Meetings Form', label: 'Meetings Form', short: 'Mtg', color: '#8b5cf6' },
+    { value: 'Site Visit Form', label: 'Site Visit Form', short: 'SV', color: '#f59e0b' },
+    { value: 'Quotation Form', label: 'Quotation Form', short: 'Quot', color: '#10b981' },
+    { value: 'Offer Form', label: 'Offer Form', short: 'Offer', color: '#f97316' },
+    { value: 'Feedback Form', label: 'Feedback Form', short: 'FB', color: '#ec4899' },
 ];
 
 // ─────────────────────────────────────────────
@@ -54,6 +55,55 @@ const StagePill = ({ stage, size = 'md' }) => {
 };
 
 // ─────────────────────────────────────────────
+// Form Chips: Multi-Form Required Form Selector
+// ─────────────────────────────────────────────
+
+/** Interactive toggle buttons — used in Override Rule table cells */
+const FormChipsSelector = ({ value = [], onChange }) => {
+    const selected = Array.isArray(value) ? value : (value ? [value] : []);
+    return (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+            {REQUIRED_FORMS.map(f => {
+                const active = selected.includes(f.value);
+                return (
+                    <button key={f.value} type="button" title={f.label}
+                        onClick={() => onChange(active ? selected.filter(x => x !== f.value) : [...selected, f.value])}
+                        style={{
+                            padding: '3px 8px', borderRadius: '12px', cursor: 'pointer', fontSize: '11px', fontWeight: 700,
+                            border: `1.5px solid ${active ? f.color : '#e5e7eb'}`,
+                            background: active ? f.color + '18' : '#f8fafc',
+                            color: active ? f.color : '#94a3b8', transition: 'all 0.15s'
+                        }}
+                    >
+                        {active && <i className="fas fa-check" style={{ marginRight: '3px', fontSize: '8px' }} />}
+                        {f.short}
+                    </button>
+                );
+            })}
+        </div>
+    );
+};
+
+/** Read-only chip display — used in Default Mappings table */
+const FormChipsDisplay = ({ value = [] }) => {
+    const forms = Array.isArray(value) ? value : (value ? [value] : []);
+    if (!forms.length) return <span style={{ fontSize: '11px', color: '#cbd5e1', fontStyle: 'italic' }}>None</span>;
+    return (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+            {forms.map(f => {
+                const info = REQUIRED_FORMS.find(x => x.value === f) || { short: f, color: '#6366f1' };
+                return (
+                    <span key={f} style={{
+                        padding: '2px 7px', borderRadius: '10px', fontSize: '11px', fontWeight: 700,
+                        background: info.color + '18', color: info.color, border: `1px solid ${info.color}40`
+                    }}>{info.short}</span>
+                );
+            })}
+        </div>
+    );
+};
+
+// ─────────────────────────────────────────────
 // Add Override Rule Modal
 // ─────────────────────────────────────────────
 
@@ -61,13 +111,15 @@ const AddRuleModal = ({ activityMasterFields, onSave, onClose }) => {
     const [activityType, setActivityType] = useState('');
     const [purpose, setPurpose] = useState('');
     const [outcome, setOutcome] = useState('');
+    const [reason, setReason] = useState('');
     const [stage, setStage] = useState('Prospect');
     const [priority, setPriority] = useState('1');
-    const [requiredForm, setRequiredForm] = useState('');
+    const [requiredForms, setRequiredForms] = useState([]); // multi-form array
 
     const activities = activityMasterFields?.activities || [];
     const purposes = activities.find(a => a.name === activityType)?.purposes || [];
     const outcomes = purposes.find(p => p.name === purpose)?.outcomes || [];
+    const reasons = outcomes.find(o => o.label === outcome)?.reasons || [];
 
     const canSave = stage && (activityType || purpose || outcome);
 
@@ -110,21 +162,53 @@ const AddRuleModal = ({ activityMasterFields, onSave, onClose }) => {
                     {/* Outcome */}
                     <div>
                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#374151', marginBottom: '6px', textTransform: 'uppercase' }}>Outcome</label>
-                        <select value={outcome} onChange={e => setOutcome(e.target.value)} disabled={!purpose}
+                        <select value={outcome} onChange={e => { setOutcome(e.target.value); setReason(''); }} disabled={!purpose}
                             style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', opacity: !purpose ? 0.5 : 1 }}>
                             <option value="">— Any Outcome —</option>
                             {outcomes.map(o => <option key={o.label} value={o.label}>{o.label}</option>)}
                         </select>
                     </div>
 
-                    {/* Required Form */}
+                    {/* Reason */}
+                    {reasons.length > 0 && (
+                        <div>
+                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#374151', marginBottom: '6px', textTransform: 'uppercase' }}>Reason <span style={{ color: '#94a3b8', fontWeight: 400, textTransform: 'none' }}>(optional — more specific rule)</span></label>
+                            <select value={reason} onChange={e => setReason(e.target.value)}
+                                style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px' }}>
+                                <option value="*">— Any Reason —</option>
+                                {reasons.map(r => <option key={r} value={r}>{r}</option>)}
+                            </select>
+                        </div>
+                    )}
+
+                    {/* Required Forms — multi-select chips */}
                     <div>
-                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#374151', marginBottom: '6px', textTransform: 'uppercase' }}>Required Form</label>
-                        <select value={requiredForm} onChange={e => setRequiredForm(e.target.value)}
-                            style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px' }}>
-                            <option value="">None</option>
-                            {REQUIRED_FORMS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-                        </select>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#374151', marginBottom: '8px', textTransform: 'uppercase' }}>Required Forms <span style={{ color: '#94a3b8', fontWeight: 400, textTransform: 'none' }}>(agent must complete these before stage changes)</span></label>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                            {REQUIRED_FORMS.map(f => {
+                                const active = requiredForms.includes(f.value);
+                                return (
+                                    <button key={f.value} type="button"
+                                        onClick={() => setRequiredForms(prev => active ? prev.filter(x => x !== f.value) : [...prev, f.value])}
+                                        style={{
+                                            padding: '7px 14px', borderRadius: '20px', cursor: 'pointer', fontSize: '12px', fontWeight: 700,
+                                            border: `2px solid ${active ? f.color : '#e5e7eb'}`,
+                                            background: active ? f.color + '18' : '#fff',
+                                            color: active ? f.color : '#6b7280', transition: 'all 0.15s'
+                                        }}
+                                    >
+                                        {active && <i className="fas fa-check" style={{ marginRight: '6px', fontSize: '10px' }} />}
+                                        {f.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        {requiredForms.length > 0 && (
+                            <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '8px' }}>
+                                <i className="fas fa-info-circle" style={{ color: '#6366f1', marginRight: '4px' }} />
+                                Agent must complete <strong>{requiredForms.join(', ')}</strong> before stage will change.
+                            </p>
+                        )}
                     </div>
 
                     {/* Arrow indicator */}
@@ -164,7 +248,7 @@ const AddRuleModal = ({ activityMasterFields, onSave, onClose }) => {
                     <button onClick={onClose} style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid #e5e7eb', background: '#fff', color: '#374151', fontWeight: 600, cursor: 'pointer' }}>
                         Cancel
                     </button>
-                    <button disabled={!canSave} onClick={() => { onSave({ activityType, purpose, outcome, stage, priority: parseInt(priority) || 1, requiredForm }); onClose(); }}
+                    <button disabled={!canSave} onClick={() => { onSave({ activityType, purpose, outcome, reason: reason || '*', stage, priority: parseInt(priority) || 1, requiredForms }); onClose(); }}
                         style={{ padding: '10px 24px', background: canSave ? '#6366f1' : '#e2e8f0', color: canSave ? '#fff' : '#94a3b8', borderRadius: '8px', border: 'none', fontWeight: 700, cursor: canSave ? 'pointer' : 'not-allowed' }}>
                         <i className="fas fa-plus" style={{ marginRight: '8px' }} />
                         Add Rule
@@ -204,22 +288,76 @@ const StagePage = () => {
         setTimeout(() => setNotification(n => ({ ...n, show: false })), 3000);
     };
 
-    const allRows = useMemo(() => flattenOutcomeMappings(activityMasterFields), [activityMasterFields]);
-    const filteredRows = useMemo(() => allRows.filter(row => {
-        const q = search.toLowerCase();
-        const matchSearch = !q || [row.activityType, row.purpose, row.outcome, row.stage].some(v => v.toLowerCase().includes(q));
-        const matchActivity = !filterActivity || row.activityType === filterActivity;
-        const matchStage = !filterStage || row.stage === filterStage;
-        return matchSearch && matchActivity && matchStage;
-    }), [allRows, search, filterActivity, filterStage]);
+    // ─── Backend Default Stage Rules ─────────────────────────────────────────
+    const [backendRules, setBackendRules] = useState([]);
+    const [rulesLoading, setRulesLoading] = useState(true);
 
-    const activityNames = [...new Set(allRows.map(r => r.activityType))];
+    const loadBackendRules = useCallback(async () => {
+        setRulesLoading(true);
+        try {
+            const data = await stageTransitionRulesAPI.getAll();
+            if (data.success) {
+                // If it's a default state and data is empty or isDefault is true
+                if (data.isDefault && (!data.data || data.data.length === 0)) {
+                    await stageTransitionRulesAPI.seedDefaults();
+                    const reloaded = await stageTransitionRulesAPI.getAll();
+                    setBackendRules(reloaded.data || []);
+                } else {
+                    setBackendRules(data.data || []);
+                }
+            }
+        } catch (err) {
+            console.error('[StagePage] Failed to load backend stage rules:', err);
+            showToast('Failed to load rules', 'error');
+        } finally {
+            setRulesLoading(false);
+        }
+    }, []);
+
+    const handleRestoreDefaults = async () => {
+        if (!window.confirm('This will reset all stage transition rules to the professional real estate defaults. Continue?')) return;
+        setRulesLoading(true);
+        try {
+            await stageTransitionRulesAPI.seedDefaults();
+            await loadBackendRules();
+            showToast('Professional defaults restored successfully');
+        } catch (err) {
+            showToast('Failed to restore defaults', 'error');
+        } finally {
+            setRulesLoading(false);
+        }
+    };
+
+    useEffect(() => { loadBackendRules(); }, [loadBackendRules]);
+
+    const updateBackendRule = useCallback(async (ruleId, changes) => {
+        try {
+            const data = await stageTransitionRulesAPI.update(ruleId, changes);
+            if (data.success) {
+                setBackendRules(prev => prev.map(r => r.id === ruleId ? { ...r, ...changes } : r));
+            }
+        } catch (err) {
+            console.error('[StagePage] Failed to update backend rule:', err);
+            showToast('Update failed', 'error');
+        }
+    }, []);
+
+    const filteredRows = useMemo(() => backendRules.filter(row => {
+        const q = search.toLowerCase();
+        const matchSearch = !q || [row.activityType, row.purpose, row.outcome, row.newStage]
+            .filter(Boolean).some(v => v.toLowerCase().includes(q));
+        const matchActivity = !filterActivity || row.activityType === filterActivity;
+        const matchStage = !filterStage || row.newStage === filterStage;
+        return matchSearch && matchActivity && matchStage;
+    }), [backendRules, search, filterActivity, filterStage]);
+
+    const activityNames = [...new Set(backendRules.map(r => r.activityType).filter(Boolean))];
     const stageCounts = useMemo(() => {
         const counts = {};
         STAGE_LABELS.forEach(s => counts[s] = 0);
-        allRows.forEach(r => { counts[r.stage] = (counts[r.stage] || 0) + 1; });
+        backendRules.forEach(r => { if (r.newStage) counts[r.newStage] = (counts[r.newStage] || 0) + 1; });
         return counts;
-    }, [allRows]);
+    }, [backendRules]);
 
     // Live Stage Density from Backend API
     const [densityData, setDensityData] = useState([]);
@@ -285,7 +423,7 @@ const StagePage = () => {
                         <div>
                             <h1 style={{ fontSize: '22px', fontWeight: 800, color: '#111827', margin: 0 }}>Stage Computation Engine</h1>
                             <p style={{ fontSize: '13px', color: '#6b7280', margin: '3px 0 0' }}>
-                                Activity → Purpose → Outcome → Stage mapping · <strong style={{ color: '#ef4444' }}>{allRows.length}</strong> rules configured
+                                Activity → Purpose → Outcome → Stage mapping · <strong style={{ color: '#ef4444' }}>{backendRules.length}</strong> rules configured
                             </p>
                         </div>
                     </div>
@@ -295,9 +433,20 @@ const StagePage = () => {
                             <span style={{ fontSize: '12px', fontWeight: 700, color: '#10b981' }}>Auto-Compute: ON</span>
                         </div>
                         {activeTab === 'rules' && (
-                            <button onClick={() => setShowAddModal(true)} style={{ padding: '8px 20px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <i className="fas fa-plus" />+ Override Rule
-                            </button>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                    onClick={handleRestoreDefaults}
+                                    style={{ padding: '8px 16px', background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '8px', fontWeight: 600, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                                >
+                                    <i className="fas fa-undo" /> Restore Professional Defaults
+                                </button>
+                                <button
+                                    onClick={() => setShowAddModal(true)}
+                                    style={{ padding: '8px 20px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                                >
+                                    <i className="fas fa-plus" />+ Override Rule
+                                </button>
+                            </div>
                         )}
                     </div>
                 </div>
@@ -354,16 +503,10 @@ const StagePage = () => {
                                             <td style={{ padding: '10px 16px', color: '#6b7280' }}>{rule.outcome || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Any</span>}</td>
                                             <td style={{ padding: '10px 16px' }}><StageChip stage={rule.stage} /></td>
                                             <td style={{ padding: '10px 16px' }}>
-                                                <select
-                                                    value={rule.requiredForm || ''}
-                                                    onChange={e => updateStageMappingRule(rule.id, { requiredForm: e.target.value })}
-                                                    style={{ padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '12px' }}
-                                                >
-                                                    <option value="">None</option>
-                                                    {REQUIRED_FORMS.map(f => (
-                                                        <option key={f.value} value={f.value}>{f.label}</option>
-                                                    ))}
-                                                </select>
+                                                <FormChipsSelector
+                                                    value={Array.isArray(rule.requiredForms) ? rule.requiredForms : (rule.requiredForm ? [rule.requiredForm] : [])}
+                                                    onChange={forms => updateStageMappingRule(rule.id, { requiredForms: forms, requiredForm: forms[0] || '' })}
+                                                />
                                             </td>
                                             <td style={{ padding: '10px 16px' }}>
                                                 <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px' }}>
@@ -411,29 +554,45 @@ const StagePage = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredRows.map((row, idx) => {
-                                    const key = `${row.activityType}|${row.purpose}|${row.outcome}`;
+                                {rulesLoading && (
+                                    <tr><td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: '#6366f1' }}>
+                                        <i className="fas fa-spinner fa-spin" style={{ marginRight: '8px' }} />Loading stage rules from backend...
+                                    </td></tr>
+                                )}
+                                {!rulesLoading && filteredRows.map((row) => {
+                                    const key = row.id || `${row.activityType}|${row.purpose}|${row.outcome}`;
                                     const isEditing = editingStageCell === key;
+                                    const forms = Array.isArray(row.requiredForms) ? row.requiredForms : (row.requiredForm ? [row.requiredForm] : []);
                                     return (
-                                        <tr key={idx} style={{ borderTop: '1px solid #f1f5f9' }} onMouseEnter={e => e.currentTarget.style.background = '#fafafa'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                        <tr key={key} style={{ borderTop: '1px solid #f1f5f9' }}
+                                            onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
+                                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                                             <td style={{ padding: '10px 16px' }}>
-                                                <span style={{ background: '#3b82f610', color: '#3b82f6', borderRadius: '6px', padding: '3px 8px', fontWeight: 700, fontSize: '12px' }}>
-                                                    {row.activityType}
-                                                </span>
+                                                <span style={{ background: '#3b82f610', color: '#3b82f6', borderRadius: '6px', padding: '3px 8px', fontWeight: 700, fontSize: '12px' }}>{row.activityType}</span>
                                             </td>
-                                            <td style={{ padding: '10px 16px', color: '#374151' }}>{row.purpose}</td>
-                                            <td style={{ padding: '10px 16px', fontWeight: 600, color: '#111827' }}>{row.outcome}</td>
+                                            <td style={{ padding: '10px 16px', color: '#374151', fontSize: '12px' }}>{row.purpose || <span style={{ color: '#cbd5e1' }}>Any</span>}</td>
+                                            <td style={{ padding: '10px 16px', fontWeight: 600, color: '#111827' }}>
+                                                {row.outcome}
+                                                {row.reason && row.reason !== '*' && (
+                                                    <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 400, marginTop: '2px' }}>
+                                                        <i className="fas fa-tag" style={{ marginRight: '4px' }} />{row.reason}
+                                                    </div>
+                                                )}
+                                            </td>
                                             <td style={{ padding: '10px 16px', textAlign: 'center' }}>
-                                                <span style={{ color: row.score > 0 ? '#10b981' : row.score < 0 ? '#ef4444' : '#94a3b8', fontWeight: 700 }}>
-                                                    {row.score > 0 ? '+' : ''}{row.score}
+                                                <span style={{ color: '#94a3b8', fontWeight: 700 }}>
+                                                    <i className="fas fa-ban" style={{ fontSize: '10px' }} />
                                                 </span>
                                             </td>
                                             <td style={{ padding: '10px 16px' }}>
                                                 {isEditing ? (
-                                                    <select
-                                                        autoFocus
-                                                        defaultValue={row.stage}
-                                                        onChange={e => { updateOutcomeStage(row.activityType, row.purpose, row.outcome, e.target.value); setEditingStageCell(null); showToast(`Stage updated`); }}
+                                                    <select autoFocus
+                                                        defaultValue={row.newStage}
+                                                        onChange={e => {
+                                                            updateBackendRule(key, { newStage: e.target.value });
+                                                            setEditingStageCell(null);
+                                                            showToast('Stage updated');
+                                                        }}
                                                         onBlur={() => setEditingStageCell(null)}
                                                         style={{ padding: '4px 8px', border: '1px solid #6366f1', borderRadius: '6px', fontSize: '12px' }}
                                                     >
@@ -441,30 +600,24 @@ const StagePage = () => {
                                                     </select>
                                                 ) : (
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }} onClick={() => setEditingStageCell(key)}>
-                                                        <StageChip stage={row.stage} />
+                                                        <StageChip stage={row.newStage} />
                                                         <i className="fas fa-pencil-alt" style={{ color: '#cbd5e1', fontSize: '10px' }} />
                                                     </div>
                                                 )}
                                             </td>
                                             <td style={{ padding: '10px 16px' }}>
-                                                <select
-                                                    value={row.requiredForm || ''}
-                                                    onChange={e => {
-                                                        updateOutcomeStage(row.activityType, row.purpose, row.outcome, row.stage, e.target.value);
-                                                        showToast('Required form updated');
+                                                <FormChipsSelector
+                                                    value={forms}
+                                                    onChange={newForms => {
+                                                        updateBackendRule(key, { requiredForms: newForms });
+                                                        showToast('Required forms updated');
                                                     }}
-                                                    style={{ padding: '4px 8px', border: '1px solid #f1f5f9', borderRadius: '6px', fontSize: '12px', color: row.requiredForm ? '#6366f1' : '#94a3b8', fontWeight: row.requiredForm ? 700 : 400 }}
-                                                >
-                                                    <option value="">None</option>
-                                                    {REQUIRED_FORMS.map(f => (
-                                                        <option key={f.value} value={f.value}>{f.label}</option>
-                                                    ))}
-                                                </select>
+                                                />
                                             </td>
                                         </tr>
                                     );
                                 })}
-                                {filteredRows.length === 0 && (
+                                {!rulesLoading && filteredRows.length === 0 && (
                                     <tr><td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: '#94a3b8' }}>No results match your filters</td></tr>
                                 )}
                             </tbody>
@@ -478,7 +631,7 @@ const StagePage = () => {
                 <div style={{ padding: '24px 32px', flex: 1 }}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
                         {STAGE_PIPELINE.map(stage => {
-                            const rows = allRows.filter(r => r.stage === stage.label);
+                            const rows = backendRules.filter(r => r.newStage === stage.label);
                             return (
                                 <div key={stage.id} style={{ background: '#fff', borderRadius: '12px', border: `1px solid ${stage.color}30`, overflow: 'hidden' }}>
                                     <div style={{ padding: '14px 16px', background: stage.color + '12', borderBottom: `1px solid ${stage.color}20`, display: 'flex', alignItems: 'center', gap: '10px' }}>

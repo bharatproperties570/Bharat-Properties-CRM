@@ -35,6 +35,8 @@ import parsingRoutes from "./src/modules/parsing/parsingRule.routes.js";
 import intakeRoutes from "./src/modules/intake/intake.routes.js";
 import stageEngineRoutes from "./routes/stage.routes.js";
 import smsRoutes from "./src/modules/sms/sms.routes.js";
+import activityCompletionRoutes from "./src/modules/activity/activityCompletion.routes.js";
+import stageTransitionRoutes from "./src/modules/rules/stageTransition.routes.js";
 
 const app = express();
 
@@ -102,6 +104,8 @@ app.use("/api/parsing-rules", parsingRoutes);
 app.use("/api/intake", intakeRoutes);
 app.use("/api/stage-engine", stageEngineRoutes);
 app.use("/api/sms-gateway", smsRoutes);
+app.use("/api/activities", activityCompletionRoutes);
+app.use("/api/rules/stage-transitions", stageTransitionRoutes);
 
 import fs from 'fs';
 import path from 'path';

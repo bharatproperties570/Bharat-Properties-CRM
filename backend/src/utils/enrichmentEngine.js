@@ -4,6 +4,7 @@ import IntentKeywordRule from "../../models/IntentKeywordRule.js";
 import ProspectEnrichmentRule from "../../models/ProspectEnrichmentRule.js";
 import EnrichmentLog from "../../models/EnrichmentLog.js";
 import AuditLog from "../../models/AuditLog.js";
+import LeadScoringService from "../services/LeadScoringService.js";
 
 /**
  * STEP 1: Calculate formula-based Intent Index from STATIC signals only.
@@ -93,14 +94,17 @@ export const scanKeywords = async (leadId) => {
     const lead = await Lead.findById(leadId);
     if (!lead) return;
 
-    const activities = await Activity.find({ entityId: leadId, entityType: 'Lead' });
+    // ✅ FIX: Do NOT scan activity text here.
+    // Activities are scored by LeadScoringService.computeAndSave() exclusively.
+    // Scanning activity text here caused triple-counting:
+    //   1. isContacted flag in calculateIntentIndex (Step 1)
+    //   2. Activity subject/description text here (Step 2) ← REMOVED
+    //   3. Frontend activityScore (now moved to LeadScoringService) ← REPLACED
+    //
+    // We only scan static lead text: description + notes.
     const keywordRules = await IntentKeywordRule.find({ isActive: true });
 
-    let textToScan = `${lead.description || ''} ${lead.notes || ''}`;
-    activities.forEach(act => {
-        textToScan += ` ${act.subject || ''} ${act.description || ''}`;
-    });
-    textToScan = textToScan.toLowerCase();
+    let textToScan = `${lead.description || ''} ${lead.notes || ''}`.toLowerCase();
 
     let newTags = [...(lead.intent_tags || [])];
     let roleType = lead.role_type;
@@ -140,7 +144,7 @@ export const scanKeywords = async (leadId) => {
     await Lead.findByIdAndUpdate(leadId, {
         intent_tags: newTags,
         role_type: roleType,
-        intent_index: finalIntentIndex  // Combined: formula + keywords
+        intent_index: finalIntentIndex  // Combined: formula + keywords (no activities)
     });
 
     if (oldIntentIndex !== finalIntentIndex) {
@@ -151,7 +155,7 @@ export const scanKeywords = async (leadId) => {
             `${lead.firstName} ${lead.lastName}`,
             null,
             { before: oldIntentIndex, after: finalIntentIndex },
-            `Enrichment engine recalculated score: formula(${formulaScore}) + keyword_boost(${keywordImpactTotal}) = ${finalIntentIndex}`
+            `Enrichment engine recalculated intent_index: formula(${formulaScore}) + keyword_boost(${keywordImpactTotal}) = ${finalIntentIndex}`
         );
     }
 
@@ -244,6 +248,10 @@ export const runFullLeadEnrichment = async (leadId) => {
         await calculateIntentIndex(leadId);  // Step 1: static formula → enrichment_formula_score
         await scanKeywords(leadId);           // Step 2: keyword boost → intent_index (formula + keywords)
         await classifyLead(leadId);           // Step 3: classify using final intent_index
+        
+        // Step 4: Final Unified Scoring Recalculation (Backend v3 Engine)
+        await LeadScoringService.computeAndSave(leadId, { triggeredBy: 'enrichment_completion' });
+
         return { success: true };
     } catch (error) {
         console.error(`[ENRICHMENT ERROR] Failed for lead ${leadId}:`, error);

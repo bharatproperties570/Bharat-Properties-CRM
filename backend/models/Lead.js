@@ -89,8 +89,12 @@ const LeadSchema = new mongoose.Schema({
     // ━━ Stage Engine Fields (added for MongoDB integration) ━━━━━━━━━━━━━━━━━━━━
     stageChangedAt: { type: Date, index: true },             // When stage last changed
     lastActivityAt: { type: Date, index: true },             // When last activity logged
-    leadScore: { type: Number, default: 0, min: 0, max: 100 }, // Computed lead score
-    activityScore: { type: Number, default: 0, min: 0, max: 25 }, // Activity-driven score component
+
+    // ━━ Unified Scoring Fields — written ONLY by LeadScoringService.js ━━━━━━━
+    leadScore: { type: Number, default: 0, min: 0, max: 100 }, // Final authoritative score (backend-only)
+    activityScore: { type: Number, default: 0, min: 0, max: 100 }, // Activity-driven component (no double-count with enrichment)
+    decay_score: { type: Number, default: 0, min: 0, max: 50 }, // Accumulated inactivity penalty (cron-managed, NOT intent_index)
+    scoreBreakdown: { type: mongoose.Schema.Types.Mixed, default: null }, // Explainability: { staticBase, activityScore, sourceScore, fitScore, decayPenalty, stageMultiplier, temperature, intent }
 
     // Stage History: Full Audit Trail of Stage Changes
     stageHistory: [{
