@@ -41,6 +41,8 @@ const app = express();
 const allowedOrigins = [
     "http://localhost:3000",
     "http://localhost:3001",
+    "http://localhost:5173",
+    "http://localhost:5174",
     "http://localhost:8081",
     "http://192.168.1.10:3000",
     "http://192.168.1.10:8081",
@@ -49,20 +51,27 @@ const allowedOrigins = [
     "https://crm.bharatproperties.com"
 ];
 
+const envOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [];
+const combinedOrigins = [...new Set([...allowedOrigins, ...envOrigins])];
+
 app.use(cors({
     origin: function (origin, callback) {
-        if (!origin) {
-            if (process.env.NODE_ENV !== 'production') {
-                return callback(null, true);
-            }
-            return callback(null, false);
-        }
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+
         if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
             return callback(null, true);
         }
-        if (allowedOrigins.indexOf(origin) !== -1 || origin === process.env.FRONTEND_URL) {
+
+        if (combinedOrigins.indexOf(origin) !== -1 || origin === process.env.FRONTEND_URL) {
             return callback(null, true);
         }
+
+        // Check for Vercel preview URLs
+        if (origin.endsWith('.vercel.app')) {
+            return callback(null, true);
+        }
+
         return callback(null, false);
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],

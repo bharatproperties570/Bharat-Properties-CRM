@@ -1,7 +1,8 @@
 // API Configuration
 import axios from 'axios';
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4001/api';
+const isProd = import.meta.env.PROD;
+export const API_BASE_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : 'http://localhost:4001/api');
 
 // Create and export axios instance
 export const api = axios.create({

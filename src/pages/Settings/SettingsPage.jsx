@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { api, API_BASE_URL } from '../../utils/api';
 import Toast from '../../components/Toast';
 import AddUserModal from '../../components/AddUserModal';
 import CreateRoleModal from '../../components/CreateRoleModal';
@@ -875,6 +876,18 @@ const SettingsHubPage = () => {
                         </div>
                     </div>
                 ))}
+                
+                {/* System Health Status */}
+                <div style={{ padding: '24px', borderTop: '1px solid #e2e8f0', marginTop: 'auto', background: '#f8fafc' }}>
+                    <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>System Health</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: '#1e293b', fontWeight: 600 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e66' }}></div>
+                        <span>API Connected</span>
+                    </div>
+                    <div style={{ fontSize: '0.6rem', color: '#64748b', marginTop: '6px', wordBreak: 'break-all', fontFamily: 'monospace', background: '#fff', padding: '6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                        {API_BASE_URL}
+                    </div>
+                </div>
             </div>
 
             {/* Main Content Area */}

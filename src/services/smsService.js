@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:4001/api/sms-gateway';
+import { API_BASE_URL as BASE_URL } from '../utils/api';
+
+const API_BASE_URL = `${BASE_URL}/sms-gateway`;
 
 const smsService = {
     /**
