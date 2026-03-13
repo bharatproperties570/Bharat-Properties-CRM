@@ -619,7 +619,7 @@ const EmptyState = ({ title }) => (
 
 // --- Main Settings Hub Component ---
 
-const SettingsHubPage = () => {
+const SettingsPage = () => {
     const { users, roles, teams, loading, error, deleteUser, deleteRole, deleteTeam, refreshData, toggleUserStatus } = useUserContext();
     const [activeTab, setActiveTab] = useState('users');
     const [subTab, setSubTab] = useState('user-list');
@@ -637,6 +637,40 @@ const SettingsHubPage = () => {
     const [editingTeam, setEditingTeam] = useState(null);
     const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
     const [isSyncing, setIsSyncing] = useState(false);
+    const [healthStatus, setHealthStatus] = useState({ status: 'checking', message: 'Checking API...' });
+
+    // API Health Check
+    useEffect(() => {
+        const checkHealth = async () => {
+            try {
+                // Use native fetch to avoid interceptors for simple check
+                const response = await fetch(`${API_BASE_URL}/health`);
+                if (!response.ok) {
+                    setHealthStatus({ status: 'error', message: `Server Error (${response.status})` });
+                    return;
+                }
+                
+                const contentType = response.headers.get("content-type");
+                if (contentType && contentType.includes("application/json")) {
+                    const data = await response.json();
+                    if (data.success) {
+                        setHealthStatus({ status: 'healthy', message: 'API Connected' });
+                    } else {
+                        setHealthStatus({ status: 'warning', message: 'API Unstable' });
+                    }
+                } else {
+                    // HTML or other non-JSON response (Likely Vercel redirect)
+                    setHealthStatus({ status: 'error', message: 'Proxy Configuration Error (HTML Response)' });
+                }
+            } catch (err) {
+                setHealthStatus({ status: 'error', message: 'Server Unreachable' });
+            }
+        };
+
+        checkHealth();
+        const interval = setInterval(checkHealth, 30000); // Check every 30s
+        return () => clearInterval(interval);
+    }, []);
 
     const showToast = (message, type = 'success') => {
         setNotification({ show: true, message, type });
@@ -880,10 +914,21 @@ const SettingsHubPage = () => {
                 {/* System Health Status */}
                 <div style={{ padding: '24px', borderTop: '1px solid #e2e8f0', marginTop: 'auto', background: '#f8fafc' }}>
                     <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>System Health</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: '#1e293b', fontWeight: 600 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e66' }}></div>
-                        <span>API Connected</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: healthStatus.status === 'healthy' ? '#22c55e' : (healthStatus.status === 'error' ? '#ef4444' : '#f59e0b'), fontWeight: 600 }}>
+                        <div style={{ 
+                            width: 8, 
+                            height: 8, 
+                            borderRadius: '50%', 
+                            background: healthStatus.status === 'healthy' ? '#22c55e' : (healthStatus.status === 'error' ? '#ef4444' : '#f59e0b'), 
+                            boxShadow: `0 0 8px ${healthStatus.status === 'healthy' ? '#22c55e66' : (healthStatus.status === 'error' ? '#ef444466' : '#f59e0b66')}` 
+                        }}></div>
+                        <span>{healthStatus.message}</span>
                     </div>
+                    {healthStatus.status === 'error' && (
+                        <div style={{ fontSize: '0.65rem', color: '#ef4444', marginTop: '4px', fontStyle: 'italic', fontWeight: 500 }}>
+                             Warning: Data fetching may fail.
+                        </div>
+                    )}
                     <div style={{ fontSize: '0.6rem', color: '#64748b', marginTop: '6px', wordBreak: 'break-all', fontFamily: 'monospace', background: '#fff', padding: '6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
                         {API_BASE_URL}
                     </div>
@@ -1066,4 +1111,4 @@ const SettingsHubPage = () => {
     );
 };
 
-export default SettingsHubPage;
+export default SettingsPage;

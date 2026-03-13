@@ -41,9 +41,43 @@ import stageTransitionRoutes from "./src/modules/rules/stageTransition.routes.js
 
 const app = express();
 
+const allowedOrigins = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:8081",
+    "http://192.168.1.10:3000",
+    "http://192.168.1.10:8081",
+    "https://bharat-properties-crm.vercel.app",
+    "https://api.bharatproperties.co",
+    "https://crm.bharatproperties.com"
+];
+
+const envOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [];
+const combinedOrigins = [...new Set([...allowedOrigins, ...envOrigins])];
+
 // Simple CORS for development/production
 app.use(cors({
-    origin: true,
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+
+        if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+            return callback(null, true);
+        }
+
+        if (combinedOrigins.indexOf(origin) !== -1 || origin === process.env.FRONTEND_URL) {
+            return callback(null, true);
+        }
+
+        // Check for Vercel preview URLs
+        if (origin.endsWith('.vercel.app')) {
+            return callback(null, true);
+        }
+
+        return callback(null, false);
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     credentials: true
@@ -63,6 +97,16 @@ const globalLimiter = rateLimit({
     message: { success: false, message: "Too many requests from this IP, please try again later." }
 });
 app.use("/api", globalLimiter);
+
+// Health Check Endpoint
+app.get("/api/health", (req, res) => {
+    res.status(200).json({
+        success: true,
+        message: "API is healthy and reachable",
+        timestamp: new Date().toISOString(),
+        env: process.env.NODE_ENV || 'development'
+    });
+});
 
 // Request Logger
 app.use((req, res, next) => {

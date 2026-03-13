@@ -92,13 +92,17 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
         setContacts(response.data.records || []);
         setTotalRecords(response.data.totalCount || 0);
       } else {
-        toast.error("Failed to fetch contacts");
+        toast.error("Failed to fetch contacts: Invalid API response");
         setContacts([]);
         setTotalRecords(0);
       }
     } catch (error) {
       console.error("Error fetching contacts:", error);
-      toast.error("Error loading contacts");
+      if (error.name === 'ProxyConfigError') {
+        toast.error("API Connectivity Error: Received HTML instead of Data. Please check your backend proxy configuration.");
+      } else {
+        toast.error(error.message || "Error loading contacts");
+      }
       setContacts([]);
       setTotalRecords(0);
     } finally {

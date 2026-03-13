@@ -2,6 +2,8 @@
 import axios from 'axios';
 
 const isProd = import.meta.env.PROD;
+// In production, we default to the relative '/api' which is then proxied by vercel.json
+// or we use the explicit VITE_API_URL if provided in the Vercel dashboard environments.
 export const API_BASE_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : 'http://localhost:4001/api');
 
 // Create and export axios instance
@@ -94,7 +96,17 @@ const apiRequest = async (endpoint, options = {}) => {
                 return await response.json();
             }
 
-            return await response.text();
+            const text = await response.text();
+            
+            // Critical Check: Detect if we got an HTML page instead of API response 
+            // (Common when Vercel rewrites fail or proxy is misconfigured)
+            if (text.trim().startsWith('<!DOCTYPE html') || text.trim().startsWith('<html')) {
+                const error = new Error('Invalid API Response: Received HTML instead of Data. This usually indicates a proxy or routing configuration error at the server.');
+                error.name = 'ProxyConfigError';
+                throw error;
+            }
+
+            return text;
         } catch (error) {
             console.error(`API Error [${endpoint}]:`, error);
             throw error;
