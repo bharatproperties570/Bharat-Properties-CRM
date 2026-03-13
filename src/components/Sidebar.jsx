@@ -13,7 +13,7 @@ function Sidebar({ currentView, onNavigate }) {
         <nav className="sidebar">
             {/* Platform Logo */}
             <div className="sidebar-logo">
-                <div className="logo-icon">B</div>
+                <img src="/src/assets/logo.png" alt="Logo" className="logo-img" />
             </div>
 
             <div className="sidebar-menu">

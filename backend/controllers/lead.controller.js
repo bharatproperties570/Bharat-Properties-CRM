@@ -10,6 +10,7 @@ import { paginate } from "../utils/pagination.js";
 import mockStore from "../utils/mockStore.js";
 import { enrichmentQueue } from "../src/queues/queueManager.js";
 import smsService from "../src/modules/sms/sms.service.js";
+import SmsLog from "../src/modules/sms/smsLog.model.js";
 import { runFullLeadEnrichment } from "../src/utils/enrichmentEngine.js";
 
 const escapeRegExp = (string) => {
@@ -235,23 +236,55 @@ export const getLeads = async (req, res, next) => {
         }
 
         // Enable population for key fields
-        const results = await paginate(Lead, query, Number(page), Number(limit), { createdAt: -1 }, leadPopulateFields);
+        const results = await paginate(Lead, query, Number(page), Number(limit), { updatedAt: -1 }, leadPopulateFields);
 
-        // Attach Interaction Data (Recent Activities for scoring)
+        // Attach Interaction Data (Activity Counts & Recent Activities)
         if (results.records && results.records.length > 0) {
             const leadIds = results.records.map(r => r._id);
-            // Fetch last 10 activities for each lead in the list
+            const leadIdsStr = leadIds.map(id => id.toString());
+
+            // 1. Fetch recent activities for display/scoring
             const allActivities = await Activity.find({
-                entityId: { $in: leadIds.map(id => id.toString()) },
+                entityId: { $in: leadIdsStr },
                 status: 'Completed'
             }).sort({ createdAt: -1 }).lean();
 
+            // 2. Fetch all relevant SMS logs
+            const allSmsLogs = await SmsLog.find({
+                entityId: { $in: leadIdsStr },
+                status: { $in: ['Sent', 'Delivered'] }
+            }).lean();
+
             const activityGroup = new Map();
+            const countsMap = new Map(); // Map<leadId, {call, siteVisit, meeting, email, sms, whatsapp}>
+
+            // Initialize counts for all leads on page
+            leadIdsStr.forEach(id => {
+                countsMap.set(id, { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: 0, whatsapp: 0 });
+            });
+
             allActivities.forEach(act => {
                 const id = act.entityId.toString();
                 if (!activityGroup.has(id)) activityGroup.set(id, []);
                 if (activityGroup.get(id).length < 10) {
                     activityGroup.get(id).push(act);
+                }
+
+                if (countsMap.has(id)) {
+                    const leadCounts = countsMap.get(id);
+                    const t = (act.type || "").toLowerCase();
+                    if (t.includes('call')) leadCounts.call++;
+                    else if (t.includes('meeting')) leadCounts.meeting++;
+                    else if (t.includes('site visit')) leadCounts.siteVisit++;
+                    else if (t.includes('email')) leadCounts.email++;
+                    else if (t.includes('whatsapp') || t.includes('messaging')) leadCounts.whatsapp++;
+                }
+            });
+
+            allSmsLogs.forEach(log => {
+                const id = log.entityId.toString();
+                if (countsMap.has(id)) {
+                    countsMap.get(id).sms++;
                 }
             });
 
@@ -262,6 +295,7 @@ export const getLeads = async (req, res, next) => {
                 return {
                     ...lead,
                     activities: leadActs, // For frontend scoring engine
+                    interactionCounts: countsMap.get(leadId) || { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: 0, whatsapp: 0 },
                     activity: latest ? latest.subject : "None",
                     lastAct: latest ? new Date(latest.createdAt).toLocaleDateString() : "Today"
                 };
@@ -453,14 +487,49 @@ export const getLeadById = async (req, res, next) => {
         // Populate lead
         await lead.populate(leadPopulateFields);
 
-        // Attach Recent Activities (Consistent with getLeads)
+        // Attach Recent Activities and Interaction Counts
+        const leadIdStr = id.toString();
         const recentActivities = await Activity.find({
-            entityId: id.toString(),
+            entityId: leadIdStr,
             status: 'Completed'
         }).sort({ createdAt: -1 }).limit(10).lean();
 
+        // Aggregate counts from Activity collection
+        const activityStats = await Activity.aggregate([
+            {
+                $match: {
+                    entityId: new mongoose.Types.ObjectId(leadIdStr),
+                    status: 'Completed'
+                }
+            },
+            {
+                $group: {
+                    _id: "$type",
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+
+        // Aggregate counts from SmsLog collection
+        const SmsLog = mongoose.model('SmsLog');
+        const smsStats = await SmsLog.countDocuments({
+            entityId: new mongoose.Types.ObjectId(leadIdStr),
+            status: { $in: ['Sent', 'Delivered'] }
+        });
+
+        const interactionCounts = { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: smsStats, whatsapp: 0 };
+        activityStats.forEach(stat => {
+            const t = stat._id.toLowerCase();
+            if (t.includes('call')) interactionCounts.call += stat.count;
+            else if (t.includes('meeting')) interactionCounts.meeting += stat.count;
+            else if (t.includes('site visit')) interactionCounts.siteVisit += stat.count;
+            else if (t.includes('email')) interactionCounts.email += stat.count;
+            else if (t.includes('whatsapp') || t.includes('messaging')) interactionCounts.whatsapp += stat.count;
+        });
+
         const leadData = lead.toObject();
         leadData.activities = recentActivities;
+        leadData.interactionCounts = interactionCounts;
         const latest = recentActivities[0];
         leadData.activity = latest ? latest.subject : "None";
         leadData.lastAct = latest ? new Date(latest.createdAt).toLocaleDateString() : "Today";

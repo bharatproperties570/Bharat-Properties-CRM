@@ -847,7 +847,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                     <button onClick={() => setFilters({})} style={{ marginTop: '10px', border: 'none', background: 'transparent', color: '#2563eb', cursor: 'pointer', textDecoration: 'underline' }}>Clear Filters</button>
                                 </div>
                             ) : (
-                                filteredInventory.map((item) => (
+                                filteredInventory.map((item, idx) => (
                                     <div key={item._id} className="list-item inventory-list-grid" style={{ padding: '10px 1.5rem', alignItems: 'flex-start', backgroundColor: (item.deals && item.deals.length > 0) ? '#fffbeb' : 'transparent', transition: 'background-color 0.3s' }}>
                                         <input
                                             type="checkbox"

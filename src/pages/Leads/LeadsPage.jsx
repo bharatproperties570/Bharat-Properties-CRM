@@ -791,7 +791,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             <div>Requirement & Budget</div>
                             <div>Location</div>
                             <div>Status & Source</div>
-                            <div>Interaction (Remarks)</div>
+                            <div>Interaction</div>
                             <div>Assignment</div>
                         </div>
                     )}
@@ -1249,55 +1249,45 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         </div>
 
                                         <div className="col-interaction">
-                                            <div style={{ lineHeight: 1.4, maxWidth: '240px' }}>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
                                                 {(() => {
-                                                    const siteVisit = (c.activities || []).find(a =>
-                                                        (a.type === 'Site Visit' || a.subject?.toLowerCase().includes('site visit')) &&
-                                                        a.status !== 'Completed'
-                                                    );
+                                                    const counts = c.interactionCounts || { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: 0, whatsapp: 0 };
+                                                    const items = [
+                                                        { key: 'call', icon: 'fa-phone-alt', color: '#3b82f6', label: 'Call' },
+                                                        { key: 'whatsapp', icon: 'fa-whatsapp', color: '#25d366', label: 'WhatsApp', brand: true },
+                                                        { key: 'meeting', icon: 'fa-users', color: '#8b5cf6', label: 'Meeting' },
+                                                        { key: 'siteVisit', icon: 'fa-map-marked-alt', color: '#f59e0b', label: 'Site Visit' },
+                                                        { key: 'email', icon: 'fa-envelope', color: '#ef4444', label: 'Email' },
+                                                        { key: 'sms', icon: 'fa-sms', color: '#64748b', label: 'SMS' }
+                                                    ];
 
-                                                    if (siteVisit) {
-                                                        const dateStr = siteVisit.dueDate ? new Date(siteVisit.dueDate).toLocaleDateString() : 'TBD';
-                                                        return (
-                                                            <div
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    setSelectedActivityForOutcome(siteVisit);
-                                                                    setIsOutcomeModalOpen(true);
-                                                                }}
-                                                                style={{
-                                                                    background: '#f0fdf4',
-                                                                    border: '1px solid #bbf7d0',
-                                                                    borderRadius: '6px',
-                                                                    padding: '4px 8px',
-                                                                    cursor: 'pointer',
-                                                                    transition: 'all 0.2s'
-                                                                }}
-                                                                onMouseOver={(e) => e.currentTarget.style.background = '#dcfce7'}
-                                                                onMouseOut={(e) => e.currentTarget.style.background = '#f0fdf4'}
-                                                            >
-                                                                <div style={{ color: '#166534', fontSize: '0.75rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                                                    <i className="fas fa-map-marked-alt"></i> SITE VISIT
-                                                                </div>
-                                                                <div style={{ color: '#15803d', fontSize: '0.65rem', fontWeight: 600 }}>
-                                                                    {dateStr} {siteVisit.dueTime ? `@ ${siteVisit.dueTime}` : ''}
-                                                                </div>
-                                                                <div style={{ color: '#166534', fontSize: '0.6rem', fontWeight: 700, marginTop: '2px', textDecoration: 'underline' }}>
-                                                                    Record Outcome
-                                                                </div>
-                                                            </div>
-                                                        );
+                                                    const activeItems = items.filter(item => (counts[item.key] || 0) > 0);
+
+                                                    if (activeItems.length === 0) {
+                                                        return <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic' }}>No interactions</span>;
                                                     }
 
-                                                    return (
-                                                        <>
-                                                            <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 500, fontStyle: 'italic', marginBottom: '4px' }}>"{renderValue(c.remarks, '')}"</div>
-                                                            <div style={{ color: '#27ae60', fontSize: '0.7rem', fontWeight: 700 }}>
-                                                                <i className="fas fa-phone-alt" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>{c.activity} • <span style={{ color: '#64748b' }}>{c.lastAct}</span>
-                                                            </div>
-                                                        </>
-                                                    );
+                                                    return activeItems.map(item => (
+                                                        <div key={item.key} title={`${counts[item.key]} ${item.label}`} style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px',
+                                                            background: `${item.color}10`,
+                                                            border: `1px solid ${item.color}30`,
+                                                            padding: '2px 6px',
+                                                            borderRadius: '4px',
+                                                            color: item.color,
+                                                            fontSize: '0.7rem',
+                                                            fontWeight: 700
+                                                        }}>
+                                                            <i className={`${item.brand ? 'fab' : 'fas'} ${item.icon}`} style={{ fontSize: '0.65rem' }}></i>
+                                                            <span>{counts[item.key]}</span>
+                                                        </div>
+                                                    ));
                                                 })()}
+                                            </div>
+                                            <div style={{ marginTop: '4px', fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600 }}>
+                                                Last: {c.lastAct}
                                             </div>
                                         </div>
 

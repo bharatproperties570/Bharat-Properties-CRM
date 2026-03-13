@@ -7,6 +7,7 @@ import Activity from "../models/Activity.js";
 import DuplicationRule from "../models/DuplicationRule.js";
 import { paginate } from "../utils/pagination.js";
 import { createContactSchema, updateContactSchema } from "../validations/contact.validation.js";
+import SmsLog from "../src/modules/sms/smsLog.model.js";
 
 const populateFields = [
     { path: 'title', select: 'lookup_value' },
@@ -69,33 +70,68 @@ export const getContacts = async (req, res, next) => {
         // We passed populateFields (Array) to paginate.
         // paginate uses model.find()...populate(populate).
         // If populate is array, it works.
-        const results = await paginate(Contact, query, Number(page), Number(limit), { createdAt: -1 }, populateFields);
+        const results = await paginate(Contact, query, Number(page), Number(limit), { updatedAt: -1 }, populateFields);
 
-        // Attach Interaction Data (Latest Activity)
+        // Attach Interaction Data (Activity Counts & Recent Activities)
         if (results.records && results.records.length > 0) {
             const contactIds = results.records.map(r => r._id);
-            const latestActivities = await Activity.aggregate([
-                { $match: { entityId: { $in: contactIds.map(id => id.toString()) } } },
-                { $sort: { createdAt: -1 } },
-                {
-                    $group: {
-                        _id: "$entityId",
-                        latestActivity: { $first: "$$ROOT" }
-                    }
-                }
-            ]);
+            const contactIdsStr = contactIds.map(id => id.toString());
 
-            const activityMap = new Map();
-            latestActivities.forEach(item => {
-                activityMap.set(item._id, item.latestActivity);
+            // 1. Fetch recent activities for display/scoring
+            const allActivities = await Activity.find({
+                entityId: { $in: contactIdsStr },
+                status: 'Completed'
+            }).sort({ createdAt: -1 }).lean();
+
+            // 2. Fetch all relevant SMS logs
+            const allSmsLogs = await SmsLog.find({
+                entityId: { $in: contactIdsStr },
+                status: { $in: ['Sent', 'Delivered'] }
+            }).lean();
+
+            const activityGroup = new Map();
+            const countsMap = new Map(); // Map<contactId, {call, siteVisit, meeting, email, sms, whatsapp}>
+
+            // Initialize counts for all contacts on page
+            contactIdsStr.forEach(id => {
+                countsMap.set(id, { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: 0, whatsapp: 0 });
+            });
+
+            allActivities.forEach(act => {
+                const id = act.entityId.toString();
+                if (!activityGroup.has(id)) activityGroup.set(id, []);
+                if (activityGroup.get(id).length < 10) {
+                    activityGroup.get(id).push(act);
+                }
+
+                if (countsMap.has(id)) {
+                    const contactCounts = countsMap.get(id);
+                    const t = (act.type || "").toLowerCase();
+                    if (t.includes('call')) contactCounts.call++;
+                    else if (t.includes('meeting')) contactCounts.meeting++;
+                    else if (t.includes('site visit')) contactCounts.siteVisit++;
+                    else if (t.includes('email')) contactCounts.email++;
+                    else if (t.includes('whatsapp') || t.includes('messaging')) contactCounts.whatsapp++;
+                }
+            });
+
+            allSmsLogs.forEach(log => {
+                const id = log.entityId.toString();
+                if (countsMap.has(id)) {
+                    countsMap.get(id).sms++;
+                }
             });
 
             results.records = results.records.map(contact => {
-                const activity = activityMap.get(contact._id.toString());
+                const contactId = contact._id.toString();
+                const contactActs = activityGroup.get(contactId) || [];
+                const latest = contactActs[0];
                 return {
                     ...contact,
-                    activity: activity ? activity.subject : "None",
-                    lastAct: activity ? new Date(activity.createdAt).toLocaleDateString() : "Today"
+                    activities: contactActs,
+                    interactionCounts: countsMap.get(contactId) || { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: 0, whatsapp: 0 },
+                    activity: latest ? latest.subject : "None",
+                    lastAct: latest ? new Date(latest.createdAt).toLocaleDateString() : "Today"
                 };
             });
         }
@@ -114,7 +150,54 @@ export const getContact = async (req, res, next) => {
     try {
         const contact = await Contact.findById(req.params.id).populate(populateFields);
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found" });
-        res.json({ success: true, data: contact });
+
+        // Attach Recent Activities and Interaction Counts
+        const contactIdStr = req.params.id.toString();
+        const recentActivities = await Activity.find({
+            entityId: contactIdStr,
+            status: 'Completed'
+        }).sort({ createdAt: -1 }).limit(10).lean();
+
+        // Aggregate counts from Activity collection
+        const activityStats = await Activity.aggregate([
+            {
+                $match: {
+                    entityId: new mongoose.Types.ObjectId(contactIdStr),
+                    status: 'Completed'
+                }
+            },
+            {
+                $group: {
+                    _id: "$type",
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+
+        // Aggregate counts from SmsLog collection
+        const smsStatsCount = await SmsLog.countDocuments({
+            entityId: new mongoose.Types.ObjectId(contactIdStr),
+            status: { $in: ['Sent', 'Delivered'] }
+        });
+
+        const interactionCounts = { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: smsStatsCount, whatsapp: 0 };
+        activityStats.forEach(stat => {
+            const t = stat._id.toLowerCase();
+            if (t.includes('call')) interactionCounts.call += stat.count;
+            else if (t.includes('meeting')) interactionCounts.meeting += stat.count;
+            else if (t.includes('site visit')) interactionCounts.siteVisit += stat.count;
+            else if (t.includes('email')) interactionCounts.email += stat.count;
+            else if (t.includes('whatsapp') || t.includes('messaging')) interactionCounts.whatsapp += stat.count;
+        });
+
+        const contactData = contact.toObject();
+        contactData.activities = recentActivities;
+        contactData.interactionCounts = interactionCounts;
+        const latest = recentActivities[0];
+        contactData.activity = latest ? latest.subject : "None";
+        contactData.lastAct = latest ? new Date(latest.createdAt).toLocaleDateString() : "Today";
+
+        res.json({ success: true, data: contactData });
     } catch (error) {
         console.error("[ERROR] getContact failed:", error);
         next(error);

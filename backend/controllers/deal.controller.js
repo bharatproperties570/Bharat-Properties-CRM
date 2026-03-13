@@ -170,7 +170,7 @@ export const getDeals = async (req, res) => {
             { path: 'status', select: 'lookup_value' },
             { path: 'team', select: 'name' }
         ];
-        const results = await paginate(Deal, query, Number(page), Number(limit), { createdAt: -1 }, populateFields);
+        const results = await paginate(Deal, query, Number(page), Number(limit), { updatedAt: -1 }, populateFields);
 
         // Enhanced: Category-based counts for deal list view footer
         const categories = await Lookup.find({ lookup_type: 'Category' });

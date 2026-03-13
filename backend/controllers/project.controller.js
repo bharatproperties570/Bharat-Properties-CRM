@@ -14,7 +14,7 @@ const projectPopulateFields = [
 
 export const getProjects = async (req, res) => {
     try {
-        const projects = await Project.find().populate(projectPopulateFields).lean();
+        const projects = await Project.find().populate(projectPopulateFields).sort({ updatedAt: -1 }).lean();
         res.json({ success: true, data: projects });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

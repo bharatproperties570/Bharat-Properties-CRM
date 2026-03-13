@@ -163,7 +163,7 @@ export const getCompanies = async (req, res, next) => {
             };
         }
 
-        const results = await paginate(Company, query, page, limit, { createdAt: -1 }, populateFields);
+        const results = await paginate(Company, query, page, limit, { updatedAt: -1 }, populateFields);
 
         // Enhanced: Industry-based counts for summary footer
         const industries = await Lookup.find({ lookup_type: 'Industry' });

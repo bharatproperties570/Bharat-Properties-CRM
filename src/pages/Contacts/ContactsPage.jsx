@@ -884,7 +884,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                 <div>Professional Detail</div>
                 <div>Source & Tags</div>
                 <div>CRM Linkage</div>
-                <div>Last Interaction</div>
+                <div>Interaction</div>
                 <div style={{ paddingLeft: "10px" }}>Assignment</div>
               </div>
 
@@ -1207,41 +1207,45 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                           )}
                         </div>
                         <div className="col-interaction">
-                          <div style={{ lineHeight: "1.4" }}>
-                            <div
-                              style={{
-                                fontSize: "0.85rem",
-                                fontWeight: 700,
-                                color: "#1e293b",
-                              }}
-                            >
-                              {item?.activity || "Never"}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: "0.7rem",
-                                color: "#94a3b8",
-                                fontWeight: 600,
-                              }}
-                            >
-                              Last: {item?.lastAct || "Today"}
-                            </div>
-                            <div
-                              style={{
-                                display: "flex",
-                                gap: "10px",
-                                marginTop: "6px",
-                              }}
-                            >
-                              <i
-                                className="fas fa-phone-alt"
-                                style={{
-                                  color: "#388E3C",
-                                  fontSize: "0.75rem",
-                                  transform: "scaleX(-1) rotate(5deg)",
-                                }}
-                              ></i>
-                            </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                            {(() => {
+                              const counts = item.interactionCounts || { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: 0, whatsapp: 0 };
+                              const items = [
+                                { key: 'call', icon: 'fa-phone-alt', color: '#3b82f6', label: 'Call' },
+                                { key: 'whatsapp', icon: 'fa-whatsapp', color: '#25d366', label: 'WhatsApp', brand: true },
+                                { key: 'meeting', icon: 'fa-users', color: '#8b5cf6', label: 'Meeting' },
+                                { key: 'siteVisit', icon: 'fa-map-marked-alt', color: '#f59e0b', label: 'Site Visit' },
+                                { key: 'email', icon: 'fa-envelope', color: '#ef4444', label: 'Email' },
+                                { key: 'sms', icon: 'fa-sms', color: '#64748b', label: 'SMS' }
+                              ];
+
+                              const activeItems = items.filter(i => (counts[i.key] || 0) > 0);
+
+                              if (activeItems.length === 0) {
+                                return <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic' }}>No interactions</span>;
+                              }
+
+                              return activeItems.map(i => (
+                                <div key={i.key} title={`${counts[i.key]} ${i.label}`} style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  background: `${i.color}10`,
+                                  border: `1px solid ${i.color}30`,
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  color: i.color,
+                                  fontSize: '0.7rem',
+                                  fontWeight: 700
+                                }}>
+                                  <i className={`${i.brand ? 'fab' : 'fas'} ${i.icon}`} style={{ fontSize: '0.65rem' }}></i>
+                                  <span>{counts[i.key]}</span>
+                                </div>
+                              ));
+                            })()}
+                          </div>
+                          <div style={{ marginTop: '4px', fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600 }}>
+                            Last: {item.lastAct || "Today"}
                           </div>
                         </div>
 
