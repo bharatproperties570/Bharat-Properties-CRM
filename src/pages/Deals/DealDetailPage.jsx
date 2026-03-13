@@ -64,12 +64,6 @@ const TableContainer = ({ children }) => (
     </div>
 );
 
-const DetailField = ({ label, value }) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-        <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</span>
-        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>{value || 'N/A'}</span>
-    </div>
-);
 
 const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const { propertyConfig, getLookupValue } = usePropertyConfig();
@@ -677,8 +671,6 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         'Cancelled': { bg: '#fef2f2', text: '#991b1b', dot: '#ef4444' },
         'Stalled': { bg: '#fafaf9', text: '#57534e', dot: '#78716c' },
     };
-    const stageStyle = stageColors[currentStage] || stageColors['Open'];
-
     const stageStyle = stageColors[currentStage] || stageColors['Open'];
 
     return (

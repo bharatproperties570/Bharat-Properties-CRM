@@ -309,7 +309,64 @@ export const getDashboardStats = async (req, res) => {
             .select('type subject status relatedTo createdAt outcome')
             .lean();
 
-        // ━━ 11. AI ALERT HUB ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // ━━ 11. SELL.DO INSPIRED METRICS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const [reengagedCount, nfaCount, missedCalls, missedFollowups, userAvailability, mtdVisitsByProject, mtdBookingsByProject] = await Promise.all([
+            // Reengaged: Created before this month, activity this month
+            Lead.countDocuments({
+                ...baseLeadQuery,
+                createdAt: { $lt: thisMonthStart },
+                lastActivityAt: { $gte: thisMonthStart }
+            }),
+            // NFA: No future activity
+            Lead.countDocuments({
+                ...baseLeadQuery,
+                _id: {
+                    $nin: await Activity.distinct('relatedTo.id', {
+                        dueDate: { $gte: today },
+                        status: { $regex: /pending|in progress/i }
+                    })
+                }
+            }),
+            // Missed Calls
+            Activity.countDocuments({
+                ...baseActQuery,
+                type: 'Call',
+                status: { $regex: /pending|in progress/i },
+                dueDate: { $lt: today }
+            }),
+            // Missed Followups (Tasks/Meetings)
+            Activity.countDocuments({
+                ...baseActQuery,
+                type: { $in: ['Task', 'Meeting', 'Follow-up'] },
+                status: { $regex: /pending|in progress/i },
+                dueDate: { $lt: today }
+            }),
+            // User Availability
+            mongoose.model('User').aggregate([
+                { $match: { isActive: true } },
+                { $group: { _id: '$status', count: { $sum: 1 } } }
+            ]),
+            // MTD Visits by Project
+            Activity.aggregate([
+                { $match: { ...baseActQuery, type: 'Site Visit', createdAt: { $gte: thisMonthStart } } },
+                { $group: { _id: '$details.projectName', count: { $sum: 1 }, conducted: { $sum: { $cond: [{ $eq: ["$status", "Completed"] }, 1, 0] } } } },
+                { $sort: { count: -1 } }
+            ]),
+            // MTD Bookings by Project
+            Deal.aggregate([
+                { $match: { ...baseDealQuery, stage: 'Booked', createdAt: { $gte: thisMonthStart } } },
+                { $group: { _id: '$projectName', count: { $sum: 1 }, value: { $sum: '$price' } } },
+                { $sort: { count: -1 } }
+            ])
+        ]);
+
+        const availability = { totalIn: 0, totalNotIn: 0, totalOnLeave: 0 };
+        userAvailability.forEach(ua => {
+            if (ua._id === 'active') availability.totalIn = ua.count;
+            else availability.totalNotIn += ua.count;
+        });
+
+        // ━━ 12. AI ALERT HUB ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const aiAlertHub = {
             followupFailure: overdueCount > 0 ? [{
                 id: 'fail-1',
@@ -358,7 +415,14 @@ export const getDashboardStats = async (req, res) => {
         // ━━ COMPOSE FINAL RESPONSE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const dashboardData = {
             // KPIs
-            activities: { overdue: overdueCount, today: todayActivityCount, upcoming: upcomingCount, thisMonth: thisMonthActivities },
+            activities: { 
+                overdue: overdueCount, 
+                today: todayActivityCount, 
+                upcoming: upcomingCount, 
+                thisMonth: thisMonthActivities,
+                missedCalls,
+                missedFollowups
+            },
             activityTypeBreakdown,
             leads: populatedLeads,
             deals: performanceDeals,
@@ -367,6 +431,13 @@ export const getDashboardStats = async (req, res) => {
             projectList,
             inventoryByProject,
             portfolioMix,
+
+            // New Sell.Do Metrics
+            reengagedCount,
+            nfaCount,
+            availability,
+            mtdVisits: mtdVisitsByProject,
+            mtdBookings: mtdBookingsByProject,
 
             // Trend Data for Charts
             leadTrend,

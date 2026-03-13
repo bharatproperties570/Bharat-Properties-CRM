@@ -39,6 +39,8 @@ import DuplicationSettingsPage from './views/DuplicationSettingsPage';
 import EnrichmentSettingsPage from './views/EnrichmentSettingsPage';
 import LeadCaptureSettingsPage from './views/LeadCaptureSettingsPage';
 import DealCaptureSettingsPage from './views/DealCaptureSettingsPage';
+import FeedbackSettingsPage from './views/FeedbackSettingsPage';
+import FormsSettingsPage from './views/FormsSettingsPage';
 import StagePage from './views/StagePage';
 
 
@@ -765,7 +767,7 @@ const SettingsHubPage = () => {
 
     const sidebarSections = [
         { title: 'Manage', items: [{ id: 'users', label: 'Users' }, { id: 'notifications', label: 'Notifications' }, { id: 'sales-goals', label: 'Sales goals' }] },
-        { title: 'Data', items: [{ id: 'import', label: 'Import' }, { id: 'bulk-update', label: 'Bulk update' }, { id: 'export', label: 'Export' }, { id: 'lead-capture', label: 'Lead capture' }, { id: 'deal-capture', label: 'Deal capture' }, { id: 'enrichment', label: 'Prospecting and enrichment' }, { id: 'duplicate-mgt', label: 'Duplicate Management' }] },
+        { title: 'Data', items: [{ id: 'import', label: 'Import' }, { id: 'bulk-update', label: 'Bulk update' }, { id: 'export', label: 'Export' }, { id: 'forms', label: 'Forms' }, { id: 'enrichment', label: 'Prospecting and enrichment' }, { id: 'duplicate-mgt', label: 'Duplicate Management' }] },
         { title: 'Communication channels', items: [{ id: 'email', label: 'Email' }, { id: 'calls', label: 'Calls' }, { id: 'messaging', label: 'Messaging' }, { id: 'feedback-templates', label: 'Message Templates' }] },
         { title: 'Customize', items: [{ id: 'company-c', label: 'Company' }, { id: 'project-c', label: 'Project' }, { id: 'leads-c', label: 'Leads' }, { id: 'contacts-c', label: 'Contacts' }, { id: 'properties-c', label: 'Properties' }, { id: 'parsing-rules', label: 'Parsing Rules' }, { id: 'post-sales', label: 'Post Sales' }, { id: 'deal-details', label: 'Deals' }, { id: 'task-c', label: 'Activities' }] },
         { title: 'Integrations', items: [{ id: 'integrations', label: 'Integrations' }, { id: 'api', label: 'API' }] },
@@ -930,6 +932,8 @@ const SettingsHubPage = () => {
                         <LeadCaptureSettingsPage />
                     ) : activeTab === 'deal-capture' ? (
                         <DealCaptureSettingsPage />
+                    ) : activeTab === 'feedback-forms' ? (
+                        <FeedbackSettingsPage />
                     ) : activeTab === 'email' ? (
                         <EmailSettingsPage />
                     ) : activeTab === 'calls' ? (
@@ -982,6 +986,8 @@ const SettingsHubPage = () => {
                         <StagePage />
                     ) : activeTab === 'export' ? (
                         <ExportDataPage />
+                    ) : activeTab === 'forms' ? (
+                        <FormsSettingsPage setActiveTab={setActiveTab} />
                     ) : (
                         <EmptyState title={currentLabel} />
                     )}

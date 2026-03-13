@@ -17,6 +17,7 @@ import { UserProvider } from './context/UserContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import PublicLeadForm from './pages/Public/PublicLeadForm';
 import PublicDealForm from './pages/Public/PublicDealForm';
+import PublicFeedbackForm from './pages/Public/PublicFeedbackForm';
 import CaptureFormPage from './pages/Public/CaptureFormPage';
 import CallModal from './components/CallModal'; // Import CallModal
 
@@ -60,6 +61,7 @@ const AppContent = () => {
         if (path.startsWith('/leads/match/')) return 'lead-matching';
         if (path.startsWith('/public/form/')) return 'public-lead-form';
         if (path.startsWith('/public/deal/')) return 'public-deal-form';
+        if (path.startsWith('/public/feedback/')) return 'public-feedback-form';
         if (path.startsWith('/capture/')) return 'deal-capture';
         if (path === '/settings') return 'settings';
         if (path.startsWith('/settings/')) return 'settings';
@@ -174,6 +176,14 @@ const AppContent = () => {
         return (
             <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
                 <PublicLeadForm slug={window.location.pathname.split('/').pop()} />
+            </Suspense>
+        );
+    }
+
+    if (currentView === 'public-feedback-form') {
+        return (
+            <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
+                <PublicFeedbackForm slug={window.location.pathname.split('/').pop()} />
             </Suspense>
         );
     }

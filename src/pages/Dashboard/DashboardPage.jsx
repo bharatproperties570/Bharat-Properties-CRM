@@ -171,6 +171,13 @@ const DashboardPage = () => {
     const actFeed = d.recentActivityFeed || [];
     const recentDeals = d.recentDeals || [];
     const leadSourceStats = d.leadSourceStats || [];
+    const reengagedCount = d.reengagedCount || 0;
+    const nfaCount = d.nfaCount || 0;
+    const availability = d.availability || { totalIn: 0, totalNotIn: 0, totalOnLeave: 0 };
+    const mtdVisits = d.mtdVisits || [];
+    const mtdBookings = d.mtdBookings || [];
+    const missedCallsCount = activities.missedCalls || 0;
+    const missedFollowupsCount = activities.missedFollowups || 0;
 
     const totalLeads = leads.reduce((s, l) => s + l.count, 0);
     const totalDeals = deals.reduce((s, d) => s + d.count, 0);
@@ -315,13 +322,53 @@ const DashboardPage = () => {
                     </div>
                 </div>
 
-                {/* ── HERO KPI STRIP ─────────────────────────────────────────────── */}
+                {/* ── HERO KPI STRIP (ORIGINAL) ─────────────────────────────────── */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px', marginBottom: '24px' }}>
                     <KpiCard icon="fa-users" label="Total Leads" value={fmtNum(totalLeads)} desc={`+${perf.newLeadsThisMonth || 0} this month`} color="#4f46e5" trend={perf.trend} trendUp={(perf.trend || 0) >= 0} />
                     <KpiCard icon="fa-fire" label="Hot Prospects" value={fmtNum(hotLeads)} desc="Active & high intent" color="#ef4444" />
                     <KpiCard icon="fa-handshake" label="Active Deals" value={fmtNum(totalDeals)} desc={`${perf.dealsThisMonth || 0} new this month`} color="#f59e0b" />
                     <KpiCard icon="fa-rupee-sign" label="Pipeline Value" value={fmtCr(perf.pipelineValue)} desc="Total active deal value" color="#10b981" />
                     <KpiCard icon="fa-warehouse" label="Inventory Units" value={fmtNum(totalInventory)} desc={`${perf.soldCount || 0} sold · ${perf.blockedCount || 0} blocked`} color="#8b5cf6" />
+                </div>
+
+                {/* ── SELL.DO INSPIRED KPI STRIP ────────────────────────────────── */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
+                    <KpiCard icon="fa-sync-alt" label="Reengaged Leads" value={fmtNum(reengagedCount)} desc="Created before, active now" color="#3b82f6" />
+                    <KpiCard icon="fa-user-slash" label="NFA (No Future Action)" value={fmtNum(nfaCount)} desc="No upcoming activities" color="#ef4444" />
+                    <KpiCard icon="fa-phone-slash" label="Missed Calls" value={fmtNum(missedCallsCount)} desc="Pending overdue calls" color="#ef4444" />
+                    <KpiCard icon="fa-history" label="Missed Followups" value={fmtNum(missedFollowupsCount)} desc="Pending overdue tasks" color="#f59e0b" />
+                </div>
+
+                {/* ── PERFORMANCE MONITOR ───────────────────────────────────────── */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '24px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+                        {[
+                            { label: 'Agreement Value (MTD)', val: fmtCr((mtdBookings || []).reduce((s,b) => s + b.value, 0)), icon: 'fa-file-signature', color: '#f59e0b' },
+                            { label: 'Conducted Visits (MTD)', val: (mtdVisits || []).reduce((s,v) => s + (v.conducted || 0), 0), icon: 'fa-walking', color: '#8b5cf6' }
+                        ].map((item, i) => (
+                            <div key={i} style={{ background: '#fff', borderRadius: '16px', padding: '16px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                                <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>{item.label}</div>
+                                <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#0f172a' }}>{item.val}</div>
+                            </div>
+                        ))}
+                    </div>
+                    <div style={{ background: '#fff', borderRadius: '20px', padding: '18px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#475569', marginBottom: '10px' }}>User Availability Status</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', textAlign: 'center' }}>
+                            <div>
+                                <div style={{ fontSize: '0.9rem', fontWeight: 900, color: '#10b981' }}>{availability.totalIn}</div>
+                                <div style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: 700 }}>Total In</div>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: '0.9rem', fontWeight: 900, color: '#ef4444' }}>{availability.totalNotIn}</div>
+                                <div style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: 700 }}>Total Not In</div>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: '0.9rem', fontWeight: 900, color: '#f59e0b' }}>{availability.totalOnLeave || 0}</div>
+                                <div style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: 700 }}>On Leave</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 {/* ── MAIN GRID ──────────────────────────────────────────────────── */}
@@ -364,7 +411,7 @@ const DashboardPage = () => {
                             </Suspense>
                         </Card>
 
-                        {/* Activity Breakdown */}
+                        {/* Activity Breakdown (ORIGINAL) */}
                         <Card>
                             <SectionHeader icon="fa-chart-bar" title="Activity Type Breakdown" badge="30 DAYS" color="#f59e0b" />
                             <Suspense fallback={<ChartPlaceholder h={200} />}>
@@ -384,6 +431,61 @@ const DashboardPage = () => {
                                 ))}
                             </div>
                         </Card>
+
+                        {/* MTD Performance Combined */}
+                        <div style={{ display: 'grid', gridTemplateRows: '1fr 1fr', gap: '16px' }}>
+                            {/* MTD Visits By Project */}
+                            <Card>
+                                <SectionHeader icon="fa-map-marked-alt" title="MTD Visits by Project" badge="THIS MONTH" color="#8b5cf6" />
+                                <div style={{ overflowY: 'auto', maxHeight: '150px' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+                                        <thead style={{ background: '#f8fafc', color: '#64748b', position: 'sticky', top: 0 }}>
+                                            <tr>
+                                                <th style={{ padding: '8px', textAlign: 'left' }}>Project</th>
+                                                <th style={{ padding: '8px', textAlign: 'left' }}>Planned</th>
+                                                <th style={{ padding: '8px', textAlign: 'left' }}>Conducted</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {mtdVisits.map((v, i) => (
+                                                <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                    <td style={{ padding: '8px', fontWeight: 700 }}>{v._id || 'General'}</td>
+                                                    <td style={{ padding: '8px' }}>{v.count}</td>
+                                                    <td style={{ padding: '8px', color: '#10b981', fontWeight: 800 }}>{v.conducted}</td>
+                                                </tr>
+                                            ))}
+                                            {mtdVisits.length === 0 && <tr><td colSpan="3" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>No visits logged this month</td></tr>}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </Card>
+
+                            {/* MTD Bookings By Project */}
+                            <Card>
+                                <SectionHeader icon="fa-trophy" title="MTD Bookings by Project" badge="THIS MONTH" color="#10b981" />
+                                <div style={{ overflowY: 'auto', maxHeight: '150px' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+                                        <thead style={{ background: '#f8fafc', color: '#64748b', position: 'sticky', top: 0 }}>
+                                            <tr>
+                                                <th style={{ padding: '8px', textAlign: 'left' }}>Project</th>
+                                                <th style={{ padding: '8px', textAlign: 'left' }}>Units</th>
+                                                <th style={{ padding: '8px', textAlign: 'left' }}>Value</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {mtdBookings.map((b, i) => (
+                                                <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                    <td style={{ padding: '8px', fontWeight: 700 }}>{b._id || 'N/A'}</td>
+                                                    <td style={{ padding: '8px' }}>{b.count}</td>
+                                                    <td style={{ padding: '8px', color: '#10b981', fontWeight: 800 }}>{fmtCr(b.value)}</td>
+                                                </tr>
+                                            ))}
+                                            {mtdBookings.length === 0 && <tr><td colSpan="3" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>No bookings this month</td></tr>}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </Card>
+                        </div>
                     </div>
 
                     {/* ══ MIDDLE COLUMN ════════════════════════════════════════════ */}
