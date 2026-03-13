@@ -179,6 +179,31 @@ const FormsPage = () => {
                                                 Open Form <i className="fas fa-arrow-right" style={{ fontSize: '0.7rem' }}></i>
                                             </div>
                                         )}
+                                        {form.id === 'professional-deal-capture' && (
+                                            <div 
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    const liveUrl = `https://bharatproperties.co/capture/${form.id}`;
+                                                    navigator.clipboard.writeText(liveUrl);
+                                                    toast.success("Live Form Link Copied!");
+                                                }}
+                                                style={{
+                                                    marginTop: '12px',
+                                                    padding: '8px 12px',
+                                                    background: '#f8fafc',
+                                                    borderRadius: '8px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '8px',
+                                                    fontSize: '0.75rem',
+                                                    color: '#3b82f6',
+                                                    fontWeight: 700,
+                                                    border: '1px solid #e2e8f0'
+                                                }}
+                                            >
+                                                <i className="fas fa-link"></i> Copy Live Link
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })}

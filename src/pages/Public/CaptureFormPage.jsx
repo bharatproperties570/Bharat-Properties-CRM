@@ -294,7 +294,19 @@ const CaptureFormPage = ({ slug = 'professional-deal-capture' }) => {
                         </div>
                     ))}
 
-                    {/* Simple Footer Text */}
+                    {/* Remarks Section */}
+                    <div style={{ marginBottom: '50px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <label style={{ color: '#94a3b8', fontSize: '0.9rem', fontWeight: 600 }}>
+                            Remarks / Special Instructions
+                        </label>
+                        <textarea
+                            placeholder="Add any additional details or notes here..."
+                            value={formData['remarks'] || ""}
+                            onChange={e => setFormData(prev => ({ ...prev, remarks: e.target.value }))}
+                            className="premium-input"
+                            style={{ minHeight: '120px', resize: 'vertical' }}
+                        />
+                    </div>
 
                     <button
                         type="submit"

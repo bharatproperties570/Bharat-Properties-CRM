@@ -27,17 +27,19 @@ export const PropertyConfigProvider = ({ children }) => {
             }
         });
 
-        const setValue = useCallback((value) => {
+        const setValue = useCallback((value, skipSync = false) => {
             try {
                 setStoredValue(prev => {
                     const valueToStore = value instanceof Function ? value(prev) : value;
                     window.localStorage.setItem(key, JSON.stringify(valueToStore));
 
-                    // Professional Fix: Sync to Backend
-                    systemSettingsAPI.upsert(key, {
-                        value: valueToStore,
-                        category: 'crm_config'
-                    }).catch(err => console.error(`[useSystemSetting] Push failed for ${key}:`, err));
+                    // Sync to Backend unless skipSync is true
+                    if (!skipSync) {
+                        systemSettingsAPI.upsert(key, {
+                            value: valueToStore,
+                            category: 'crm_config'
+                        }).catch(err => console.error(`[useSystemSetting] Push failed for ${key}:`, err));
+                    }
 
                     return valueToStore;
                 });
@@ -223,39 +225,39 @@ export const PropertyConfigProvider = ({ children }) => {
                     settingsList.forEach(setting => {
                         foundKeys.add(setting.key);
                         switch (setting.key) {
-                            case 'propertyConfig': setPropertyConfig(setting.value); break;
-                            case 'masterFields': setMasterFields(setting.value); break;
-                            case 'projectMasterFields': setProjectMasterFields(setting.value); break;
-                            case 'projectAmenities': setProjectAmenities(setting.value); break;
-                            case 'leadMasterFields': setLeadMasterFields(setting.value); break;
-                            case 'scoringAttributes': setScoringAttributes(setting.value); break;
-                            case 'scoringConfig': setScoringConfig(setting.value); break;
-                            case 'behaviouralSignals': setBehaviouralSignals(setting.value); break;
-                            case 'dealFitSignals': setDealFitSignals(setting.value); break;
-                            case 'financialSignals': setFinancialSignals(setting.value); break;
-                            case 'decayRules': setDecayRules(setting.value); break;
-                            case 'aiSignals': setAiSignals(setting.value); break;
-                            case 'sourceQualityScores': setSourceQualityScores(setting.value); break;
-                            case 'inventoryFitScores': setInventoryFitScores(setting.value); break;
-                            case 'stageMultipliers': setStageMultipliers(setting.value); break;
-                            case 'dealScoringRules': setDealScoringRules(setting.value); break;
-                            case 'scoreBands': setScoreBands(setting.value); break;
-                            case 'activityMasterFields': setActivityMasterFields(setting.value); break;
-                            case 'stageMappingRules': setStageMappingRules(setting.value); break;
-                            case 'syncRules': setSyncRules(setting.value); break;
-                            case 'sequenceConfig': setSequenceConfig(setting.value); break;
-                            case 'agingRules': setAgingRules(setting.value); break;
-                            case 'forecastConfig': setForecastConfig(setting.value); break;
-                            case 'dealHealthConfig': setDealHealthConfig(setting.value); break;
-                            case 'intentSignals': setIntentSignals(setting.value); break;
-                            case 'dealMasterFields': setDealMasterFields(setting.value); break;
+                            case 'propertyConfig': setPropertyConfig(setting.value, true); break;
+                            case 'masterFields': setMasterFields(setting.value, true); break;
+                            case 'projectMasterFields': setProjectMasterFields(setting.value, true); break;
+                            case 'projectAmenities': setProjectAmenities(setting.value, true); break;
+                            case 'leadMasterFields': setLeadMasterFields(setting.value, true); break;
+                            case 'scoringAttributes': setScoringAttributes(setting.value, true); break;
+                            case 'scoringConfig': setScoringConfig(setting.value, true); break;
+                            case 'behaviouralSignals': setBehaviouralSignals(setting.value, true); break;
+                            case 'dealFitSignals': setDealFitSignals(setting.value, true); break;
+                            case 'financialSignals': setFinancialSignals(setting.value, true); break;
+                            case 'decayRules': setDecayRules(setting.value, true); break;
+                            case 'aiSignals': setAiSignals(setting.value, true); break;
+                            case 'sourceQualityScores': setSourceQualityScores(setting.value, true); break;
+                            case 'inventoryFitScores': setInventoryFitScores(setting.value, true); break;
+                            case 'stageMultipliers': setStageMultipliers(setting.value, true); break;
+                            case 'dealScoringRules': setDealScoringRules(setting.value, true); break;
+                            case 'scoreBands': setScoreBands(setting.value, true); break;
+                            case 'activityMasterFields': setActivityMasterFields(setting.value, true); break;
+                            case 'stageMappingRules': setStageMappingRules(setting.value, true); break;
+                            case 'syncRules': setSyncRules(setting.value, true); break;
+                            case 'sequenceConfig': setSequenceConfig(setting.value, true); break;
+                            case 'agingRules': setAgingRules(setting.value, true); break;
+                            case 'forecastConfig': setForecastConfig(setting.value, true); break;
+                            case 'dealHealthConfig': setDealHealthConfig(setting.value, true); break;
+                            case 'intentSignals': setIntentSignals(setting.value, true); break;
+                            case 'dealMasterFields': setDealMasterFields(setting.value, true); break;
 
-                            // Backward compatibility (Migrated in DB, but handled here for safety)
-                            case 'property_config': if (!foundKeys.has('propertyConfig')) setPropertyConfig(setting.value); break;
-                            case 'master_fields': if (!foundKeys.has('masterFields')) setMasterFields(setting.value); break;
-                            case 'activity_master_fields': if (!foundKeys.has('activityMasterFields')) setActivityMasterFields(setting.value); break;
-                            case 'lead_master_fields': if (!foundKeys.has('leadMasterFields')) setLeadMasterFields(setting.value); break;
-                            case 'score_bands': if (!foundKeys.has('scoreBands')) setScoreBands(setting.value); break;
+                            // Backward compatibility
+                            case 'property_config': if (!foundKeys.has('propertyConfig')) setPropertyConfig(setting.value, true); break;
+                            case 'master_fields': if (!foundKeys.has('masterFields')) setMasterFields(setting.value, true); break;
+                            case 'activity_master_fields': if (!foundKeys.has('activityMasterFields')) setActivityMasterFields(setting.value, true); break;
+                            case 'lead_master_fields': if (!foundKeys.has('leadMasterFields')) setLeadMasterFields(setting.value, true); break;
+                            case 'score_bands': if (!foundKeys.has('scoreBands')) setScoreBands(setting.value, true); break;
 
                             default: break;
                         }
@@ -1718,7 +1720,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setStageMappingRules]);
 
     // Update a single outcome's stage and requiredForm in activityMasterFields
-    const updateOutcomeStage = useCallback((activityName, purposeName, outcomeLabel, newStage, requiredForm = null) => {
+    const updateOutcomeStage = useCallback((activityName, purposeName, outcomeLabel, newStage, requiredForm = undefined) => {
         setActivityMasterFields(prev => {
             const activities = prev.activities.map(act => {
                 if (act.name !== activityName) return act;
@@ -1728,23 +1730,26 @@ export const PropertyConfigProvider = ({ children }) => {
                         if (purp.name !== purposeName) return purp;
                         return {
                             ...purp,
-                            outcomes: purp.outcomes.map(out =>
-                                out.label === outcomeLabel ? { ...out, stage: newStage, requiredForm: requiredForm } : out
-                            )
+                            outcomes: purp.outcomes.map(out => {
+                                if (out.label !== outcomeLabel) return out;
+                                // Core Fix: Only update fields that are provided, preserve others
+                                const updatedOutcome = { ...out };
+                                if (newStage !== undefined) updatedOutcome.stage = newStage;
+                                if (requiredForm !== undefined) {
+                                    updatedOutcome.requiredForm = requiredForm;
+                                    // Also sync to requiredForms array for new engine compatibility
+                                    updatedOutcome.requiredForms = [requiredForm].filter(Boolean);
+                                }
+                                if (changes?.requiredForms !== undefined) {
+                                    updatedOutcome.requiredForms = changes.requiredForms;
+                                }
+                                return updatedOutcome;
+                            })
                         };
                     })
                 };
             });
-            const updated = { ...prev, activities };
-
-            // Persist to backend
-            systemSettingsAPI.upsert('activityMasterFields', {
-                category: 'crm_config',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save activity master fields:', e));
-
-            return updated;
+            return { ...prev, activities };
         });
     }, [setActivityMasterFields]);
 

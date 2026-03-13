@@ -1139,7 +1139,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                         padding: '1.5rem 2rem 0.5rem 2rem',
                         borderBottom: '1px solid #e2e8f0',
                         background: '#fff',
-                        zIndex: 40
+                        position: 'relative'
                     }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                             <span style={{ fontSize: '0.8rem', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>

@@ -13,7 +13,15 @@ function Sidebar({ currentView, onNavigate }) {
         <nav className="sidebar">
             {/* Platform Logo */}
             <div className="sidebar-logo">
-                <img src="/src/assets/logo.png" alt="Logo" className="logo-img" />
+                <img 
+                    src="/src/assets/logo.png" 
+                    alt="Logo" 
+                    className="logo-img" 
+                    style={{ 
+                        filter: 'brightness(1.2) saturate(1.6) contrast(0.9) drop-shadow(0 0 10px rgba(59, 130, 246, 0.4))',
+                        transition: 'all 0.3s ease'
+                    }}
+                />
             </div>
 
             <div className="sidebar-menu">

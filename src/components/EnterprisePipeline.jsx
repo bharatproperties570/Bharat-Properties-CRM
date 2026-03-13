@@ -292,9 +292,10 @@ const EnterprisePipeline = ({ contact, activities = [] }) => {
                     position: fixed; right: 0; top: 0; bottom: 0;
                     width: 420px;
                     background: #fff;
-                    z-index: 10000;
+                    z-index: 10001; /* Higher than sticky header (100) and its containers */
                     box-shadow: -20px 0 80px rgba(0,0,0,0.15);
                     padding: 40px;
+                    padding-top: 100px; /* Push content down to avoid covering by sticky header if not portal'd */
                     animation: slideRight 0.5s cubic-bezier(0.19, 1, 0.22, 1);
                     display: flex;
                     flex-direction: column;
@@ -302,7 +303,7 @@ const EnterprisePipeline = ({ contact, activities = [] }) => {
                 }
                 @keyframes slideRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
                 .panel-overlay {
-                    position: fixed; inset: 0; background: rgba(15, 23, 42, 0.4); z-index: 9999;
+                    position: fixed; inset: 0; background: rgba(15, 23, 42, 0.4); z-index: 10000;
                     backdrop-filter: blur(8px);
                 }
                 .ledger-item {

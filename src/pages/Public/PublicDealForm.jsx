@@ -343,6 +343,36 @@ const PublicDealForm = ({ slug }) => {
                         </div>
                     ))}
 
+                    {/* Remarks Section */}
+                    <div style={{ marginBottom: '40px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <label style={{ fontSize: '0.95rem', fontWeight: 700, color: '#475569' }}>
+                            Remarks / Special Instructions
+                        </label>
+                        <textarea
+                            placeholder="Add any additional details or notes here..."
+                            value={formData['remarks'] || ""}
+                            onChange={e => setFormData(prev => ({ ...prev, remarks: e.target.value }))}
+                            style={{ 
+                                padding: '14px', 
+                                borderRadius: '12px', 
+                                border: '1px solid #e2e8f0', 
+                                background: '#fff', 
+                                fontSize: '1rem', 
+                                outline: 'none', 
+                                transition: 'all 0.2s',
+                                minHeight: '100px'
+                            }}
+                            onFocus={e => {
+                                e.target.style.borderColor = formConfig.settings.theme?.primaryColor || '#3b82f6';
+                                e.target.style.boxShadow = `0 0 0 4px ${formConfig.settings.theme?.primaryColor || '#3b82f6'}10`;
+                            }}
+                            onBlur={e => {
+                                e.target.style.borderColor = '#e2e8f0';
+                                e.target.style.boxShadow = 'none';
+                            }}
+                        />
+                    </div>
+
                     <button
                         type="submit"
                         disabled={status === 'submitting'}
