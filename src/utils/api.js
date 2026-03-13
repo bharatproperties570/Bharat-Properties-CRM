@@ -1,7 +1,7 @@
 // API Configuration
 import axios from 'axios';
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.bharatproperties.co/api';
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 
 // Create and export axios instance
 export const api = axios.create({
