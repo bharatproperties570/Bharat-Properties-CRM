@@ -1,11 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead } from '../utils/api';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, contactsAPI, leadsAPI } from '../utils/api';
 import toast from 'react-hot-toast';
-
-// Mock data removed
-const contactData = [];
-const leadData = [];
-const inventoryData = [];
 
 function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompany, onAddProject, onAddInventory, onAddDeal }) {
     const [showNotifications, setShowNotifications] = useState(false);
@@ -14,11 +9,13 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
     const [loadingNotifications, setLoadingNotifications] = useState(false);
     const [profilePicture, setProfilePicture] = useState('');
     const fileInputRef = useRef(null);
+    const searchDebounceRef = useRef(null);
 
     // Search State
     const [searchTerm, setSearchTerm] = useState('');
-    const [searchResults, setSearchResults] = useState({ contacts: [], leads: [], inventory: [] });
+    const [searchResults, setSearchResults] = useState({ contacts: [], leads: [] });
     const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+    const [isSearching, setIsSearching] = useState(false);
 
     // Load profile picture from localStorage
     useEffect(() => {
@@ -48,40 +45,51 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
         }
     };
 
-    // Search Logic
+    // Live Search Logic with Debounce
+    const performSearch = useCallback(async (term) => {
+        if (!term || term.trim().length < 2) {
+            setSearchResults({ contacts: [], leads: [] });
+            setShowSearchDropdown(false);
+            setIsSearching(false);
+            return;
+        }
+        setIsSearching(true);
+        setShowSearchDropdown(true);
+        try {
+            const [contactsRes, leadsRes] = await Promise.all([
+                contactsAPI.getAll({ search: term, limit: 5 }).catch(() => null),
+                leadsAPI.getAll({ search: term, limit: 5 }).catch(() => null),
+            ]);
+
+            // Backend paginate util returns { records: [...], total, page, ... }
+            const contacts = Array.isArray(contactsRes?.records) ? contactsRes.records
+                : Array.isArray(contactsRes?.data) ? contactsRes.data
+                : Array.isArray(contactsRes?.contacts) ? contactsRes.contacts
+                : Array.isArray(contactsRes) ? contactsRes : [];
+
+            const leads = Array.isArray(leadsRes?.records) ? leadsRes.records
+                : Array.isArray(leadsRes?.data) ? leadsRes.data
+                : Array.isArray(leadsRes?.leads) ? leadsRes.leads
+                : Array.isArray(leadsRes) ? leadsRes : [];
+
+            setSearchResults({ contacts: contacts.slice(0, 5), leads: leads.slice(0, 5) });
+        } catch (err) {
+            console.error('[Search] Error:', err);
+        } finally {
+            setIsSearching(false);
+        }
+    }, []);
+
     useEffect(() => {
-        if (searchTerm.trim().length < 2) {
-            setSearchResults({ contacts: [], leads: [], inventory: [] });
+        if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+        if (!searchTerm || searchTerm.trim().length < 2) {
+            setSearchResults({ contacts: [], leads: [] });
             setShowSearchDropdown(false);
             return;
         }
-
-        const term = searchTerm.toLowerCase();
-        const cleanTerm = term.replace(/\D/g, ''); // For phone matching
-
-        const matchedContacts = contactData.filter(c =>
-            c.name.toLowerCase().includes(term) ||
-            (c.mobile && c.mobile.replace(/\D/g, '').includes(cleanTerm)) ||
-            (c.email && c.email.toLowerCase().includes(term))
-        ).slice(0, 3);
-
-        const matchedLeads = leadData.filter(l =>
-            l.name.toLowerCase().includes(term) ||
-            (l.mobile && l.mobile.replace(/\D/g, '').includes(cleanTerm))
-        ).slice(0, 3);
-
-        const matchedInventory = inventoryData.filter(i =>
-            (i.unitNo && i.unitNo.toLowerCase().includes(term)) ||
-            (i.ownerName && i.ownerName.toLowerCase().includes(term)) ||
-            (i.ownerPhone && i.ownerPhone.replace(/\D/g, '').includes(cleanTerm)) ||
-            (i.location && i.location.toLowerCase().includes(term)) ||
-            (i.area && i.area.toLowerCase().includes(term))
-        ).slice(0, 3);
-
-        setSearchResults({ contacts: matchedContacts, leads: matchedLeads, inventory: matchedInventory });
-        setShowSearchDropdown(true);
-
-    }, [searchTerm]);
+        searchDebounceRef.current = setTimeout(() => performSearch(searchTerm), 350);
+        return () => clearTimeout(searchDebounceRef.current);
+    }, [searchTerm, performSearch]);
 
     // Notifications Logic
     const fetchNotifications = async () => {
@@ -179,124 +187,112 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
 
             <div className="header-right">
                 <div className="search-min" style={{ position: 'relative' }}>
-                    <i className="fas fa-search" style={{ fontSize: '0.9rem', color: '#68737d', marginRight: '8px' }}></i>
+                    {isSearching
+                        ? <i className="fas fa-spinner fa-spin" style={{ fontSize: '0.9rem', color: '#3b82f6', marginRight: '8px' }}></i>
+                        : <i className="fas fa-search" style={{ fontSize: '0.9rem', color: '#68737d', marginRight: '8px' }}></i>
+                    }
                     <input
                         type="text"
-                        placeholder="Search contacts, leads, properties..."
+                        placeholder="Search contacts, leads..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        onBlur={() => setTimeout(() => setShowSearchDropdown(false), 200)}
+                        onBlur={() => setTimeout(() => { setShowSearchDropdown(false); }, 250)}
                         onFocus={() => searchTerm.length >= 2 && setShowSearchDropdown(true)}
+                        style={{ width: '220px' }}
                     />
 
                     {/* Search Results Dropdown */}
                     {showSearchDropdown && (
                         <div style={{
                             position: 'absolute',
-                            top: '40px',
+                            top: '42px',
                             left: 0,
                             width: '100%',
-                            minWidth: '300px',
+                            minWidth: '340px',
                             background: '#fff',
-                            borderRadius: '8px',
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                            borderRadius: '10px',
+                            boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
                             border: '1px solid #e2e8f0',
                             zIndex: 1000,
-                            maxHeight: '400px',
+                            maxHeight: '420px',
                             overflowY: 'auto'
                         }}>
-                            {(searchResults.contacts.length === 0 && searchResults.leads.length === 0 && searchResults.inventory.length === 0) ? (
-                                <div style={{ padding: '12px', color: '#64748b', fontSize: '0.9rem', textAlign: 'center' }}>No results found</div>
+                            {isSearching ? (
+                                <div style={{ padding: '20px', color: '#64748b', fontSize: '0.875rem', textAlign: 'center' }}>
+                                    <i className="fas fa-spinner fa-spin" style={{ marginRight: '8px', color: '#3b82f6' }}></i>Searching...
+                                </div>
+                            ) : (searchResults.contacts.length === 0 && searchResults.leads.length === 0) ? (
+                                <div style={{ padding: '20px', color: '#94a3b8', fontSize: '0.875rem', textAlign: 'center' }}>
+                                    <i className="fas fa-search" style={{ display: 'block', fontSize: '1.5rem', marginBottom: '8px', opacity: 0.4 }}></i>
+                                    No results for &ldquo;{searchTerm}&rdquo;
+                                </div>
                             ) : (
                                 <>
+                                    {/* Contacts */}
                                     {searchResults.contacts.length > 0 && (
-                                        <div style={{ padding: '8px 0' }}>
-                                            <div style={{ background: '#f8fafc', padding: '4px 12px', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Contacts</div>
-                                            {searchResults.contacts.map((c, idx) => (
+                                        <div>
+                                            <div style={{ background: '#f8fafc', padding: '6px 14px', fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #f1f5f9' }}>
+                                                <i className="fas fa-user" style={{ marginRight: '6px', color: '#3b82f6' }}></i>Contacts
+                                            </div>
+                                            {searchResults.contacts.map((c) => (
                                                 <div
-                                                    key={idx}
-                                                    style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                                                    onMouseDown={() => {
-                                                        // Use onMouseDown to trigger before onBlur
-                                                        onNavigate('contact-detail', c.mobile); // Assuming mobile is ID or we use index? mockData doesn't always have ID. c.mobile often used as key.
-                                                        setSearchTerm('');
-                                                    }}
+                                                    key={c._id || c.id}
+                                                    style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                                                    onMouseDown={() => { onNavigate('contact-detail', c._id || c.id); setSearchTerm(''); setShowSearchDropdown(false); }}
                                                     onMouseOver={e => e.currentTarget.style.background = '#f1f5f9'}
                                                     onMouseOut={e => e.currentTarget.style.background = '#fff'}
                                                 >
-                                                    <div>
-                                                        <div style={{ fontSize: '0.9rem', color: '#0f172a', fontWeight: 500 }}>{c.name}</div>
-                                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{c.mobile}</div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                        <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'linear-gradient(135deg,#3b82f6,#6366f1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.8rem', fontWeight: 700, flexShrink: 0 }}>
+                                                            {(c.name || c.fullName || 'C').charAt(0).toUpperCase()}
+                                                        </div>
+                                                        <div>
+                                                            <div style={{ fontSize: '0.875rem', color: '#0f172a', fontWeight: 600 }}>{c.name || c.fullName}</div>
+                                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{c.mobile || c.phone || c.email || ''}</div>
+                                                        </div>
                                                     </div>
-                                                    <div style={{ fontSize: '0.8rem', color: '#3b82f6' }}>Contact</div>
+                                                    <span style={{ fontSize: '0.7rem', color: '#3b82f6', background: '#eff6ff', borderRadius: '4px', padding: '2px 8px', fontWeight: 600 }}>Contact</span>
                                                 </div>
                                             ))}
                                         </div>
                                     )}
 
+                                    {/* Leads */}
                                     {searchResults.leads.length > 0 && (
-                                        <div style={{ padding: '8px 0' }}>
-                                            <div style={{ background: '#f8fafc', padding: '4px 12px', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Leads</div>
-                                            {searchResults.leads.map((l, idx) => (
+                                        <div>
+                                            <div style={{ background: '#f8fafc', padding: '6px 14px', fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #f1f5f9' }}>
+                                                <i className="fas fa-filter" style={{ marginRight: '6px', color: '#f59e0b' }}></i>Leads
+                                            </div>
+                                            {searchResults.leads.map((l) => (
                                                 <div
-                                                    key={idx}
-                                                    style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                                                    onMouseDown={() => {
-                                                        onNavigate('leads'); // Leads don't have detail view yet in navigation logic
-                                                        setSearchTerm('');
-                                                    }}
+                                                    key={l._id || l.id}
+                                                    style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                                                    onMouseDown={() => { onNavigate('lead-detail', l._id || l.id); setSearchTerm(''); setShowSearchDropdown(false); }}
                                                     onMouseOver={e => e.currentTarget.style.background = '#f1f5f9'}
                                                     onMouseOut={e => e.currentTarget.style.background = '#fff'}
                                                 >
-                                                    <div>
-                                                        <div style={{ fontSize: '0.9rem', color: '#0f172a', fontWeight: 500 }}>{l.name}</div>
-                                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{l.mobile}</div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                        <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'linear-gradient(135deg,#f59e0b,#ef4444)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.8rem', fontWeight: 700, flexShrink: 0 }}>
+                                                            {(l.name || l.fullName || 'L').charAt(0).toUpperCase()}
+                                                        </div>
+                                                        <div>
+                                                            <div style={{ fontSize: '0.875rem', color: '#0f172a', fontWeight: 600 }}>{l.name || l.fullName}</div>
+                                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{l.mobile || l.phone || l.email || ''}</div>
+                                                        </div>
                                                     </div>
-                                                    <div style={{ fontSize: '0.8rem', color: '#f59e0b' }}>Lead</div>
+                                                    <span style={{ fontSize: '0.7rem', color: '#f59e0b', background: '#fffbeb', borderRadius: '4px', padding: '2px 8px', fontWeight: 600 }}>Lead</span>
                                                 </div>
                                             ))}
                                         </div>
                                     )}
 
-                                    {searchResults.inventory.length > 0 && (
-                                        <div style={{ padding: '8px 0' }}>
-                                            <div style={{ background: '#f8fafc', padding: '4px 12px', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Inventory</div>
-                                            {searchResults.inventory.map((i, idx) => (
-                                                <div
-                                                    key={idx}
-                                                    style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                                                    onMouseDown={() => {
-                                                        onNavigate('projects'); // Inventory usually linked to projects? Or just go to inventory list? onNavigate doesn't strictly support 'inventory' in the switch?
-                                                        // App.jsx: if (path === '/projects') return 'projects';
-                                                        // It doesn't seem to have explicit inventory route in App.jsx switch I read earlier?
-                                                        // Wait, App.jsx line 43: if (path === '/projects') return 'projects';
-                                                        // Checked App.jsx again. Line 36..48.
-                                                        // It doesn't have 'inventory'. It probably shares 'projects' view or I missed it.
-                                                        // Wait, I read: "if (path === '/activities') return 'activities';"
-                                                        // I don't see 'inventory'.
-                                                        // BUT Sidebar typically has Inventory.
-                                                        // Let's assume 'projects' or I should add 'inventory' to App.jsx?
-                                                        // Sidebar.jsx probably triggers onNavigate('inventory').
-                                                        // Let's check App.jsx again if I can... 
-                                                        // Actually, I'll just use 'projects' for now as safe bet or 'inventory' if it works.
-                                                        // I'll try 'inventory'. If App.jsx handles generic defaults:
-                                                        // "else url = `/${view}`;" (line 76)
-                                                        // So onNavigate('inventory') -> /inventory
-                                                        onNavigate('inventory');
-                                                        setSearchTerm('');
-                                                    }}
-                                                    onMouseOver={e => e.currentTarget.style.background = '#f1f5f9'}
-                                                    onMouseOut={e => e.currentTarget.style.background = '#fff'}
-                                                >
-                                                    <div>
-                                                        <div style={{ fontSize: '0.9rem', color: '#0f172a', fontWeight: 500 }}>{i.unitNo} {i.location}</div>
-                                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{i.area}</div>
-                                                    </div>
-                                                    <div style={{ fontSize: '0.8rem', color: '#10b981' }}>Unit</div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
+                                    {/* Footer */}
+                                    <div
+                                        style={{ padding: '10px 14px', textAlign: 'center', borderTop: '1px solid #f1f5f9', fontSize: '0.8rem', color: '#3b82f6', fontWeight: 600, cursor: 'pointer', background: '#f8fafc' }}
+                                        onMouseDown={() => { onNavigate('contacts'); setSearchTerm(''); setShowSearchDropdown(false); }}
+                                    >
+                                        View all results →
+                                    </div>
                                 </>
                             )}
                         </div>
