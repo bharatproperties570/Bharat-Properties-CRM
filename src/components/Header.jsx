@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, api } from '../utils/api';
 import toast from 'react-hot-toast';
+import { useUserContext } from '../context/UserContext';
 
 function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompany, onAddProject, onAddInventory, onAddDeal }) {
+    const { currentUser, logout } = useUserContext();
     const [showNotifications, setShowNotifications] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
     const [notifications, setNotifications] = useState([]);
@@ -140,6 +142,8 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
             case 'task': return { icon: 'fas fa-tasks', color: '#f59e0b' };
             case 'mention': return { icon: 'fas fa-at', color: '#10b981' };
             case 'stage_change': return { icon: 'fas fa-exchange-alt', color: '#8b5cf6' };
+            case 'system': return { icon: 'fas fa-info-circle', color: '#3b82f6' };
+            case 'announcement': return { icon: 'fas fa-bullhorn', color: '#f97316' };
             default: return { icon: 'fas fa-bell', color: '#64748b' };
         }
     };
@@ -341,7 +345,7 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
                             background: '#fff',
                             boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05)',
                             borderRadius: '12px',
-                            zIndex: 99999,
+                            zIndex: 100000,
                             border: '1px solid #e2e8f0',
                             overflow: 'hidden'
                         }}>
@@ -418,7 +422,7 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
                                 }}
                             />
                         ) : (
-                            'BP'
+                            currentUser?.name ? currentUser.name.split(' ').map(n => n[0]).join('').toUpperCase() : 'BP'
                         )}
                     </div>
                     <input
@@ -428,10 +432,10 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
                         style={{ display: 'none' }}
                         onChange={handlePictureUpload}
                     />
-                    <div className="profile-dropdown-content">
+                    <div className="profile-dropdown-content" style={{ zIndex: 100001 }}>
                         <div className="p-dropdown-header">
-                            <strong>Bharat Properties</strong>
-                            <span>Administrator</span>
+                            <strong>{currentUser?.name || 'Bharat Properties'}</strong>
+                            <span>{currentUser?.role || 'Administrator'}</span>
                         </div>
                         <div className="p-dropdown-divider"></div>
                         <a href="#" onClick={(e) => { e.preventDefault(); onNavigate('profile'); }}>
@@ -441,7 +445,7 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
                             <i className="fas fa-cog"></i> Setting
                         </a>
                         <div className="p-dropdown-divider"></div>
-                        <a href="#" onClick={(e) => { e.preventDefault(); console.log('Logout'); }} style={{ color: '#ef4444' }}>
+                        <a href="#" onClick={(e) => { e.preventDefault(); logout(); }} style={{ color: '#ef4444' }}>
                             <i className="fas fa-sign-out-alt"></i> Logout
                         </a>
                     </div>

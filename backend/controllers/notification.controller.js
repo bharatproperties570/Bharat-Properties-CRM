@@ -17,7 +17,12 @@ export const getNotifications = async (req, res) => {
         // Generate today's activity reminders (site visits, calls, meetings, tasks)
         await generateTodayActivityReminders(userId);
 
-        const notifications = await Notification.find({ user: userId })
+        const notifications = await Notification.find({ 
+            $or: [
+                { user: userId },
+                { type: 'system' }
+            ]
+        })
             .sort({ createdAt: -1 })
             .limit(50);
 

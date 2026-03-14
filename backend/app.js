@@ -40,6 +40,8 @@ import activityCompletionRoutes from "./src/modules/activity/activityCompletion.
 import stageTransitionRoutes from "./src/modules/rules/stageTransition.routes.js";
 import notificationRoutes from "./routes/notification.routes.js";
 import searchRoutes from "./routes/search.routes.js";
+import salesGoalRoutes from "./routes/salesGoal.routes.js";
+import notificationSettingRoutes from "./routes/notificationSetting.routes.js";
 
 const app = express();
 
@@ -157,6 +159,8 @@ app.use("/api/activities/completion", activityCompletionRoutes); // Specialized 
 app.use("/api/rules/stage-transitions", stageTransitionRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/search", searchRoutes);
+app.use("/api/sales-goals", salesGoalRoutes);
+app.use("/api/notification-settings", notificationSettingRoutes);
 
 import fs from 'fs';
 import path from 'path';

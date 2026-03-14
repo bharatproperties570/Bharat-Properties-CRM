@@ -13,7 +13,8 @@ import { TriggersProvider } from './context/TriggersContext';
 import { AutomatedActionsProvider } from './context/AutomatedActionsContext';
 import { CallProvider, useCall } from './context/CallContext'; // Import CallProvider and hook
 import { ParsingProvider } from './context/ParsingContext'; // Import ParsingProvider
-import { UserProvider } from './context/UserContext';
+import { UserProvider, useUserContext } from './context/UserContext';
+import LoginPage from './pages/Auth/LoginPage';
 import ErrorBoundary from './components/ErrorBoundary';
 import PublicLeadForm from './pages/Public/PublicLeadForm';
 import PublicDealForm from './pages/Public/PublicDealForm';
@@ -35,7 +36,7 @@ const CallModalWrapper = () => {
     );
 };
 const AppContent = () => {
-    // const { token } = useUserContext(); // Removed token check for now
+    const { token } = useUserContext();
 
     // Global Navigation State (Routing Logic Only)
     const [currentView, setCurrentView] = useState(() => {
@@ -205,9 +206,9 @@ const AppContent = () => {
         );
     }
 
-    /* if (!token) {
+    if (!token) {
         return <LoginPage />;
-    } */
+    }
 
     return (
         <MainLayout currentView={currentView} onNavigate={handleNavigate}>

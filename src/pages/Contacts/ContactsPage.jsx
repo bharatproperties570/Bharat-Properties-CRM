@@ -123,15 +123,26 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
 
   const getTeamName = useCallback((teamValue) => {
     if (!teamValue) return "-";
-    // Handle populated object case
+    
+    // Handle array case first (e.g., assignment.team is often an array)
+    if (Array.isArray(teamValue)) {
+      if (teamValue.length === 0) return "-";
+      return teamValue.map(t => {
+        if (typeof t === 'object') return t.name || t.lookup_value || "-";
+        
+        // If it's an ID, try to find it in the teams context
+        const teamArray = Array.isArray(teams) ? teams : (teams?.data || []);
+        const found = teamArray.find(team => (team._id === t) || (team.id === t));
+        return found ? (found.name || found.lookup_value) : t;
+      }).join(', ');
+    }
+
+    // Handle single populated object case
     if (typeof teamValue === 'object') {
       return teamValue.name || teamValue.lookup_value || "-";
     }
-    // Handle array of team names
-    if (Array.isArray(teamValue)) {
-      return teamValue.length > 0 ? teamValue.join(', ') : "-";
-    }
-    // Check if teams is an array or wrapper
+
+    // Handle single ID case
     const teamArray = Array.isArray(teams) ? teams : (teams?.data || []);
     const found = teamArray.find(t => (t._id === teamValue) || (t.id === teamValue));
 

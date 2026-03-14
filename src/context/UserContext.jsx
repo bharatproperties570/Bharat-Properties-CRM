@@ -45,6 +45,9 @@ export const UserProvider = ({ children }) => {
 
             setError(null);
         } catch (err) {
+            if (err.response?.status === 401 || err.message?.includes('401')) {
+                logout();
+            }
             console.error('Failed to fetch user data:', err);
             setError(err.message || 'Failed to load users and roles');
         } finally {
