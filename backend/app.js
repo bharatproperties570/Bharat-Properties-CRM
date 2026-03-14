@@ -131,7 +131,7 @@ app.use("/api/projects", projectRoutes);
 app.use("/api/deals", dealRoutes);
 app.use("/api/lookup", lookupRoutes);
 app.use("/api/lookups", lookupRoutes);
-app.use("/api/activities", activityRoutes);
+// app.use("/api/activities", activityRoutes); // Moved below for better grouping
 app.use("/api/field-rules", fieldRuleRoutes);
 app.use("/api/distribution-rules", distributionRuleRoutes);
 app.use("/api/system-settings", systemSettingRoutes);
@@ -151,7 +151,8 @@ app.use("/api/parsing-rules", parsingRoutes);
 app.use("/api/intake", intakeRoutes);
 app.use("/api/stage-engine", stageEngineRoutes);
 app.use("/api/sms-gateway", smsRoutes);
-app.use("/api/activities", activityCompletionRoutes);
+app.use("/api/activities", activityRoutes); // Standard activities
+app.use("/api/activities/completion", activityCompletionRoutes); // Specialized completion logic
 app.use("/api/rules/stage-transitions", stageTransitionRoutes);
 app.use("/api/notifications", notificationRoutes);
 
