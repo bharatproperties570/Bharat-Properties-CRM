@@ -102,6 +102,8 @@ const UserSchema = new mongoose.Schema({
             return expiryDate;
         }
     },
+    resetPasswordToken: String,
+    resetPasswordExpires: Date,
 
     // ========== Security & Audit ==========
     lastLogin: {
