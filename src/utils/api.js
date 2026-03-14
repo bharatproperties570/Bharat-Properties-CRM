@@ -6,6 +6,11 @@ const isProd = import.meta.env.PROD;
 // or we use the explicit VITE_API_URL if provided in the Vercel dashboard environments.
 export const API_BASE_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : 'http://localhost:4001/api');
 
+// Notification APIs
+export const getNotifications = () => api.get('/notifications');
+export const markNotificationAsRead = (id) => api.put(`/notifications/${id}/read`);
+export const markAllNotificationsAsRead = () => api.put('/notifications/read-all');
+
 // Create and export axios instance
 export const api = axios.create({
     baseURL: API_BASE_URL,

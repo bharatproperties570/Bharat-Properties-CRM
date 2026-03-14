@@ -7,6 +7,7 @@ import { enrichmentQueue } from "../src/queues/queueManager.js";
 import { updateLeadStage } from "./stage.controller.js";
 import StageTransitionEngine from "../src/services/StageTransitionEngine.js";
 import LeadScoringService from "../src/services/LeadScoringService.js";
+import { createNotification } from "./notification.controller.js";
 
 /**
  * Bug 6 Fix: Auto-trigger stage change when a completed activity is saved for a lead.
@@ -294,6 +295,18 @@ export const addActivity = async (req, res) => {
         // Bug 6 Fix: Auto-trigger stage change based on activity outcome mapping
         if (activity.entityType?.toLowerCase() === 'lead' && activity.status?.toLowerCase() === 'completed') {
             await autoTriggerStageChange(activity, req.body.assignedTo || null);
+        }
+
+        // Create Notification if assigned to a user
+        if (activity.assignedTo) {
+            await createNotification(
+                activity.assignedTo,
+                'assignment',
+                'New Activity Assigned',
+                `You have been assigned a new ${activity.type}: ${activity.subject}`,
+                `/activities/${activity._id}`,
+                { activityId: activity._id }
+            );
         }
 
         res.status(201).json({ success: true, data: activity });

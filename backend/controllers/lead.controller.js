@@ -13,6 +13,7 @@ import smsService from "../src/modules/sms/sms.service.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
 import { runFullLeadEnrichment } from "../src/utils/enrichmentEngine.js";
 import { autoAssign } from "../src/services/DistributionService.js";
+import { createNotification } from "./notification.controller.js";
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -344,6 +345,16 @@ export const addLead = async (req, res, next) => {
                     ruleName: assignment.ruleName
                 };
                 console.log(`[DISTRIBUTION] Lead ${lead._id} auto-assigned to ${assignment.assignedTo} via rule "${assignment.ruleName}"`);
+                
+                // Create Notification for auto-assignment
+                await createNotification(
+                    assignment.assignedTo,
+                    'assignment',
+                    'New Lead Assigned',
+                    `A new lead ${lead.firstName} ${lead.lastName || ''} has been assigned to you.`,
+                    `/leads/${lead._id}`,
+                    { leadId: lead._id }
+                );
             }
         } catch (distErr) {
             console.warn('[DISTRIBUTION] autoAssign failed (non-critical):', distErr.message);

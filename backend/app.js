@@ -38,6 +38,7 @@ import stageEngineRoutes from "./routes/stage.routes.js";
 import smsRoutes from "./src/modules/sms/sms.routes.js";
 import activityCompletionRoutes from "./src/modules/activity/activityCompletion.routes.js";
 import stageTransitionRoutes from "./src/modules/rules/stageTransition.routes.js";
+import notificationRoutes from "./routes/notification.routes.js";
 
 const app = express();
 
@@ -152,6 +153,7 @@ app.use("/api/stage-engine", stageEngineRoutes);
 app.use("/api/sms-gateway", smsRoutes);
 app.use("/api/activities", activityCompletionRoutes);
 app.use("/api/rules/stage-transitions", stageTransitionRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 import fs from 'fs';
 import path from 'path';
