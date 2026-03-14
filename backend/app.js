@@ -39,6 +39,7 @@ import smsRoutes from "./src/modules/sms/sms.routes.js";
 import activityCompletionRoutes from "./src/modules/activity/activityCompletion.routes.js";
 import stageTransitionRoutes from "./src/modules/rules/stageTransition.routes.js";
 import notificationRoutes from "./routes/notification.routes.js";
+import searchRoutes from "./routes/search.routes.js";
 
 const app = express();
 
@@ -155,6 +156,7 @@ app.use("/api/activities", activityRoutes); // Standard activities
 app.use("/api/activities/completion", activityCompletionRoutes); // Specialized completion logic
 app.use("/api/rules/stage-transitions", stageTransitionRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/search", searchRoutes);
 
 import fs from 'fs';
 import path from 'path';

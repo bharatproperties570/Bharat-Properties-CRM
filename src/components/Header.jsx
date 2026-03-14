@@ -45,7 +45,7 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
         }
     };
 
-    // Live Search — uses Axios api instance directly for correct param handling
+    // Global Search — dedicated /api/search endpoint handles contacts + leads + inventory/deal owners
     const performSearch = useCallback(async (term) => {
         if (!term || term.trim().length < 2) {
             setSearchResults({ contacts: [], leads: [] });
@@ -56,26 +56,12 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
         setIsSearching(true);
         setShowSearchDropdown(true);
         try {
-            const [cRes, lRes] = await Promise.all([
-                api.get('/contacts', { params: { search: term, limit: 5 } }).catch(() => null),
-                api.get('/leads', { params: { search: term, limit: 5 } }).catch(() => null),
-            ]);
-
-            // Axios wraps response in .data; backend returns { success, records: [...] }
-            const cBody = cRes?.data || {};
-            const lBody = lRes?.data || {};
-
-            const contacts = Array.isArray(cBody.records) ? cBody.records
-                : Array.isArray(cBody.data) ? cBody.data
-                : Array.isArray(cBody.contacts) ? cBody.contacts
-                : Array.isArray(cBody) ? cBody : [];
-
-            const leads = Array.isArray(lBody.records) ? lBody.records
-                : Array.isArray(lBody.data) ? lBody.data
-                : Array.isArray(lBody.leads) ? lBody.leads
-                : Array.isArray(lBody) ? lBody : [];
-
-            setSearchResults({ contacts: contacts.slice(0, 5), leads: leads.slice(0, 5) });
+            const res = await api.get('/search', { params: { q: term, limit: 5 } });
+            const body = res?.data || {};
+            setSearchResults({
+                contacts: Array.isArray(body.contacts) ? body.contacts : [],
+                leads: Array.isArray(body.leads) ? body.leads : [],
+            });
         } catch (err) {
             console.error('[Search] Error:', err);
         } finally {
