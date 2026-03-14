@@ -234,7 +234,9 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
                                             <div style={{ background: '#f8fafc', padding: '6px 14px', fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #f1f5f9' }}>
                                                 <i className="fas fa-user" style={{ marginRight: '6px', color: '#3b82f6' }}></i>Contacts
                                             </div>
-                                            {searchResults.contacts.map((c) => (
+                                            {searchResults.contacts.map((c) => {
+                                                const displayName = c.name || c.fullName || [c.firstName, c.lastName].filter(Boolean).join(' ') || 'Contact';
+                                                return (
                                                 <div
                                                     key={c._id || c.id}
                                                     style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
@@ -244,16 +246,17 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
                                                 >
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                                         <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'linear-gradient(135deg,#3b82f6,#6366f1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.8rem', fontWeight: 700, flexShrink: 0 }}>
-                                                            {(c.name || c.fullName || 'C').charAt(0).toUpperCase()}
+                                                            {displayName.charAt(0).toUpperCase()}
                                                         </div>
                                                         <div>
-                                                            <div style={{ fontSize: '0.875rem', color: '#0f172a', fontWeight: 600 }}>{c.name || c.fullName}</div>
+                                                            <div style={{ fontSize: '0.875rem', color: '#0f172a', fontWeight: 600 }}>{displayName}</div>
                                                             <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{c.mobile || c.phone || c.email || ''}</div>
                                                         </div>
                                                     </div>
                                                     <span style={{ fontSize: '0.7rem', color: '#3b82f6', background: '#eff6ff', borderRadius: '4px', padding: '2px 8px', fontWeight: 600 }}>Contact</span>
                                                 </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     )}
 
@@ -263,7 +266,9 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
                                             <div style={{ background: '#f8fafc', padding: '6px 14px', fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #f1f5f9' }}>
                                                 <i className="fas fa-filter" style={{ marginRight: '6px', color: '#f59e0b' }}></i>Leads
                                             </div>
-                                            {searchResults.leads.map((l) => (
+                                            {searchResults.leads.map((l) => {
+                                                const displayName = l.fullName || [l.salutation, l.firstName, l.lastName].filter(Boolean).join(' ') || l.name || 'Lead';
+                                                return (
                                                 <div
                                                     key={l._id || l.id}
                                                     style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
@@ -273,16 +278,17 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
                                                 >
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                                         <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'linear-gradient(135deg,#f59e0b,#ef4444)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.8rem', fontWeight: 700, flexShrink: 0 }}>
-                                                            {(l.name || l.fullName || 'L').charAt(0).toUpperCase()}
+                                                            {displayName.charAt(0).toUpperCase()}
                                                         </div>
                                                         <div>
-                                                            <div style={{ fontSize: '0.875rem', color: '#0f172a', fontWeight: 600 }}>{l.name || l.fullName}</div>
+                                                            <div style={{ fontSize: '0.875rem', color: '#0f172a', fontWeight: 600 }}>{displayName}</div>
                                                             <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{l.mobile || l.phone || l.email || ''}</div>
                                                         </div>
                                                     </div>
                                                     <span style={{ fontSize: '0.7rem', color: '#f59e0b', background: '#fffbeb', borderRadius: '4px', padding: '2px 8px', fontWeight: 600 }}>Lead</span>
                                                 </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     )}
 
