@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, contactsAPI, leadsAPI } from '../utils/api';
+import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, api } from '../utils/api';
 import toast from 'react-hot-toast';
 
 function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompany, onAddProject, onAddInventory, onAddDeal }) {
@@ -45,7 +45,7 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
         }
     };
 
-    // Live Search Logic with Debounce
+    // Live Search — uses Axios api instance directly for correct param handling
     const performSearch = useCallback(async (term) => {
         if (!term || term.trim().length < 2) {
             setSearchResults({ contacts: [], leads: [] });
@@ -56,21 +56,24 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
         setIsSearching(true);
         setShowSearchDropdown(true);
         try {
-            const [contactsRes, leadsRes] = await Promise.all([
-                contactsAPI.getAll({ search: term, limit: 5 }).catch(() => null),
-                leadsAPI.getAll({ search: term, limit: 5 }).catch(() => null),
+            const [cRes, lRes] = await Promise.all([
+                api.get('/contacts', { params: { search: term, limit: 5 } }).catch(() => null),
+                api.get('/leads', { params: { search: term, limit: 5 } }).catch(() => null),
             ]);
 
-            // Backend paginate util returns { records: [...], total, page, ... }
-            const contacts = Array.isArray(contactsRes?.records) ? contactsRes.records
-                : Array.isArray(contactsRes?.data) ? contactsRes.data
-                : Array.isArray(contactsRes?.contacts) ? contactsRes.contacts
-                : Array.isArray(contactsRes) ? contactsRes : [];
+            // Axios wraps response in .data; backend returns { success, records: [...] }
+            const cBody = cRes?.data || {};
+            const lBody = lRes?.data || {};
 
-            const leads = Array.isArray(leadsRes?.records) ? leadsRes.records
-                : Array.isArray(leadsRes?.data) ? leadsRes.data
-                : Array.isArray(leadsRes?.leads) ? leadsRes.leads
-                : Array.isArray(leadsRes) ? leadsRes : [];
+            const contacts = Array.isArray(cBody.records) ? cBody.records
+                : Array.isArray(cBody.data) ? cBody.data
+                : Array.isArray(cBody.contacts) ? cBody.contacts
+                : Array.isArray(cBody) ? cBody : [];
+
+            const leads = Array.isArray(lBody.records) ? lBody.records
+                : Array.isArray(lBody.data) ? lBody.data
+                : Array.isArray(lBody.leads) ? lBody.leads
+                : Array.isArray(lBody) ? lBody : [];
 
             setSearchResults({ contacts: contacts.slice(0, 5), leads: leads.slice(0, 5) });
         } catch (err) {
@@ -79,6 +82,7 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
             setIsSearching(false);
         }
     }, []);
+
 
     useEffect(() => {
         if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
@@ -351,7 +355,7 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
                             background: '#fff',
                             boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05)',
                             borderRadius: '12px',
-                            zIndex: 100,
+                            zIndex: 99999,
                             border: '1px solid #e2e8f0',
                             overflow: 'hidden'
                         }}>
