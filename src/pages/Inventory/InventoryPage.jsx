@@ -906,7 +906,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                         </>
                                                     ) : (
                                                         <>
-                                                            {renderValue(item.size?.value || item.size) || 'N/A'} {renderValue(item.size?.unit || item.sizeUnit || '')}
+                                                            {renderValue(item.size?.value !== undefined ? item.size.value : item.size) || 'N/A'} {renderValue(item.size?.unit || item.sizeUnit || '')}
                                                         </>
                                                     )}
                                                 </div>
@@ -1302,7 +1302,28 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
             <UploadModal
                 isOpen={isUploadModalOpen}
                 onClose={() => setIsUploadModalOpen(false)}
-                onSave={(data) => console.log("Saved Uploads:", data)}
+                onSave={async (mediaData) => {
+                    try {
+                        const inventoryId = selectedIds[0];
+                        const response = await api.put(`inventory/${inventoryId}`, {
+                            inventoryImages: mediaData.images,
+                            inventoryVideos: mediaData.videos
+                        });
+
+                        if (response.data.success) {
+                            toast.success("Files uploaded and saved successfully");
+                            fetchInventory();
+                        } else {
+                            toast.error("Failed to save file links to inventory");
+                        }
+                    } catch (error) {
+                        console.error("Error saving uploads:", error);
+                        toast.error("Error saving uploaded files");
+                    } finally {
+                        setIsUploadModalOpen(false);
+                        setSelectedIds([]);
+                    }
+                }}
                 project={selectedProperty}
                 type="property"
             />

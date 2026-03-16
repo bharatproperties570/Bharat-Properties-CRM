@@ -3,25 +3,36 @@ import { ImapFlow } from 'imapflow';
 import { google } from 'googleapis';
 import SystemSetting from '../models/SystemSetting.js';
 
+import { getOAuth2Client } from '../utils/googleAuth.js';
+
 class EmailService {
     async getEmailConfig() {
+        // 1. Try unified Google integration first
+        const unified = await SystemSetting.findOne({ key: 'google_integration' }).lean();
+        if (unified && unified.value && unified.value.tokens) {
+            return {
+                email: unified.value.email,
+                tokens: unified.value.tokens,
+                useOAuth: true,
+                provider: 'Google'
+            };
+        }
+
+        // 2. Fallback to legacy email_config
         const config = await SystemSetting.findOne({ key: 'email_config' }).lean();
         if (!config || !config.value) {
-            throw new Error('Email configuration not found');
+            throw new Error('Email configuration not found. Please connect your Google account in Settings.');
         }
         return config.value;
     }
 
-    getOAuth2Client() {
-        return new google.auth.OAuth2(
-            process.env.GOOGLE_CLIENT_ID,
-            process.env.GOOGLE_CLIENT_SECRET,
-            process.env.GOOGLE_REDIRECT_URI || 'http://localhost:4000/api/email/oauth/callback'
-        );
-    }
-
     async getAuthUrl() {
-        const oauth2Client = this.getOAuth2Client();
+        const oauth2Client = await getOAuth2Client();
+        if (!oauth2Client) {
+             // If client not initialized, we can't get URL here. 
+             // This is mostly for legacy UI compatibility if it calls this.
+             return null;
+        }
         return oauth2Client.generateAuthUrl({
             access_type: 'offline',
             scope: [
@@ -33,26 +44,38 @@ class EmailService {
     }
 
     async handleOAuthCallback(code) {
-        const oauth2Client = this.getOAuth2Client();
+        // This is now handled by googleSettings.controller.js for the unified flow.
+        // Keeping it for legacy support if needed.
+        const oauth2Client = await getOAuth2Client();
         const { tokens } = await oauth2Client.getToken(code);
 
-        // Get user email
         oauth2Client.setCredentials(tokens);
         const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
         const userInfo = await oauth2.userinfo.get();
 
-        const config = await this.getEmailConfig();
-        const updatedValue = {
-            ...config,
+        const configValue = {
             email: userInfo.data.email,
             tokens: tokens,
             useOAuth: true,
             provider: 'Google'
         };
 
+        // Save to legacy config
         await SystemSetting.findOneAndUpdate(
             { key: 'email_config' },
-            { value: updatedValue },
+            { value: configValue },
+            { upsert: true }
+        );
+
+        // Save to unified config as well to enable all services
+        await SystemSetting.findOneAndUpdate(
+            { key: 'google_integration' },
+            { value: {
+                connected: true,
+                email: userInfo.data.email,
+                tokens: tokens,
+                lastSync: new Date()
+            }},
             { upsert: true }
         );
 

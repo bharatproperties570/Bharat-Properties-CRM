@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useUserContext } from '../../context/UserContext';
 import { api } from '../../utils/api';
 import { getInitials } from '../../utils/helpers';
+import toast from 'react-hot-toast';
 import AddProjectModal from '../../components/AddProjectModal';
 import AddProjectPriceModal from '../../components/AddProjectPriceModal';
 // Mock data removed
@@ -162,14 +163,67 @@ function ProjectsPage({ onNavigate, onAddProject }) {
         if (!window.confirm("Are you sure you want to delete this project?")) return;
         try {
             const response = await api.delete(`projects/${id}`);
-            if (response.data.success) {
-                setProjectsData(prev => prev.filter(p => p._id !== id));
+                if (response.data.success) {
+                    setProjectsData(prev => prev.filter(p => p._id !== id));
+                    setSelectedIds([]);
+                    toast.success("Project deleted successfully");
+                }
+            } catch (error) {
+                console.error("Error deleting project:", error);
+                toast.error("Failed to delete project");
+            }
+        };
+
+        const handleSaveUploads = async (mediaData) => {
+            try {
+                const projectId = selectedIds[0];
+                const response = await api.put(`projects/${projectId}`, {
+                    projectImages: mediaData.images,
+                    projectVideos: mediaData.videos
+                });
+
+                if (response.data.success) {
+                    toast.success("Files uploaded and saved successfully");
+                    fetchProjects();
+                } else {
+                    toast.error("Failed to save file links to project");
+                }
+            } catch (error) {
+                console.error("Error saving uploads:", error);
+                toast.error("Error saving uploaded files");
+            } finally {
+                setIsUploadModalOpen(false);
                 setSelectedIds([]);
             }
-        } catch (error) {
-            console.error("Error deleting project:", error);
-        }
-    };
+        };
+
+        const handleSaveDocuments = async (documents) => {
+            try {
+                const projectId = selectedIds[0];
+                const response = await api.put(`projects/${projectId}`, {
+                    projectDocuments: documents.map(doc => ({
+                        documentName: doc.documentName,
+                        approvalAuthority: doc.approvalAuthority,
+                        registrationNo: doc.registrationNo,
+                        date: doc.date,
+                        url: doc.url
+                    }))
+                });
+
+                if (response.data.success) {
+                    toast.success("Documents saved successfully");
+                    fetchProjects();
+                } else {
+                    toast.error("Failed to save documents to project");
+                }
+            } catch (error) {
+                console.error("Error saving documents:", error);
+                toast.error("Error saving documents");
+            } finally {
+                setIsDocumentModalOpen(false);
+                setSelectedIds([]);
+            }
+        };
 
     // Filter Logic
     const filteredProjects = React.useMemo(() => {
@@ -642,7 +696,7 @@ function ProjectsPage({ onNavigate, onAddProject }) {
             <UploadModal
                 isOpen={isUploadModalOpen}
                 onClose={() => setIsUploadModalOpen(false)}
-                onSave={(data) => console.log("Saved Uploads:", data)}
+                onSave={handleSaveUploads}
                 project={editProjectData}
                 type="project"
             />
@@ -650,7 +704,7 @@ function ProjectsPage({ onNavigate, onAddProject }) {
             <AddDocumentModal
                 isOpen={isDocumentModalOpen}
                 onClose={() => setIsDocumentModalOpen(false)}
-                onSave={(data) => console.log("Saved Documents:", data)}
+                onSave={handleSaveDocuments}
                 project={editProjectData}
             />
 

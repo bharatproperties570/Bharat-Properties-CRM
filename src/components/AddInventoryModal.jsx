@@ -11,6 +11,7 @@ import { INDIAN_ADDRESS_DATA } from '../constants/locationConstants';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 import { getInitials } from '../utils/helpers';
+import { renderValue } from '../utils/renderUtils';
 
 import AddSizeModal from './modals/AddSizeModal';
 // Mock data removed
@@ -656,7 +657,11 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                             onChange={e => setFormData({ ...formData, subCategory: e.target.value, builtupType: '' })}
                         >
                             <option value="">Select Sub-Category</option>
-                            {subCategories.map(sc => <option key={sc} value={sc}>{sc}</option>)}
+                            {subCategories.map(sc => (
+                                <option key={typeof sc === 'object' ? (sc._id || sc.id) : sc} value={typeof sc === 'object' ? (sc._id || sc.id) : sc}>
+                                    {renderValue(sc)}
+                                </option>
+                            ))}
                         </select>
                     </div>
                 </div>
@@ -806,21 +811,33 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                         <label style={labelStyle}>Direction</label>
                         <select style={customSelectStyle} value={formData.direction} onChange={e => setFormData({ ...formData, direction: e.target.value })}>
                             <option value="">Select</option>
-                            {(masterFields?.directions || []).map(d => <option key={d}>{d}</option>)}
+                            {(masterFields?.directions || []).map(d => (
+                                <option key={typeof d === 'object' ? (d._id || d.id) : d} value={typeof d === 'object' ? (d._id || d.id) : d}>
+                                    {renderValue(d)}
+                                </option>
+                            ))}
                         </select>
                     </div>
                     <div>
                         <label style={labelStyle}>Facing</label>
                         <select style={customSelectStyle} value={formData.facing} onChange={e => setFormData({ ...formData, facing: e.target.value })}>
                             <option value="">Select</option>
-                            {(masterFields?.facings || []).map(f => <option key={f}>{f}</option>)}
+                            {(masterFields?.facings || []).map(f => (
+                                <option key={typeof f === 'object' ? (f._id || f.id) : f} value={typeof f === 'object' ? (f._id || f.id) : f}>
+                                    {renderValue(f)}
+                                </option>
+                            ))}
                         </select>
                     </div>
                     <div>
                         <label style={labelStyle}>Road Width</label>
                         <select style={customSelectStyle} value={formData.roadWidth} onChange={e => setFormData({ ...formData, roadWidth: e.target.value })}>
                             <option value="">Select</option>
-                            {(masterFields?.roadWidths || []).map(r => <option key={r}>{r}</option>)}
+                            {(masterFields?.roadWidths || []).map(r => (
+                                <option key={typeof r === 'object' ? (r._id || r.id) : r} value={typeof r === 'object' ? (r._id || r.id) : r}>
+                                    {renderValue(r)}
+                                </option>
+                            ))}
                         </select>
                     </div>
                     <div>
@@ -857,7 +874,11 @@ const AddInventoryModal = ({ isOpen, onClose, onAdd, onSave, initialProject = nu
                             onChange={e => setFormData({ ...formData, builtupType: e.target.value })}
                         >
                             <option value="">{formData.subCategory ? "Select Type" : "Select Sub-Category in Unit Details First"}</option>
-                            {builtUpTypes.map(t => <option key={t}>{t}</option>)}
+                            {builtUpTypes.map(t => (
+                                <option key={typeof t === 'object' ? (t._id || t.id) : t} value={typeof t === 'object' ? (t._id || t.id) : t}>
+                                    {renderValue(t)}
+                                </option>
+                            ))}
                         </select>
                     </div>
                 </div>

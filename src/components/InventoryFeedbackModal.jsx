@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useActivities } from '../context/ActivityContext';
+import { renderValue } from '../utils/renderUtils';
 
 const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
     const { masterFields } = usePropertyConfig();
@@ -414,7 +415,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
                                     <div style={{ position: 'absolute', left: '0', top: '4px', width: '12px', height: '12px', borderRadius: '50%', background: '#3b82f6', border: '2px solid #dbeafe', boxSizing: 'border-box' }}></div>
 
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '2px' }}>
-                                        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1e293b' }}>{item.result}</div>
+                                        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1e293b' }}>{renderValue(item.result)}</div>
                                         <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{item.date}</div>
                                     </div>
 
@@ -543,7 +544,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
                             <label style={labelStyle}>Outcome</label>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
                                 {masterFields && masterFields.propertyOwnerFeedback && masterFields.propertyOwnerFeedback.map(opt => (
-                                    <div key={opt} onClick={() => handleResultSelect(opt)}
+                                    <div key={typeof opt === 'object' ? (opt._id || opt.id) : opt} onClick={() => handleResultSelect(opt)}
                                         style={{
                                             padding: '8px 16px', borderRadius: '20px',
                                             border: formData.result === opt ? '2px solid #3b82f6' : '1px solid #e2e8f0',
@@ -552,7 +553,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
                                             fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.1s'
                                         }}
                                     >
-                                        {opt}
+                                        {renderValue(opt)}
                                     </div>
                                 ))}
                             </div>
@@ -564,10 +565,10 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
                                 <label style={labelStyle}>Specific Reason <span style={{ color: '#ef4444' }}>*</span></label>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                                     {currentReasons.map(r => (
-                                        <div key={r} onClick={() => {
+                                        <div key={typeof r === 'object' ? (r._id || r.id) : r} onClick={() => {
                                             setFormData(prev => ({ ...prev, reason: r }));
                                             // Check automation scenarios (Sold/Rented)
-                                            const isSold = ['Sold Out', 'Rented Out'].some(keyword => r.includes(keyword));
+                                            const isSold = ['Sold Out', 'Rented Out'].some(keyword => renderValue(r).includes(keyword));
                                             if (isSold) {
                                                 setFormData(prev => ({ ...prev, reason: r, markAsSold: true }));
                                             } else {
@@ -582,7 +583,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
                                                 fontSize: '0.8rem', cursor: 'pointer', fontWeight: 500
                                             }}
                                         >
-                                            {r}
+                                            {renderValue(r)}
                                         </div>
                                     ))}
 
@@ -709,7 +710,11 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
                                     <div>
                                         <label style={labelStyle}>Action Type</label>
                                         <select name="nextActionType" value={formData.nextActionType} onChange={handleChange} style={inputStyle(false)}>
-                                            {masterFields?.followUpActions?.map(a => <option key={a} value={a}>{a}</option>)}
+                                            {masterFields?.followUpActions?.map(a => (
+                                                <option key={typeof a === 'object' ? (a._id || a.id) : a} value={typeof a === 'object' ? (a._id || a.id) : a}>
+                                                    {renderValue(a)}
+                                                </option>
+                                            ))}
                                         </select>
                                     </div>
                                     <div>

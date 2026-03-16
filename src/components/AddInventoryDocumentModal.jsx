@@ -25,19 +25,49 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
             let potentialOwners = [];
             try {
                 if (project && typeof project === 'object') {
-                    if (project.ownerName) {
-                        potentialOwners.push({
-                            name: String(project.ownerName),
-                            mobile: project.ownerPhone ? String(project.ownerPhone) : '',
-                            role: 'Property Owner'
+                    // Populate from 'owners' array
+                    if (Array.isArray(project.owners)) {
+                        project.owners.forEach(owner => {
+                            if (owner && typeof owner === 'object') {
+                                potentialOwners.push({
+                                    name: String(owner.name || 'Unknown Owner'),
+                                    mobile: owner.phones?.[0]?.number ? String(owner.phones[0].number) : (owner.mobile ? String(owner.mobile) : ''),
+                                    role: 'Property Owner'
+                                });
+                            }
                         });
                     }
-                    if (project.associatedContact) {
-                        potentialOwners.push({
-                            name: String(project.associatedContact),
-                            mobile: project.associatedPhone ? String(project.associatedPhone) : '',
-                            role: 'Associate'
+
+                    // Populate from 'associates' array
+                    if (Array.isArray(project.associates)) {
+                        project.associates.forEach(assoc => {
+                            const contact = assoc.contact;
+                            if (contact && typeof contact === 'object') {
+                                potentialOwners.push({
+                                    name: String(contact.name || 'Unknown Associate'),
+                                    mobile: contact.phones?.[0]?.number ? String(contact.phones[0].number) : (contact.mobile ? String(contact.mobile) : ''),
+                                    role: String(assoc.relationship || 'Associate')
+                                });
+                            }
                         });
+                    }
+
+                    // Fallback for legacy fields if no owners/associates found
+                    if (potentialOwners.length === 0) {
+                        if (project.ownerName) {
+                            potentialOwners.push({
+                                name: String(project.ownerName),
+                                mobile: project.ownerPhone ? String(project.ownerPhone) : '',
+                                role: 'Property Owner'
+                            });
+                        }
+                        if (project.associatedContact) {
+                            potentialOwners.push({
+                                name: String(project.associatedContact),
+                                mobile: project.associatedPhone ? String(project.associatedPhone) : '',
+                                role: 'Associate'
+                            });
+                        }
                     }
                 }
             } catch (e) {
@@ -64,8 +94,16 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
         try {
             const updatedDocs = await Promise.all(formData.inventoryDocuments.map(async (doc) => {
                 if (doc.file) {
+                    // Find Category and Type names
+                    const categoryObj = Object.values(documentConfig).find(c => (c.id || c._id) === doc.documentName);
+                    const typeObj = categoryObj?.types?.find(t => (t.id || t._id) === doc.documentType);
+
                     const uploadData = new FormData();
                     uploadData.append('file', doc.file);
+                    uploadData.append('entityType', 'Inventory');
+                    uploadData.append('entityName', project?.unitNo || project?.unitNumber || 'Unknown Unit');
+                    uploadData.append('docCategory', categoryObj?.name || 'General');
+                    uploadData.append('docType', typeObj?.name || 'Document');
 
                     const response = await api.post('/upload', uploadData, {
                         headers: { 'Content-Type': 'multipart/form-data' }

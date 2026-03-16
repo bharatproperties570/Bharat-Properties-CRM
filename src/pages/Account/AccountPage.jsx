@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
+import { renderValue } from '../../utils/renderUtils';
 
 const AccountPage = ({ onNavigate, initialContextId }) => {
     const [bookings, setBookings] = useState([]);
@@ -183,7 +184,7 @@ const AccountPage = ({ onNavigate, initialContextId }) => {
                                                 background: item.status === 'Registry' ? '#dcfce7' : item.status === 'Booked' ? '#dbeafe' : '#fef3c7',
                                                 color: item.status === 'Registry' ? '#166534' : item.status === 'Booked' ? '#1e40af' : '#92400e'
                                             }}>
-                                                {item.status}
+                                                {renderValue(item.status)}
                                             </span>
                                         </td>
                                         <td style={{ padding: '15px 20px' }}>

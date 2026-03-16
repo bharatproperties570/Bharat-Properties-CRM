@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
+import { renderValue } from '../utils/renderUtils';
 
 // --- Helper: Reusable MultiSelect Dropdown (Extracted for potential reuse/consistency) ---
 // Note: While not used directly in this simplified Price Modal if not needed, 
@@ -269,7 +270,11 @@ export default function AddProjectPriceModal({ isOpen, onClose, onSave, project 
                                         onChange={e => setNewPriceRow({ ...newPriceRow, subCategory: e.target.value, areaType: '' })}
                                     >
                                         <option value="">Select</option>
-                                        {(formData.subCategory || []).map(sc => <option key={sc} value={sc}>{sc}</option>)}
+                                        {(formData.subCategory || []).map(sc => (
+                                            <option key={typeof sc === 'object' ? (sc._id || sc.id) : sc} value={typeof sc === 'object' ? (sc._id || sc.id) : sc}>
+                                                {renderValue(sc)}
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
                                 <div>
@@ -350,7 +355,7 @@ export default function AddProjectPriceModal({ isOpen, onClose, onSave, project 
                                     (formData.pricing?.unitPrices || []).map((row, idx) => (
                                         <div key={row.id || idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 50px', padding: '16px 20px', borderBottom: '1px solid #f1f5f9', alignItems: 'center', fontSize: '0.9rem', color: '#334155', background: '#fff', transition: 'background 0.2s' }}>
                                             <div style={{ fontWeight: 500 }}>{row.block || 'All Blocks'}</div>
-                                            <div>{row.subCategory}</div>
+                                            <div>{renderValue(row.subCategory)}</div>
                                             <div>{row.areaType}</div>
                                             <div>{row.size}</div>
                                             <div style={{ fontWeight: 700, color: '#0f172a' }}>₹ {Number(row.price).toLocaleString('en-IN')}</div>

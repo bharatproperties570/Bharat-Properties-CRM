@@ -76,12 +76,11 @@ const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddActivity, onAdd
             // setContactsData(contactRes.data?.data || []);
             setContactsData(companyData.employees || []); // Using employees as contacts for now
 
-            // 5. Fetch Documents (Mock)
-            setDocumentsData([
-                { name: 'Incorporation Certificate.pdf', type: 'PDF', date: '2023-01-15' },
-                { name: 'GST Registration.pdf', type: 'PDF', date: '2023-02-20' },
-                { name: 'RERA Registration.pdf', type: 'PDF', date: '2023-03-10' }
-            ]);
+            // 5. Fetch Documents (Real data from company object)
+            setDocumentsData(companyData.documents || []);
+
+            // 6. Relationship Intelligence & Commission
+            // (These are already in companyData)
 
             // Calculate Stats
             const closedRevenue = deals
@@ -389,7 +388,7 @@ const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddActivity, onAdd
                             <DetailItem label="Preferred Partner" value={company.isPreferredPartner ? 'Yes ✅' : 'No'} />
                             <DetailItem label="Credit Limit" value={formatIndianCurrency(company.creditLimit || 0)} />
                             <DetailItem label="Outstanding Amount" value={<span style={{ color: '#ef4444' }}>{formatIndianCurrency(company.outstandingAmount || 0)}</span>} />
-                            <DetailItem label="Partner Score" value="92/100" />
+                            <DetailItem label="Partner Score" value={`${company.partnerScore || 0}/100`} />
                         </div>
                     </div>
                 </div>
@@ -592,33 +591,79 @@ const ActivityTimeline = () => (
 );
 
 const FinancialOverview = ({ deals, inventory }) => {
-    const cashFlowSeries = [
-        { name: 'Projected Cash Inflow', data: [30, 40, 35, 50, 49, 60, 70, 91, 125] }
-    ];
-    const cashFlowOptions = {
-        chart: { type: 'area', toolbar: { show: false } },
-        stroke: { curve: 'smooth' },
-        xaxis: { categories: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep'] },
-        colors: ['#3b82f6'],
-        fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.45, opacityTo: 0.05 } }
+    // Dynamic aggregation for Cash Flow Chart
+    const processCashFlowData = () => {
+        const last6Months = [];
+        for (let i = 5; i >= 0; i--) {
+            const d = new Date();
+            d.setMonth(d.getMonth() - i);
+            last6Months.push(d.toLocaleString('default', { month: 'short' }));
+        }
+
+        const monthlyRevenue = new Array(6).fill(0);
+        deals.forEach(deal => {
+            if (deal.stage === 'Closed' || deal.stage === 'Closed Won') {
+                const dealDate = new Date(deal.closingDetails?.closingDate || deal.updatedAt);
+                const monthName = dealDate.toLocaleString('default', { month: 'short' });
+                const index = last6Months.indexOf(monthName);
+                if (index !== -1) {
+                    monthlyRevenue[index] += (deal.price || 0);
+                }
+            }
+        });
+
+        // Convert to Crores for better readability
+        const dataInCr = monthlyRevenue.map(v => Number((v / 10000000).toFixed(2)));
+
+        return {
+            series: [{ name: 'Revenue (₹ Cr)', data: dataInCr }],
+            categories: last6Months
+        };
     };
 
-    const portfolioSeries = [44, 55, 13, 33];
+    // Dynamic aggregation for Portfolio Mix
+    const processPortfolioMix = () => {
+        const categories = {};
+        inventory.forEach(inv => {
+            const type = renderValue(inv.unitType) || 'Other';
+            categories[type] = (categories[type] || 0) + 1;
+        });
+
+        const labels = Object.keys(categories);
+        const series = Object.values(categories);
+
+        return { labels: labels.length > 0 ? labels : ['No Data'], series: series.length > 0 ? series : [1] };
+    };
+
+    const cashFlow = processCashFlowData();
+    const portfolio = processPortfolioMix();
+
+    const cashFlowOptions = {
+        chart: { type: 'area', toolbar: { show: false } },
+        stroke: { curve: 'smooth', width: 2 },
+        xaxis: { categories: cashFlow.categories },
+        colors: ['#3b82f6'],
+        fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.45, opacityTo: 0.05 } },
+        dataLabels: { enabled: false },
+        tooltip: { theme: 'dark' }
+    };
+
     const portfolioOptions = {
-        labels: ['Residential', 'Commercial', 'Industrial', 'Plots'],
-        colors: ['#3b82f6', '#10b981', '#f59e0b', '#8e44ad'],
-        legend: { position: 'bottom' }
+        labels: portfolio.labels,
+        colors: ['#3b82f6', '#10b981', '#f59e0b', '#8e44ad', '#6366f1'],
+        legend: { position: 'bottom' },
+        stroke: { show: false }
     };
 
     return (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
             <div style={{ background: '#fff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
-                <h3 style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', marginBottom: '20px' }}>CASH FLOW PROJECTION (₹ Cr)</h3>
-                <Chart options={cashFlowOptions} series={cashFlowSeries} type="area" height={250} />
+                <h3 style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', marginBottom: '20px' }}>REVENUE TREND (LAST 6 MONTHS)</h3>
+                <Chart options={cashFlowOptions} series={cashFlow.series} type="area" height={250} />
             </div>
             <div style={{ background: '#fff', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
-                <h3 style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', marginBottom: '20px' }}>PORTFOLIO MIX</h3>
-                <Chart options={portfolioOptions} series={portfolioSeries} type="donut" height={250} />
+                <h3 style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', marginBottom: '20px' }}>PORTFOLIO MIX (BY UNIT TYPE)</h3>
+                <Chart options={portfolioOptions} series={portfolio.series} type="donut" height={250} />
             </div>
         </div>
     );
@@ -684,11 +729,11 @@ const DocumentsList = ({ documents }) => (
             <tbody>
                 {documents.map((doc, i) => (
                     <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={tableCellStyle}><i className="fas fa-file-pdf" style={{ color: '#ef4444', marginRight: '10px' }}></i>{doc.name}</td>
+                         <td style={tableCellStyle}><i className={`fas fa-${doc.type === 'PDF' || doc.name.endsWith('.pdf') ? 'file-pdf' : 'file-alt'}`} style={{ color: '#ef4444', marginRight: '10px' }}></i>{doc.name}</td>
                         <td style={tableCellStyle}>{doc.type}</td>
-                        <td style={tableCellStyle}>{doc.date}</td>
+                        <td style={tableCellStyle}>{doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleDateString() : doc.date}</td>
                         <td style={tableCellStyle}>
-                            <button className="btn-ghost" style={{ fontSize: '0.7rem', color: '#3b82f6' }}>Download</button>
+                            <a href={doc.url} target="_blank" rel="noopener noreferrer" className="btn-ghost" style={{ fontSize: '0.7rem', color: '#3b82f6', textDecoration: 'none' }}>View / Download</a>
                         </td>
                     </tr>
                 ))}
@@ -707,47 +752,54 @@ const CommissionStructure = ({ company }) => (
                 <div style={{ padding: '20px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
                         <span style={{ fontSize: '0.85rem', color: '#475569' }}>Agreement Type</span>
-                        <span style={{ fontWeight: 700 }}>Exclusive Partner</span>
+                        <span style={{ fontWeight: 700 }}>{company.agreementDetails?.agreementType || 'Not Specified'}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
                         <span style={{ fontSize: '0.85rem', color: '#475569' }}>Standard Commission</span>
-                        <span style={{ fontWeight: 700, color: '#10b981' }}>2.5% + GST</span>
+                        <span style={{ fontWeight: 700, color: '#10b981' }}>{company.agreementDetails?.standardCommission || 'N/A'}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
                         <span style={{ fontSize: '0.85rem', color: '#475569' }}>Valid Until</span>
-                        <span style={{ fontWeight: 700 }}>31 March 2026</span>
+                        <span style={{ fontWeight: 700 }}>{company.agreementDetails?.validUntil ? new Date(company.agreementDetails.validUntil).toLocaleDateString() : 'N/A'}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ fontSize: '0.85rem', color: '#475569' }}>Status</span>
-                        <span style={{ padding: '2px 8px', borderRadius: '4px', background: '#dcfce7', color: '#166534', fontSize: '0.7rem', fontWeight: 700 }}>ACTIVE</span>
+                        <span style={{ 
+                            padding: '2px 8px', borderRadius: '4px', 
+                            background: company.commissionAgreementStatus === 'Active' ? '#dcfce7' : '#fef3c7', 
+                            color: company.commissionAgreementStatus === 'Active' ? '#166534' : '#92400e', 
+                            fontSize: '0.7rem', fontWeight: 700 
+                        }}>{(company.commissionAgreementStatus || 'Pending').toUpperCase()}</span>
                     </div>
                 </div>
             </div>
 
             <div>
                 <h4 style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '16px' }}>Incentive Slabs</h4>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                    <thead>
-                        <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
-                            <th style={{ textAlign: 'left', paddingBottom: '8px', color: '#64748b' }}>Revenue Slab</th>
-                            <th style={{ textAlign: 'right', paddingBottom: '8px', color: '#64748b' }}>Kicker</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td style={{ padding: '8px 0', color: '#334155' }}>₹0 - ₹5 Cr</td>
-                            <td style={{ textAlign: 'right', fontWeight: 700 }}>0%</td>
-                        </tr>
-                        <tr>
-                            <td style={{ padding: '8px 0', color: '#334155' }}>₹5 Cr - ₹10 Cr</td>
-                            <td style={{ textAlign: 'right', fontWeight: 700 }}>+0.25%</td>
-                        </tr>
-                        <tr>
-                            <td style={{ padding: '8px 0', color: '#334155' }}>Above ₹10 Cr</td>
-                            <td style={{ textAlign: 'right', fontWeight: 700 }}>+0.50%</td>
-                        </tr>
-                    </tbody>
-                </table>
+                {company.incentiveSlabs?.length > 0 ? (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                        <thead>
+                            <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                <th style={{ textAlign: 'left', paddingBottom: '8px', color: '#64748b' }}>Revenue Slab</th>
+                                <th style={{ textAlign: 'right', paddingBottom: '8px', color: '#64748b' }}>Kicker</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {company.incentiveSlabs.map((slab, i) => (
+                                <tr key={i}>
+                                    <td style={{ padding: '8px 0', color: '#334155' }}>
+                                        {slab.slabName || `₹${(slab.minRevenue/10000000).toFixed(1)}Cr - ₹${(slab.maxRevenue/10000000).toFixed(1)}Cr`}
+                                    </td>
+                                    <td style={{ textAlign: 'right', fontWeight: 700, color: '#10b981' }}>+{slab.kicker}%</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                ) : (
+                    <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
+                        No specific incentive slabs defined.
+                    </div>
+                )}
             </div>
         </div>
     </div>

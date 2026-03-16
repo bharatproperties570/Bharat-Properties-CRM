@@ -126,7 +126,8 @@ const ContactSchema = new mongoose.Schema({
     status: { type: String, default: "Active" },
     addOn: [String],
     groups: [String],
-    isActionable: { type: Boolean, default: false }
+    isActionable: { type: Boolean, default: false },
+    googleContactId: { type: String, index: true }
 }, { timestamps: true, strict: true });
 
 // Middleware to recursively convert empty strings to null

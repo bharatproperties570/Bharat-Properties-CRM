@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { PROPERTY_CATEGORIES } from '../../../constants/propertyConstants';
+import { renderValue } from '../../../utils/renderUtils';
 
 // ==================================================================================
 // STYLES (Standardized Premium Side Panel)
@@ -227,7 +228,7 @@ const ProjectFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                                             transition: 'all 0.2s', ...(isActive ? { backgroundColor: '#eff6ff', borderColor: '#0066ff', color: '#0066ff' } : { backgroundColor: '#ffffff', borderColor: '#e2e8f0', color: '#64748b' })
                                         }}
                                     >
-                                        {status}
+                                        {renderValue(status)}
                                     </button>
                                 );
                             })}

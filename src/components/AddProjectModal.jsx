@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { PROPERTY_CATEGORIES } from '../constants/propertyConstants';
 import { INDIAN_ADDRESS_DATA } from '../constants/locationConstants';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
+import { renderValue } from '../utils/renderUtils';
+
 import { useUserContext } from '../context/UserContext';
 import AddressDetailsForm from './common/AddressDetailsForm';
 import { api } from '../utils/api';
@@ -46,7 +48,7 @@ const MultiSelect = ({ options, selected, onChange, placeholder = "Select..." })
     };
 
     const getLabel = (value) => {
-        const option = options.find(o => (o.value || o) === value);
+        const option = (options || []).find(o => o && (o.value || o) === value);
         return option?.label || option || value;
     };
 
@@ -445,13 +447,13 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
 
     // Fetch Teams from Context
     const { teams: contextTeams } = useUserContext();
-    const teams = contextTeams.map(t => ({ label: t.name, value: t._id || t.id }));
+    const teams = (contextTeams || []).map(t => ({ label: t?.name, value: t?._id || t?.id }));
 
     // usage: contextUsers comes from useUserContext
     // formData.team is an array of selected team IDs
     const userOptions = useMemo(() => {
         if (!formData.team || formData.team.length === 0) {
-            return contextUsers.map(u => ({ label: u.fullName || u.name, value: u._id || u.id }));
+            return (contextUsers || []).map(u => ({ label: u?.fullName || u?.name, value: u?._id || u?.id }));
         }
 
         const selectedTeamIds = formData.team;
@@ -462,7 +464,7 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                 if (!userTeamId) return false;
                 return selectedTeamIds.includes(userTeamId);
             })
-            .map(u => ({ label: u.fullName || u.name, value: u._id || u.id }));
+            .map(u => ({ label: u?.fullName || u?.name, value: u?._id || u?.id }));
 
         return filteredUsers;
     }, [contextUsers, formData.team]);
@@ -539,9 +541,9 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                     status: getLookupValueFromContext('ProjectStatus', projectToEdit.status),
                     parkingType: getLookupValueFromContext('ParkingType', projectToEdit.parkingType),
                     blocks: normalizedBlocks,
-                    assign: (projectToEdit.assign || []).map(u => typeof u === 'object' ? (u._id || u.id) : u).filter(Boolean),
-                    team: (projectToEdit.team || []).map(t => typeof t === 'object' ? (t._id || t.id) : t).filter(Boolean),
-                    owner: typeof projectToEdit.owner === 'object' ? (projectToEdit.owner._id || projectToEdit.owner.id) : projectToEdit.owner
+                    assign: (projectToEdit.assign || []).map(u => (u && typeof u === 'object') ? (u._id || u.id) : u).filter(Boolean),
+                    team: (projectToEdit.team || []).map(t => (t && typeof t === 'object') ? (t._id || t.id) : t).filter(Boolean),
+                    owner: (projectToEdit.owner && typeof projectToEdit.owner === 'object') ? (projectToEdit.owner._id || projectToEdit.owner.id) : projectToEdit.owner
                 }));
             } else {
                 setFormData(DEFAULT_FORM_DATA);
@@ -879,7 +881,9 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                         <select style={customSelectStyle} value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })}>
                             <option value="">---Select Status---</option>
                             {(projectMasterFieldsSafe.projectStatuses || []).map(status => (
-                                <option key={status} value={status}>{status}</option>
+                                <option key={typeof status === 'object' ? (status._id || status.id) : status} value={typeof status === 'object' ? (status._id || status.id) : status}>
+                                    {renderValue(status)}
+                                </option>
                             ))}
                         </select>
                     </div>
@@ -888,7 +892,9 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                         <select style={customSelectStyle} value={formData.parkingType} onChange={e => setFormData({ ...formData, parkingType: e.target.value })}>
                             <option value="">---Select Parking---</option>
                             {(projectMasterFieldsSafe.parkingTypes || []).map(type => (
-                                <option key={type} value={type}>{type}</option>
+                                <option key={typeof type === 'object' ? (type._id || type.id) : type} value={typeof type === 'object' ? (type._id || type.id) : type}>
+                                    {renderValue(type)}
+                                </option>
                             ))}
                         </select>
                     </div>
@@ -1254,7 +1260,9 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                                     >
                                         <option value="">Status</option>
                                         {(projectMasterFieldsSafe.projectStatuses || []).map(status => (
-                                            <option key={status} value={status}>{status}</option>
+                                            <option key={typeof status === 'object' ? (status._id || status.id) : status} value={typeof status === 'object' ? (status._id || status.id) : status}>
+                                                {renderValue(status)}
+                                            </option>
                                         ))}
                                     </select>
                                 </div>

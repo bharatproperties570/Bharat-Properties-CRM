@@ -8,6 +8,7 @@ import path from 'path';
 import { cronQueue } from "./queues/queueManager.js";
 import "./workers/enrichmentWorker.js";
 import "./workers/cronWorker.js";
+import "./workers/googleSyncWorker.js";
 
 const logStartup = (msg) => {
     const logPath = path.join(process.cwd(), 'startup.log');

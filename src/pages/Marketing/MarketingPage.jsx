@@ -302,6 +302,10 @@ function MarketingPage({ onNavigate }) {
                             </button>
                             {dropdownOpen && (
                                 <div className="dropdown-menu show" style={{ display: 'block', position: 'absolute', right: 0, left: 'auto', top: '100%', marginTop: '4px', minWidth: '220px', zIndex: 1000, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
+                                    <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('settings'); window.location.hash = 'forms'; }} style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none', color: '#1e293b', fontSize: '0.85rem' }}>
+                                        <i className="fas fa-clipboard-list" style={{ color: '#10b981' }}></i> Create Lead Capture Form
+                                    </a>
+                                    <div className="dropdown-divider" style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }}></div>
                                     <a href="#" className="dropdown-item" onClick={(e) => { e.preventDefault(); onNavigate('wizard'); }} style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none', color: '#334155', fontSize: '0.85rem' }}>
                                         <i className="fab fa-google" style={{ color: '#EA4335' }}></i> Create Google Ads
                                     </a>

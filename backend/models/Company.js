@@ -44,6 +44,26 @@ const CompanySchema = new mongoose.Schema({
         siteOffice: [AddressSchema]
     },
     employees: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Contact' }],
+    documents: [{
+        name: String,
+        type: { type: String, enum: ['KYC', 'Agreement', 'GST', 'RERA', 'Incorporation', 'Other'] },
+        url: String,
+        uploadedAt: { type: Date, default: Date.now }
+    }],
+    incentiveSlabs: [{
+        slabName: String,
+        minRevenue: Number,
+        maxRevenue: Number,
+        kicker: Number, // Percentage
+        remarks: String
+    }],
+    agreementDetails: {
+        agreementType: String,
+        validUntil: Date,
+        standardCommission: String, // e.g. "2.5% + GST"
+        terms: String
+    },
+    partnerScore: { type: Number, default: 0, min: 0, max: 100 },
 
     // Relationship Intelligence
     relationshipType: {

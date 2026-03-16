@@ -34,6 +34,19 @@ const ProjectSchema = new mongoose.Schema({
     assign: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     team: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
     visibleTo: String,
+    
+    // Website Integration
+    isPublished: { type: Boolean, default: false, index: true },
+    publishedAt: { type: Date },
+    websiteMetadata: {
+        title: String,
+        slug: { type: String, unique: true, sparse: true },
+        description: String,
+        featuredImage: String,
+        tags: [String],
+        metaTitle: String,
+        metaDescription: String
+    },
 
     // Location
     locationSearch: String,

@@ -14,6 +14,7 @@ import SmsLog from "../src/modules/sms/smsLog.model.js";
 import { runFullLeadEnrichment } from "../src/utils/enrichmentEngine.js";
 import { autoAssign } from "../src/services/DistributionService.js";
 import { createNotification } from "./notification.controller.js";
+import { syncDocumentsToInventory } from "../utils/sync.js";
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -453,6 +454,13 @@ export const updateLead = async (req, res, next) => {
         const finalLead = await Lead.findByIdAndUpdate(req.params.id, updateData, { new: true }).populate(leadPopulateFields);
 
         if (finalLead) {
+            // Bidirectional Sync: Lead -> Inventory
+            if (updateData.documents && Array.isArray(updateData.documents)) {
+                await syncDocumentsToInventory(updateData.documents, { 
+                    name: `${finalLead.firstName} ${finalLead.lastName || ''}`.trim(), 
+                    mobile: finalLead.mobile 
+                });
+            }
             // Auto-run Enrichment (wrapped in try-catch)
             try {
                 await runFullLeadEnrichment(finalLead._id);

@@ -639,8 +639,13 @@ const SettingsPage = () => {
     const [isSyncing, setIsSyncing] = useState(false);
     const [healthStatus, setHealthStatus] = useState({ status: 'checking', message: 'Checking API...' });
 
-    // API Health Check
+    // API Health Check & Deep Linking
     useEffect(() => {
+        const hash = window.location.hash.replace('#', '');
+        if (hash) {
+            setActiveTab(hash);
+        }
+        
         const checkHealth = async () => {
             try {
                 // Use native fetch to avoid interceptors for simple check

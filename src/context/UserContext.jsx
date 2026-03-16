@@ -24,18 +24,20 @@ export const UserProvider = ({ children }) => {
     const fetchAllData = useCallback(async () => {
         setLoading(true);
         try {
-            const [usersRes, rolesRes] = await Promise.all([
-                usersAPI.getAll(),
-                rolesAPI.getAll()
-            ]);
-
+            const usersRes = await usersAPI.getAll();
             if (usersRes.success) {
                 const activeUsers = (usersRes.data || []).filter(u => u.status === 'active' || u.isActive);
                 setUsers(activeUsers);
             }
-            if (rolesRes.success) setRoles(rolesRes.data || []);
 
-            // Fetch teams separately to not block initial load if it fails
+            // Fetch roles and teams separately to not block users
+            try {
+                const rolesRes = await rolesAPI.getAll();
+                if (rolesRes.success) setRoles(rolesRes.data || []);
+            } catch (e) {
+                console.warn('Failed to fetch roles:', e);
+            }
+
             try {
                 const teamsRes = await teamsAPI.getAll();
                 if (teamsRes.success) setTeams(teamsRes.data || []);

@@ -7,7 +7,9 @@ import Activity from "../models/Activity.js";
 import DuplicationRule from "../models/DuplicationRule.js";
 import { paginate } from "../utils/pagination.js";
 import { createContactSchema, updateContactSchema } from "../validations/contact.validation.js";
+import { syncDocumentsToInventory } from "../utils/sync.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
+import { googleSyncQueue } from "../src/queues/queueManager.js";
 
 const populateFields = [
     { path: 'title', select: 'lookup_value' },
@@ -313,6 +315,10 @@ export const createContact = async (req, res, next) => {
         cleanEmptyStrings(data);
 
         const contact = await Contact.create(data);
+
+        // Sync to Google
+        googleSyncQueue.add('syncContact', { contactId: contact._id }).catch(() => { });
+
         res.status(201).json({ success: true, data: contact });
     } catch (error) {
         console.error("[ERROR] createContact failed:", error);
@@ -359,6 +365,18 @@ export const updateContact = async (req, res, next) => {
 
         const contact = await Contact.findByIdAndUpdate(req.params.id, cleanData, { new: true, runValidators: true });
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found" });
+
+        // Sync to Google
+        googleSyncQueue.add('syncContact', { contactId: contact._id }).catch(() => { });
+
+        // Bidirectional Sync: Contact -> Inventory
+        if (cleanData.documents && Array.isArray(cleanData.documents)) {
+            const primaryPhone = contact.phones?.find(p => p.isPrimary)?.number || contact.phones?.[0]?.number;
+            await syncDocumentsToInventory(cleanData.documents, { 
+                name: contact.name, 
+                mobile: primaryPhone 
+            });
+        }
 
         // Emit Stage Changed AuditLog if updated
         if (existingContact && cleanData.stage && String(existingContact.stage) !== String(cleanData.stage)) {
@@ -409,8 +427,43 @@ export const getContactUsage = async (req, res, next) => {
             }
         });
     } catch (error) {
-        console.error("[ERROR] getContactUsage failed:", error);
-        next(error);
+        console.error("getContactUsage error:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// @desc    Sync all unsynced contacts to Google
+// @route   POST /api/contacts/sync-all
+export const syncAllContacts = async (req, res) => {
+    try {
+        // Find contacts that don't have a googleContactId
+        const contacts = await Contact.find({
+            $or: [
+                { googleContactId: { $exists: false } },
+                { googleContactId: null },
+                { googleContactId: "" }
+            ]
+        }).select('_id');
+        
+        console.log(`[ContactController] syncAllContacts: Found ${contacts.length} unsynced contacts.`);
+
+        if (contacts.length === 0) {
+            return res.json({ success: true, message: "All contacts are already synced with Google." });
+        }
+
+        // Add to queue
+        contacts.forEach(contact => {
+            googleSyncQueue.add('syncContact', { contactId: contact._id }).catch(() => { });
+        });
+
+        res.json({
+            success: true,
+            message: `Sync started for ${contacts.length} contacts in the background.`,
+            count: contacts.length
+        });
+    } catch (error) {
+        console.error("syncAllContacts error:", error);
+        res.status(500).json({ success: false, error: error.message });
     }
 };
 
@@ -426,10 +479,13 @@ export const deleteContact = async (req, res, next) => {
         // Cascading Updates/Deletions
         await Promise.all([
             // Delete related Leads
-            Lead.deleteMany({ $or: [{ mobile }, { email }] }),
+            mobile || email ? Lead.deleteMany({ $or: [
+                ...(mobile ? [{ mobile }] : []),
+                ...(email ? [{ email }] : [])
+            ] }) : Promise.resolve(),
             // Remove from Inventory owners/associates
             Inventory.updateMany({ owners: id }, { $pull: { owners: id } }),
-            Inventory.updateMany({ associates: id }, { $pull: { associates: id } }),
+            Inventory.updateMany({ "associates.contact": id }, { $pull: { associates: { contact: id } } }),
             // Null out in Bookings
             Booking.updateMany({ lead: id }, { $set: { lead: null } }),
             Booking.updateMany({ seller: id }, { $set: { seller: null } }),
@@ -439,9 +495,62 @@ export const deleteContact = async (req, res, next) => {
         ]);
 
         await Contact.findByIdAndDelete(id);
+
+        // Sync to Google
+        if (contact.googleContactId) {
+            googleSyncQueue.add('deleteContact', { googleContactId: contact.googleContactId }).catch(() => { });
+        }
+
         res.json({ success: true, message: "Contact and all associated records deleted successfully" });
     } catch (error) {
         console.error("[ERROR] deleteContact failed:", error);
+        next(error);
+    }
+};
+
+export const bulkDeleteContacts = async (req, res, next) => {
+    try {
+        const { ids } = req.body;
+        if (!ids || !Array.isArray(ids)) {
+            return res.status(400).json({ success: false, error: "Invalid IDs provided" });
+        }
+
+        const objectIds = ids.map(id => new mongoose.Types.ObjectId(id));
+        const contacts = await Contact.find({ _id: { $in: objectIds } });
+
+        const mobiles = contacts.map(c => c.phones?.[0]?.number).filter(Boolean);
+        const emails = contacts.map(c => c.emails?.[0]?.address).filter(Boolean);
+
+        // Cascading Updates/Deletions
+        await Promise.all([
+            // Delete related Leads
+            (mobiles.length > 0 || emails.length > 0) ? Lead.deleteMany({ $or: [
+                ...(mobiles.length > 0 ? [{ mobile: { $in: mobiles } }] : []),
+                ...(emails.length > 0 ? [{ email: { $in: emails } }] : [])
+            ] }) : Promise.resolve(),
+            // Remove from Inventory
+            Inventory.updateMany({ owners: { $in: objectIds } }, { $pull: { owners: { $in: objectIds } } }),
+            Inventory.updateMany({ "associates.contact": { $in: objectIds } }, { $pull: { associates: { contact: { $in: objectIds } } } }),
+            // Null out in Bookings
+            Booking.updateMany({ lead: { $in: objectIds } }, { $set: { lead: null } }),
+            Booking.updateMany({ seller: { $in: objectIds } }, { $set: { seller: null } }),
+            Booking.updateMany({ channelPartner: { $in: objectIds } }, { $set: { channelPartner: null } }),
+            // Delete related Activities
+            Activity.deleteMany({ $or: [{ entityId: { $in: objectIds } }, { 'relatedTo.id': { $in: objectIds } }] })
+        ]);
+
+        await Contact.deleteMany({ _id: { $in: objectIds } });
+
+        // Sync to Google
+        contacts.forEach(contact => {
+            if (contact.googleContactId) {
+                googleSyncQueue.add('deleteContact', { googleContactId: contact.googleContactId }).catch(() => { });
+            }
+        });
+
+        res.json({ success: true, message: `${ids.length} contacts and associations deleted successfully` });
+    } catch (error) {
+        console.error("[ERROR] bulkDeleteContacts failed:", error);
         next(error);
     }
 };
@@ -654,6 +763,11 @@ export const importContacts = async (req, res, next) => {
             if (dataToInsert.length > 0) {
                 const insertResult = await Contact.insertMany(dataToInsert, { ordered: false });
                 newCount += insertResult.length;
+
+                // Sync to Google
+                insertResult.forEach(contact => {
+                    googleSyncQueue.add('syncContact', { contactId: contact._id }).catch(() => { });
+                });
             }
         }
 

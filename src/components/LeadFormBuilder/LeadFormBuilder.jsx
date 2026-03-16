@@ -1,5 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../utils/api';
+import { 
+    LucideChevronLeft, 
+    LucideEye, 
+    LucideSave, 
+    LucidePlus, 
+    LucideTrash2, 
+    LucideMoveUp, 
+    LucideMoveDown 
+} from 'lucide-react';
+import { toast } from 'react-hot-toast'; // Also saw toast calls but no import
 
 const LeadFormBuilder = ({ form, onSave, onCancel }) => {
     const [formData, setFormData] = useState(form || {

@@ -38,6 +38,25 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => 
         }
     }, [projectId]);
 
+    const handleTogglePublish = async () => {
+        const newStatus = !project.isPublished;
+        try {
+            const res = await api.put(`projects/${projectId}`, {
+                isPublished: newStatus,
+                publishedAt: newStatus ? new Date() : null
+            });
+            if (res.data && (res.data.success || res.data.status === 'success')) {
+                setProject(prev => ({ ...prev, isPublished: newStatus }));
+                toast.success(newStatus ? 'Project published to Website!' : 'Project removed from Website');
+            } else {
+                toast.error('Failed to update publication status');
+            }
+        } catch (error) {
+            console.error("Error toggling publication:", error);
+            toast.error('Error updating publication status');
+        }
+    };
+
     const fetchInventory = async (pid) => {
         try {
             const response = await api.get(`inventory?projectId=${pid}`);
@@ -145,6 +164,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => 
                             }}>
                                 PRJ-{project._id.substring(project._id.length - 6).toUpperCase()}
                             </span>
+
                             <span style={{
                                 backgroundColor: '#ecfdf5', color: '#065f46',
                                 padding: '4px 12px', borderRadius: '20px',
@@ -153,6 +173,28 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => 
                             }}>
                                 {getLookupValue('ProjectStatus', project.status) || 'Active'}
                             </span>
+
+                            {/* Website Publication Toggle */}
+                            <button
+                                onClick={handleTogglePublish}
+                                style={{
+                                    backgroundColor: project.isPublished ? '#eff6ff' : '#f8fafc',
+                                    color: project.isPublished ? '#2563eb' : '#64748b',
+                                    padding: '4px 12px', borderRadius: '20px',
+                                    fontSize: '0.7rem', fontWeight: 800,
+                                    display: 'flex', alignItems: 'center', gap: '6px',
+                                    textTransform: 'uppercase', letterSpacing: '0.05em',
+                                    border: `1px solid ${project.isPublished ? '#3b82f644' : '#e2e8f0'}`,
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                                className="hover:shadow-sm"
+                            >
+                                <i className={`fas fa-globe ${project.isPublished ? 'text-blue-500' : 'text-slate-400'}`}></i>
+                                {project.isPublished ? 'Published' : 'Draft'}
+                            </button>
+
+
                             {project.reraNumber && (
                                 <span style={{
                                     backgroundColor: '#eff6ff', color: '#1e40af',

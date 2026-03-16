@@ -41,6 +41,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
     const [showMoreMenu, setShowMoreMenu] = useState(false);
     const [modalData, setModalData] = useState([]);
     const [contactPicker, setContactPicker] = useState({ isOpen: false, type: 'call', contacts: [] });
+    const [mediaViewer, setMediaViewer] = useState({ isOpen: false, data: null });
 
     const handleContactClick = (type) => {
         const contactOptions = [];
@@ -1424,40 +1425,85 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                             <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fas fa-images" style={{ color: '#3b82f6', fontSize: '0.8rem' }}></i> Gallery & Videos
                             </h3>
+                            <button
+                                style={{ fontSize: '0.7rem', color: '#2563eb', fontWeight: 700, background: '#eff6ff', border: 'none', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer' }}
+                                onClick={() => setIsUploadModalOpen(true)}
+                            >
+                                + Add Media
+                            </button>
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '12px' }}>
                             {[...(inventory.inventoryImages || []), ...(inventory.projectImages || [])].map((img, idx) => (
-                                <div key={`img-${idx}`} style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', border: '1px solid #f1f5f9', height: '80px', background: '#f8fafc', cursor: 'pointer' }} onClick={() => window.open(img.url || img.previewUrl || img.path, '_blank')}>
+                                <div
+                                    key={`img-${idx}`}
+                                    className="group"
+                                    style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', border: '1px solid #f1f5f9', height: '110px', background: '#f8fafc', cursor: 'pointer', transition: 'all 0.3s ease' }}
+                                    onClick={() => setMediaViewer({ isOpen: true, data: { ...img, type: 'image' } })}
+                                    onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1)'; }}
+                                    onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}
+                                >
                                     {img.url || img.previewUrl || img.path ? (
-                                        <img src={img.url || img.previewUrl || img.path} alt={img.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        <img src={img.url || img.previewUrl || img.path} alt={img.title} style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.5s ease' }} />
                                     ) : (
                                         <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                            <i className="fas fa-image" style={{ color: '#cbd5e1', fontSize: '1rem' }}></i>
+                                            <i className="fas fa-image" style={{ color: '#cbd5e1', fontSize: '1.2rem' }}></i>
                                         </div>
                                     )}
-                                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.7))', padding: '4px', fontSize: '0.6rem', color: '#fff', fontWeight: 600 }}>
-                                        {img.title || img.category}
+                                    <div style={{
+                                        position: 'absolute', bottom: 0, left: 0, right: 0,
+                                        background: 'linear-gradient(transparent, rgba(0,0,0,0.8))',
+                                        padding: '8px 6px 6px', fontSize: '0.65rem', color: '#fff', fontWeight: 600,
+                                        backdropFilter: 'blur(2px)'
+                                    }}>
+                                        <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {img.title || img.category || 'Untitled'}
+                                        </div>
+                                    </div>
+                                    <div style={{ position: 'absolute', top: '5px', right: '5px', opacity: 0, transition: 'opacity 0.2s ease' }} className="group-hover:opacity-100">
+                                        <div style={{ background: 'rgba(255,255,255,0.9)', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                                            <i className="fas fa-expand text-blue-600" style={{ fontSize: '0.7rem' }}></i>
+                                        </div>
                                     </div>
                                 </div>
                             ))}
 
                             {[...(inventory.inventoryVideos || []), ...(inventory.projectVideos || [])].map((vid, idx) => {
-                                const ytThumb = vid.type === 'YouTube' ? `https://img.youtube.com/vi/${vid.url?.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1]}/mqdefault.jpg` : null;
+                                const ytId = vid.url?.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1];
+                                const ytThumb = vid.type === 'YouTube' ? `https://img.youtube.com/vi/${ytId}/mqdefault.jpg` : null;
                                 return (
-                                    <div key={`vid-${idx}`} style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', border: '1px solid #f1f5f9', height: '80px', background: '#0f172a', cursor: 'pointer' }} onClick={() => window.open(vid.url, '_blank')}>
+                                    <div
+                                        key={`vid-${idx}`}
+                                        style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', border: '1px solid #1e293b', height: '110px', background: '#0f172a', cursor: 'pointer', transition: 'all 0.3s ease' }}
+                                        onClick={() => setMediaViewer({ isOpen: true, data: { ...vid, type: 'video', ytId } })}
+                                        onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.2)'; }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}
+                                    >
                                         {ytThumb ? (
-                                            <img src={ytThumb} alt={vid.title} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.7 }} />
+                                            <img src={ytThumb} alt={vid.title} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.6 }} />
                                         ) : (
                                             <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                <i className="fas fa-video" style={{ color: '#cbd5e1', fontSize: '1rem' }}></i>
+                                                <i className="fas fa-video" style={{ color: '#475569', fontSize: '1.2rem' }}></i>
                                             </div>
                                         )}
                                         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                            <i className="fas fa-play-circle" style={{ color: '#fff', fontSize: '1.5rem', opacity: 0.8 }}></i>
+                                            <div style={{
+                                                width: '32px', height: '32px', borderRadius: '50%',
+                                                background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(4px)',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                border: '1px solid rgba(255,255,255,0.3)', color: '#fff'
+                                            }}>
+                                                <i className="fas fa-play" style={{ fontSize: '0.8rem', marginLeft: '2px' }}></i>
+                                            </div>
                                         </div>
-                                        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,0.7))', padding: '4px', fontSize: '0.6rem', color: '#fff', fontWeight: 600 }}>
-                                            {vid.title}
+                                        <div style={{
+                                            position: 'absolute', bottom: 0, left: 0, right: 0,
+                                            background: 'linear-gradient(transparent, rgba(0,0,0,0.9))',
+                                            padding: '8px 6px 6px', fontSize: '0.65rem', color: '#fff', fontWeight: 600
+                                        }}>
+                                            <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                {vid.title || 'Untitled Video'}
+                                            </div>
                                         </div>
                                     </div>
                                 );
@@ -1561,6 +1607,12 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                         toast.error("Failed to save media");
                     }
                 }}
+            />
+
+            <MediaViewerModal
+                isOpen={mediaViewer.isOpen}
+                onClose={() => setMediaViewer({ isOpen: false, data: null })}
+                data={mediaViewer.data}
             />
 
             <AddOwnerModal
@@ -1862,3 +1914,67 @@ const TabBtn = ({ children, active, onClick }) => (
         {children}
     </button>
 );
+
+const MediaViewerModal = ({ isOpen, onClose, data }) => {
+    if (!isOpen || !data) return null;
+
+    return (
+        <div style={{
+            position: 'fixed', inset: 0, zIndex: 10000,
+            background: 'rgba(0,0,0,0.95)', display: 'flex',
+            flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            padding: '40px', backdropFilter: 'blur(10px)'
+        }}>
+            <button
+                onClick={onClose}
+                style={{
+                    position: 'absolute', top: '20px', right: '20px',
+                    background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
+                    color: '#fff', width: '40px', height: '40px', borderRadius: '50%',
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '1.2rem', transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
+            >
+                <i className="fas fa-times"></i>
+            </button>
+
+            <div style={{ maxWidth: '90%', maxHeight: '80%', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {data.type === 'image' ? (
+                    <img
+                        src={data.url || data.previewUrl || data.path}
+                        alt={data.title}
+                        style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: '12px', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}
+                    />
+                ) : (
+                    <div style={{ width: '100%', aspectRatio: '16/9', maxWidth: '1000px', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
+                        {data.ytId ? (
+                            <iframe
+                                width="100%"
+                                height="100%"
+                                src={`https://www.youtube.com/embed/${data.ytId}?autoplay=1`}
+                                title={data.title}
+                                frameBorder="0"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                allowFullScreen
+                            ></iframe>
+                        ) : (
+                            <video
+                                src={data.url}
+                                controls
+                                autoPlay
+                                style={{ width: '100%', height: '100%' }}
+                            ></video>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            <div style={{ marginTop: '24px', textAlign: 'center' }}>
+                <h4 style={{ color: '#fff', fontSize: '1.1rem', fontWeight: 800, margin: '0 0 8px 0' }}>{data.title || data.category || 'Media File'}</h4>
+                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', fontWeight: 600 }}>{data.type === 'video' ? 'Video File' : 'Image File'}</p>
+            </div>
+        </div>
+    );
+};

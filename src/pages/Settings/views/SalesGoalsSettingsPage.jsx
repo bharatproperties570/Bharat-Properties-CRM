@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../../utils/api';
 import toast from 'react-hot-toast';
+import { useUserContext } from '../../../context/UserContext';
 
 const GoalCard = ({ title, description, icon, onDisable, onPeriodChange, resolutionPeriod, currentPeriod, users, onUserGoalChange, goalSuffix = '' }) => {
     const [searchTerm, setSearchTerm] = useState('');
@@ -128,7 +129,7 @@ const UnifiedGoalModal = ({ isOpen, onClose, users, onSave, loading }) => {
                         style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '0.9rem' }}
                     >
                         <option value="">Choose a user...</option>
-                        {users.map(u => (
+                        {Array.isArray(users) && users.map(u => (
                             <option key={u._id} value={u._id}>{u.fullName}</option>
                         ))}
                     </select>
@@ -189,10 +190,11 @@ const UnifiedGoalModal = ({ isOpen, onClose, users, onSave, loading }) => {
 };
 
 const SalesGoalsSettings = () => {
+    const { users: contextUsers, loading: contextLoading, refreshData: refreshContextUsers, logout } = useUserContext();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [users, setUsers] = useState([]);
     const [goals, setGoals] = useState([]);
+    const [error, setError] = useState(null);
     
     // Period helper
     const currentMonth = new Date().toLocaleString('default', { month: 'long' });
@@ -202,16 +204,27 @@ const SalesGoalsSettings = () => {
     const fetchInitialData = async () => {
         try {
             setLoading(true);
-            const [usersRes, goalsRes] = await Promise.all([
-                api.get('/sales-goals/users'),
-                api.get('/sales-goals')
-            ]);
+            setError(null);
             
-            if (usersRes.data.success) setUsers(usersRes.data.data);
-            if (goalsRes.data.success) setGoals(goalsRes.data.data);
+            // Goals fetch
+            const goalsRes = await api.get('/sales-goals');
+            if (goalsRes.data.success) {
+                setGoals(goalsRes.data.data);
+            }
+
+            // Also trigger refresh of context users if they are empty
+            if (contextUsers.length === 0) {
+                refreshContextUsers();
+            }
         } catch (error) {
             console.error('Failed to fetch data:', error);
-            toast.error('Failed to load goal data');
+            if (error.response?.status === 401 || error.message?.includes('401')) {
+                toast.error('Session expired. Please login again.');
+                logout();
+            } else {
+                setError('Failed to load goal data. Please try again.');
+                toast.error('Failed to load goal data');
+            }
         } finally {
             setLoading(false);
         }
@@ -247,9 +260,10 @@ const SalesGoalsSettings = () => {
     };
 
     // Format data for GoalCards
-    const revenueUsers = goals.map(g => ({ id: g._id, name: g.user?.fullName, goal: g.revenueGoal, avatar: g.user?.avatar }));
-    const dealUsers = goals.map(g => ({ id: g._id, name: g.user?.fullName, goal: g.dealsGoal, avatar: g.user?.avatar }));
-    const visitUsers = goals.map(g => ({ id: g._id, name: g.user?.fullName, goal: g.siteVisitsGoal, avatar: g.user?.avatar }));
+    const safeGoals = Array.isArray(goals) ? goals : [];
+    const revenueUsers = safeGoals.map(g => ({ id: g._id, name: g.user?.fullName, goal: g.revenueGoal, avatar: g.user?.avatar }));
+    const dealUsers = safeGoals.map(g => ({ id: g._id, name: g.user?.fullName, goal: g.dealsGoal, avatar: g.user?.avatar }));
+    const visitUsers = safeGoals.map(g => ({ id: g._id, name: g.user?.fullName, goal: g.siteVisitsGoal, avatar: g.user?.avatar }));
 
     return (
         <div style={{ flex: 1, background: '#f8fafc', padding: '40px', overflowY: 'auto' }}>
@@ -268,6 +282,17 @@ const SalesGoalsSettings = () => {
                 <div style={{ textAlign: 'center', padding: '100px', color: '#64748b' }}>
                     <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', marginBottom: '16px' }}></i>
                     <p>Loading goals...</p>
+                </div>
+            ) : error ? (
+                <div style={{ textAlign: 'center', padding: '100px', color: '#ef4444', background: '#fff', borderRadius: '12px', border: '1px solid #fee2e2' }}>
+                    <i className="fas fa-exclamation-circle" style={{ fontSize: '2rem', marginBottom: '16px' }}></i>
+                    <p style={{ fontWeight: 600 }}>{error}</p>
+                    <button 
+                        onClick={fetchInitialData}
+                        style={{ marginTop: '16px', padding: '8px 20px', background: '#0f172a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                        Try Again
+                    </button>
                 </div>
             ) : (
                 <>
@@ -313,9 +338,9 @@ const SalesGoalsSettings = () => {
             <UnifiedGoalModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
-                users={users}
+                users={contextUsers}
                 onSave={handleSaveUnifiedGoal}
-                loading={loading}
+                loading={loading || contextLoading}
             />
         </div>
     );

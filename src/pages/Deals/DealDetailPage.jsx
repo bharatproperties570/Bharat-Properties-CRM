@@ -90,6 +90,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
     const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
     const [isMarkingLost, setIsMarkingLost] = useState(false);
+    const [mediaViewer, setMediaViewer] = useState({ isOpen: false, data: null });
 
     // State for calculator inputs
     const [govtCharges, setGovtCharges] = useState({
@@ -285,6 +286,25 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
             setLoading(false);
         }
     }, [dealId]);
+
+    const handleTogglePublish = async () => {
+        const newStatus = !deal.isPublished;
+        try {
+            const res = await api.put(`deals/${dealId}`, {
+                isPublished: newStatus,
+                publishedAt: newStatus ? new Date() : null
+            });
+            if (res.data && (res.data.success || res.data.status === 'success')) {
+                setDeal(prev => ({ ...prev, isPublished: newStatus }));
+                toast.success(newStatus ? 'Listing published to Website!' : 'Listing removed from Website');
+            } else {
+                toast.error('Failed to update publication status');
+            }
+        } catch (error) {
+            console.error("Error toggling publication:", error);
+            toast.error('Error updating publication status');
+        }
+    };
 
     const handleMarkAsLost = async (reasons = null) => {
         // If clicking from the main header button without reasons, just toggle the sidebar
@@ -775,6 +795,26 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                     <i className="fas fa-bolt" style={{ color: '#f59e0b' }}></i> High Margin
                                 </span>
                             )}
+
+                            {/* Website Publication Toggle */}
+                            <button
+                                onClick={handleTogglePublish}
+                                style={{
+                                    backgroundColor: deal.isPublished ? '#eff6ff' : '#f8fafc',
+                                    color: deal.isPublished ? '#2563eb' : '#64748b',
+                                    padding: '4px 12px', borderRadius: '6px',
+                                    fontSize: '0.7rem', fontWeight: 800,
+                                    display: 'flex', alignItems: 'center', gap: '6px',
+                                    textTransform: 'uppercase', letterSpacing: '0.05em',
+                                    border: `1px solid ${deal.isPublished ? '#3b82f644' : '#e2e8f0'}`,
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                                className="hover:shadow-sm"
+                            >
+                                <i className={`fas fa-globe ${deal.isPublished ? 'text-blue-500' : 'text-slate-400'}`}></i>
+                                {deal.isPublished ? 'Published' : 'Draft'}
+                            </button>
                         </div>
                         <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, margin: 0 }}>
                             {renderValue(deal.projectName)} • {renderValue(deal.block)}
@@ -1555,6 +1595,99 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                         </div>
                     </div>
 
+                    {/* GALLERY & VIDEOS */}
+                    <div style={cardStyle}>
+                        <div style={{ ...sectionHeaderStyle, borderBottom: '1px solid rgba(226, 232, 240, 0.5)' }}>
+                            <h3 style={sectionTitleStyle}>
+                                <i className="fas fa-images text-blue-500 mr-2"></i> Gallery & Videos
+                            </h3>
+                            <button
+                                style={{ color: '#2563eb', fontWeight: 600, fontSize: '0.75rem', background: '#eff6ff', border: 'none', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer' }}
+                                onClick={() => setIsUploadModalOpen(true)}
+                            >
+                                + Add
+                            </button>
+                        </div>
+                        <div style={{ padding: '20px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '10px' }}>
+                                {[...(deal.inventoryId?.inventoryImages || []), ...(deal.inventoryId?.projectImages || [])].map((img, idx) => (
+                                    <div
+                                        key={`img-${idx}`}
+                                        className="group"
+                                        style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', border: '1px solid #f1f5f9', height: '90px', background: '#f8fafc', cursor: 'pointer', transition: 'all 0.3s ease' }}
+                                        onClick={() => setMediaViewer({ isOpen: true, data: { ...img, type: 'image' } })}
+                                        onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 12px -3px rgba(0, 0, 0, 0.1)'; }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}
+                                    >
+                                        {img.url || img.previewUrl || img.path ? (
+                                            <img src={img.url || img.previewUrl || img.path} alt={img.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        ) : (
+                                            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                <i className="fas fa-image" style={{ color: '#cbd5e1', fontSize: '1rem' }}></i>
+                                            </div>
+                                        )}
+                                        <div style={{
+                                            position: 'absolute', bottom: 0, left: 0, right: 0,
+                                            background: 'linear-gradient(transparent, rgba(0,0,0,0.8))',
+                                            padding: '4px', fontSize: '0.6rem', color: '#fff', fontWeight: 600
+                                        }}>
+                                            <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                {img.title || img.category || 'Untitled'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {[...(deal.inventoryId?.inventoryVideos || []), ...(deal.inventoryId?.projectVideos || [])].map((vid, idx) => {
+                                    const ytId = vid.url?.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1];
+                                    const ytThumb = vid.type === 'YouTube' ? `https://img.youtube.com/vi/${ytId}/mqdefault.jpg` : null;
+                                    return (
+                                        <div
+                                            key={`vid-${idx}`}
+                                            style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', border: '1px solid #1e293b', height: '90px', background: '#0f172a', cursor: 'pointer', transition: 'all 0.3s ease' }}
+                                            onClick={() => setMediaViewer({ isOpen: true, data: { ...vid, type: 'video', ytId } })}
+                                            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 12px -3px rgba(0, 0, 0, 0.2)'; }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}
+                                        >
+                                            {ytThumb ? (
+                                                <img src={ytThumb} alt={vid.title} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.6 }} />
+                                            ) : (
+                                                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <i className="fas fa-video" style={{ color: '#475569', fontSize: '1rem' }}></i>
+                                                </div>
+                                            )}
+                                            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                <div style={{
+                                                    width: '24px', height: '24px', borderRadius: '50%',
+                                                    background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(4px)',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    border: '1px solid rgba(255,255,255,0.3)', color: '#fff'
+                                                }}>
+                                                    <i className="fas fa-play" style={{ fontSize: '0.6rem', marginLeft: '2px' }}></i>
+                                                </div>
+                                            </div>
+                                            <div style={{
+                                                position: 'absolute', bottom: 0, left: 0, right: 0,
+                                                background: 'linear-gradient(transparent, rgba(0,0,0,0.9))',
+                                                padding: '4px', fontSize: '0.6rem', color: '#fff', fontWeight: 600
+                                            }}>
+                                                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    {vid.title || 'Untitled Video'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {(!deal.inventoryId?.inventoryImages?.length && !deal.inventoryId?.projectImages?.length && !deal.inventoryId?.inventoryVideos?.length && !deal.inventoryId?.projectVideos?.length) && (
+                                <div style={{ textAlign: 'center', padding: '20px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
+                                    <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0 }}>No media files available</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
 
 
 
@@ -1679,6 +1812,12 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                         toast.error("Failed to save documents");
                     }
                 }}
+            />
+
+            <MediaViewerModal
+                isOpen={mediaViewer.isOpen}
+                onClose={() => setMediaViewer({ isOpen: false, data: null })}
+                data={mediaViewer.data}
             />
 
             <AddNoteModal
@@ -2586,5 +2725,69 @@ const CostRow = ({ label, value, bold, indent }) => (
         </td>
     </tr>
 );
+
+const MediaViewerModal = ({ isOpen, onClose, data }) => {
+    if (!isOpen || !data) return null;
+
+    return (
+        <div style={{
+            position: 'fixed', inset: 0, zIndex: 10000,
+            background: 'rgba(0,0,0,0.95)', display: 'flex',
+            flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            padding: '40px', backdropFilter: 'blur(10px)'
+        }}>
+            <button
+                onClick={onClose}
+                style={{
+                    position: 'absolute', top: '20px', right: '20px',
+                    background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
+                    color: '#fff', width: '40px', height: '40px', borderRadius: '50%',
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '1.2rem', transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
+            >
+                <i className="fas fa-times"></i>
+            </button>
+
+            <div style={{ maxWidth: '90%', maxHeight: '80%', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {data.type === 'image' ? (
+                    <img
+                        src={data.url || data.previewUrl || data.path}
+                        alt={data.title}
+                        style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: '12px', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}
+                    />
+                ) : (
+                    <div style={{ width: '100%', aspectRatio: '16/9', maxWidth: '1000px', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
+                        {data.ytId ? (
+                            <iframe
+                                width="100%"
+                                height="100%"
+                                src={`https://www.youtube.com/embed/${data.ytId}?autoplay=1`}
+                                title={data.title}
+                                frameBorder="0"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                allowFullScreen
+                            ></iframe>
+                        ) : (
+                            <video
+                                src={data.url}
+                                controls
+                                autoPlay
+                                style={{ width: '100%', height: '100%' }}
+                            ></video>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            <div style={{ marginTop: '24px', textAlign: 'center' }}>
+                <h4 style={{ color: '#fff', fontSize: '1.1rem', fontWeight: 800, margin: '0 0 8px 0' }}>{data.title || data.category || 'Media File'}</h4>
+                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', fontWeight: 600 }}>{data.type === 'video' ? 'Video File' : 'Image File'}</p>
+            </div>
+        </div>
+    );
+};
 
 export default DealDetailPage;

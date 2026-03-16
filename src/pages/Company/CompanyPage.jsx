@@ -638,7 +638,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                                                     {company.name}
                                                 </div>
                                                 <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
-                                                    {renderLookup(company.industry)}
+                                                    {renderValue(company.industry)}
                                                 </div>
                                             </div>
                                         </div>

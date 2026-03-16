@@ -11,6 +11,7 @@ import AddressDetailsForm from "./common/AddressDetailsForm";
 import { PROJECTS_LIST, PROJECT_DATA, CITIES } from "../constants/projectConstants";
 import { fetchLookup } from "../utils/fetchLookup";
 import { useUserContext } from '../context/UserContext';
+import { renderValue } from "../utils/renderUtils";
 
 // Simple Custom Multi-Select Component
 const CustomMultiSelect = ({
@@ -1577,8 +1578,8 @@ const AddContactModal = ({
                         >
                           <option value="">Title</option>
                           {title.map((t) => (
-                            <option key={t._id} value={t._id}>
-                              {t.lookup_value}
+                            <option key={typeof t === 'object' ? (t._id || t.id) : t} value={typeof t === 'object' ? (t._id || t.id) : t}>
+                              {renderValue(t)}
                             </option>
                           ))}
                         </select>
@@ -1729,8 +1730,8 @@ const AddContactModal = ({
                           }}
                         >
                           {countrycode.map((c) => (
-                            <option key={c._id} value={c._id}>
-                              {c.lookup_value}
+                            <option key={typeof c === 'object' ? (c._id || c.id) : c} value={typeof c === 'object' ? (c._id || c.id) : c}>
+                              {renderValue(c)}
                             </option>
                           ))}
                         </select>
@@ -2821,8 +2822,8 @@ const AddContactModal = ({
                               >
                                 <option value="">Select Category</option>
                                 {professionCategories.map((cat) => (
-                                  <option key={cat._id} value={cat._id}>
-                                    {cat.lookup_value}
+                                  <option key={typeof cat === 'object' ? (cat._id || cat.id) : cat} value={typeof cat === 'object' ? (cat._id || cat.id) : cat}>
+                                    {renderValue(cat)}
                                   </option>
                                 ))}
                               </select>
@@ -2860,8 +2861,8 @@ const AddContactModal = ({
                                 <option value="">Select Sub-Category</option>
                                 {formData.professionCategory &&
                                   professionSubCategories.map((sc) => (
-                                    <option key={sc._id} value={sc._id}>
-                                      {sc.lookup_value}
+                                    <option key={typeof sc === 'object' ? (sc._id || sc.id) : sc} value={typeof sc === 'object' ? (sc._id || sc.id) : sc}>
+                                      {renderValue(sc)}
                                     </option>
                                   ))}
                               </select>
@@ -2898,8 +2899,8 @@ const AddContactModal = ({
                                 <option value="">Select Designation</option>
                                 {formData.professionCategory &&
                                   designation.map((d) => (
-                                    <option key={d._id} value={d._id}>
-                                      {d.lookup_value}
+                                    <option key={typeof d === 'object' ? (d._id || d.id) : d} value={typeof d === 'object' ? (d._id || d.id) : d}>
+                                      {renderValue(d)}
                                     </option>
                                   ))}
                               </select>

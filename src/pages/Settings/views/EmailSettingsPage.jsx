@@ -369,6 +369,16 @@ const EmailSettingsPage = () => {
     useEffect(() => {
         const fetchSettings = async () => {
             try {
+                // Try unified Google integration first
+                const unifiedRes = await systemSettingsAPI.getByKey('google_integration');
+                if (unifiedRes && unifiedRes.success && unifiedRes.data && unifiedRes.data.value && unifiedRes.data.value.connected) {
+                    const value = unifiedRes.data.value;
+                    setConnectedEmail(value.email || '');
+                    setEmailConfig(prev => ({ ...prev, email: value.email, useOAuth: true, provider: 'Google' }));
+                    setSelectedProvider('Google');
+                    return;
+                }
+
                 const response = await systemSettingsAPI.getByKey('email_config');
                 if (response && response.status === 'success' && response.data && response.data.value) {
                     const settingsValue = response.data.value;
@@ -394,9 +404,16 @@ const EmailSettingsPage = () => {
             // Refresh settings
             const refreshSettings = async () => {
                 try {
-                    const response = await systemSettingsAPI.getOne('email_config');
+                    // Check unified first
+                    const unifiedRes = await systemSettingsAPI.getByKey('google_integration');
+                    if (unifiedRes && unifiedRes.success && unifiedRes.data && unifiedRes.data.value && unifiedRes.data.value.connected) {
+                        setConnectedEmail(unifiedRes.data.value.email || '');
+                        return;
+                    }
+
+                    const response = await systemSettingsAPI.getByKey('email_config');
                     if (response && response.success && response.data) {
-                        setConnectedEmail(response.data.email || '');
+                        setConnectedEmail(response.data.value?.email || response.data.email || '');
                     }
                 } catch (error) {
                     console.error('Error refreshing settings:', error);
@@ -409,9 +426,10 @@ const EmailSettingsPage = () => {
     const handleConnectGoogle = async () => {
         setIsTestingConnection(true);
         try {
-            const response = await emailAPI.getOAuthUrl();
-            if (response && response.success && response.data) {
-                window.location.href = response.data;
+            const { googleSettingsAPI } = await import('../../../utils/api');
+            const response = await googleSettingsAPI.getAuthUrl();
+            if (response && response.success && response.url) {
+                window.location.href = response.url;
             } else {
                 setToast({ message: 'Failed to initiate Google login', type: 'error' });
             }

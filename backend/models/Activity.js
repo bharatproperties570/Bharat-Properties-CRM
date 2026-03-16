@@ -41,6 +41,7 @@ const ActivitySchema = new mongoose.Schema({
 
     tags: [{ type: String }],
     isStarred: { type: Boolean, default: false },
+    googleEventId: { type: String, index: true },
 
 }, { timestamps: true });
 

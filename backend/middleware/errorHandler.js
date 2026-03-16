@@ -25,6 +25,16 @@ export const errorHandler = (err, req, res, next) => {
         error.statusCode = 400;
     }
 
+    // Custom Lead Duplicate Handling
+    if (err.message === 'DuplicateLeadExists' || err.isDuplicateMerge) {
+        return res.status(200).json({
+            success: true,
+            message: 'Duplicate lead found and merged successfully',
+            data: err.mergedLead || null,
+            isDuplicate: true
+        });
+    }
+
     res.status(error.statusCode || 500).json({
         success: false,
         error: error.message || 'Server Error'

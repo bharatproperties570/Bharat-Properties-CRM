@@ -8,6 +8,7 @@ import { paginate } from "../utils/pagination.js";
 import smsService from "../src/modules/sms/sms.service.js";
 import Lookup from "../models/Lookup.js";
 import AuditLog from "../models/AuditLog.js";
+import { syncDocumentsToContact } from "../utils/sync.js";
 
 export const matchDeals = async (req, res) => {
     try {
@@ -367,6 +368,16 @@ export const addDeal = async (req, res) => {
 
         const deal = await Deal.create(sanitizedData);
 
+        // Trigger Sync if documents were provided during creation
+        if (sanitizedData.documents && Array.isArray(sanitizedData.documents)) {
+            const metadata = {
+                projectName: deal.projectName,
+                block: deal.block,
+                unitNumber: deal.unitNo
+            };
+            await syncDocumentsToContact(sanitizedData.documents, metadata);
+        }
+
         // BUG D3 FIX: Write initial stageHistory entry so time-in-stage metrics work from day 1
         await Deal.findByIdAndUpdate(deal._id, {
             $push: {
@@ -452,6 +463,17 @@ export const updateDeal = async (req, res) => {
 
         const deal = await Deal.findByIdAndUpdate(req.params.id, sanitizedData, { new: true });
         if (!deal) return res.status(404).json({ success: false, error: 'Deal not found' });
+        
+        // Trigger Sync if documents were updated
+        if (sanitizedData.documents && Array.isArray(sanitizedData.documents)) {
+            const metadata = {
+                projectName: deal.projectName,
+                block: deal.block,
+                unitNumber: deal.unitNo
+            };
+            await syncDocumentsToContact(sanitizedData.documents, metadata);
+        }
+
         await syncInventoryStatus(deal);
 
         // BUG D4 FIX: Use DLT-compliant SMS template instead of plain sendSMS

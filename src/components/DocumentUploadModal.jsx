@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../utils/api';
+import toast from 'react-hot-toast';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { fetchLookup } from '../utils/fetchLookup'; // Ensure this utility exists or use api directly
 
@@ -198,39 +199,49 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
 
     const handleUpload = async () => {
         if (!selectedCategory) {
-            alert("Please select Document Category");
+            toast.error("Please select Document Category");
             return;
         }
         if (!selectedType) {
-            alert("Please select Document Type");
+            toast.error("Please select Document Type");
             return;
         }
         if (!docNumber) {
-            alert("Please enter Document Number");
+            toast.error("Please enter Document Number");
             return;
         }
 
         if (isDuplicate) {
-            alert("Cannot upload duplicate document number.");
+            toast.error("Cannot upload duplicate document number.");
             return;
         }
+
+        const toastId = toast.loading('Uploading document to Google Drive...');
 
         setUploading(true);
 
         try {
+            // Find names for folder structure and renaming
+            const categoryObj = categories.find(c => c._id === selectedCategory);
+            const typeObj = types.find(t => t._id === selectedType);
+
             let fileUrl = '';
             if (selectedFile) {
                 const uploadFormData = new FormData();
                 uploadFormData.append('file', selectedFile);
-                const uploadRes = await api.post('upload', uploadFormData);
+                uploadFormData.append('entityType', activeEntityType === 'Contact' ? 'Contacts' : 'Leads');
+                uploadFormData.append('entityName', ownerName || activeEntityId || 'Unknown');
+                uploadFormData.append('docCategory', categoryObj?.name || 'General');
+                uploadFormData.append('docType', typeObj?.name || 'Document');
+                
+                const uploadRes = await api.post('/upload', uploadFormData);
                 if (uploadRes.data.success) {
                     fileUrl = uploadRes.data.url;
                 }
             }
 
-            // Find names for display/fallback
-            const categoryObj = categories.find(c => c._id === selectedCategory);
-            const typeObj = types.find(t => t._id === selectedType);
+            // Names already found above for upload
+
             const projectObj = projects.find(p => p._id === selectedProject);
 
             const newDocument = {
@@ -265,11 +276,12 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
                 // Blocks/Units clear via effect
 
                 if (onUpdate) onUpdate();
+                toast.success('Document uploaded successfully!', { id: toastId });
             }
 
         } catch (error) {
             console.error("Error uploading document:", error);
-            alert("Failed to upload document");
+            toast.error("Failed to upload document", { id: toastId });
         } finally {
             setUploading(false);
         }

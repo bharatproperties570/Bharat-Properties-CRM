@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import AuditLog from "../models/AuditLog.js";
 import Lead from "../models/Lead.js";
 import Deal from "../models/Deal.js";
-import { enrichmentQueue } from "../src/queues/queueManager.js";
+import { enrichmentQueue, googleSyncQueue } from "../src/queues/queueManager.js";
 import { updateLeadStage } from "./stage.controller.js";
 import StageTransitionEngine from "../src/services/StageTransitionEngine.js";
 import LeadScoringService from "../src/services/LeadScoringService.js";
@@ -309,6 +309,9 @@ export const addActivity = async (req, res) => {
             );
         }
 
+        // Sync to Google Calendar
+        googleSyncQueue.add('syncEvent', { activityId: activity._id }).catch(() => { });
+
         res.status(201).json({ success: true, data: activity });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
@@ -344,6 +347,9 @@ export const updateActivity = async (req, res) => {
             await autoTriggerStageChange(activity, req.body.assignedTo || null);
         }
 
+        // Sync to Google Calendar
+        googleSyncQueue.add('syncEvent', { activityId: activity._id }).catch(() => { });
+
         res.json({ success: true, data: activity });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
@@ -359,6 +365,12 @@ export const deleteActivity = async (req, res) => {
         if (!activity) {
             return res.status(404).json({ success: false, error: "Activity not found" });
         }
+
+        // Sync to Google Calendar
+        if (activity.googleEventId) {
+            googleSyncQueue.add('deleteEvent', { googleEventId: activity.googleEventId }).catch(() => { });
+        }
+
         if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
             // Fetch most recent activity remaining to reset lastActivityAt
             const lastLog = await Activity.findOne({ entityId: activity.entityId }).sort({ createdAt: -1 });
@@ -454,6 +466,10 @@ export const syncMobileCalls = async (req, res) => {
 
             if (!existing) {
                 const newActivity = await Activity.create(activityData);
+
+                // Sync to Google Calendar
+                googleSyncQueue.add('syncEvent', { activityId: newActivity._id }).catch(() => { });
+
                 syncedActivities.push(newActivity);
             }
         }

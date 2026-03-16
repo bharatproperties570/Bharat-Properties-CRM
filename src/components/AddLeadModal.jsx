@@ -8,6 +8,7 @@ import { useDistribution } from '../context/DistributionContext';
 import { useSequences } from '../context/SequenceContext';
 import { useTriggers } from '../context/TriggersContext';
 import { useUserContext } from '../context/UserContext';
+import { renderValue } from '../utils/renderUtils';
 
 // 3.4 MB Unused data removed for performance
 import { LOCATION_DATA } from '../constants/locationConstants';
@@ -850,6 +851,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
     const handleSave = async () => {
         setIsSaving(true);
+        let response;
 
         // Normalize references to IDs only to prevent 500/400 errors
         const normalizeRefs = (obj, parentKey = null) => {
@@ -966,7 +968,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
                 // Call Add Contact API
                 try {
-                    const response = await api.post("contacts", cleanContactPayload);
+                    response = await api.post("contacts", cleanContactPayload);
                     if (response.data && response.data.success) {
                         finalContactId = response.data.data._id;
                         window.dispatchEvent(new CustomEvent('contact-updated'));
@@ -1055,7 +1057,6 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 // Final cleanup: Ensure no objects left in transformedData before sending
                 const finalLeadPayload = normalizeRefs(transformedData);
 
-                let response;
                 if (mode === 'edit' && initialData?._id) {
                     response = await api.put(`/leads/${initialData._id}`, finalLeadPayload);
                 } else {
@@ -1447,8 +1448,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             >
                                                 <option value="">Select</option>
                                                 {titleOptions.map(opt => (
-                                                    <option key={opt._id} value={opt._id || opt}>
-                                                        {opt.lookup_value || opt}
+                                                    <option key={typeof opt === 'object' ? (opt._id || opt.id) : opt} value={typeof opt === 'object' ? (opt._id || opt.id) : opt}>
+                                                        {renderValue(opt)}
                                                     </option>
                                                 ))}
                                             </select>
@@ -1488,7 +1489,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                     style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#f8fafc', fontSize: '0.9rem', color: '#475569' }}
                                                 >
                                                     {countryCodeOptions?.length > 0
-                                                        ? countryCodeOptions.map(c => <option key={c._id} value={c.lookup_value}>{c.lookup_value}</option>)
+                                                        ? countryCodeOptions.map(c => <option key={c._id} value={renderValue(c)}>{renderValue(c)}</option>)
                                                         : COUNTRY_CODES.map(c => <option key={c.code} value={c.dial_code}>{c.dial_code} ({c.code})</option>)
                                                     }
                                                 </select>
@@ -1716,8 +1717,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         >
                                             <option value="">Select</option>
                                             {titleOptions.map(opt => (
-                                                <option key={opt._id} value={opt._id || opt}>
-                                                    {opt.lookup_value || opt}
+                                                <option key={typeof opt === 'object' ? (opt._id || opt.id) : opt} value={typeof opt === 'object' ? (opt._id || opt.id) : opt}>
+                                                    {renderValue(opt)}
                                                 </option>
                                             ))}
                                         </select>
@@ -1732,18 +1733,6 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                             autoComplete="off"
                                             style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
                                         />
-                                        {/* Suggestion Box */}
-                                        {similarContacts.length > 0 && (
-                                            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', marginTop: '4px', zIndex: 100, maxHeight: '250px', overflowY: 'auto' }}>
-                                                <div style={{ padding: '8px 12px', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>SUGGESTED CONTACTS ({similarContacts.length})</div>
-                                                {similarContacts.map(contact => (
-                                                    <div key={contact._id} onClick={() => { handleSelectContact(contact); setSimilarContacts([]); }} style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
-                                                        <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.85rem' }}>{contact.name} {contact.surname}</div>
-                                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{contact.mobile || contact.phones?.[0]?.number} • {contact.email || contact.emails?.[0]?.address}</div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
                                     </div>
                                     <div>
                                         <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Last Name</label>
@@ -1781,7 +1770,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                 style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#f8fafc', fontSize: '0.9rem', color: '#475569' }}
                                             >
                                                 {countryCodeOptions?.length > 0
-                                                    ? countryCodeOptions.map(c => <option key={c._id} value={c.lookup_value}>{c.lookup_value}</option>)
+                                                    ? countryCodeOptions.map(c => <option key={c._id} value={renderValue(c)}>{renderValue(c)}</option>)
                                                     : COUNTRY_CODES.map(c => <option key={c.code} value={c.dial_code}>{c.dial_code} ({c.code})</option>)
                                                 }
                                             </select>

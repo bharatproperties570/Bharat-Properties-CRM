@@ -56,6 +56,11 @@ const UploadModal = ({ isOpen, onClose, onSave, project = null, type = 'project'
                 if (img.file) {
                     const uploadData = new FormData();
                     uploadData.append('file', img.file);
+                    uploadData.append('entityType', type === 'project' ? 'Projects' : 'Properties');
+                    uploadData.append('entityName', type === 'project' ? (project?.name || 'Unknown Project') : (project?.unitNo || project?.unitNum || project?.id || 'Unknown Property'));
+                    uploadData.append('docCategory', 'Media');
+                    uploadData.append('docType', 'Images');
+                    
                     const res = await api.post('/upload', uploadData, { headers: { 'Content-Type': 'multipart/form-data' } });
                     if (res.data && res.data.success) {
                         return { ...img, url: res.data.url, file: null, previewUrl: null };
@@ -69,6 +74,11 @@ const UploadModal = ({ isOpen, onClose, onSave, project = null, type = 'project'
                 if (vid.type === 'Upload' && vid.file) {
                     const uploadData = new FormData();
                     uploadData.append('file', vid.file);
+                    uploadData.append('entityType', type === 'project' ? 'Projects' : 'Properties');
+                    uploadData.append('entityName', type === 'project' ? (project?.name || 'Unknown Project') : (project?.unitNo || project?.unitNum || project?.id || 'Unknown Property'));
+                    uploadData.append('docCategory', 'Media');
+                    uploadData.append('docType', 'Videos');
+                    
                     const res = await api.post('/upload', uploadData, { headers: { 'Content-Type': 'multipart/form-data' } });
                     if (res.data && res.data.success) {
                         return { ...vid, url: res.data.url, file: null };
@@ -78,9 +88,16 @@ const UploadModal = ({ isOpen, onClose, onSave, project = null, type = 'project'
             }));
 
             const finalData = {
-                ...formData,
-                projectImages: updatedImages,
-                projectVideos: updatedVideos
+                images: updatedImages.map(img => ({
+                    title: img.title,
+                    category: img.category,
+                    url: img.url
+                })),
+                videos: updatedVideos.map(vid => ({
+                    title: vid.title,
+                    type: vid.type,
+                    url: vid.url
+                }))
             };
 
             onSave(finalData);

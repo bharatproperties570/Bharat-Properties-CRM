@@ -42,6 +42,8 @@ import notificationRoutes from "./routes/notification.routes.js";
 import searchRoutes from "./routes/search.routes.js";
 import salesGoalRoutes from "./routes/salesGoal.routes.js";
 import notificationSettingRoutes from "./routes/notificationSetting.routes.js";
+import publicRoutes from "./routes/public.routes.js";
+import googleSettingsRoutes from "./routes/googleSettings.routes.js";
 
 const app = express();
 
@@ -83,7 +85,7 @@ app.use(cors({
         return callback(null, false);
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-API-KEY'],
     credentials: true
 }));
 
@@ -161,6 +163,8 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/sales-goals", salesGoalRoutes);
 app.use("/api/notification-settings", notificationSettingRoutes);
+app.use("/api/public", publicRoutes);
+app.use("/api/settings/google", googleSettingsRoutes);
 
 import fs from 'fs';
 import path from 'path';

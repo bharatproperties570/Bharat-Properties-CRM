@@ -4,6 +4,7 @@ import { PROPERTY_CATEGORIES } from '../../../constants/propertyConstants';
 import { PROJECTS_LIST } from '../../../constants/projectConstants';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { calculateDistance } from '../../../utils/inventoryFilterLogic';
+import { renderValue } from '../../../utils/renderUtils';
 
 // ==================================================================================
 // STYLES
@@ -160,7 +161,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
                             onMouseLeave={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? '#eff6ff' : 'transparent'}
                         >
                             <input type="checkbox" checked={selected.includes(option)} readOnly style={{ pointerEvents: 'none' }} />
-                            {option}
+                            {renderValue(option)}
                         </div>
                     ))}
                 </div>
@@ -486,7 +487,9 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                                 >
                                     <option value="">Select Outcome</option>
                                     {masterFields.propertyOwnerFeedback?.map(outcome => (
-                                        <option key={outcome} value={outcome}>{outcome}</option>
+                                        <option key={typeof outcome === 'object' ? (outcome._id || outcome.id) : outcome} value={typeof outcome === 'object' ? (outcome._id || outcome.id) : outcome}>
+                                            {renderValue(outcome)}
+                                        </option>
                                     ))}
                                 </select>
                             </div>

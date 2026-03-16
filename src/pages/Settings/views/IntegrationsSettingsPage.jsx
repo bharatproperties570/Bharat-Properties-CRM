@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import contactSyncManager from '../../../services/contactSyncManager';
+import { googleSettingsAPI } from '../../../utils/api';
+import { toast } from 'react-hot-toast';
 
 import smsService from '../../../services/smsService';
 
@@ -432,9 +434,12 @@ const IntegrationsSettingsPage = () => {
         telegram: { status: 'disconnected', label: 'Telegram Bot', icon: 'fab fa-telegram', color: '#0088cc' },
         rcs: { status: 'disconnected', label: 'Google RCS', icon: 'fas fa-comment-dots', color: '#4285F4' },
         messenger: { status: 'disconnected', label: 'FB Messenger', icon: 'fab fa-facebook-messenger', color: '#006AFF' },
-        google_calendar: { status: 'disconnected', label: 'Google Calendar', icon: 'fab fa-google', color: '#4285F4' },
+        google_calendar: { status: 'disconnected', label: 'Google Calendar (Legacy)', icon: 'fab fa-google', color: '#4285F4' },
         apple_calendar: { status: 'disconnected', label: 'iCloud Calendar', icon: 'fab fa-apple', color: '#94a3b8' }
     });
+
+    const [isConnecting, setIsConnecting] = useState(false);
+    const [googleStatus, setGoogleStatus] = useState({ connected: false, email: '' });
 
     const handleConnect = () => {
         // Refresh SMS status if the active modal was twilio (renamed conceptually to sms)
@@ -485,41 +490,72 @@ const IntegrationsSettingsPage = () => {
         }
     };
 
+    const fetchGoogleStatus = async () => {
+        try {
+            const res = await googleSettingsAPI.getStatus();
+            if (res.success) {
+                // Ensure res.data is extracted correctly (getStatus returns direct data via apiRequest)
+                setGoogleStatus({
+                    connected: res.connected ?? false,
+                    email: res.email || '',
+                    ...res
+                });
+            }
+        } catch (err) {
+            console.error('Failed to fetch Google status', err);
+        }
+    };
+
     // Load sync status and SMS status on mount
     useEffect(() => {
         loadSmsStatus();
+        fetchGoogleStatus();
         const status = contactSyncManager.getSyncStatus();
         setSyncConfig({
-            autoSync: status.autoSync,
+            autoSync: status?.autoSync ?? true,
             google: {
-                enabled: status.providers.google.enabled,
-                connected: status.providers.google.connected
+                enabled: status?.providers?.google?.enabled ?? false,
+                connected: status?.providers?.google?.connected ?? false
             },
             apple: {
-                enabled: status.providers.apple.enabled,
-                connected: status.providers.apple.connected
+                enabled: status?.providers?.apple?.enabled ?? false,
+                connected: status?.providers?.apple?.connected ?? false
             }
         });
     }, []);
 
-    // Handle Google Connect
-    const handleGoogleConnect = async () => {
+    // Handle Google Connect (Unified)
+    const handleConnectGoogle = async () => {
+        setIsConnecting(true);
         try {
-            await contactSyncManager.initializeProvider('google', googleCredentials);
-            const result = await contactSyncManager.signIn('google');
-
-            if (result.success) {
-                setSyncConfig(prev => ({
-                    ...prev,
-                    google: { enabled: true, connected: true }
-                }));
-                setShowGoogleConfig(false);
-                alert('✅ Google Contacts connected successfully!');
+            const res = await googleSettingsAPI.getAuthUrl();
+            if (res.success && res.url) {
+                window.location.href = res.url;
             } else {
-                alert('❌ Failed to connect: ' + result.error);
+                toast.error(res.error || 'Failed to get authorization URL');
             }
-        } catch (error) {
-            alert('❌ Error: ' + error.message);
+        } catch (err) {
+            console.error('Unified Google connect error:', err);
+            toast.error('An error occurred while connecting to Google');
+        } finally {
+            setIsConnecting(false);
+        }
+    };
+
+    const handleDisconnectGoogle = async () => {
+        if (!window.confirm('Are you sure you want to disconnect your Google account? This will stop all Google services (Contacts, Calendar, Email, Drive) from syncing.')) return;
+        
+        try {
+            const res = await googleSettingsAPI.disconnect();
+            if (res.success) {
+                toast.success('Google account disconnected');
+                fetchGoogleStatus();
+            } else {
+                toast.error(res.error || 'Failed to disconnect');
+            }
+        } catch (err) {
+            console.error('Google disconnect error:', err);
+            toast.error('An error occurred during disconnection');
         }
     };
 
@@ -658,92 +694,60 @@ const IntegrationsSettingsPage = () => {
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '24px' }}>
-                                {/* Google Contacts */}
-                                <div style={{ background: '#fff', border: '2px solid #e2e8f0', borderRadius: '16px', padding: '24px' }}>
+                                {/* Unified Google Suite Integration */}
+                                <div style={{ background: '#fff', border: '2px solid #e2e8f0', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
                                         <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#4285F410', color: '#4285F4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
                                             <i className="fab fa-google"></i>
                                         </div>
                                         <div style={{
-                                            background: syncConfig.google.connected ? '#ecfdf5' : '#f8fafc',
-                                            color: syncConfig.google.connected ? '#059669' : '#64748b',
+                                            background: googleStatus.connected ? '#ecfdf5' : '#f8fafc',
+                                            color: googleStatus.connected ? '#059669' : '#64748b',
                                             padding: '4px 12px',
                                             borderRadius: '20px',
                                             fontSize: '0.75rem',
                                             fontWeight: 700,
-                                            border: `1px solid ${syncConfig.google.connected ? '#d1fae5' : '#e2e8f0'}`
+                                            border: `1px solid ${googleStatus.connected ? '#d1fae5' : '#e2e8f0'}`
                                         }}>
-                                            {syncConfig.google.connected ? '✓ CONNECTED' : 'NOT CONNECTED'}
+                                            {googleStatus.connected ? '✓ CONNECTED' : 'NOT CONNECTED'}
                                         </div>
                                     </div>
 
-                                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Google Contacts</h3>
+                                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Google Suite Integration</h3>
                                     <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '8px', lineHeight: '1.6' }}>
-                                        Sync contacts to your Google account using People API
+                                        Unified connection for Contacts, Calendar, Gmail, and Drive.
                                     </p>
 
-                                    {!syncConfig.google.connected ? (
-                                        <>
-                                            {!showGoogleConfig ? (
-                                                <button
-                                                    onClick={() => setShowGoogleConfig(true)}
-                                                    style={{ marginTop: '20px', width: '100%', padding: '10px', borderRadius: '8px', border: 'none', background: '#4285F4', color: '#fff', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}
-                                                >
-                                                    <i className="fas fa-link" style={{ marginRight: '8px' }}></i>
-                                                    Connect Google
-                                                </button>
-                                            ) : (
-                                                <div style={{ marginTop: '20px', padding: '16px', background: '#f8fafc', borderRadius: '8px' }}>
-                                                    <div style={{ marginBottom: '12px' }}>
-                                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Client ID</label>
-                                                        <input
-                                                            type="text"
-                                                            placeholder="Your Google OAuth Client ID"
-                                                            value={googleCredentials.clientId}
-                                                            onChange={(e) => setGoogleCredentials({ ...googleCredentials, clientId: e.target.value })}
-                                                            style={{ width: '100%', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem' }}
-                                                        />
-                                                    </div>
-                                                    <div style={{ marginBottom: '12px' }}>
-                                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>API Key</label>
-                                                        <input
-                                                            type="text"
-                                                            placeholder="Your Google API Key"
-                                                            value={googleCredentials.apiKey}
-                                                            onChange={(e) => setGoogleCredentials({ ...googleCredentials, apiKey: e.target.value })}
-                                                            style={{ width: '100%', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem' }}
-                                                        />
-                                                    </div>
-                                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                                        <button
-                                                            onClick={handleGoogleConnect}
-                                                            style={{ flex: 1, padding: '8px', borderRadius: '6px', border: 'none', background: '#4285F4', color: '#fff', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}
-                                                        >
-                                                            Authorize
-                                                        </button>
-                                                        <button
-                                                            onClick={() => setShowGoogleConfig(false)}
-                                                            style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: '0.85rem', cursor: 'pointer' }}
-                                                        >
-                                                            Cancel
-                                                        </button>
-                                                    </div>
+                                    {googleStatus.connected ? (
+                                        <div style={{ marginTop: '20px' }}>
+                                            <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '10px', marginBottom: '16px', border: '1px solid #e2e8f0' }}>
+                                                <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800, marginBottom: '4px' }}>Connected Account</div>
+                                                <div style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 700 }}>{googleStatus.email}</div>
+                                            </div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                                                <div style={{ background: '#f0fdf4', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: '#166534' }}>
+                                                    <i className="fas fa-check-circle"></i> Gmail & Contacts
                                                 </div>
-                                            )}
-                                        </>
-                                    ) : (
-                                        <div style={{ marginTop: '20px', display: 'flex', gap: '8px' }}>
-                                            <button style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', color: '#1e293b', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>
-                                                <i className="fas fa-cog" style={{ marginRight: '8px' }}></i>
-                                                Settings
-                                            </button>
-                                            <button
-                                                onClick={() => handleDisconnect('google')}
-                                                style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #fee2e2', background: '#fff', color: '#dc2626', fontSize: '0.85rem', cursor: 'pointer' }}
+                                                <div style={{ background: '#f0fdf4', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: '#166534' }}>
+                                                    <i className="fas fa-check-circle"></i> Calendar & Drive
+                                                </div>
+                                            </div>
+                                            <button 
+                                                onClick={handleDisconnectGoogle}
+                                                style={{ marginTop: '20px', width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #fee2e2', background: '#fff', color: '#dc2626', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}
                                             >
-                                                <i className="fas fa-unlink"></i>
+                                                Disconnect Account
                                             </button>
                                         </div>
+                                    ) : (
+                                        <button
+                                            onClick={handleConnectGoogle}
+                                            disabled={isConnecting}
+                                            style={{ marginTop: '20px', width: '100%', padding: '12px', borderRadius: '8px', border: 'none', background: '#4285F4', color: '#fff', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', boxShadow: '0 4px 6px rgba(66, 133, 244, 0.2)' }}
+                                        >
+                                            {isConnecting ? <i className="fas fa-spinner fa-spin"></i> : <i className="fab fa-google"></i>}
+                                            Connect Google Suite
+                                        </button>
                                     )}
                                 </div>
 

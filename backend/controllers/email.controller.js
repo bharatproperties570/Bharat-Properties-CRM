@@ -72,7 +72,7 @@ export const oauthCallback = async (req, res) => {
                         <p>Redirecting back to CRM...</p>
                         <script>
                             setTimeout(() => {
-                                window.location.href = 'http://localhost:3000/settings/email?success=true';
+                                window.location.href = 'http://localhost:5174/google-callback?success=true';
                             }, 2000);
                         </script>
                     </div>

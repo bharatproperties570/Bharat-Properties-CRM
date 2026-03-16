@@ -3,7 +3,7 @@ import toast from "react-hot-toast";
 import axios from 'axios';
 import Swal from 'sweetalert2';
 
-import { api } from "../../utils/api";
+import { api, contactsAPI } from "../../utils/api";
 import { getInitials, getSourceBadgeClass } from "../../utils/helpers";
 import { useContactSync } from "../../hooks/useContactSync";
 import ComposeEmailModal from "../Communication/components/ComposeEmailModal";
@@ -200,8 +200,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
       setLoading(true);
       toast.loading("Deleting selected contacts...");
 
-      // Backend still only has single delete, so we keep the loop but maybe parallelize
-      await Promise.all(selectedIds.map(id => api.delete(`contacts/${id}`)));
+      // Use the new bulk delete endpoint instead of looping
+      await api.delete('contacts/bulk', { data: { ids: selectedIds } });
 
       toast.dismiss();
       toast.success("Contacts and associations deleted successfully");
@@ -401,6 +401,26 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
     setIsSendMessageOpen(true);
   };
 
+  const handleSyncAll = async () => {
+    if (isSyncing) return;
+    try {
+      setIsSyncing(true);
+      const response = await contactsAPI.syncAll();
+      if (response.success) {
+        toast.success(response.message || "Sync started in the background");
+        // Keep animation for a bit longer for visual impact
+        setTimeout(() => setIsSyncing(false), 8000);
+      } else {
+        toast.error("Failed to start sync");
+        setIsSyncing(false);
+      }
+    } catch (error) {
+      console.error("Sync error:", error);
+      toast.error("Synchronization failed to start");
+      setIsSyncing(false);
+    }
+  };
+
   return (
     <section id="contactsView" className="view-section active">
       <div className="view-scroll-wrapper">
@@ -413,11 +433,22 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
             </div>
           </div>
           <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
-            {/* Sync Status Indicator */}
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 border border-green-200 rounded-lg">
-              <i className="fas fa-check-circle text-green-600 text-sm"></i>
-              <span className="text-xs font-semibold text-green-700">
-                Synced
+            {/* Futuristic Sync Status Indicator */}
+            <div 
+              className={`sync-status-badge ${isSyncing ? 'syncing' : ''}`}
+              onClick={handleSyncAll}
+              title="Sync all contacts to Google"
+            >
+              <div className="sync-orbit-container">
+                <div className="sync-orbit-ring"></div>
+                {isSyncing ? (
+                  <div className="sync-orbit-dot"></div>
+                ) : (
+                  <i className="fas fa-check-circle sync-icon-static"></i>
+                )}
+              </div>
+              <span className="sync-text">
+                {isSyncing ? 'Syncing...' : 'Google Sync'}
               </span>
             </div>
             {/* View Toggle Button */}

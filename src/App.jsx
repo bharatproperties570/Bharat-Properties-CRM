@@ -15,6 +15,8 @@ import { CallProvider, useCall } from './context/CallContext'; // Import CallPro
 import { ParsingProvider } from './context/ParsingContext'; // Import ParsingProvider
 import { UserProvider, useUserContext } from './context/UserContext';
 import LoginPage from './pages/Auth/LoginPage';
+import ForgotPasswordPage from './pages/Auth/ForgotPasswordPage';
+import ResetPasswordPage from './pages/Auth/ResetPasswordPage';
 import ErrorBoundary from './components/ErrorBoundary';
 import PublicLeadForm from './pages/Public/PublicLeadForm';
 import PublicDealForm from './pages/Public/PublicDealForm';
@@ -64,8 +66,11 @@ const AppContent = () => {
         if (path.startsWith('/public/deal/')) return 'public-deal-form';
         if (path.startsWith('/public/feedback/')) return 'public-feedback-form';
         if (path.startsWith('/capture/')) return 'deal-capture';
+        if (path === '/forgot-password') return 'forgot-password';
+        if (path.startsWith('/reset-password/')) return 'reset-password';
         if (path === '/settings') return 'settings';
         if (path.startsWith('/settings/')) return 'settings';
+        if (path.startsWith('/google-callback')) return 'google-callback';
         if (path === '/marketing') return 'marketing';
         if (path === '/activities') return 'activities';
         return 'dashboard';
@@ -163,6 +168,10 @@ const AppContent = () => {
                 } else if (path.startsWith('/projects/')) {
                     setCurrentView('project-detail');
                     setCurrentContactId(path.split('/').pop());
+                } else if (path === '/forgot-password') {
+                    setCurrentView('forgot-password');
+                } else if (path.startsWith('/reset-password/')) {
+                    setCurrentView('reset-password');
                 } else {
                     setCurrentView('dashboard');
                 }
@@ -206,6 +215,14 @@ const AppContent = () => {
         );
     }
 
+    if (currentView === 'forgot-password') {
+        return <ForgotPasswordPage />;
+    }
+
+    if (currentView === 'reset-password') {
+        return <ResetPasswordPage />;
+    }
+
     if (!token) {
         return <LoginPage />;
     }
@@ -238,7 +255,10 @@ function App() {
                                             <TriggersProvider>
                                                 <UserProvider>
                                                     <CallProvider>
-                                                        <Toaster position="top-right" />
+                                                        <Toaster 
+                                                            position="top-right" 
+                                                            containerStyle={{ zIndex: 999999 }}
+                                                        />
                                                         <AppContent />
                                                         <CallModalWrapper />
                                                     </CallProvider>

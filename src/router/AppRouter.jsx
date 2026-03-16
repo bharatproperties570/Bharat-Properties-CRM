@@ -4,7 +4,7 @@ import React, { Suspense, lazy } from 'react';
 const DashboardPage = lazy(() => import('../pages/Dashboard/DashboardPage'));
 const ContactsPage = lazy(() => import('../pages/Contacts/ContactsPage'));
 const LeadsPage = lazy(() => import('../pages/Leads/LeadsPage'));
-const FormsPage = lazy(() => import('../pages/Forms/FormsPage'));
+// FormsPage removed
 const DealsPage = lazy(() => import('../pages/Deals/DealsPage'));
 const CompanyPage = lazy(() => import('../pages/Company/CompanyPage'));
 const AccountPage = lazy(() => import('../pages/Account/AccountPage'));
@@ -26,6 +26,7 @@ const LeadMatchingPage = lazy(() => import('../pages/Leads/views/LeadMatchingPag
 const DealDetailPage = lazy(() => import('../pages/Deals/DealDetailPage'));
 const ProjectDetailPage = lazy(() => import('../pages/Projects/ProjectDetailPage'));
 const CompanyDetailPage = lazy(() => import('../pages/Company/CompanyDetailPage'));
+const GoogleCallback = lazy(() => import('../pages/Settings/GoogleCallback'));
 
 // Settings Sub-Pages
 const EmailSettingsPage = lazy(() => import('../pages/Settings/views/EmailSettingsPage'));
@@ -77,8 +78,6 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
                 />;
             case 'leads':
                 return <LeadsPage onAddActivity={onAddActivity} onEdit={onEditContact} onNavigate={onNavigate} />;
-            case 'forms':
-                return <FormsPage />;
             case 'deals':
                 return <DealsPage onNavigate={onNavigate} onAddActivity={onAddActivity} />;
             case 'deal-matching':
@@ -155,6 +154,8 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
                 return <VoiceSettingsPage onBack={() => onNavigate('settings')} />;
             case 'settings-enrichment':
                 return <EnrichmentSettingsPage onBack={() => onNavigate('settings')} />;
+            case 'google-callback':
+                return <GoogleCallback onNavigate={onNavigate} />;
 
             default:
                 return <DashboardPage />;

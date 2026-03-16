@@ -16,11 +16,20 @@ router.post('/', uploadGeneric.single('file'), async (req, res) => {
             return res.status(400).json({ success: false, error: 'No file uploaded.' });
         }
 
-        const fileLink = await uploadFileToDrive(req.file);
+        const { entityType, entityName, folderId, docCategory, docType } = req.body;
+        const result = await uploadFileToDrive(req.file, { 
+            entityType, 
+            entityName, 
+            folderId,
+            docCategory,
+            docType
+        });
 
         res.status(200).json({
             success: true,
-            url: fileLink,
+            url: result.url,
+            fileId: result.id,
+            downloadUrl: result.downloadUrl,
             fileName: req.file.originalname,
             mimeType: req.file.mimetype
         });
@@ -41,11 +50,20 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
             return res.status(400).json({ success: false, error: 'No files uploaded.' });
         }
 
-        const uploadPromises = req.files.map(file => uploadFileToDrive(file));
-        const fileLinks = await Promise.all(uploadPromises);
+        const { entityType, entityName, folderId, docCategory, docType } = req.body;
+        const uploadPromises = req.files.map(file => uploadFileToDrive(file, { 
+            entityType, 
+            entityName, 
+            folderId,
+            docCategory,
+            docType
+        }));
+        const results = await Promise.all(uploadPromises);
 
         const result = req.files.map((file, index) => ({
-            url: fileLinks[index],
+            url: results[index].url,
+            fileId: results[index].id,
+            downloadUrl: results[index].downloadUrl,
             fileName: file.originalname,
             mimeType: file.mimetype
         }));

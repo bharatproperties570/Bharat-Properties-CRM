@@ -157,7 +157,7 @@ export const submitForm = async (req, res, next) => {
         // 3. Update Analytics
         form.analytics.submissions += 1;
         // Optimization: simple conversion logic - views/submissions
-        form.analytics.conversions = Math.round((form.analytics.submissions / form.analytics.views) * 100);
+        form.analytics.conversions = Math.round((form.analytics.submissions / Math.max(1, form.analytics.views)) * 100);
         await form.save();
 
         // 4. Trigger Engines -> Moved to Background Event Queue

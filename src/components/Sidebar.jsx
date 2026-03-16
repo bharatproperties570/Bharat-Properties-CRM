@@ -1,24 +1,27 @@
 import React from 'react';
 import { Home, Users, BarChart3, Settings, Grid, MessageSquare } from 'lucide-react';
-// Note: We use lucide-react, but the legacy CSS uses FontAwesome classes.
-// For pixel perfection, we should ideally use the same icons or similar.
-// Since we have FontAwesome CSS loaded (via index.css -> font-awesome), we can specificy <i> tags too.
-// However, the prompt migration plan suggested lucide.
-// Let's stick to the CSS classes for now to match exactly what the user had (FontAwesome).
-// If we want to use Lucide, we need to adapt the CSS.
-// Strategy: Use the <i> tags from the original HTML to guarantee match.
+import logo from '../assets/logo.png';
 
 function Sidebar({ currentView, onNavigate }) {
     return (
         <nav className="sidebar">
             {/* Platform Logo */}
-            <div className="sidebar-logo">
+            <div className="sidebar-logo" style={{ 
+                padding: '10px 0', 
+                display: 'flex', 
+                justifyContent: 'center',
+                borderBottom: '1px solid rgba(255,255,255,0.05)',
+                marginBottom: '5px'
+            }}>
                 <img 
-                    src="/src/assets/logo.png" 
-                    alt="Logo" 
+                    src={logo} 
+                    alt="Bharat Properties Logo" 
                     className="logo-img" 
                     style={{ 
-                        filter: 'brightness(1.2) saturate(1.6) contrast(0.9) drop-shadow(0 0 10px rgba(59, 130, 246, 0.4))',
+                        width: '38px',
+                        height: '38px',
+                        objectFit: 'contain',
+                        filter: 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3))',
                         transition: 'all 0.3s ease'
                     }}
                 />
@@ -89,14 +92,6 @@ function Sidebar({ currentView, onNavigate }) {
                     title="Activities"
                 >
                     <i className="fas fa-tasks"></i>
-                </a>
-                <a
-                    href="#"
-                    className={`sidebar-icon ${currentView === 'forms' ? 'active' : ''}`}
-                    onClick={(e) => { e.preventDefault(); onNavigate('forms'); }}
-                    title="Forms"
-                >
-                    <i className="fas fa-clipboard-list"></i>
                 </a>
                 <a
                     href="#"

@@ -105,6 +105,58 @@ function DealsPage({ onNavigate, onAddActivity }) {
         }
     }, [currentPage, recordsPerPage, searchTerm, refreshTrigger]);
 
+    const handleSaveUploads = async (mediaData) => {
+        try {
+            const dealId = selectedIds[0];
+            const response = await api.put(`deals/${dealId}`, {
+                propertyImages: mediaData.images,
+                propertyVideos: mediaData.videos
+            });
+
+            if (response.data.success) {
+                toast.success("Files uploaded and saved successfully");
+                fetchDeals();
+            } else {
+                toast.error("Failed to save file links to deal");
+            }
+        } catch (error) {
+            console.error("Error saving uploads:", error);
+            toast.error("Error saving uploaded files");
+        } finally {
+            setIsUploadModalOpen(false);
+            setSelectedIds([]);
+        }
+    };
+
+    const handleSaveDocuments = async (documents) => {
+        try {
+            const dealId = selectedIds[0];
+            const formattedDocs = documents.map(doc => ({
+                name: doc.documentName || doc.documentType || 'Document',
+                type: doc.documentType || 'General',
+                url: doc.url,
+                uploadedAt: new Date()
+            }));
+
+            const response = await api.put(`deals/${dealId}`, {
+                documents: formattedDocs
+            });
+
+            if (response.data.success) {
+                toast.success("Documents saved successfully");
+                fetchDeals();
+            } else {
+                toast.error("Failed to save documents to deal");
+            }
+        } catch (error) {
+            console.error("Error saving documents:", error);
+            toast.error("Error saving documents");
+        } finally {
+            setIsDocumentModalOpen(false);
+            setSelectedIds([]);
+        }
+    };
+
     const getTeamName = useCallback((teamValue) => {
         if (!teamValue) return "General Team";
         if (typeof teamValue === 'object') {
@@ -272,23 +324,6 @@ function DealsPage({ onNavigate, onAddActivity }) {
         }
     };
 
-    const handleSaveUploads = (data) => {
-        if (!selectedDealState) return;
-        const updatedDeals = deals.map(d =>
-            d.id === selectedDealState.id ? { ...d, ...data } : d
-        );
-        setDeals(updatedDeals);
-        toast.success('Media uploaded successfully');
-    };
-
-    const handleSaveDocuments = (docs) => {
-        if (!selectedDealState) return;
-        const updatedDeals = deals.map(d =>
-            d.id === selectedDealState.id ? { ...d, inventoryDocuments: docs } : d
-        );
-        setDeals(updatedDeals);
-        toast.success('Documents updated successfully');
-    };
 
     const totalPages = Math.ceil(totalRecords / recordsPerPage);
 

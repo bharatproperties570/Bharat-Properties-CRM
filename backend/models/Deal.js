@@ -141,6 +141,19 @@ const DealSchema = new mongoose.Schema({
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     visibleTo: { type: String, default: "Public" },
+    
+    // Website Integration
+    isPublished: { type: Boolean, default: false, index: true },
+    publishedAt: { type: Date },
+    websiteMetadata: {
+        title: String,
+        slug: { type: String, unique: true, sparse: true },
+        description: String,
+        featuredImage: String,
+        tags: [String],
+        metaTitle: String,
+        metaDescription: String
+    },
 
     remarks: String,
     date: { type: Date, default: Date.now },

@@ -4,7 +4,7 @@ import axios from 'axios';
 const isProd = import.meta.env.PROD;
 // In production, we default to the relative '/api' which is then proxied by vercel.json
 // or we use the explicit VITE_API_URL if provided in the Vercel dashboard environments.
-export const API_BASE_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : 'http://localhost:4001/api');
+export const API_BASE_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : 'http://localhost:4000/api');
 
 // Notification APIs
 export const getNotifications = () => api.get('/notifications');
@@ -113,7 +113,16 @@ const apiRequest = async (endpoint, options = {}) => {
 
             return text;
         } catch (error) {
-            console.error(`API Error [${endpoint}]:`, error);
+            const cleanBaseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+            const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+            const fullUrl = `${cleanBaseUrl}${cleanEndpoint}`;
+            
+            console.error(`❌ API Error [${endpoint}]:`, {
+                message: error.message,
+                url: fullUrl,
+                baseUrl: API_BASE_URL,
+                stack: error.stack
+            });
             throw error;
         } finally {
             if (cacheKey) pendingRequests.delete(cacheKey);
@@ -198,6 +207,14 @@ export const systemSettingsAPI = {
     delete: (key) => apiRequest(`/system-settings/${key}`, { method: 'DELETE' }),
 };
 
+// Google Integration Settings API
+export const googleSettingsAPI = {
+    getAuthUrl: () => apiRequest('/settings/google/url'),
+    handleCallback: (code) => apiRequest('/settings/google/callback', { method: 'POST', body: JSON.stringify({ code }) }),
+    getStatus: () => apiRequest('/settings/google/status'),
+    disconnect: () => apiRequest('/settings/google/disconnect', { method: 'POST' }),
+};
+
 // Users API
 export const usersAPI = {
     getAll: () => apiRequest('/users'),
@@ -252,6 +269,7 @@ export const contactsAPI = {
     create: (data) => apiRequest('/contacts', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => apiRequest(`/contacts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => apiRequest(`/contacts/${id}`, { method: 'DELETE' }),
+    syncAll: () => apiRequest('/contacts/sync-all', { method: 'POST' }),
 };
 
 // Activities API
@@ -373,5 +391,6 @@ export default {
     deals: dealsAPI,
     enrichment: enrichmentAPI,
     parsingRules: parsingRulesAPI,
-    intake: intakeAPI
+    intake: intakeAPI,
+    googleSettings: googleSettingsAPI
 };

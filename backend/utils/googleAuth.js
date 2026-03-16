@@ -1,0 +1,66 @@
+import { google } from 'googleapis';
+import SystemSetting from '../models/SystemSetting.js';
+
+/**
+ * Shared Google OAuth2 Client Utility
+ * Tries to get tokens from SystemSetting (google_integration) or fall back to .env
+ */
+export const getOAuth2Client = async () => {
+    try {
+        const clientId = process.env.GOOGLE_CLIENT_ID;
+        const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+        
+        // 1. Check SystemSetting for unified config (User-configured)
+        const unifiedConfig = await SystemSetting.findOne({ key: 'google_integration' }).lean();
+        
+        // Use tokens from DB if available, otherwise fallback to .env refresh token
+        const refreshToken = unifiedConfig?.value?.tokens?.refresh_token || process.env.GOOGLE_REFRESH_TOKEN;
+
+        if (clientId && clientSecret && refreshToken) {
+            const oauth2Client = new google.auth.OAuth2(
+                clientId,
+                clientSecret,
+                process.env.GOOGLE_REDIRECT_URI || 'http://localhost:4000/api/email/oauth/callback'
+            );
+
+            oauth2Client.setCredentials({
+                refresh_token: refreshToken
+            });
+
+            return oauth2Client;
+        }
+
+        console.warn('[googleAuth] Credentials missing (ClientId, Secret, or RefreshToken).');
+        return null;
+    } catch (error) {
+        console.error('[googleAuth] Error initializing OAuth2 Client:', error.message);
+        return null;
+    }
+};
+
+export const getPeopleService = async () => {
+    const auth = await getOAuth2Client();
+    if (!auth) return null;
+    return google.people({ version: 'v1', auth });
+};
+
+export const getCalendarService = async () => {
+    const auth = await getOAuth2Client();
+    if (!auth) return null;
+    return google.calendar({ version: 'v3', auth });
+};
+
+export const getDriveService = async () => {
+    const auth = await getOAuth2Client();
+    if (!auth) return null;
+    return google.drive({ version: 'v3', auth });
+};
+
+/**
+ * Get Gmail service using unified auth
+ */
+export const getGmailService = async () => {
+    const auth = await getOAuth2Client();
+    if (!auth) return null;
+    return google.gmail({ version: 'v1', auth });
+};

@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { toast } from 'react-hot-toast';
 import { LucidePlus, LucideTrash2, LucideSettings, LucideMoveUp, LucideMoveDown, LucideChevronLeft, LucideSave, LucideEye } from 'lucide-react';
 import { api } from '../../utils/api';

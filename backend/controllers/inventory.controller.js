@@ -9,6 +9,7 @@ import { paginate } from "../utils/pagination.js";
 import mongoose from "mongoose";
 import Deal from "../models/Deal.js";
 import DuplicationRule from "../models/DuplicationRule.js";
+import { syncDocumentsToContact } from "../utils/sync.js";
 
 
 // ROBUST FILTER RESOLUTION (Handle both Names and IDs)
@@ -373,6 +374,17 @@ export const addInventory = async (req, res) => {
         }
 
         let inventory = await Inventory.create(data);
+
+        // Trigger Sync if documents were provided during creation
+        if (data.inventoryDocuments && Array.isArray(data.inventoryDocuments)) {
+            const metadata = {
+                projectName: inventory.projectName,
+                block: inventory.block,
+                unitNumber: inventory.unitNo || inventory.unitNumber
+            };
+            await syncDocumentsToContact(data.inventoryDocuments, metadata);
+        }
+
         inventory = await inventory.populate(populateFields);
         res.status(201).json({ success: true, data: inventory });
 
@@ -432,6 +444,16 @@ export const updateInventory = async (req, res) => {
 
         if (!inventory) {
             return res.status(404).json({ success: false, error: "Inventory item not found" });
+        }
+
+        // Trigger Sync if documents were updated
+        if (data.inventoryDocuments && Array.isArray(data.inventoryDocuments)) {
+            const metadata = {
+                projectName: inventory.projectName,
+                block: inventory.block,
+                unitNumber: inventory.unitNo || inventory.unitNumber
+            };
+            await syncDocumentsToContact(data.inventoryDocuments, metadata);
         }
 
         res.status(200).json({ success: true, data: inventory });
@@ -552,6 +574,9 @@ export const matchInventory = async (req, res) => {
 
 
 // Helper to resolve lookup (Find or Create)
+// Optimized with in-memory cache for bulk operations
+const lookupCache = new Map(); // Key: "type:value" -> ID
+
 const resolveLookup = async (type, value) => {
     if (!value) return null;
 
@@ -564,11 +589,17 @@ const resolveLookup = async (type, value) => {
     }
 
     if (mongoose.Types.ObjectId.isValid(value)) return value;
+
+    const cacheKey = `${type}:${value.toLowerCase()}`;
+    if (lookupCache.has(cacheKey)) return lookupCache.get(cacheKey);
+
     const escapedValue = escapeRegExp(value);
     let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } });
     if (!lookup) {
         lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
     }
+
+    lookupCache.set(cacheKey, lookup._id);
     return lookup._id;
 };
 
@@ -654,6 +685,9 @@ export const importInventory = async (req, res) => {
         }
 
         console.log(`[IMPORT] Received ${data.length} items for import`);
+        
+        // Clear cache for a fresh import session
+        lookupCache.clear();
 
         // Fetch property sizes from Lookups for auto-populating area details
         const sizeLookups = await Lookup.find({ lookup_type: 'Size' }).lean();
@@ -664,19 +698,18 @@ export const importInventory = async (req, res) => {
         }));
 
         const restructuredData = [];
+        const errors = [];
 
         for (let i = 0; i < data.length; i++) {
             const item = data[i];
             try {
                 const result = {
-                    // Ensure project names and IDs are handled consistently
                     projectName: item.projectName || item.project || item['Project Name'],
                     projectId: item.projectId,
                     unitNo: item.unitNo || item.unitNumber || item['Unit No'] || item['Unit No*'],
                     unitNumber: item.unitNo || item.unitNumber || item['Unit No'] || item['Unit No*'],
                     builtupType: item.builtupType || item['Builtup Type'],
 
-                    // Pricing mapping
                     price: {
                         value: parseFloat(item.price || item.value || item['Price'] || item['Asking Price'] || 0),
                         currency: item.currency || 'INR'
@@ -690,7 +723,6 @@ export const importInventory = async (req, res) => {
                         currency: item.currency || 'INR'
                     },
 
-                    // Size & Specs mapping
                     size: {
                         value: parseFloat(item.size || item.plotArea || item['Size'] || item['Plot Area'] || 0),
                         unit: item.sizeUnit || item.unit || item['Size Unit'] || 'Sq.Ft.'
@@ -714,13 +746,11 @@ export const importInventory = async (req, res) => {
                     block: item.block || item['Block'],
                     ownership: item.ownership || item['Ownership'],
 
-                    // Construction Details
                     occupationDate: item.occupationDate || item['Occupation Date'],
                     possessionStatus: item.possessionStatus || item['Possession Status'],
                     furnishType: item.furnishType || item['Furnish Type'],
                     furnishedItems: item.furnishedItems || item['Furnished Items'],
 
-                    // Location Details
                     address: {
                         hNo: item.hNo || item['H No'],
                         street: item.street || item['Street'],
@@ -746,12 +776,10 @@ export const importInventory = async (req, res) => {
                     visibleTo: item.visibleTo || item['Visible To'] || 'Everyone'
                 };
 
-                // Resolve Lookups
                 result.category = await resolveLookup('Category', item.category || item.type || item['Category'] || item['Property Category']);
                 result.subCategory = await resolveLookup('SubCategory', item.subCategory || item['SubCategory'] || item['Property Category']);
                 result.unitType = await resolveLookup('UnitType', item.unitType || item['Unit Type']);
 
-                // Professional Size Alignment with Project/Block matching
                 const sizeResult = await resolveSizeLookup(
                     item.sizeLabel || item.sizeConfig || item['Size Label'] || item['Size Label*'],
                     result.projectName,
@@ -760,7 +788,6 @@ export const importInventory = async (req, res) => {
                 result.sizeConfig = sizeResult?.id;
                 result.status = await resolveLookup('Status', item.status || item['Status'] || 'Inactive');
 
-                // Auto-populate Dimensions/Area from Size Metadata if missing in CSV
                 if (sizeResult?.metadata) {
                     const meta = sizeResult.metadata;
                     if (!result.length && meta.length) result.length = parseFloat(meta.length);
@@ -769,23 +796,19 @@ export const importInventory = async (req, res) => {
                         result.size.value = parseFloat(meta.totalArea);
                         result.size.unit = meta.resultMetric || result.sizeUnit;
                     }
-                    // Also populate saleable/covered if applicable
                     if (result.totalSaleableArea.value === 0 && meta.saleableArea) result.totalSaleableArea.value = parseFloat(meta.saleableArea);
                     if (result.builtUpArea.value === 0 && meta.coveredArea) result.builtUpArea.value = parseFloat(meta.coveredArea);
                     if (result.carpetArea.value === 0 && meta.carpetArea) result.carpetArea.value = parseFloat(meta.carpetArea);
                 }
 
-                // Mapping orientation/facing fields
                 result.facing = await resolveLookup('Facing', item.facing || item['Facing'] || item['Orientation']);
                 result.direction = await resolveLookup('Direction', item.direction || item['Direction'] || item['Orientation']);
                 result.orientation = await resolveLookup('Orientation', item.orientation || item['Orientation']);
                 result.roadWidth = await resolveLookup('RoadWidth', item.roadWidth || item['Road Width'] || item['RoadWidth']);
                 result.intent = await resolveLookup('Intent', item.intent || item['Intent']);
 
-                // Resolve User for AssignedTo
                 result.assignedTo = await resolveUser(item.assignedTo);
 
-                // Handle Owner Creation/Linking
                 if (item.ownerName || item.ownerPhone || item.ownerEmail) {
                     try {
                         const query = [];
@@ -816,26 +839,22 @@ export const importInventory = async (req, res) => {
                     }
                 }
 
-                // AUTO-POPULATE FROM SYSTEM SIZES
                 if (item.sizeLabel) {
                     result.sizeLabel = item.sizeLabel;
                     const currentProjectName = result.projectName;
-                    // Find matching size by Label, Project, and Block
                     const matchedSize = systemSizes.find(s =>
                         s.name === item.sizeLabel &&
                         (s.project === currentProjectName || s.project === 'Global')
                     );
 
                     if (matchedSize) {
-                        // Overwrite if matched
                         if (matchedSize.unitType) result.unitType = await resolveLookup('Size', matchedSize.unitType);
-                        result.builtUpArea = matchedSize.coveredArea || matchedSize.saleableArea; // Fallback
+                        result.builtUpArea = matchedSize.coveredArea || matchedSize.saleableArea; 
                         result.carpetArea = matchedSize.carpetArea;
                         result.superArea = matchedSize.saleableArea || matchedSize.totalArea;
                         if (matchedSize.category) result.category = await resolveLookup('Category', matchedSize.category);
                         if (matchedSize.subCategory) result.subCategory = await resolveLookup('SubCategory', matchedSize.subCategory);
 
-                        // If plot type, use totalArea and resultMetric
                         if (matchedSize.totalArea) {
                             result.size = {
                                 value: parseFloat(matchedSize.totalArea),
@@ -851,10 +870,19 @@ export const importInventory = async (req, res) => {
                 if (i % 50 === 0) console.log(`[IMPORT] Processed ${i}/${data.length} items`);
             } catch (itemErr) {
                 console.error(`[IMPORT] Critical error in item restructuring at index ${i}:`, itemErr);
+                errors.push({
+                    row: i + 1,
+                    name: item.unitNo || item.unitNumber || `Row ${i + 1}`,
+                    reason: itemErr.message
+                });
             }
         }
 
         console.log(`[IMPORT] Restructuring complete. Preparing bulk operations for ${restructuredData.length} documents...`);
+
+        if (restructuredData.length === 0) {
+             return res.status(400).json({ success: false, message: "No valid data to import", errors });
+        }
 
         const bulkOps = restructuredData.map(item => ({
             updateOne: {
@@ -871,21 +899,22 @@ export const importInventory = async (req, res) => {
             }
         }));
 
-        const result = await Inventory.bulkWrite(bulkOps, { ordered: false });
+        const bulkResult = await Inventory.bulkWrite(bulkOps, { ordered: false });
 
-        const successCount = (result.upsertedCount || 0) + (result.modifiedCount || 0);
-        const newCount = result.upsertedCount || 0;
-        const updatedCount = result.modifiedCount || 0;
+        const successCount = (bulkResult.upsertedCount || 0) + (bulkResult.modifiedCount || 0);
+        const newCount = bulkResult.upsertedCount || 0;
+        const updatedCount = bulkResult.modifiedCount || 0;
 
         console.log(`[IMPORT] Bulk write complete. New: ${newCount}, Updated: ${updatedCount}`);
 
         res.status(200).json({
             success: true,
-            message: `Import complete: ${newCount} added, ${updatedCount} updated.`,
+            message: `Import complete: ${newCount} added, ${updatedCount} updated. ${errors.length > 0 ? errors.length + ' failed.' : ''}`,
             successCount: successCount,
             newCount,
             updatedCount,
-            errorCount: 0
+            errorCount: errors.length,
+            errors
         });
     } catch (error) {
         console.error("Inventory Import Fatal Error:", error);

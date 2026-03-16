@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
+import { api } from '../utils/api';
+import toast from 'react-hot-toast';
 
 function AddDocumentModal({ isOpen, onClose, onSave, project }) {
     const { projectMasterFields } = usePropertyConfig();
@@ -19,14 +21,32 @@ function AddDocumentModal({ isOpen, onClose, onSave, project }) {
         }
     }, [isOpen, project]);
 
-    const handleSave = () => {
+    const handleSave = async () => {
         setIsLoading(true);
-        // Simulate API call
-        setTimeout(() => {
-            onSave(documents);
-            setIsLoading(false);
+        const toastId = toast.loading('Uploading documents to Google Drive...');
+        try {
+            const updatedDocs = await Promise.all(documents.map(async (doc) => {
+                if (doc.file) {
+                    const uploadData = new FormData();
+                    uploadData.append('file', doc.file);
+                    const response = await api.post('/upload', uploadData, {
+                        headers: { 'Content-Type': 'multipart/form-data' }
+                    });
+                    if (response.data && response.data.success) {
+                        return { ...doc, url: response.data.url, file: null };
+                    }
+                }
+                return doc;
+            }));
+            onSave(updatedDocs);
+            toast.success('Documents uploaded successfully!', { id: toastId });
             onClose();
-        }, 800);
+        } catch (error) {
+            console.error("Upload error:", error);
+            toast.error(error.response?.data?.error || "Failed to upload documents", { id: toastId });
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     if (!isOpen) return null;
