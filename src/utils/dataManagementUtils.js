@@ -376,20 +376,50 @@ export const parseCSV = (file) => {
                 return reject('File is empty');
             }
 
-            const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+            // Robust CSV parser using regex to handle quoted fields with commas
+            const splitCsvLine = (line) => {
+                const result = [];
+                let startValueIndex = 0;
+                let inQuotes = false;
+                
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        let value = line.substring(startValueIndex, i).trim();
+                        // Remove surrounding quotes
+                        if (value.startsWith('"') && value.endsWith('"')) {
+                            value = value.substring(1, value.length - 1).replace(/""/g, '"');
+                        }
+                        result.push(value);
+                        startValueIndex = i + 1;
+                    }
+                }
+                
+                // Add the last field
+                let lastValue = line.substring(startValueIndex).trim();
+                if (lastValue.startsWith('"') && lastValue.endsWith('"')) {
+                    lastValue = lastValue.substring(1, lastValue.length - 1).replace(/""/g, '"');
+                }
+                result.push(lastValue);
+                return result;
+            };
+
+            const headers = splitCsvLine(lines[0]);
             const data = [];
 
             for (let i = 1; i < lines.length; i++) {
-                const row = lines[i].split(',');
-                // Handle basic CSV escaping (this is a simple parser, comprehensive CSV parsing might utilize a library like PapaParse in a real app)
-                // For now, we assume simple comma separation
+                const row = splitCsvLine(lines[i]);
 
                 if (row.length === headers.length) {
                     const rowData = {};
                     row.forEach((value, index) => {
-                        rowData[headers[index]] = value.trim().replace(/^"|"$/g, '');
+                        rowData[headers[index]] = value;
                     });
                     data.push(rowData);
+                } else if (row.length > 0) {
+                    console.warn(`Row ${i} has ${row.length} columns, expected ${headers.length}. Skipping.`);
                 }
             }
 
@@ -403,6 +433,7 @@ export const parseCSV = (file) => {
         reader.readAsText(file);
     });
 };
+
 
 // --- CSV Generation ---
 

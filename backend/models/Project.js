@@ -30,7 +30,7 @@ const ProjectSchema = new mongoose.Schema({
     approvedBank: String,
 
     // System Details
-    owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    owner: { type: mongoose.Schema.Types.Mixed, ref: 'User' },
     assign: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     team: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
     visibleTo: String,
@@ -138,6 +138,25 @@ const ProjectSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
+// Middleware to recursively convert empty strings to null
+const sanitizeData = (obj) => {
+    if (!obj || typeof obj !== "object") return;
+
+    for (const key in obj) {
+        // Skip internal mongoose properties and methods
+        if (key.startsWith('$') || key.startsWith('_')) continue;
+
+        if (obj[key] === "") {
+            obj[key] = null;
+        } else if (obj[key] && typeof obj[key] === "object") {
+            // Avoid circular references and deep recursion by limiting to own properties
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                sanitizeData(obj[key]);
+            }
+        }
+    }
+};
+
 // Helper to resolve lookup (Find or Create)
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -158,6 +177,7 @@ const resolveLookupLocal = async (type, value) => {
 
 // Middleware to resolve lookup names to IDs before saving
 ProjectSchema.pre('save', async function (next) {
+    sanitizeData(this);
     if (this.status && typeof this.status === 'string') this.status = await resolveLookupLocal('ProjectStatus', this.status);
     if (this.parkingType && typeof this.parkingType === 'string') this.parkingType = await resolveLookupLocal('ParkingType', this.parkingType);
     if (this.unitType && typeof this.unitType === 'string') this.unitType = await resolveLookupLocal('UnitType', this.unitType);
@@ -175,6 +195,7 @@ ProjectSchema.pre('save', async function (next) {
 ProjectSchema.pre('findOneAndUpdate', async function (next) {
     const update = this.getUpdate();
     if (!update) return next();
+    sanitizeData(update);
 
     if (update.status && typeof update.status === 'string') update.status = await resolveLookupLocal('ProjectStatus', update.status);
     if (update.parkingType && typeof update.parkingType === 'string') update.parkingType = await resolveLookupLocal('ParkingType', update.parkingType);

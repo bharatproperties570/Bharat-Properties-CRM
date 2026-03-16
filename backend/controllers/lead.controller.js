@@ -608,83 +608,95 @@ export const importLeads = async (req, res, next) => {
 
         const bulkOps = [];
         const processedData = [];
+        const errors = [];
+        for (let i = 0; i < data.length; i++) {
 
-        for (const item of data) {
-            const firstName = item.name || item.firstName || '';
-            const lastName = item.surname || item.lastName || '';
+            const item = data[i];
+            try {
+                const firstName = item.name || item.firstName || '';
+                const lastName = item.surname || item.lastName || '';
 
-            const leadEntry = {
-                salutation: item.title || item.salutation || 'Mr.',
-                firstName: firstName,
-                lastName: lastName,
-                mobile: item.mobile,
-                email: item.email,
-                description: item.description,
-                projectName: item.projectName ? (Array.isArray(item.projectName) ? item.projectName : [item.projectName]) : [],
+                const leadEntry = {
+                    salutation: item.title || item.salutation || 'Mr.',
+                    firstName: firstName,
+                    lastName: lastName,
+                    mobile: item.mobile,
+                    email: item.email,
+                    description: item.description,
+                    projectName: item.projectName ? (Array.isArray(item.projectName) ? item.projectName : [item.projectName]) : [],
 
-                // Location Fields
-                locCity: item.locCity || item.city,
-                locArea: item.locArea || item.area,
-                locBlock: item.locBlock ? (Array.isArray(item.locBlock) ? item.locBlock : [item.locBlock]) : [],
-                locPinCode: item.locPinCode || item.pinCode,
-                locState: item.locState || item.state,
-                locCountry: item.locCountry || item.country,
-                searchLocation: item.searchLocation,
+                    // Location Fields
+                    locCity: item.locCity || item.city,
+                    locArea: item.locArea || item.area,
+                    locBlock: item.locBlock ? (Array.isArray(item.locBlock) ? item.locBlock : [item.locBlock]) : [],
+                    locPinCode: item.locPinCode || item.pinCode,
+                    locState: item.locState || item.state,
+                    locCountry: item.locCountry || item.country,
+                    searchLocation: item.searchLocation,
 
-                // Property/Requirement Fields
-                budgetMin: Number(item.budgetMin) || undefined,
-                budgetMax: Number(item.budgetMax) || undefined,
-                areaMin: Number(item.areaMin) || undefined,
-                areaMax: Number(item.areaMax) || undefined,
-                areaMetric: item.areaMetric || 'Sq Yard',
-                propertyType: item.propertyType ? (Array.isArray(item.propertyType) ? item.propertyType : item.propertyType.split(',').map(t => t.trim())) : [],
-                subType: item.subType ? (Array.isArray(item.subType) ? item.subType : item.subType.split(',').map(t => t.trim())) : [],
-                unitType: item.unitType ? (Array.isArray(item.unitType) ? item.unitType : item.unitType.split(',').map(t => t.trim())) : [],
-                facing: item.facing ? (Array.isArray(item.facing) ? item.facing : item.facing.split(',').map(t => t.trim())) : [],
-                roadWidth: item.roadWidth ? (Array.isArray(item.roadWidth) ? item.roadWidth : item.roadWidth.split(',').map(t => t.trim())) : [],
-                direction: item.direction ? (Array.isArray(item.direction) ? item.direction : item.direction.split(',').map(t => t.trim())) : [],
+                    // Property/Requirement Fields
+                    budgetMin: Number(item.budgetMin) || undefined,
+                    budgetMax: Number(item.budgetMax) || undefined,
+                    areaMin: Number(item.areaMin) || undefined,
+                    areaMax: Number(item.areaMax) || undefined,
+                    areaMetric: item.areaMetric || 'Sq Yard',
+                    propertyType: item.propertyType ? (Array.isArray(item.propertyType) ? item.propertyType : item.propertyType.split(',').map(t => t.trim())) : [],
+                    subType: item.subType ? (Array.isArray(item.subType) ? item.subType : item.subType.split(',').map(t => t.trim())) : [],
+                    unitType: item.unitType ? (Array.isArray(item.unitType) ? item.unitType : item.unitType.split(',').map(t => t.trim())) : [],
+                    facing: item.facing ? (Array.isArray(item.facing) ? item.facing : item.facing.split(',').map(t => t.trim())) : [],
+                    roadWidth: item.roadWidth ? (Array.isArray(item.roadWidth) ? item.roadWidth : item.roadWidth.split(',').map(t => t.trim())) : [],
+                    direction: item.direction ? (Array.isArray(item.direction) ? item.direction : item.direction.split(',').map(t => t.trim())) : [],
 
-                purpose: item.purpose,
-                nri: item.nri === 'Yes' || item.nri === true,
-                funding: item.funding,
-                timeline: item.timeline,
-                furnishing: item.furnishing,
-                transactionType: item.transactionType,
+                    purpose: item.purpose,
+                    nri: item.nri === 'Yes' || item.nri === true,
+                    funding: item.funding,
+                    timeline: item.timeline,
+                    furnishing: item.furnishing,
+                    transactionType: item.transactionType,
 
-                team: item.team ? (Array.isArray(item.team) ? item.team : item.team.split(',').map(t => t.trim())) : [],
-                visibleTo: item.visibleTo || 'Everyone',
-                notes: item.notes || item.remarks,
-                tags: item.tags ? (Array.isArray(item.tags) ? item.tags : item.tags.split(',').map(t => t.trim())) : [],
-            };
+                    team: item.team ? (Array.isArray(item.team) ? item.team : item.team.split(',').map(t => t.trim())) : [],
+                    visibleTo: item.visibleTo || 'Everyone',
+                    notes: item.notes || item.remarks,
+                    tags: item.tags ? (Array.isArray(item.tags) ? item.tags : item.tags.split(',').map(t => t.trim())) : [],
+                };
 
-            // Inject "Import" tag
-            if (!leadEntry.tags.includes('Import')) leadEntry.tags.push('Import');
+                // Inject "Import" tag
+                if (!leadEntry.tags.includes('Import')) leadEntry.tags.push('Import');
 
-            // Resolve Lookups
-            leadEntry.requirement = await resolveLookup('Requirement', item.requirement || 'Buy');
-            leadEntry.source = await resolveLookup('Source', item.source || 'Direct');
-            leadEntry.status = await resolveLookup('Status', item.status || 'Active');
-            leadEntry.stage = await resolveLookup('Stage', item.stage || 'New');
-            leadEntry.location = await resolveLookup('Location', item.location || leadEntry.locArea);
-            leadEntry.budget = await resolveLookup('Budget', item.budget);
-            leadEntry.owner = await resolveUser(item.owner);
+                // Resolve Lookups
+                leadEntry.requirement = await resolveLookup('Requirement', item.requirement || 'Buy');
+                leadEntry.source = await resolveLookup('Source', item.source || 'Direct');
+                leadEntry.status = await resolveLookup('Status', item.status || 'Active');
+                leadEntry.stage = await resolveLookup('Stage', item.stage || 'New');
+                leadEntry.location = await resolveLookup('Location', item.location || leadEntry.locArea);
+                leadEntry.budget = await resolveLookup('Budget', item.budget);
+                leadEntry.owner = await resolveUser(item.owner);
 
-            if (item.mobile) {
-                if (updateDuplicates) {
-                    bulkOps.push({
-                        updateOne: {
-                            filter: { mobile: item.mobile },
-                            update: { $set: leadEntry },
-                            upsert: true
-                        }
-                    });
+                if (item.mobile) {
+                    if (updateDuplicates) {
+                        bulkOps.push({
+                            updateOne: {
+                                filter: { mobile: item.mobile },
+                                update: { $set: leadEntry },
+                                upsert: true
+                            }
+                        });
+                    } else {
+                        processedData.push(leadEntry);
+                    }
                 } else {
                     processedData.push(leadEntry);
                 }
-            } else {
-                processedData.push(leadEntry);
+            } catch (err) {
+                console.error(`[IMPORT] Lead Error at row ${i + 1}:`, err);
+                errors.push({
+                    row: i + 1,
+                    name: (item.firstName || item.name) || 'Unknown',
+                    reason: err.message
+                });
             }
         }
+
 
         let newCount = 0;
         let updatedCount = 0;
@@ -714,13 +726,14 @@ export const importLeads = async (req, res, next) => {
 
         res.status(200).json({
             success: true,
-            message: `Import processed. New: ${newCount}, Updated: ${updatedCount}`,
+            message: `Import processed. New: ${newCount}, Updated: ${updatedCount}. ${errors.length > 0 ? errors.length + ' failed.' : ''}`,
             successCount: newCount + updatedCount,
             newCount: newCount,
             updatedCount: updatedCount,
-            errorCount: 0,
-            errors: []
+            errorCount: errors.length,
+            errors
         });
+
 
     } catch (error) {
         console.error("Professional Lead Import Error:", error);

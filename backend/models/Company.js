@@ -34,7 +34,7 @@ const CompanySchema = new mongoose.Schema({
     source: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     subSource: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
-    owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    owner: { type: mongoose.Schema.Types.Mixed, ref: 'User' },
     visibleTo: { type: String, default: "Everyone" },
     addresses: {
         registeredOffice: AddressSchema,
@@ -76,6 +76,38 @@ const CompanySchema = new mongoose.Schema({
     creditLimit: { type: Number, default: 0 },
     outstandingAmount: { type: Number, default: 0 }
 }, { timestamps: true });
+
+// Middleware to recursively convert empty strings to null
+const sanitizeData = (obj) => {
+    if (!obj || typeof obj !== "object") return;
+
+    for (const key in obj) {
+        // Skip internal mongoose properties and methods
+        if (key.startsWith('$') || key.startsWith('_')) continue;
+
+        if (obj[key] === "") {
+            obj[key] = null;
+        } else if (obj[key] && typeof obj[key] === "object") {
+            // Avoid circular references and deep recursion by limiting to own properties
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                sanitizeData(obj[key]);
+            }
+        }
+    }
+};
+
+CompanySchema.pre("save", function (next) {
+    sanitizeData(this);
+    next();
+});
+
+CompanySchema.pre("findOneAndUpdate", function (next) {
+    const update = this.getUpdate();
+    if (update) {
+        sanitizeData(update);
+    }
+    next();
+});
 
 CompanySchema.plugin(mongoosePaginate);
 

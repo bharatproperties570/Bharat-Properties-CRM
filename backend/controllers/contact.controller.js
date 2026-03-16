@@ -476,6 +476,8 @@ export const deleteContact = async (req, res, next) => {
         const mobile = contact.phones?.[0]?.number;
         const email = contact.emails?.[0]?.address;
 
+        const contactId = new mongoose.Types.ObjectId(id);
+
         // Cascading Updates/Deletions
         await Promise.all([
             // Delete related Leads
@@ -484,17 +486,18 @@ export const deleteContact = async (req, res, next) => {
                 ...(email ? [{ email }] : [])
             ] }) : Promise.resolve(),
             // Remove from Inventory owners/associates
-            Inventory.updateMany({ owners: id }, { $pull: { owners: id } }),
-            Inventory.updateMany({ "associates.contact": id }, { $pull: { associates: { contact: id } } }),
+            Inventory.updateMany({ owners: contactId }, { $pull: { owners: contactId } }),
+            Inventory.updateMany({ "associates.contact": contactId }, { $pull: { associates: { contact: contactId } } }),
             // Null out in Bookings
-            Booking.updateMany({ lead: id }, { $set: { lead: null } }),
-            Booking.updateMany({ seller: id }, { $set: { seller: null } }),
-            Booking.updateMany({ channelPartner: id }, { $set: { channelPartner: null } }),
+            Booking.updateMany({ lead: contactId }, { $set: { lead: null } }),
+            Booking.updateMany({ seller: contactId }, { $set: { seller: null } }),
+            Booking.updateMany({ channelPartner: contactId }, { $set: { channelPartner: null } }),
             // Delete related Activities
             Activity.deleteMany({ $or: [{ entityId: id }, { 'relatedTo.id': id }] })
         ]);
 
         await Contact.findByIdAndDelete(id);
+
 
         // Sync to Google
         if (contact.googleContactId) {
@@ -538,6 +541,7 @@ export const bulkDeleteContacts = async (req, res, next) => {
             // Delete related Activities
             Activity.deleteMany({ $or: [{ entityId: { $in: objectIds } }, { 'relatedTo.id': { $in: objectIds } }] })
         ]);
+
 
         await Contact.deleteMany({ _id: { $in: objectIds } });
 
@@ -650,88 +654,100 @@ export const importContacts = async (req, res, next) => {
 
         const bulkOps = [];
         const processedData = [];
+        const errors = [];
+        for (let i = 0; i < data.length; i++) {
 
-        for (const item of data) {
-            const newItem = { ...item };
+            const item = data[i];
+            try {
+                const newItem = { ...item };
 
-            // Resolve Lookups
-            newItem.title = await resolveLookup('Title', item.title);
-            newItem.professionCategory = await resolveLookup('ProfessionCategory', item.professionCategory);
-            newItem.professionSubCategory = await resolveLookup('ProfessionSubCategory', item.professionSubCategory);
-            newItem.designation = await resolveLookup('Designation', item.designation);
-            newItem.source = await resolveLookup('Source', item.source);
-            newItem.subSource = await resolveLookup('SubSource', item.subSource);
-            newItem.campaign = await resolveLookup('Campaign', item.campaign);
-            newItem.owner = await resolveUser(item.owner);
+                // Resolve Lookups
+                newItem.title = await resolveLookup('Title', item.title);
+                newItem.professionCategory = await resolveLookup('ProfessionCategory', item.professionCategory);
+                newItem.professionSubCategory = await resolveLookup('ProfessionSubCategory', item.professionSubCategory);
+                newItem.designation = await resolveLookup('Designation', item.designation);
+                newItem.source = await resolveLookup('Source', item.source);
+                newItem.subSource = await resolveLookup('SubSource', item.subSource);
+                newItem.campaign = await resolveLookup('Campaign', item.campaign);
+                newItem.owner = await resolveUser(item.owner);
 
-            if (item.assignedTo) {
-                if (!newItem.assignment) newItem.assignment = {};
-                newItem.assignment.assignedTo = await resolveUser(item.assignedTo);
-            }
-            newItem.status = item.status || 'Active';
-            newItem.stage = item.stage || 'New';
-
-            // Tag logic
-            let currentTags = Array.isArray(item.tags) ? [...item.tags] :
-                (typeof item.tags === 'string' && item.tags.trim() ? item.tags.split(',').map(t => t.trim()) : []);
-            if (!currentTags.includes('Import')) currentTags.push('Import');
-            newItem.tags = currentTags;
-
-            // Restructure phones (mobile as main key)
-            const mobile = item.mobile || (item.phones && item.phones[0]?.number);
-            if (mobile) {
-                newItem.phones = [{ number: mobile, type: 'Personal' }];
-                delete newItem.mobile;
-            }
-
-            // Restructure emails
-            if (item.email) {
-                newItem.emails = [{ address: item.email, type: 'Personal' }];
-                delete newItem.email;
-            }
-
-            // Resolve Address
-            const addressFields = ['hNo', 'street', 'area', 'city', 'tehsil', 'postOffice', 'state', 'country', 'pinCode', 'location'];
-            newItem.personalAddress = {};
-            if (item.country) newItem.personalAddress.country = await resolveLookup('Country', item.country);
-            if (item.state) newItem.personalAddress.state = await resolveLookup('State', item.state);
-            if (item.city) newItem.personalAddress.city = await resolveLookup('City', item.city);
-            if (item.tehsil) newItem.personalAddress.tehsil = await resolveLookup('Tehsil', item.tehsil);
-            if (item.postOffice) newItem.personalAddress.postOffice = await resolveLookup('PostOffice', item.postOffice);
-            if (item.location) newItem.personalAddress.location = await resolveLookup('Location', item.location);
-
-            addressFields.forEach(field => {
-                if (item[field] && !['country', 'state', 'city', 'tehsil', 'postOffice', 'location'].includes(field)) {
-                    newItem.personalAddress[field] = item[field];
+                if (item.assignedTo) {
+                    if (!newItem.assignment) newItem.assignment = {};
+                    newItem.assignment.assignedTo = await resolveUser(item.assignedTo);
                 }
-                delete newItem[field];
-            });
+                newItem.status = item.status || 'Active';
+                newItem.stage = item.stage || 'New';
 
-            // Clean empty fields
-            const cleanObj = (obj) => {
-                for (const k in obj) {
-                    if (typeof obj[k] === 'string' && obj[k].trim() === '') obj[k] = undefined;
-                    else if (obj[k] && typeof obj[k] === 'object' && !Array.isArray(obj[k])) cleanObj(obj[k]);
+                // Tag logic
+                let currentTags = Array.isArray(item.tags) ? [...item.tags] :
+                    (typeof item.tags === 'string' && item.tags.trim() ? item.tags.split(',').map(t => t.trim()) : []);
+                if (!currentTags.includes('Import')) currentTags.push('Import');
+                newItem.tags = currentTags;
+
+                // Restructure phones (mobile as main key)
+                const mobile = item.mobile || (item.phones && item.phones[0]?.number);
+                if (mobile) {
+                    newItem.phones = [{ number: mobile, type: 'Personal' }];
+                    delete newItem.mobile;
                 }
-            };
-            cleanObj(newItem);
 
-            if (mobile) {
-                if (updateDuplicates) {
-                    bulkOps.push({
-                        updateOne: {
-                            filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }] },
-                            update: { $set: newItem },
-                            upsert: true
-                        }
-                    });
+                // Restructure emails
+                if (item.email) {
+                    newItem.emails = [{ address: item.email, type: 'Personal' }];
+                    delete newItem.email;
+                }
+
+                // Resolve Address
+                const addressFields = ['hNo', 'street', 'area', 'city', 'tehsil', 'postOffice', 'state', 'country', 'pinCode', 'location'];
+                newItem.personalAddress = {};
+                if (item.country) newItem.personalAddress.country = await resolveLookup('Country', item.country);
+                if (item.state) newItem.personalAddress.state = await resolveLookup('State', item.state);
+                if (item.city) newItem.personalAddress.city = await resolveLookup('City', item.city);
+                if (item.tehsil) newItem.personalAddress.tehsil = await resolveLookup('Tehsil', item.tehsil);
+                if (item.postOffice) newItem.personalAddress.postOffice = await resolveLookup('PostOffice', item.postOffice);
+                if (item.location) newItem.personalAddress.location = await resolveLookup('Location', item.location);
+
+                addressFields.forEach(field => {
+                    if (item[field] && !['country', 'state', 'city', 'tehsil', 'postOffice', 'location'].includes(field)) {
+                        newItem.personalAddress[field] = item[field];
+                    }
+                    delete newItem[field];
+                });
+
+                // Clean empty fields
+                const cleanObj = (obj) => {
+                    for (const k in obj) {
+                        if (typeof obj[k] === 'string' && obj[k].trim() === '') obj[k] = undefined;
+                        else if (obj[k] && typeof obj[k] === 'object' && !Array.isArray(obj[k])) cleanObj(obj[k]);
+                    }
+                };
+                cleanObj(newItem);
+
+                if (mobile) {
+                    if (updateDuplicates) {
+                        bulkOps.push({
+                            updateOne: {
+                                filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }] },
+                                update: { $set: newItem },
+                                upsert: true
+                            }
+                        });
+                    } else {
+                        processedData.push(newItem);
+                    }
                 } else {
                     processedData.push(newItem);
                 }
-            } else {
-                processedData.push(newItem);
+            } catch (err) {
+                console.error(`[IMPORT] Error at row ${i + 1}:`, err);
+                errors.push({
+                    row: i + 1,
+                    name: item.name || 'Unknown',
+                    reason: err.message
+                });
             }
         }
+
 
         let newCount = 0;
         let updatedCount = 0;
@@ -773,13 +789,14 @@ export const importContacts = async (req, res, next) => {
 
         res.status(200).json({
             success: true,
-            message: `Import processed. New: ${newCount}, Updated: ${updatedCount}`,
+            message: `Import processed. New: ${newCount}, Updated: ${updatedCount}. ${errors.length > 0 ? errors.length + ' failed.' : ''}`,
             successCount: newCount + updatedCount,
             newCount: newCount,
             updatedCount: updatedCount,
-            errorCount: 0,
-            errors: []
+            errorCount: errors.length,
+            errors
         });
+
 
     } catch (error) {
         console.error("Professional Import Error:", error);

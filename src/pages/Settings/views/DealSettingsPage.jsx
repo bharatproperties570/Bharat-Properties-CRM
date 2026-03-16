@@ -42,6 +42,9 @@ const DealSettingsPage = () => {
         registrationMode: 'percent', // 'percent' or 'slab'
         registrationSlabs: [],
         legalFees: 15000,
+        brokeragePercent: 1,
+        coveredAreaPriceSqYds: 0,
+        coveredAreaPriceSqFt: 0,
         useCollectorRateDefault: true
     });
 
@@ -99,8 +102,7 @@ const DealSettingsPage = () => {
         configName: ''
     });
 
-    const [showRegistrationChargeModal, setShowRegistrationChargeModal] = useState(false);
-    const [editingRegistrationChargeId, setEditingRegistrationChargeId] = useState(null);
+
 
     // --- Fetch Data ---
     const fetchData = useCallback(async () => {
@@ -132,7 +134,7 @@ const DealSettingsPage = () => {
             // 2. Fetch Registration Charges (formerly Global Settings)
             const globalRes = await api.get('/system-settings', {
                 params: {
-                    category: 'govt_charges',
+                    category: 'govt_charges_config',
                     search: registrationSearch,
                     page: registrationPagination.page,
                     limit: registrationPagination.limit,
@@ -482,7 +484,7 @@ const DealSettingsPage = () => {
 
             const payload = {
                 key,
-                category: 'govt_charges',
+                category: 'govt_charges_config',
                 value: {
                     ...newConfig,
                     updatedAt: new Date().toISOString()
@@ -781,11 +783,21 @@ const DealSettingsPage = () => {
                         {activeTab === 'global' ? (
                             <button
                                 onClick={() => {
-                                    setEditingRegistrationChargeId(null);
-                                    setRateForm({
-                                        configName: '', stampDuty: '', registrationFee: '', courtFee: '', otherCharges: '', notes: ''
+                                    setConfig({
+                                        configName: '',
+                                        stampDutyMale: 7,
+                                        stampDutyFemale: 5,
+                                        stampDutyJoint: 6,
+                                        registrationPercent: 1,
+                                        registrationMode: 'percent',
+                                        registrationSlabs: [],
+                                        legalFees: 15000,
+                                        brokeragePercent: 1,
+                                        coveredAreaPriceSqYds: 0,
+                                        coveredAreaPriceSqFt: 0,
+                                        useCollectorRateDefault: true
                                     });
-                                    setShowRegistrationChargeModal(true);
+                                    setIsConfigModalOpen(true);
                                 }}
                                 style={{
                                     width: '34px',

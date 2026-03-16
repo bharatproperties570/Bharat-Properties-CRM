@@ -174,6 +174,8 @@ LeadSchema.pre('save', async function (next) {
         }
     }
 
+    if (this.owner === "") this.owner = null;
+
     if (this.requirement && typeof this.requirement === 'string') this.requirement = await resolveLookupLocal('Requirement', this.requirement);
     if (this.subRequirement && typeof this.subRequirement === 'string') this.subRequirement = await resolveLookupLocal('SubRequirement', this.subRequirement);
     if (this.budget && typeof this.budget === 'string') this.budget = await resolveLookupLocal('Budget', this.budget);
@@ -208,6 +210,8 @@ LeadSchema.pre('save', async function (next) {
 LeadSchema.pre('findOneAndUpdate', async function (next) {
     const update = this.getUpdate();
     if (!update) return next();
+
+    if (update.owner === "") update.owner = null;
 
     if (update.requirement && typeof update.requirement === 'string') update.requirement = await resolveLookupLocal('Requirement', update.requirement);
     if (update.subRequirement && typeof update.subRequirement === 'string') update.subRequirement = await resolveLookupLocal('SubRequirement', update.subRequirement);

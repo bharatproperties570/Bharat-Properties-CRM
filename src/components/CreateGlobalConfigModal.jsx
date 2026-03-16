@@ -29,6 +29,10 @@ const CreateGlobalConfigModal = ({ isOpen, onClose, onSave, initialConfig, savin
         registrationMode: 'percent',
         registrationSlabs: [],
         legalFees: 15000,
+        brokeragePercent: 1,
+        coveredAreaPriceSqYds: 0,
+        coveredAreaPriceSqFt: 0,
+        useCollectorRateDefault: true,
         ...initialConfig
     });
 
@@ -198,15 +202,46 @@ const CreateGlobalConfigModal = ({ isOpen, onClose, onSave, initialConfig, savin
                                 />
                             </div>
                             <div>
-                                <label style={labelStyle}>Legal Fees (₹)</label>
+                                <label style={labelStyle}>Brokerage Fee %</label>
                                 <input
                                     type="number"
                                     style={inputStyle}
-                                    value={config.legalFees}
-                                    onChange={e => handleFieldChange('legalFees', e.target.value)}
+                                    value={config.brokeragePercent}
+                                    onChange={e => handleFieldChange('brokeragePercent', e.target.value)}
                                 />
                             </div>
+                        </div>
 
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginTop: '20px' }}>
+                            <div>
+                                <label style={labelStyle}>Covered Area Price (₹/Sq Yds)</label>
+                                <input
+                                    type="number"
+                                    style={inputStyle}
+                                    value={config.coveredAreaPriceSqYds}
+                                    onChange={e => handleFieldChange('coveredAreaPriceSqYds', e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Covered Area Price (₹/Sq Ft)</label>
+                                <input
+                                    type="number"
+                                    style={inputStyle}
+                                    value={config.coveredAreaPriceSqFt}
+                                    onChange={e => handleFieldChange('coveredAreaPriceSqFt', e.target.value)}
+                                />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', paddingTop: '28px' }}>
+                                <label style={{ ...labelStyle, marginBottom: 0, display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={config.useCollectorRateDefault}
+                                        onChange={e => handleFieldChange('useCollectorRateDefault', e.target.checked)}
+                                        style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                                    />
+                                    Use Collector Rate as Default
+                                </label>
+                            </div>
                         </div>
                     </div>
 
