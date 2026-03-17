@@ -127,7 +127,7 @@ const escapeRegExp = (string) => {
     return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
-export const resolveLookupLocal = async (type, value) => {
+export const resolveLeadLookup = async (type, value) => {
     if (!value) return null;
     if (mongoose.Types.ObjectId.isValid(value)) return value;
     const Lookup = mongoose.model('Lookup');
@@ -176,16 +176,16 @@ LeadSchema.pre('save', async function (next) {
 
     if (this.owner === "") this.owner = null;
 
-    if (this.requirement && typeof this.requirement === 'string') this.requirement = await resolveLookupLocal('Requirement', this.requirement);
-    if (this.subRequirement && typeof this.subRequirement === 'string') this.subRequirement = await resolveLookupLocal('SubRequirement', this.subRequirement);
-    if (this.budget && typeof this.budget === 'string') this.budget = await resolveLookupLocal('Budget', this.budget);
-    if (this.location && typeof this.location === 'string') this.location = await resolveLookupLocal('Location', this.location);
-    if (this.source && typeof this.source === 'string') this.source = await resolveLookupLocal('Source', this.source);
-    if (this.subSource && typeof this.subSource === 'string') this.subSource = await resolveLookupLocal('SubSource', this.subSource);
-    if (this.campaign && typeof this.campaign === 'string') this.campaign = await resolveLookupLocal('Campaign', this.campaign);
-    if (this.status && typeof this.status === 'string') this.status = await resolveLookupLocal('Status', this.status);
-    if (this.stage && typeof this.stage === 'string') this.stage = await resolveLookupLocal('Stage', this.stage);
-    if (this.salutation && typeof this.salutation === 'string') this.salutation = await resolveLookupLocal('Title', this.salutation);
+    if (this.requirement && typeof this.requirement === 'string') this.requirement = await resolveLeadLookup('Requirement', this.requirement);
+    if (this.subRequirement && typeof this.subRequirement === 'string') this.subRequirement = await resolveLeadLookup('SubRequirement', this.subRequirement);
+    if (this.budget && typeof this.budget === 'string') this.budget = await resolveLeadLookup('Budget', this.budget);
+    if (this.location && typeof this.location === 'string') this.location = await resolveLeadLookup('Location', this.location);
+    if (this.source && typeof this.source === 'string') this.source = await resolveLeadLookup('Source', this.source);
+    if (this.subSource && typeof this.subSource === 'string') this.subSource = await resolveLeadLookup('SubSource', this.subSource);
+    if (this.campaign && typeof this.campaign === 'string') this.campaign = await resolveLeadLookup('Campaign', this.campaign);
+    if (this.status && typeof this.status === 'string') this.status = await resolveLeadLookup('Status', this.status);
+    if (this.stage && typeof this.stage === 'string') this.stage = await resolveLeadLookup('Stage', this.stage);
+    if (this.salutation && typeof this.salutation === 'string') this.salutation = await resolveLeadLookup('Title', this.salutation);
 
     // Handle arrays
     const arrayFields = ['propertyType', 'subType', 'unitType', 'facing', 'roadWidth', 'direction'];
@@ -200,7 +200,7 @@ LeadSchema.pre('save', async function (next) {
 
     for (const field of arrayFields) {
         if (Array.isArray(this[field])) {
-            this[field] = await Promise.all(this[field].map(val => typeof val === 'string' ? resolveLookupLocal(arrayTypes[field], val) : val));
+            this[field] = await Promise.all(this[field].map(val => typeof val === 'string' ? resolveLeadLookup(arrayTypes[field], val) : val));
         }
     }
 
@@ -213,16 +213,16 @@ LeadSchema.pre('findOneAndUpdate', async function (next) {
 
     if (update.owner === "") update.owner = null;
 
-    if (update.requirement && typeof update.requirement === 'string') update.requirement = await resolveLookupLocal('Requirement', update.requirement);
-    if (update.subRequirement && typeof update.subRequirement === 'string') update.subRequirement = await resolveLookupLocal('SubRequirement', update.subRequirement);
-    if (update.budget && typeof update.budget === 'string') update.budget = await resolveLookupLocal('Budget', update.budget);
-    if (update.location && typeof update.location === 'string') update.location = await resolveLookupLocal('Location', update.location);
-    if (update.source && typeof update.source === 'string') update.source = await resolveLookupLocal('Source', update.source);
-    if (update.subSource && typeof update.subSource === 'string') update.subSource = await resolveLookupLocal('SubSource', update.subSource);
-    if (update.campaign && typeof update.campaign === 'string') update.campaign = await resolveLookupLocal('Campaign', update.campaign);
-    if (update.status && typeof update.status === 'string') update.status = await resolveLookupLocal('Status', update.status);
-    if (update.stage && typeof update.stage === 'string') update.stage = await resolveLookupLocal('Stage', update.stage);
-    if (update.salutation && typeof update.salutation === 'string') update.salutation = await resolveLookupLocal('Title', update.salutation);
+    if (update.requirement && typeof update.requirement === 'string') update.requirement = await resolveLeadLookup('Requirement', update.requirement);
+    if (update.subRequirement && typeof update.subRequirement === 'string') update.subRequirement = await resolveLeadLookup('SubRequirement', update.subRequirement);
+    if (update.budget && typeof update.budget === 'string') update.budget = await resolveLeadLookup('Budget', update.budget);
+    if (update.location && typeof update.location === 'string') update.location = await resolveLeadLookup('Location', update.location);
+    if (update.source && typeof update.source === 'string') update.source = await resolveLeadLookup('Source', update.source);
+    if (update.subSource && typeof update.subSource === 'string') update.subSource = await resolveLeadLookup('SubSource', update.subSource);
+    if (update.campaign && typeof update.campaign === 'string') update.campaign = await resolveLeadLookup('Campaign', update.campaign);
+    if (update.status && typeof update.status === 'string') update.status = await resolveLeadLookup('Status', update.status);
+    if (update.stage && typeof update.stage === 'string') update.stage = await resolveLeadLookup('Stage', update.stage);
+    if (update.salutation && typeof update.salutation === 'string') update.salutation = await resolveLeadLookup('Title', update.salutation);
 
     const arrayTypes = {
         propertyType: 'Category',
@@ -235,7 +235,7 @@ LeadSchema.pre('findOneAndUpdate', async function (next) {
 
     for (const [field, type] of Object.entries(arrayTypes)) {
         if (update[field] && Array.isArray(update[field])) {
-            update[field] = await Promise.all(update[field].map(val => typeof val === 'string' ? resolveLookupLocal(type, val) : val));
+            update[field] = await Promise.all(update[field].map(val => typeof val === 'string' ? resolveLeadLookup(type, val) : val));
         }
     }
 
