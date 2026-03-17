@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 
 // Initialize BullMQ Queues and Workers
-import { cronQueue } from "./queues/queueManager.js";
+import { cronQueue, googleSyncQueue } from "./queues/queueManager.js";
 import "./workers/enrichmentWorker.js";
 import "./workers/cronWorker.js";
 import "./workers/googleSyncWorker.js";

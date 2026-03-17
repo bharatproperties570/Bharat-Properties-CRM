@@ -9,6 +9,7 @@ import { createGoogleCalendarEvent, updateGoogleCalendarEvent, deleteGoogleCalen
  * Google Sync Worker
  * Processes background synchronization jobs for Google Contacts and Calendar
  */
+console.log('✅ Google Sync Worker Initialized');
 
 const worker = new Worker('googleSyncQueue', async (job) => {
     const type = job.name;
