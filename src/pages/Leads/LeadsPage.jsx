@@ -815,7 +815,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                     const calculatedScore = Math.max(scoring?.total || 0, lead.intentIndex || 0);
                                     const displayScore = Math.max(liveBackendScore?.score || 0, calculatedScore);
                                     const displayColor = (liveBackendScore && liveBackendScore.score >= displayScore) ? liveBackendScore.color : (scoring?.temperature?.color || '#94a3b8');
-                                    const tempClass = (liveBackendScore && liveBackendScore.score >= displayScore) ? liveBackendScore.tempClass : (scoring?.temperature?.class || 'cold');
+                                    const tempClass = (liveBackendScore && liveBackendScore.score >= displayScore) ? String(liveBackendScore.tempClass) : String(scoring?.temperature?.class || 'cold');
 
                                     return (
                                         <div
@@ -951,14 +951,14 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                                 <div className="flex items-center gap-2">
                                                     <span
-                                                        className={`status-badge ${(renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.class : 'new') || 'new').toLowerCase()}`}
+                                                        className={`status-badge ${(String(renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.class : 'new') || 'new')).toLowerCase()}`}
                                                     >
                                                         {renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.label : lead.statusFallback)}
                                                     </span>
 
                                                     {/* ── STAGE ENGINE CHIP (LIVE) ──────────────────────── */}
                                                     {(() => {
-                                                        const stageName = liveBackendScore?.stage || renderValue(getLookupValue('Stage', lead.stage), null) || 'New';
+                                                        const stageName = String(liveBackendScore?.stage || renderValue(getLookupValue('Stage', lead.stage), null) || 'New');
                                                         const stageInfo = STAGE_PIPELINE.find(s => s.label.toLowerCase() === stageName.toLowerCase()) || { color: '#94a3b8', icon: 'fa-circle', label: stageName };
                                                         return (
                                                             <span title="Auto-computed stage from backend" style={{
@@ -1041,7 +1041,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                 const calculatedScore = Math.max(scoring?.total || 0, c.intentIndex || 0);
                                 const displayScore = Math.max(liveBackendScore?.score || 0, calculatedScore);
                                 const displayColor = (liveBackendScore && liveBackendScore.score >= displayScore) ? liveBackendScore.color : (scoring?.temperature?.color || '#94a3b8');
-                                const tempClass = (liveBackendScore && liveBackendScore.score >= displayScore) ? liveBackendScore.tempClass : (scoring?.temperature?.class || 'cold');
+                                const tempClass = (liveBackendScore && liveBackendScore.score >= displayScore) ? String(liveBackendScore.tempClass) : String(scoring?.temperature?.class || 'cold');
 
                                 return (
                                     <div
@@ -1201,7 +1201,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                     suppressContentEditableWarning
                                                     onBlur={() => showToast(`Budget updated for ${c.name}. Recalculating matches...`)}
                                                     style={{ color: 'var(--primary-color)', fontWeight: 800, fontSize: '0.85rem', outline: 'none' }}
-                                                >{(renderValue(getLookupValue('Budget', c.budget), null) || c.budgetDisplay || '').replace('<br/>', ' ')}</div>
+                                                >{String(renderValue(getLookupValue('Budget', c.budget), null) || c.budgetDisplay || '').replace('<br/>', ' ')}</div>
                                                 <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, marginTop: '2px' }}>{renderValue(c.reqDisplay?.size, 'Std. Size')}</div>
                                             </div>
                                         </div>
@@ -1229,7 +1229,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                                                 {/* ── STAGE ENGINE CHIP ─────────────────────── */}
                                                 {(() => {
-                                                    const stageName = (liveBackendScore?.stage) || renderValue(getLookupValue('Stage', c.stage), null) || 'New';
+                                                    const stageName = String((liveBackendScore?.stage) || renderValue(getLookupValue('Stage', c.stage), null) || 'New');
                                                     const stageInfo = STAGE_PIPELINE.find(s => s.label.toLowerCase() === stageName.toLowerCase()) || { color: '#94a3b8', icon: 'fa-circle', label: stageName };
                                                     return (
                                                         <span title="Auto-computed stage" style={{
