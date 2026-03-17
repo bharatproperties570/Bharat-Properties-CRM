@@ -930,7 +930,15 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                     return null;
                                                 })()}
                                                 <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>
-                                                    {renderValue(getLookupValue('Requirement', lead.reqDisplay?.type), null) || "Any Property"}
+                                                    {(() => {
+                                                        const cat = Array.isArray(lead.reqDisplay?.category)
+                                                            ? lead.reqDisplay.category.map(s => getLookupValue('Category', s)).filter(Boolean).join(', ')
+                                                            : renderValue(getLookupValue('Category', lead.reqDisplay?.category), null);
+                                                        const sub = Array.isArray(lead.reqDisplay?.subCategory)
+                                                            ? lead.reqDisplay.subCategory.map(s => getLookupValue('SubCategory', s)).filter(Boolean).join(', ')
+                                                            : renderValue(getLookupValue('SubCategory', lead.reqDisplay?.subCategory), null);
+                                                        return [cat, sub].filter(Boolean).join(" - ") || "Any Property";
+                                                    })()}
                                                 </div>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginTop: '4px', color: '#64748b' }}>
                                                     <span>{renderValue(lead.reqDisplay?.size, 'Std. Size')}</span>
@@ -1009,7 +1017,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                 if (!c) return null;
                                 // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
                                 const intent = renderValue(getLookupValue('Requirement', c.reqDisplay?.intent), null) || 'Any';
-                                const category = renderValue(getLookupValue('Category', c.reqDisplay?.category), null) || '';
+                                const category = Array.isArray(c.reqDisplay?.category)
+                                    ? c.reqDisplay.category.map(s => getLookupValue('Category', s)).filter(Boolean).join(', ')
+                                    : (renderValue(getLookupValue('Category', c.reqDisplay?.category), null) || '');
                                 const subCategory = Array.isArray(c.reqDisplay?.subCategory)
                                     ? c.reqDisplay.subCategory.map(s => getLookupValue('SubCategory', s)).filter(Boolean).join(', ')
                                     : (renderValue(getLookupValue('SubCategory', c.reqDisplay?.subCategory), null) || '');
@@ -1017,7 +1027,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                 const fullPropertyType = [
                                     intent,
                                     category,
-                                    Array.isArray(subCategory) ? subCategory.join(", ") : subCategory
+                                    subCategory
                                 ].filter(Boolean).filter(s => s !== "Any").join(" - ");
 
                                 // Unified Scoring Logic for List View
