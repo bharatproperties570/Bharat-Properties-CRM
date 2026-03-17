@@ -621,7 +621,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
                 `₹${Number(contact.budgetMin || 0).toLocaleString()} - ${Number(contact.budgetMax || 0).toLocaleString()}` :
                 (renderLookup(contact?.budget) || '-'),
             flexibility: contact?.whitePortion ? `${contact.whitePortion}%` : '0%',
-            type: contact?.propertyType?.[0] ? renderLookup(contact.propertyType[0]) : (renderLookup(contact?.propertyCategory) || '-'),
+            type: (Array.isArray(contact?.propertyType) && contact.propertyType[0]) ? renderLookup(contact.propertyType[0]) : (renderLookup(contact?.propertyType) || renderLookup(contact?.propertyCategory) || '-'),
             urgency: renderLookup(contact?.timeline) || (leadScore.total >= 80 ? 'Extreme' : 'Moderate'),
             dealType: renderLookup(contact?.requirement) || 'Direct Purchase',
             // Added live fields for the new UI categories
@@ -630,7 +630,7 @@ const ContactDetail = ({ contactId, onBack, onAddActivity }) => {
             campaign: renderLookup(contact?.campaign) || '-',
             tags: contact?.tags || [],
             description: contact?.description || '',
-            subType: (contact?.subType || []).map(s => renderLookup(s)),
+            subType: (Array.isArray(contact?.subType) ? contact.subType : (contact?.subRequirement ? [contact.subRequirement] : [])).map(s => renderLookup(s)).filter(Boolean),
             area: (contact?.areaMin || contact?.areaMax) ? `${contact.areaMin || 0} - ${contact.areaMax || 0} ${renderLookup(contact.areaMetric) || ''}` : '-',
             unitType: (contact?.unitType || []).map(u => renderLookup(u)),
             transactionType: renderLookup(contact?.transactionType) || '-',

@@ -250,8 +250,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                         // ===== REQUIREMENT =====
                         reqDisplay: {
-                            type: lead.requirement,
-                            subType: lead.subRequirement || lead.subType,
+                            intent: lead.requirement,
+                            category: lead.propertyType,
+                            subCategory: lead.subRequirement || lead.subType,
                             size: `${lead.areaMin || ""}${lead.areaMin && lead.areaMax ? "-" : ""}${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
                         },
 
@@ -1007,8 +1008,13 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             loading ? <div style={{ padding: '20px', textAlign: 'center' }}>Loading...</div> : leads.map((c, idx) => {
                                 if (!c) return null;
                                 // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
-                                const intent = renderValue(getLookupValue('Requirement', c.reqDisplay?.type), null) || 'Any';
-                                const propertyType = renderValue(getLookupValue('Sub Requirement', c.reqDisplay?.subType), null) || '';
+                                const intent = renderValue(getLookupValue('Requirement', c.reqDisplay?.intent), null) || 'Any';
+                                const category = renderValue(getLookupValue('Requirement', c.reqDisplay?.category), null) || '';
+                                const subCategory = Array.isArray(c.reqDisplay?.subCategory) 
+                                    ? c.reqDisplay.subCategory.map(s => getLookupValue('Sub Requirement', s)).filter(Boolean).join(', ')
+                                    : (renderValue(getLookupValue('Sub Requirement', c.reqDisplay?.subCategory), null) || '');
+                                
+                                const fullPropertyType = [category, subCategory].filter(Boolean).join(' - ');
 
                                 // Unified Scoring Logic for List View
                                 const liveBackendScore = liveScores[c._id];
@@ -1187,7 +1193,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                                         <div className="col-budget" key={`budget-${c._id || idx}`}>
                                             <div style={{ lineHeight: 1.4 }}>
-                                                <div style={{ color: '#0f172a', fontSize: '0.75rem', fontWeight: 700, marginBottom: '2px' }}>{propertyType || 'Residential Plot'}</div>
+                                                <div style={{ color: '#0f172a', fontSize: '0.75rem', fontWeight: 700, marginBottom: '2px' }}>{fullPropertyType || 'Requirement TBA'}</div>
                                                 <div
                                                     contentEditable
                                                     suppressContentEditableWarning
