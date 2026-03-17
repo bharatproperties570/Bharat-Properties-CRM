@@ -98,7 +98,10 @@ export const PropertyConfigProvider = ({ children }) => {
 
         // If it's already a populated object, extract the displayable value
         if (typeof id === 'object') {
-            return id.lookup_value || id.name || id.label || id.value || id.displayName || id;
+            const val = id.lookup_value || id.name || id.label || id.value || id.displayName;
+            if (val && typeof val !== 'object') return val;
+            // If it's still an object or not found, return a string representation or fallback
+            return typeof id.toString === 'function' && id.toString() !== '[object Object]' ? id.toString() : '-';
         }
 
         // Standardize type (e.g. 'Property Type' -> 'PropertyType')
@@ -131,7 +134,7 @@ export const PropertyConfigProvider = ({ children }) => {
         }
 
         return id;
-    }, [lookups]);
+    }, [lookups, projects]);
 
     const findLookup = useCallback((type, value, parentId = null) => {
         const normalizedType = type ? type.replace(/\s+/g, '') : type;

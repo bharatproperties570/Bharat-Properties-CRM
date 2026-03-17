@@ -308,6 +308,7 @@ export const emailAPI = {
     }),
     getContent: (uid) => apiRequest(`/email/content/${uid}`),
     getOAuthUrl: () => apiRequest('/email/oauth/url'),
+    convertToLead: (uid) => apiRequest(`/email/convert-to-lead/${uid}`, { method: 'POST' }),
 };
 
 // Teams API

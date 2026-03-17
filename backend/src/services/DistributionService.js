@@ -103,6 +103,7 @@ export const autoAssign = async (lead) => {
             location: lead.location?.lookup_value || lead.location?.toString() || lead.location,
             budget: lead.budget?.lookup_value || lead.budget?.toString() || lead.budget,
             requirement: lead.requirement?.lookup_value || lead.requirement?.toString() || lead.requirement,
+            campaign: lead.campaign?.lookup_value || lead.campaign?.toString() || lead.campaign,
         };
 
         // Find first matching rule

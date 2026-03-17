@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useUserContext } from '../context/UserContext';
 import { getInitials } from '../utils/helpers';
+import { renderValue } from '../utils/renderUtils';
 
 const AssignReportingModal = ({ isOpen, onClose, managerName, managerId, onAssign }) => {
     const { users, updateUser } = useUserContext();
@@ -129,7 +130,7 @@ const AssignReportingModal = ({ isOpen, onClose, managerName, managerId, onAssig
                                     </div>
                                     <div style={{ flex: 1 }}>
                                         <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{user.fullName || user.name}</div>
-                                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{user.department} - {user.role?.name || 'No Role'}</div>
+                                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{renderValue(user.department)} - {user.role?.name || 'No Role'}</div>
                                     </div>
                                     {selectedUserId === user._id && (
                                         <i className="fas fa-check-circle" style={{ color: 'var(--primary-color)' }}></i>

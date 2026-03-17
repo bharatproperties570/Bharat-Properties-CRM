@@ -65,6 +65,12 @@ const worker = new Worker('googleSyncQueue', async (job) => {
                 break;
             }
 
+            case 'processEmails': {
+                const { syncAndProcessEmails } = (await import('../../services/email.service.js')).default;
+                await syncAndProcessEmails();
+                break;
+            }
+
             default:
                 console.warn(`[GoogleSyncWorker] Unknown job type: ${type}`);
         }

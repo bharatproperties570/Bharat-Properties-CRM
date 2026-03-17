@@ -1,7 +1,14 @@
 import { createWorker } from 'tesseract.js';
 import fs from 'fs';
 import JSZip from 'jszip';
-import pdf from 'pdf-parse/lib/pdf-parse.js';
+import pdf from 'pdf-parse';
+import path from 'path';
+
+// Ensure uploads directory exists
+const uploadsDir = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+}
 import Intake from '../../../models/Intake.js';
 
 /**

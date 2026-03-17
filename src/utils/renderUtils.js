@@ -7,9 +7,17 @@
 export const renderValue = (val, emptyValue = '-', prefix = '') => {
     if (val === null || val === undefined || val === '') return emptyValue;
     let result = val;
+    // If it's a non-primitive object, try to extract a string value
     if (typeof val === 'object') {
-        result = val.lookup_value || val.fullName || val.name || val.label || val.value || val.displayName;
+        const extracted = val.lookup_value || val.fullName || val.name || val.title || val.label || val.value || val.displayName;
+        if (extracted && typeof extracted !== 'object') {
+            result = extracted;
+        } else {
+            // Final fallback: string representation if safe, else empty string
+            result = typeof val.toString === 'function' && val.toString() !== '[object Object]' ? val.toString() : '';
+        }
     }
+    
     if (result === null || result === undefined || result === '') return emptyValue;
     return prefix ? `${prefix}${result}` : result;
 };

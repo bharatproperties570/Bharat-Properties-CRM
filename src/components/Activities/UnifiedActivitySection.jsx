@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { activitiesAPI, usersAPI } from '../../utils/api';
+import RecordingPlayer from './RecordingPlayer';
 import { useActivities } from '../../context/ActivityContext';
 import './UnifiedActivitySection.css';
 
@@ -423,6 +424,9 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
                                                         <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#0f172a' }}>
                                                             {item.title}
+                                                            {item.metadata?.details?.recordingUrl && (
+                                                                <i className="fas fa-microphone" style={{ marginLeft: '8px', color: '#10b981', fontSize: '0.75rem' }} title="Recording available"></i>
+                                                            )}
                                                         </div>
                                                         {item.source === 'activity' && (
                                                             <button
@@ -441,6 +445,14 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                     <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '6px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
                                                         {item.description}
                                                     </div>
+                                                )}
+
+                                                {/* Call Recording Integration */}
+                                                {(item.type === 'call' && item.metadata?.details?.recordingUrl) && (
+                                                    <RecordingPlayer 
+                                                        url={item.metadata.details.recordingUrl} 
+                                                        duration={item.metadata.details.duration} 
+                                                    />
                                                 )}
                                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '12px', borderTop: '1px solid rgba(0,0,0,0.03)', paddingTop: '8px' }}>
                                                     <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>

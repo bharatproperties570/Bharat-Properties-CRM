@@ -59,6 +59,9 @@ async function startServer() {
             cronQueue.add('followUpReminders', {}, {
                 repeat: { pattern: '0 * * * *' }
             }).catch(() => { });
+            googleSyncQueue.add('processEmails', {}, {
+                repeat: { pattern: '*/15 * * * *' }
+            }).catch(() => { });
         } catch (queueErr) {
             console.warn("⚠️  BullMQ/Redis not fully available locally.");
         }

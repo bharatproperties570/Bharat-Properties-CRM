@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { emailAPI } from '../../../utils/api';
 
-const ViewEmailModal = ({ isOpen, onClose, email }) => {
+const ViewEmailModal = ({ isOpen, onClose, email, onReply, onConvertToLead, onAddActivity, isActionLoading }) => {
     const [content, setContent] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
@@ -47,9 +47,9 @@ const ViewEmailModal = ({ isOpen, onClose, email }) => {
             <div style={{
                 backgroundColor: '#fff',
                 borderRadius: '16px',
-                width: '800px',
+                width: '900px',
                 maxWidth: '95vw',
-                height: '80vh',
+                height: '85vh',
                 boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
                 display: 'flex',
                 flexDirection: 'column',
@@ -64,19 +64,101 @@ const ViewEmailModal = ({ isOpen, onClose, email }) => {
                     background: '#f8fafc'
                 }}>
                     <div style={{ flex: 1 }}>
-                        <h2 style={{ margin: '0 0 8px 0', fontSize: '1.25rem', fontWeight: 800, color: '#1e293b' }}>
+                        <h2 style={{ margin: '0 0 12px 0', fontSize: '1.25rem', fontWeight: 800, color: '#1e293b', lineHeight: '1.4' }}>
                             {email.subject || '(No Subject)'}
                         </h2>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', color: '#64748b' }}>
-                            <span style={{ fontWeight: 600, color: '#475569' }}>From:</span>
-                            <span>{email.participant}</span>
-                            <span style={{ marginLeft: '12px', fontWeight: 600, color: '#475569' }}>Date:</span>
-                            <span>{email.date}</span>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '16px', fontSize: '0.85rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ fontWeight: 700, color: '#475569' }}>From:</span>
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span style={{ fontWeight: 600, color: '#0f172a' }}>{email.fromName || email.participant}</span>
+                                    <span style={{ color: '#64748b', fontSize: '0.75rem' }}>{email.fromEmail}</span>
+                                </div>
+                            </div>
+                            <div style={{ height: '24px', width: '1px', background: '#e2e8f0' }}></div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ fontWeight: 700, color: '#475569' }}>Date:</span>
+                                <span style={{ color: '#475569' }}>{email.date}</span>
+                            </div>
+                            {email.associated && (
+                                <>
+                                    <div style={{ height: '24px', width: '1px', background: '#e2e8f0' }}></div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <span style={{ fontWeight: 700, color: '#0891b2' }}>Associated:</span>
+                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                            <span style={{ fontWeight: 700, color: '#0891b2' }}>{email.associated.name}</span>
+                                            {email.associated.deal && (
+                                                <span style={{ fontSize: '0.75rem', color: '#0e7490' }}>
+                                                    {email.associated.deal.project} - {email.associated.deal.unit}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     </div>
-                    <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '1.4rem', color: '#64748b', padding: '0 0 0 16px' }}>
-                        <i className="fas fa-times"></i>
-                    </button>
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                        <button 
+                            onClick={() => onReply(email)}
+                            style={{ 
+                                padding: '8px 16px', 
+                                borderRadius: '8px', 
+                                border: '1px solid #e2e8f0', 
+                                background: '#fff', 
+                                color: '#475569', 
+                                cursor: 'pointer', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '8px',
+                                fontWeight: 600
+                            }}
+                        >
+                            <i className="fas fa-reply"></i> Reply
+                        </button>
+                        {!email.associated ? (
+                            <button 
+                                onClick={() => onConvertToLead(email.id)}
+                                disabled={isActionLoading === email.id}
+                                style={{ 
+                                    padding: '8px 16px', 
+                                    borderRadius: '8px', 
+                                    border: 'none', 
+                                    background: '#059669', 
+                                    color: '#fff', 
+                                    cursor: 'pointer', 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: '8px',
+                                    fontWeight: 600
+                                }}
+                            >
+                                {isActionLoading === email.id ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-user-plus"></i>}
+                                Create Lead
+                            </button>
+                        ) : (
+                            <button 
+                                onClick={() => onAddActivity(email.associated)}
+                                style={{ 
+                                    padding: '8px 16px', 
+                                    borderRadius: '8px', 
+                                    border: 'none', 
+                                    background: '#6366f1', 
+                                    color: '#fff', 
+                                    cursor: 'pointer', 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: '8px',
+                                    fontWeight: 600
+                                }}
+                            >
+                                <i className="fas fa-calendar-plus"></i> Add Activity
+                            </button>
+                        )}
+                        <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '1.4rem', color: '#64748b', padding: '0 8px' }}>
+                            <i className="fas fa-times"></i>
+                        </button>
+                    </div>
                 </div>
 
                 <div style={{
@@ -96,7 +178,10 @@ const ViewEmailModal = ({ isOpen, onClose, email }) => {
                     ) : (
                         <div
                             dangerouslySetInnerHTML={{ __html: content }}
-                            style={{ whiteSpace: 'pre-wrap' }}
+                            style={{ 
+                                wordBreak: 'break-word',
+                                overflowWrap: 'break-word'
+                            }}
                         />
                     )}
                 </div>

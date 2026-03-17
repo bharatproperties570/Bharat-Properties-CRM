@@ -38,6 +38,11 @@ const AuditLogSchema = new mongoose.Schema({
             'deal_converted',
             'rule_modified',
 
+            // Lead Lifecycle Events
+            'lead_created',
+            'lead_updated',
+            'lead_deleted',
+
             // Password Events
             'password_changed',
             'password_reset',

@@ -458,8 +458,15 @@ export const getDashboardStats = async (req, res) => {
                 newLeadsThisMonth,
                 dealsThisMonth,
                 soldCount,
-                blockedCount
+                blockedCount,
+                total_property: await Inventory.countDocuments(baseInvQuery),
+                total_view: 0, // Placeholder as views aren't explicitly tracked yet
+                total_favourite: 0 // Placeholder as favorites aren't explicitly tracked yet
             },
+            // Explicitly add for mobile dashboard mapping if needed
+            total_property: await Inventory.countDocuments(baseInvQuery),
+            total_view: 0,
+            total_favourite: 0,
 
             // Agenda
             agenda: { tasks: liveTasks, siteVisits: liveSiteVisits },

@@ -207,80 +207,72 @@ export const getInventory = async (req, res) => {
         // Note: In a real production system, these "Active/InActive" rules would be lookups or business rules.
         // For now, we define Active as 'Available' and InActive as 'Sold Out', 'Rented Out', 'Inactive'.
 
+        // Optimized Counters using Aggregation
         const activeStatusNames = ['Available', 'Active', 'Interested / Warm', 'Interested / Hot', 'Request Call Back', 'Busy / Driving', 'Market Feedback', 'General Inquiry', 'Blocked', 'Booked', 'Interested'];
         const inactiveStatusNames = ['Sold Out', 'Rented Out', 'Not Interested', 'Inactive', 'Wrong Number / Invalid', 'Switch Off / Unreachable'];
 
         const [activeStatusDocs, inactiveStatusDocs] = await Promise.all([
-            Lookup.find({ lookup_type: 'Status', lookup_value: { $in: activeStatusNames } }),
-            Lookup.find({ lookup_type: 'Status', lookup_value: { $in: inactiveStatusNames } })
+            Lookup.find({ lookup_type: 'Status', lookup_value: { $in: activeStatusNames } }).select('_id').lean(),
+            Lookup.find({ lookup_type: 'Status', lookup_value: { $in: inactiveStatusNames } }).select('_id').lean()
         ]);
 
         const activeStatusIds = activeStatusDocs.map(d => d._id);
         const inactiveStatusIds = inactiveStatusDocs.map(d => d._id);
 
-        const [activeCount, inactiveCount] = await Promise.all([
-            Inventory.countDocuments({
-                ...query,
-                $or: [
-                    { status: { $in: activeStatusIds } },
-                    { status: { $in: activeStatusNames } } // Fallback for string statuses
-                ]
-            }),
-            Inventory.countDocuments({
-                ...query,
-                $or: [
-                    { status: { $in: inactiveStatusIds } },
-                    { status: { $in: inactiveStatusNames } } // Fallback for string statuses
-                ]
-            })
+        // Single aggregation for all stats
+        // We need a separate query for category stats that ignores the category filter
+        const categoryStatsQuery = { ...query };
+        delete categoryStatsQuery.category;
+
+        const [statsAggregation, categoryStatsAggregation] = await Promise.all([
+            Inventory.aggregate([
+                { $match: query },
+                {
+                    $facet: {
+                        active: [
+                            { $match: { $or: [{ status: { $in: activeStatusIds } }, { status: { $in: activeStatusNames } }] } },
+                            { $count: "count" }
+                        ],
+                        inactive: [
+                            { $match: { $or: [{ status: { $in: inactiveStatusIds } }, { status: { $in: inactiveStatusNames } }] } },
+                            { $count: "count" }
+                        ]
+                    }
+                }
+            ]),
+            Inventory.aggregate([
+                { $match: categoryStatsQuery },
+                { $group: { _id: "$category", count: { $sum: 1 } } }
+            ])
         ]);
 
-        // Apply Status Category Filter if requested
-        if (statusCategory === 'Active') {
-            const activeCondition = {
-                $or: [
-                    { status: { $in: activeStatusIds } },
-                    { status: { $in: activeStatusNames } }
-                ]
-            };
-            if (query.$or) {
-                query = { $and: [query, activeCondition] };
-            } else {
-                query = { ...query, ...activeCondition };
-            }
-        } else if (statusCategory === 'InActive') {
-            const inactiveCondition = {
-                $or: [
-                    { status: { $in: inactiveStatusIds } },
-                    { status: { $in: inactiveStatusNames } }
-                ]
-            };
-            if (query.$or) {
-                query = { $and: [query, inactiveCondition] };
-            } else {
-                query = { ...query, ...inactiveCondition };
-            }
-        }
+        const stats = statsAggregation[0];
+        const activeCount = stats.active[0]?.count || 0;
+        const inactiveCount = stats.inactive[0]?.count || 0;
 
-        // Enhanced: Category-based counts for list view footer
-        const categories = await Lookup.find({ lookup_type: 'Category' });
-        const categoryCounts = await Promise.all(categories.map(async (cat) => {
-            const count = await Inventory.countDocuments({
-                ...query,
-                $or: [
-                    { category: cat._id },
-                    { category: cat._id.toString() },
-                    { category: cat.lookup_value }
-                ]
-            });
-            return { name: cat.lookup_value, count };
+        // Enrichment: Resolve category names for stats
+        const categoryResultIds = categoryStatsAggregation.map(c => c._id).filter(id => mongoose.Types.ObjectId.isValid(id));
+        const categoryDocs = await Lookup.find({ _id: { $in: categoryResultIds } }).select('lookup_value').lean();
+        const categoryMap = new Map(categoryDocs.map(d => [d._id.toString(), d.lookup_value]));
+
+        const categoryStats = categoryStatsAggregation.map(c => ({
+            name: categoryMap.get(c._id?.toString()) || String(c._id || 'Unknown'),
+            count: c.count
         }));
 
+        // Apply Status Category Filter if requested (optimized)
+        if (statusCategory === 'Active') {
+            query.status = { $in: [...activeStatusIds, ...activeStatusNames] };
+        } else if (statusCategory === 'InActive') {
+            query.status = { $in: [...inactiveStatusIds, ...inactiveStatusNames] };
+        }
+
+        // Fetch paginated results with limited population
         const results = await paginate(Inventory, query, Number(page), Number(limit), { unitNo: 1 }, populateFields, { locale: 'en', numericOrdering: true });
 
-        // Professional Fix: Add hasDeal flag to each inventory item for UI highlighting
+        // Check for deals
         const inventoryIds = results.records.map(item => item._id);
-        const deals = await mongoose.model('Deal').find({ inventoryId: { $in: inventoryIds } }, 'inventoryId').lean();
+        const deals = await mongoose.model('Deal').find({ inventoryId: { $in: inventoryIds } }).select('inventoryId').lean();
         const dealInventoryIds = new Set(deals.map(d => d.inventoryId.toString()));
 
         results.records = results.records.map(item => {
@@ -293,15 +285,17 @@ export const getInventory = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            activeCount: activeCount || 0,
-            inactiveCount: inactiveCount || 0,
-            categoryStats: categoryCounts,
+            activeCount,
+            inactiveCount,
+            categoryStats,
             ...results
         });
     } catch (error) {
+        console.error("[ERROR] getInventory failed:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 };
+
 
 export const getInventoryById = async (req, res) => {
     try {
@@ -348,14 +342,14 @@ export const addInventory = async (req, res) => {
         const data = { ...req.body };
 
         // Resolve Reference Fields to prevent CastErrors
-        if (data.category) data.category = await resolveLookup('Category', data.category);
-        if (data.subCategory) data.subCategory = await resolveLookup('SubCategory', data.subCategory);
-        if (data.unitType) data.unitType = await resolveLookup('Size', data.unitType);
-        if (data.status) data.status = await resolveLookup('Status', data.status); else data.status = await resolveLookup('Status', 'Inactive');
-        if (data.facing) data.facing = await resolveLookup('Facing', data.facing);
-        if (data.direction) data.direction = await resolveLookup('Direction', data.direction);
-        if (data.orientation) data.orientation = await resolveLookup('Orientation', data.orientation);
-        if (data.intent) data.intent = await resolveLookup('Intent', data.intent);
+        if (data.category) data.category = await resolveLookup('Category', data.category, false);
+        if (data.subCategory) data.subCategory = await resolveLookup('SubCategory', data.subCategory, false);
+        if (data.unitType) data.unitType = await resolveLookup('Size', data.unitType, false);
+        if (data.status) data.status = await resolveLookup('Status', data.status, false); else data.status = await resolveLookup('Status', 'Inactive', false);
+        if (data.facing) data.facing = await resolveLookup('Facing', data.facing, false);
+        if (data.direction) data.direction = await resolveLookup('Direction', data.direction, false);
+        if (data.orientation) data.orientation = await resolveLookup('Orientation', data.orientation, false);
+        if (data.intent) data.intent = await resolveLookup('Intent', data.intent, false);
         if (data.assignedTo) data.assignedTo = await resolveUser(data.assignedTo);
         if (data.team) data.team = await resolveTeam(data.team);
 
@@ -398,14 +392,14 @@ export const updateInventory = async (req, res) => {
         const data = { ...req.body };
 
         // Resolve Reference Fields to prevent CastErrors
-        if (data.category) data.category = await resolveLookup('Category', data.category);
-        if (data.subCategory) data.subCategory = await resolveLookup('SubCategory', data.subCategory);
-        if (data.unitType) data.unitType = await resolveLookup('Size', data.unitType);
-        if (data.status) data.status = await resolveLookup('Status', data.status); else data.status = await resolveLookup('Status', 'Inactive');
-        if (data.facing) data.facing = await resolveLookup('Facing', data.facing);
-        if (data.direction) data.direction = await resolveLookup('Direction', data.direction);
-        if (data.orientation) data.orientation = await resolveLookup('Orientation', data.orientation);
-        if (data.intent) data.intent = await resolveLookup('Intent', data.intent);
+        if (data.category) data.category = await resolveLookup('Category', data.category, false);
+        if (data.subCategory) data.subCategory = await resolveLookup('SubCategory', data.subCategory, false);
+        if (data.unitType) data.unitType = await resolveLookup('Size', data.unitType, false);
+        if (data.status) data.status = await resolveLookup('Status', data.status, false); else data.status = await resolveLookup('Status', 'Inactive', false);
+        if (data.facing) data.facing = await resolveLookup('Facing', data.facing, false);
+        if (data.direction) data.direction = await resolveLookup('Direction', data.direction, false);
+        if (data.orientation) data.orientation = await resolveLookup('Orientation', data.orientation, false);
+        if (data.intent) data.intent = await resolveLookup('Intent', data.intent, false);
         if (data.assignedTo) data.assignedTo = await resolveUser(data.assignedTo);
         if (data.team) data.team = await resolveTeam(data.team);
 
@@ -421,6 +415,20 @@ export const updateInventory = async (req, res) => {
                 }
                 return assoc;
             });
+        }
+
+        if (data.interactions && Array.isArray(data.interactions)) {
+            // Push interactions to history
+            const historyToPush = data.interactions.map(interaction => ({
+                date: interaction.date || new Date(),
+                author: req.user?._id || data.assignedTo || null,
+                actor: interaction.actor || (req.user ? (req.user.fullName || req.user.name) : null),
+                type: 'Feedback',
+                note: interaction.note,
+                details: interaction.details
+            }));
+            data.$push = { history: { $each: historyToPush } };
+            delete data.interactions;
         }
 
         const inventory = await Inventory.findByIdAndUpdate(req.params.id, data, {
@@ -439,7 +447,8 @@ export const updateInventory = async (req, res) => {
             { path: "orientation" },
             { path: "sizeConfig" },
             { path: "roadWidth" },
-            { path: "assignedTo", select: "fullName" }
+            { path: "assignedTo", select: "fullName" },
+            { path: "history.author", select: "fullName name" }
         ]);
 
         if (!inventory) {
@@ -577,15 +586,15 @@ export const matchInventory = async (req, res) => {
 // Optimized with in-memory cache for bulk operations
 const lookupCache = new Map(); // Key: "type:value" -> ID
 
-const resolveLookup = async (type, value) => {
+const resolveLookup = async (type, value, createIfMissing = true) => {
     if (!value) return null;
 
     // Handle array or comma-separated string (for multi-intents)
     if (Array.isArray(value)) {
-        return await Promise.all(value.map(val => resolveLookup(type, val)));
+        return await Promise.all(value.map(val => resolveLookup(type, val, createIfMissing)));
     }
     if (typeof value === 'string' && value.includes(',')) {
-        return await resolveLookup(type, value.split(',').map(v => v.trim()).filter(Boolean));
+        return await resolveLookup(type, value.split(',').map(v => v.trim()).filter(Boolean), createIfMissing);
     }
 
     if (mongoose.Types.ObjectId.isValid(value)) return value;
@@ -595,7 +604,12 @@ const resolveLookup = async (type, value) => {
 
     const escapedValue = escapeRegExp(value);
     let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } });
+    
     if (!lookup) {
+        if (!createIfMissing) {
+            console.log(`[STRICT] Lookup not found for type '${type}' and value '${value}'. Auto-creation disabled.`);
+            return null;
+        }
         lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
     }
 
@@ -754,14 +768,14 @@ export const importInventory = async (req, res) => {
                     address: {
                         hNo: item.hNo || item['H No'],
                         street: item.street || item['Street'],
-                        locality: await resolveLookup('Area', item.locality || item['Locality']),
-                        area: await resolveLookup('Area', item.area || item['Area']),
-                        location: await resolveLookup('Area', item.location || item['Location']),
-                        city: await resolveLookup('City', item.city || item['City']),
-                        tehsil: await resolveLookup('Tehsil', item.tehsil || item['Tehsil']),
+                        locality: await resolveLookup('Area', item.locality || item['Locality'], true),
+                        area: await resolveLookup('Area', item.area || item['Area'], true),
+                        location: await resolveLookup('Area', item.location || item['Location'], true),
+                        city: await resolveLookup('City', item.city || item['City'], true),
+                        tehsil: await resolveLookup('Tehsil', item.tehsil || item['Tehsil'], true),
                         postOffice: item.postOffice || item['Post Office'],
                         pinCode: item.pinCode || item['Pin Code'] || item['Post Code'],
-                        state: await resolveLookup('State', item.state || item['State']),
+                        state: await resolveLookup('State', item.state || item['State'], true),
                         country: item.country || item['Country'] || 'India'
                     },
                     latitude: item.lat || item.latitude || item['Latitude'],
@@ -776,9 +790,9 @@ export const importInventory = async (req, res) => {
                     visibleTo: item.visibleTo || item['Visible To'] || 'Everyone'
                 };
 
-                result.category = await resolveLookup('Category', item.category || item.type || item['Category'] || item['Property Category']);
-                result.subCategory = await resolveLookup('SubCategory', item.subCategory || item['SubCategory'] || item['Property Category']);
-                result.unitType = await resolveLookup('UnitType', item.unitType || item['Unit Type']);
+                result.category = await resolveLookup('Category', item.category || item.type || item['Category'] || item['Property Category'], false);
+                result.subCategory = await resolveLookup('SubCategory', item.subCategory || item['SubCategory'] || item['Property Category'], false);
+                result.unitType = await resolveLookup('UnitType', item.unitType || item['Unit Type'], false);
 
                 const sizeResult = await resolveSizeLookup(
                     item.sizeLabel || item.sizeConfig || item['Size Label'] || item['Size Label*'],
@@ -786,7 +800,7 @@ export const importInventory = async (req, res) => {
                     result.block
                 );
                 result.sizeConfig = sizeResult?.id;
-                result.status = await resolveLookup('Status', item.status || item['Status'] || 'Inactive');
+                result.status = await resolveLookup('Status', item.status || item['Status'] || 'Inactive', false);
 
                 if (sizeResult?.metadata) {
                     const meta = sizeResult.metadata;

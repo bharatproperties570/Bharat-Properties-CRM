@@ -28,13 +28,18 @@ const sanitizeIds = (ids) => {
 };
 
 // Helper to resolve lookup (Find or Create)
-const resolveLookup = async (type, value) => {
+const resolveLookup = async (type, value, createIfMissing = true) => {
     if (!value) return null;
     if (mongoose.Types.ObjectId.isValid(value)) return value;
     const escapedValue = escapeRegExp(value);
     const re = new RegExp(`^${escapedValue}$`, 'i');
     let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: re } });
+    
     if (!lookup) {
+        if (!createIfMissing) {
+            console.log(`[STRICT] Lookup not found for type '${type}' and value '${value}'. Auto-creation disabled.`);
+            return null;
+        }
         lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
     }
     return lookup._id;
@@ -64,16 +69,16 @@ const resolveAllReferenceFields = async (doc) => {
         if (doc[field] === "") doc[field] = null;
     }
 
-    if (doc.requirement) doc.requirement = await resolveLookup('Requirement', doc.requirement);
-    if (doc.subRequirement) doc.subRequirement = await resolveLookup('SubRequirement', doc.subRequirement);
-    if (doc.budget) doc.budget = await resolveLookup('Budget', doc.budget);
-    if (doc.location) doc.location = await resolveLookup('Location', doc.location);
-    if (doc.source) doc.source = await resolveLookup('Source', doc.source);
-    if (doc.status) doc.status = await resolveLookup('Status', doc.status);
-    if (doc.stage) doc.stage = await resolveLookup('Stage', doc.stage);
-    if (doc.countryCode) doc.countryCode = await resolveLookup('CountryCode', doc.countryCode);
-    if (doc.campaign) doc.campaign = await resolveLookup('Campaign', doc.campaign);
-    if (doc.subSource) doc.subSource = await resolveLookup('SubSource', doc.subSource);
+    if (doc.requirement) doc.requirement = await resolveLookup('Requirement', doc.requirement, false);
+    if (doc.subRequirement) doc.subRequirement = await resolveLookup('SubRequirement', doc.subRequirement, false);
+    if (doc.budget) doc.budget = await resolveLookup('Budget', doc.budget, false);
+    if (doc.location) doc.location = await resolveLookup('Location', doc.location, false);
+    if (doc.source) doc.source = await resolveLookup('Source', doc.source, false);
+    if (doc.status) doc.status = await resolveLookup('Status', doc.status, false);
+    if (doc.stage) doc.stage = await resolveLookup('Stage', doc.stage, false);
+    if (doc.countryCode) doc.countryCode = await resolveLookup('CountryCode', doc.countryCode, false);
+    if (doc.campaign) doc.campaign = await resolveLookup('Campaign', doc.campaign, false);
+    if (doc.subSource) doc.subSource = await resolveLookup('SubSource', doc.subSource, false);
 
     // Handle Arrays (Lookup fields)
     const arrayLookups = {
@@ -99,7 +104,7 @@ const resolveAllReferenceFields = async (doc) => {
         if (Array.isArray(doc[field])) {
             // Filter out empty strings from arrays
             doc[field] = doc[field].filter(val => val !== "");
-            doc[field] = await Promise.all(doc[field].map(val => resolveLookup(type, val)));
+            doc[field] = await Promise.all(doc[field].map(val => resolveLookup(type, val, false)));
         }
     }
 
@@ -291,18 +296,45 @@ export const getLeads = async (req, res, next) => {
                 }
             });
 
-            results.records = results.records.map(lead => {
+            results.records = await Promise.all(results.records.map(async (lead) => {
                 const leadId = lead._id.toString();
                 const leadActs = activityGroup.get(leadId) || [];
                 const latest = leadActs[0];
+                const leadObj = lead.toObject ? lead.toObject() : lead;
+
+                // Professional Fix: Resolve Title ID to Value for Mobile CRM
+                if (leadObj.contactDetails && leadObj.contactDetails.title) {
+                    const titleId = leadObj.contactDetails.title._id || leadObj.contactDetails.title;
+                    if (mongoose.Types.ObjectId.isValid(titleId)) {
+                        const titleLookup = await Lookup.findById(titleId);
+                        if (titleLookup) {
+                            leadObj.contactDetails.titleValue = titleLookup.lookup_value;
+                            if (leadObj.salutation === titleId.toString() || !leadObj.salutation) {
+                                leadObj.salutation = titleLookup.lookup_value;
+                            }
+                        }
+                    } else if (typeof leadObj.contactDetails.title === 'string' && !mongoose.Types.ObjectId.isValid(leadObj.contactDetails.title)) {
+                        leadObj.contactDetails.titleValue = leadObj.contactDetails.title;
+                        if (leadObj.salutation === leadObj.contactDetails.title) {
+                            leadObj.salutation = leadObj.contactDetails.title;
+                        }
+                    }
+                }
+
+                // Double check salutation if it's an ID but not resolved yet
+                if (mongoose.Types.ObjectId.isValid(leadObj.salutation)) {
+                    const sLookup = await Lookup.findById(leadObj.salutation);
+                    if (sLookup) leadObj.salutation = sLookup.lookup_value;
+                }
+
                 return {
-                    ...lead,
-                    activities: leadActs, // For frontend scoring engine
+                    ...leadObj,
+                    activities: leadActs,
                     interactionCounts: countsMap.get(leadId) || { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: 0, whatsapp: 0 },
                     activity: latest ? latest.subject : "None",
                     lastAct: latest ? new Date(latest.createdAt).toLocaleDateString() : "Today"
                 };
-            });
+            }));
         }
 
         res.status(200).json({
@@ -664,12 +696,12 @@ export const importLeads = async (req, res, next) => {
                 if (!leadEntry.tags.includes('Import')) leadEntry.tags.push('Import');
 
                 // Resolve Lookups
-                leadEntry.requirement = await resolveLookup('Requirement', item.requirement || 'Buy');
-                leadEntry.source = await resolveLookup('Source', item.source || 'Direct');
-                leadEntry.status = await resolveLookup('Status', item.status || 'Active');
-                leadEntry.stage = await resolveLookup('Stage', item.stage || 'New');
-                leadEntry.location = await resolveLookup('Location', item.location || leadEntry.locArea);
-                leadEntry.budget = await resolveLookup('Budget', item.budget);
+                leadEntry.requirement = await resolveLookup('Requirement', item.requirement || 'Buy', false);
+                leadEntry.source = await resolveLookup('Source', item.source || 'Direct', false);
+                leadEntry.status = await resolveLookup('Status', item.status || 'Active', false);
+                leadEntry.stage = await resolveLookup('Stage', item.stage || 'New', false);
+                leadEntry.location = await resolveLookup('Location', item.location || leadEntry.locArea, false);
+                leadEntry.budget = await resolveLookup('Budget', item.budget, false);
                 leadEntry.owner = await resolveUser(item.owner);
 
                 if (item.mobile) {

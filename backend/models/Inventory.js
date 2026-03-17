@@ -9,10 +9,10 @@ const InventorySchema = new mongoose.Schema({
     project: String,
     projectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', index: true },
 
-    projectName: String,
-    block: { type: String },
-    unitNumber: { type: String },
-    unitNo: { type: String },
+    projectName: { type: String, index: true },
+    block: { type: String, index: true },
+    unitNumber: { type: String, index: true },
+    unitNo: { type: String, index: true },
 
     // Status & Intent
     intent: [{ type: mongoose.Schema.Types.Mixed, ref: 'Lookup', index: true }], // For Sale, For Rent, etc.
@@ -147,6 +147,15 @@ const InventorySchema = new mongoose.Schema({
         title: String,
         type: { type: String },
         url: String
+    }],
+    // Interaction & Feedback History
+    history: [{
+        date: { type: Date, default: Date.now },
+        author: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        actor: String, // String fallback for external actors or display names
+        type: { type: String, default: 'Feedback' }, // Feedback, System, Status Change, etc.
+        note: String,
+        details: mongoose.Schema.Types.Mixed
     }]
 }, { timestamps: true, strict: true });
 

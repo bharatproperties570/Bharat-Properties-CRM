@@ -114,7 +114,7 @@ export const getActivities = async (req, res) => {
             .sort({ dueDate: -1, createdAt: -1 })
             .skip((page - 1) * limit)
             .limit(Number(limit))
-            .populate('assignedTo', 'firstName lastName email')
+            .populate('assignedTo', 'fullName name email')
             .lean();
 
         const total = await Activity.countDocuments(query);
@@ -146,7 +146,7 @@ export const getActivitiesByEntity = async (req, res, next) => {
         const activities = await Activity.find({
             entityType: { $regex: new RegExp(`^${escapedEntityType}$`, 'i') },
             entityId: entityId
-        }).populate('assignedTo', 'firstName lastName email').sort({ createdAt: -1 }).lean();
+        }).populate('assignedTo', 'fullName name email').sort({ createdAt: -1 }).lean();
 
         res.json({ success: true, data: activities });
     } catch (error) {
@@ -166,7 +166,7 @@ export const getUnifiedTimeline = async (req, res) => {
             entityId,
             entityType: { $regex: new RegExp(`^${escapeRegExp(entityType)}$`, 'i') }
         })
-            .populate('assignedTo', 'firstName lastName')
+            .populate('assignedTo', 'fullName name')
             .lean();
 
         // 2. Fetch Audit Logs
@@ -195,7 +195,7 @@ export const getUnifiedTimeline = async (req, res) => {
                 title: a.subject,
                 description: a.description,
                 status: a.status,
-                actor: a.assignedTo ? `${a.assignedTo.firstName} ${a.assignedTo.lastName}` : (a.performedBy || 'System'),
+                actor: a.assignedTo ? (a.assignedTo.fullName || a.assignedTo.name) : (a.performedBy || 'System'),
                 isStarred: a.isStarred || false,
                 tags: a.tags || [],
                 metadata: {
@@ -390,87 +390,104 @@ export const deleteActivity = async (req, res) => {
 // @route   POST /api/activities/mobile-sync
 export const syncMobileCalls = async (req, res) => {
     try {
-        const { calls } = req.body;
+        const { calls = [], messages = [] } = req.body;
 
-        if (!calls || !Array.isArray(calls)) {
-            return res.status(400).json({ success: false, error: "Invalid calls data" });
+        if (!Array.isArray(calls) || !Array.isArray(messages)) {
+            return res.status(400).json({ success: false, error: "Invalid data format" });
         }
 
         const syncedActivities = [];
 
-        for (const call of calls) {
-            if (!call || !call.number) {
-                console.warn("[Sync] Skipping invalid call record:", call);
-                continue;
-            }
-            const normalizedPhone = call.number.replace(/[^0-9]/g, '').slice(-10);
-
-            let matchedEntity = null;
-            let entityType = 'Unknown';
-            let participantName = call.name || 'Unknown';
-
-            // 1. Try Exact Mobile Number via Contact
+        // Helper for entity matching
+        const findEntity = async (phone) => {
+            const normalizedPhone = phone.replace(/[^0-9]/g, '').slice(-10);
             const escapedPhone = escapeRegExp(normalizedPhone);
-            const matchedContact = await mongoose.model('Contact').findOne({
+
+            // 1. Try Contact
+            const contact = await mongoose.model('Contact').findOne({
                 "phones.number": { $regex: new RegExp(`${escapedPhone}$`) }
             }).lean();
+            if (contact) return { entity: contact, type: 'Contact', name: contact.name };
 
-            if (matchedContact) {
-                matchedEntity = matchedContact;
-                entityType = 'Contact';
-                participantName = matchedContact.name;
-            } else {
-                // 2. Try Exact Mobile Number via Lead
-                const lead = await mongoose.model('Lead').findOne({
-                    "mobile": { $regex: new RegExp(`${escapedPhone}$`) }
-                }).lean();
+            // 2. Try Lead
+            const lead = await mongoose.model('Lead').findOne({
+                "mobile": { $regex: new RegExp(`${escapedPhone}$`) }
+            }).lean();
+            if (lead) return { entity: lead, type: 'Lead', name: `${lead.firstName} ${lead.lastName || ''}`.trim() };
 
-                if (lead) {
-                    matchedEntity = lead;
-                    entityType = 'Lead';
-                    participantName = `${lead.firstName} ${lead.lastName || ''}`.trim();
-                }
-            }
+            return null;
+        };
+
+        // 1. Process Calls
+        for (const call of calls) {
+            if (!call || !call.number) continue;
+
+            const match = await findEntity(call.number);
+            const participantName = match ? match.name : (call.name || 'Unknown');
 
             const activityData = {
                 type: 'Call',
                 subject: `Mobile Call: ${call.type || 'Incoming'}`,
-                entityType: matchedEntity ? entityType : 'Unknown',
-                entityId: matchedEntity ? matchedEntity._id : null,
-                relatedTo: matchedEntity ? [{
-                    id: matchedEntity._id,
-                    name: participantName,
-                    model: entityType
-                }] : [],
-                participants: [{
-                    name: participantName,
-                    mobile: call.number,
-                }],
+                entityType: match ? match.type : 'Unknown',
+                entityId: match ? match.entity._id : null,
+                relatedTo: match ? [{ id: match.entity._id, name: match.name, model: match.type }] : [],
+                participants: [{ name: participantName, mobile: call.number }],
                 dueDate: new Date(call.timestamp),
                 status: 'Completed',
-                description: `Synced from mobile. Duration: ${call.duration}s. Raw number: ${call.number}`,
+                description: `Synced from mobile. Duration: ${call.duration}s. Raw: ${call.number}`,
                 details: {
-                    direction: call.type === 'INCOMING' ? 'Incoming' : 'Outgoing',
+                    direction: call.type?.toUpperCase() === 'INCOMING' ? 'Incoming' : 'Outgoing',
                     duration: call.duration,
                     platform: 'Mobile',
                     mobileId: call.id,
-                    isMatched: !!matchedEntity
+                    isMatched: !!match,
+                    recordingUrl: call.recordingUrl || null
                 },
                 performedAt: new Date(call.timestamp)
             };
 
-            const existing = await Activity.findOne({
-                "details.mobileId": call.id,
-                "details.platform": 'Mobile'
+            const existing = await Activity.findOne({ "details.mobileId": call.id, "details.platform": 'Mobile' });
+            if (!existing) {
+                const activity = await Activity.create(activityData);
+                googleSyncQueue.add('syncEvent', { activityId: activity._id }).catch(() => { });
+                syncedActivities.push(activity);
+            }
+        }
+
+        // 2. Process Messages (SMS)
+        for (const msg of messages) {
+            if (!msg || !msg.address) continue;
+
+            const match = await findEntity(msg.address);
+            const participantName = match ? match.name : 'Unknown';
+
+            const activityData = {
+                type: 'Messaging',
+                subject: `Mobile SMS: ${msg.type || 'Incoming'}`,
+                entityType: match ? match.type : 'Unknown',
+                entityId: match ? match.entity._id : null,
+                relatedTo: match ? [{ id: match.entity._id, name: match.name, model: match.type }] : [],
+                participants: [{ name: participantName, mobile: msg.address }],
+                dueDate: new Date(msg.date),
+                status: 'Completed',
+                description: msg.body,
+                details: {
+                    direction: msg.type?.toLowerCase() === 'sent' ? 'Outgoing' : 'Incoming',
+                    platform: 'MobileSMS',
+                    mobileId: msg.id || `${msg.address}_${msg.date}`,
+                    isMatched: !!match
+                },
+                performedAt: new Date(msg.date)
+            };
+
+            const existing = await Activity.findOne({ 
+                "details.mobileId": activityData.details.mobileId, 
+                "details.platform": 'MobileSMS' 
             });
 
             if (!existing) {
-                const newActivity = await Activity.create(activityData);
-
-                // Sync to Google Calendar
-                googleSyncQueue.add('syncEvent', { activityId: newActivity._id }).catch(() => { });
-
-                syncedActivities.push(newActivity);
+                const activity = await Activity.create(activityData);
+                syncedActivities.push(activity);
             }
         }
 

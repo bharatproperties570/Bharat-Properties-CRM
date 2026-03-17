@@ -155,3 +155,4 @@ implicit/
 prompting/
 *.log
 
+settings_dump.json

@@ -5,7 +5,7 @@ export const getLookups = async (req, res) => {
         const { lookup_type, parent_lookup_id, page = 1, limit = 1000 } = req.query;
 
         const query = {};
-        if (lookup_type) query.lookup_type = lookup_type;
+        if (lookup_type) query.lookup_type = { $regex: new RegExp(`^${lookup_type}$`, 'i') };
         if (parent_lookup_id && parent_lookup_id !== "null" && parent_lookup_id !== "undefined") {
             // Only add to query if it's a valid hex string for ObjectId
             if (/^[0-9a-fA-F]{24}$/.test(parent_lookup_id)) {

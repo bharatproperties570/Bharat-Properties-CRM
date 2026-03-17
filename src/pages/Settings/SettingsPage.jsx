@@ -9,6 +9,7 @@ import InactivateUserModal from '../../components/InactivateUserModal';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { useUserContext } from '../../context/UserContext';
 import { getInitials } from '../../utils/helpers';
+import { renderValue } from '../../utils/renderUtils';
 import SalesGoalsSettingsPage from './views/SalesGoalsSettingsPage';
 import NotificationSettingsPage from './views/NotificationSettingsPage';
 import EmailSettingsPage from './views/EmailSettingsPage';
@@ -388,7 +389,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                                 <tr key={user._id || user.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                     <td style={{ padding: '16px', fontWeight: 700 }}>{user.fullName || user.name}</td>
                                     <td style={{ padding: '16px' }}>{user.email}<br />{user.mobile || user.phone}</td>
-                                    <td style={{ padding: '16px', fontWeight: 700 }}>{user.department}</td>
+                                    <td style={{ padding: '16px', fontWeight: 700 }}>{renderValue(user.department)}</td>
                                     <td style={{ padding: '16px', fontWeight: 700 }}>{user.designation || user.role?.name || '-'}</td>
                                     <td style={{ padding: '16px', color: 'var(--primary-color)', fontWeight: 600 }}>{user.username}</td>
                                     {/* <td style={{ padding: '16px' }}>{user.callSync} ({user.lastSync})</td> */}
@@ -563,7 +564,7 @@ const TeamsList = ({ teams, onNewTeam, onEditTeam, onDeleteTeam }) => {
                         {teams.map(team => (
                             <tr key={team._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                 <td style={{ padding: '16px', fontWeight: 700, color: '#1e293b' }}>{team.name}</td>
-                                <td style={{ padding: '16px', color: '#64748b', textTransform: 'capitalize' }}>{team.department}</td>
+                                <td style={{ padding: '16px', color: '#64748b', textTransform: 'capitalize' }}>{renderValue(team.department)}</td>
                                 <td style={{ padding: '16px', color: '#1e293b' }}>
                                     {team.manager ? (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

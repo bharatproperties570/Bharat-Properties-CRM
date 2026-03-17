@@ -25,6 +25,22 @@ export const getInbox = async (req, res) => {
     }
 };
 
+export const convertToLead = async (req, res) => {
+    try {
+        const { uid } = req.params;
+        const result = await emailService.convertToLead(uid);
+        
+        if (result && result.success === false) {
+            return res.status(400).json(result);
+        }
+        
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error('Controller Error converting email to lead:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 export const testConnection = async (req, res) => {
     try {
         const result = await emailService.testConnection();

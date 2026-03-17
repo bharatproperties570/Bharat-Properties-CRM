@@ -1403,31 +1403,35 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                     <div style={sectionCardStyle}>
                                         <h4 style={labelStyle}>Property Sub-Category</h4>
                                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                            {Array.from(new Set(formData.propertyType.flatMap(cat => PROPERTY_CATEGORIES[cat]?.subCategories || []))).map(sub => (
-                                                <button
-                                                    key={sub}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        const newSubs = formData.subType.includes(sub)
-                                                            ? formData.subType.filter(s => s !== sub)
-                                                            : [...formData.subType, sub];
-                                                        handleInputChange('subType', newSubs);
-                                                    }}
-                                                    style={{
-                                                        padding: '6px 14px',
-                                                        borderRadius: '20px',
-                                                        border: formData.subType.includes(sub) ? '1px solid #6366f1' : '1px solid #e2e8f0',
-                                                        background: formData.subType.includes(sub) ? '#eef2ff' : '#fff',
-                                                        color: formData.subType.includes(sub) ? '#4f46e5' : '#64748b',
-                                                        fontSize: '0.85rem',
-                                                        cursor: 'pointer',
-                                                        fontWeight: formData.subType.includes(sub) ? 500 : 400,
-                                                        transition: 'all 0.2s'
-                                                    }}
-                                                >
-                                                    {sub}
-                                                </button>
-                                            ))}
+                                            {Array.from(new Set(formData.propertyType.flatMap(cat => (propertyConfig[cat]?.subCategories || [])))).map(sub => {
+                                                const subName = typeof sub === 'string' ? sub : sub.name;
+                                                const isActive = formData.subType.includes(subName);
+                                                return (
+                                                    <button
+                                                        key={subName}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const newSubs = isActive
+                                                                ? formData.subType.filter(s => s !== subName)
+                                                                : [...formData.subType, subName];
+                                                            handleInputChange('subType', newSubs);
+                                                        }}
+                                                        style={{
+                                                            padding: '6px 14px',
+                                                            borderRadius: '20px',
+                                                            border: isActive ? '1px solid #6366f1' : '1px solid #e2e8f0',
+                                                            background: isActive ? '#eef2ff' : '#fff',
+                                                            color: isActive ? '#4f46e5' : '#64748b',
+                                                            fontSize: '0.85rem',
+                                                            cursor: 'pointer',
+                                                            fontWeight: isActive ? 500 : 400,
+                                                            transition: 'all 0.2s'
+                                                        }}
+                                                    >
+                                                        {subName}
+                                                    </button>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 )}
@@ -1613,24 +1617,6 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                 {(() => {
                                                     const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign);
                                                     return (selectedCamp?.sources || []).map(s => <option key={s.name} value={s.name}>{s.name}</option>);
-                                                })()}
-                                            </select>
-                                        </div>
-
-                                        {/* Medium - Level 3 */}
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Medium</label>
-                                            <select
-                                                value={formData.subSource}
-                                                onChange={(e) => handleInputChange('subSource', e.target.value)}
-                                                disabled={!formData.source}
-                                                style={!formData.source ? customSelectStyleDisabled : customSelectStyle}
-                                            >
-                                                <option value="">Select Medium</option>
-                                                {(() => {
-                                                    const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign);
-                                                    const selectedSrc = (selectedCamp?.sources || []).find(s => s.name === formData.source);
-                                                    return (selectedSrc?.mediums || []).map(m => <option key={m} value={m}>{m}</option>);
                                                 })()}
                                             </select>
                                         </div>

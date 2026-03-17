@@ -285,7 +285,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         intentIndex: lead.intent_index || 0,
                         classification: lead.lead_classification || '',
                         roleType: lead.role_type || '',
-                        intentTags: lead.intent_tags || []
+                        intentTags: lead.intent_tags || [],
+                        contactDetails: lead.contactDetails // Added to track existing contact and prevent duplicates on edit
                     };
                 });
 
