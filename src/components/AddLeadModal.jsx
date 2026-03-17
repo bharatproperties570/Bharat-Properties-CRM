@@ -120,16 +120,8 @@ const STATUSES = ['Active', 'Inactive', 'Pending', 'Closed'];
 // Sources and Campaigns are now fetched from Context
 
 
-// Mock Contacts for Duplicate Check
-const MOCK_CONTACTS = [
-    {
-        title: 'Mr.', name: 'Amit Kumar', surname: 'Sharma',
-        company: 'Bharat Properties',
-        phones: [{ phoneCode: '+91', phoneNumber: '9876543210' }],
-        emails: ['amit.k@example.com'],
-        personalAddress: { city: 'New Delhi', state: 'Delhi' }
-    }
-];
+// Duplicate check now uses the real API instead of local mock arrays
+const MOCK_CONTACTS = [];
 
 const companyList = [
     'Bharat Properties',
@@ -727,8 +719,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 source: normalizeId(initialData.source) || prev.source,
                 status: getLookupValue('Status', initialData.status) || prev.status,
                 budget: getLookupValue('Budget', initialData.budget) || prev.budget,
-                propertyType: Array.isArray(initialData.propertyType) ? initialData.propertyType.map(v => getLookupValue('PropertyType', v)).filter(Boolean) : [],
-                subType: Array.isArray(initialData.subType) ? initialData.subType.map(v => getLookupValue('SubType', v)).filter(Boolean) : [],
+                propertyType: Array.isArray(initialData.propertyType) ? initialData.propertyType.map(v => getLookupValue('Category', v)).filter(Boolean) : [],
+                subType: Array.isArray(initialData.subType) ? initialData.subType.map(v => getLookupValue('SubCategory', v)).filter(Boolean) : [],
                 unitType: Array.isArray(initialData.unitType) ? initialData.unitType.map(v => getLookupValue('UnitType', v)).filter(Boolean) : [],
                 facing: Array.isArray(initialData.facing) ? initialData.facing.map(v => getLookupValue('Facing', v)).filter(Boolean) : [],
                 roadWidth: Array.isArray(initialData.roadWidth) ? initialData.roadWidth.map(v => getLookupValue('RoadWidth', v)).filter(Boolean) : [],
@@ -1032,8 +1024,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                     budget: getLookupId('Budget', leadPayload.budget) || leadPayload.budget,
                     source: getLookupId('Source', leadPayload.source) || leadPayload.source,
                     status: getLookupId('Status', leadPayload.status) || leadPayload.status,
-                    propertyType: (leadPayload.propertyType || []).map(v => getLookupId('PropertyType', v) || v).filter(Boolean),
-                    subType: (leadPayload.subType || []).map(v => getLookupId('SubType', v) || v).filter(Boolean),
+                    propertyType: (leadPayload.propertyType || []).map(v => getLookupId('Category', v) || v).filter(Boolean),
+                    subType: (leadPayload.subType || []).map(v => getLookupId('SubCategory', v) || v).filter(Boolean),
                     unitType: (leadPayload.unitType || []).map(v => getLookupId('UnitType', v) || v).filter(Boolean),
                     facing: (leadPayload.facing || []).map(v => getLookupId('Facing', v) || v).filter(Boolean),
                     roadWidth: (leadPayload.roadWidth || []).map(v => getLookupId('RoadWidth', v) || v).filter(Boolean),
@@ -2075,41 +2067,46 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                     <div style={sectionCardStyle}>
                                         <h4 style={labelStyle}>Property Category</h4>
                                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))', gap: '8px' }}> {/* Reduced grid gap and min-width */}
-                                            {[
-                                                { label: 'Residential', icon: 'fa-home' },
-                                                { label: 'Commercial', icon: 'fa-building' },
-                                                { label: 'Industrial', icon: 'fa-industry' },
-                                                { label: 'Agricultural', icon: 'fa-seedling' },
-                                                { label: 'Institutional', icon: 'fa-university' }
-                                            ].map(cat => (
-                                                <button
-                                                    key={cat.label}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        const newCats = formData.propertyType.includes(cat.label)
-                                                            ? formData.propertyType.filter(c => c !== cat.label)
-                                                            : [...formData.propertyType, cat.label];
-                                                        handleInputChange('propertyType', newCats);
-                                                    }}
-                                                    style={{
-                                                        padding: '6px', // Further reduced padding
-                                                        borderRadius: '8px',
-                                                        border: formData.propertyType.includes(cat.label) ? '1px solid #3b82f6' : '1px solid #e2e8f0',
-                                                        background: formData.propertyType.includes(cat.label) ? '#eff6ff' : '#fff',
-                                                        color: formData.propertyType.includes(cat.label) ? '#2563eb' : '#64748b',
-                                                        display: 'flex',
-                                                        flexDirection: 'column',
-                                                        alignItems: 'center',
-                                                        gap: '4px',
-                                                        cursor: 'pointer',
-                                                        transition: 'all 0.2s',
-                                                        height: '100%'
-                                                    }}
-                                                >
-                                                    <i className={`fas ${cat.icon}`} style={{ fontSize: '0.9rem' }}></i> {/* Further reduced icon size */}
-                                                    <span style={{ fontSize: '0.75rem', fontWeight: 600, textAlign: 'center' }}>{cat.label}</span> {/* Reduced font size */}
-                                                </button>
-                                            ))}
+                                            {(propertyConfig && Object.keys(propertyConfig).length > 0 ? Object.keys(propertyConfig) : ['Residential', 'Commercial', 'Industrial', 'Agricultural', 'Institutional']).map(catLabel => {
+                                                const iconMap = {
+                                                    'Residential': 'fa-home',
+                                                    'Commercial': 'fa-building',
+                                                    'Industrial': 'fa-industry',
+                                                    'Agricultural': 'fa-seedling',
+                                                    'Institutional': 'fa-university'
+                                                };
+                                                const icon = iconMap[catLabel] || 'fa-tag';
+                                                
+                                                return (
+                                                    <button
+                                                        key={catLabel}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const newCats = formData.propertyType.includes(catLabel)
+                                                                ? formData.propertyType.filter(c => c !== catLabel)
+                                                                : [...formData.propertyType, catLabel];
+                                                            handleInputChange('propertyType', newCats);
+                                                        }}
+                                                        style={{
+                                                            padding: '6px',
+                                                            borderRadius: '8px',
+                                                            border: formData.propertyType.includes(catLabel) ? '1px solid #3b82f6' : '1px solid #e2e8f0',
+                                                            background: formData.propertyType.includes(catLabel) ? '#eff6ff' : '#fff',
+                                                            color: formData.propertyType.includes(catLabel) ? '#2563eb' : '#64748b',
+                                                            display: 'flex',
+                                                            flexDirection: 'column',
+                                                            alignItems: 'center',
+                                                            gap: '4px',
+                                                            cursor: 'pointer',
+                                                            transition: 'all 0.2s',
+                                                            height: '100%'
+                                                        }}
+                                                    >
+                                                        <i className={`fas ${icon}`} style={{ fontSize: '0.9rem' }}></i>
+                                                        <span style={{ fontSize: '0.75rem', fontWeight: 600, textAlign: 'center' }}>{catLabel}</span>
+                                                    </button>
+                                                );
+                                            })}
                                         </div>
                                     </div>
 
