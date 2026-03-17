@@ -198,18 +198,26 @@ class EmailService {
         return emails.sort((a, b) => new Date(b.date) - new Date(a.date));
     }
 
-    async fetchGmailInbox(config) {
+    async fetchGmailInbox(config, pageToken = null, limit = 20) {
         try {
             const oauth2Client = await getOAuth2Client();
             const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-            const response = await gmail.users.messages.list({
+            const listOptions = {
                 userId: 'me',
-                maxResults: 20,
+                maxResults: limit,
                 q: 'label:INBOX'
-            });
+            };
+
+            if (pageToken) {
+                listOptions.pageToken = pageToken;
+            }
+
+            const response = await gmail.users.messages.list(listOptions);
 
             const messages = response.data.messages || [];
+            const nextPageToken = response.data.nextPageToken;
+
             const emailPromises = messages.map(async (msg) => {
                 const detail = await gmail.users.messages.get({
                     userId: 'me',
@@ -252,7 +260,10 @@ class EmailService {
                 return { ...email, ...crmData };
             }));
 
-            return enrichedEmails.sort((a, b) => new Date(b.date) - new Date(a.date));
+            return {
+                emails: enrichedEmails.sort((a, b) => new Date(b.date) - new Date(a.date)),
+                nextPageToken
+            };
         } catch (error) {
             console.error('[EmailService] Gmail API fetchInbox Error:', error);
             throw error;
@@ -547,6 +558,19 @@ class EmailService {
                     console.log(`[EmailService] Valid portal lead detected from ${parsedData.portal}. Ingesting...`);
                     await LeadIngestionService.ingestLead(parsedData);
                     processedCount++;
+
+                    // Trigger Notification
+                    const adminUser = await mongoose.model('User').findOne({ role: 'admin' });
+                    if (adminUser) {
+                        await createNotification(
+                            adminUser._id,
+                            'assignment',
+                            'New Lead Ingested (Email)',
+                            `New lead ${parsedData.name || 'Unknown'} ingested from ${parsedData.portal}`,
+                            `/leads`,
+                            { portal: parsedData.portal }
+                        );
+                    }
 
                     // Mark as read and Remove from Unread to avoid re-processing
                     await gmail.users.messages.batchModify({

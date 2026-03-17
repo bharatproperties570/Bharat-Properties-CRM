@@ -17,8 +17,9 @@ export const sendEmail = async (req, res) => {
 
 export const getInbox = async (req, res) => {
     try {
-        const emails = await emailService.fetchInbox();
-        res.json({ success: true, data: emails });
+        const { pageToken, limit } = req.query;
+        const result = await emailService.fetchInbox(pageToken, limit);
+        res.json({ success: true, data: result });
     } catch (error) {
         console.error('Controller Error fetching inbox:', error);
         res.status(500).json({ success: false, message: error.message });

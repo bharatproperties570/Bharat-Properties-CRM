@@ -83,6 +83,7 @@ const generateTodayActivityReminders = async (userId) => {
             'Task': '✅',
             'Email': '📧',
             'WhatsApp': '💬',
+            'Messaging': '💬',
         };
 
         for (const act of activities) {

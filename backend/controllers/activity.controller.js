@@ -451,6 +451,18 @@ export const syncMobileCalls = async (req, res) => {
                 const activity = await Activity.create(activityData);
                 googleSyncQueue.add('syncEvent', { activityId: activity._id }).catch(() => { });
                 syncedActivities.push(activity);
+
+                // Trigger Notification
+                if (req.user?.id || req.user?._id) {
+                    await createNotification(
+                        req.user.id || req.user._id,
+                        activity.details?.direction === 'Incoming' ? 'assignment' : 'system',
+                        `Mobile Call: ${activity.details?.direction}`,
+                        `${activity.details?.direction} call from ${participantName} (${call.number})`,
+                        `/activities/${activity._id}`,
+                        { activityId: activity._id, type: 'Call' }
+                    );
+                }
             }
         }
 
@@ -488,6 +500,18 @@ export const syncMobileCalls = async (req, res) => {
             if (!existing) {
                 const activity = await Activity.create(activityData);
                 syncedActivities.push(activity);
+
+                // Trigger Notification
+                if (req.user?.id || req.user?._id) {
+                    await createNotification(
+                        req.user.id || req.user._id,
+                        activity.details?.direction === 'Incoming' ? 'assignment' : 'system',
+                        `Mobile SMS: ${activity.details?.direction}`,
+                        `${activity.details?.direction} SMS from ${participantName}: ${msg.body.substring(0, 30)}...`,
+                        `/activities/${activity._id}`,
+                        { activityId: activity._id, type: 'Messaging' }
+                    );
+                }
             }
         }
 

@@ -20,6 +20,8 @@ function CommunicationPage() {
     const [selectedEmail, setSelectedEmail] = useState(null);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
     const [isActionLoading, setIsActionLoading] = useState(null); // UID of being processed email
+    const [nextPageToken, setNextPageToken] = useState(null);
+    const [isMoreLoading, setIsMoreLoading] = useState(false);
 
     // Filter Handlers
     const handleRemoveFilter = (key) => {
@@ -115,25 +117,42 @@ function CommunicationPage() {
         }));
     };
 
+    // Fetch live emails
+    const fetchInbox = async (shouldAppend = false, token = null) => {
+        if (shouldAppend) setIsMoreLoading(true);
+        else setIsInboxLoading(true);
+
+        try {
+            const response = await emailAPI.getInbox({ pageToken: token, limit: 25 });
+            if (response && response.success) {
+                const newEmails = mapEmails(response.data.emails || []);
+                if (shouldAppend) {
+                    setLiveEmails(prev => [...prev, ...newEmails]);
+                } else {
+                    setLiveEmails(newEmails);
+                }
+                setNextPageToken(response.data.nextPageToken);
+            }
+        } catch (error) {
+            console.error('Error fetching inbox:', error);
+        } finally {
+            setIsInboxLoading(false);
+            setIsMoreLoading(false);
+        }
+    };
+
     // Fetch live emails when Email tab is active
     useEffect(() => {
-        if (activeTab === 'Email') {
-            const fetchInbox = async () => {
-                setIsInboxLoading(true);
-                try {
-                    const response = await emailAPI.getInbox();
-                    if (response && response.success) {
-                        setLiveEmails(mapEmails(response.data));
-                    }
-                } catch (error) {
-                    console.error('Error fetching inbox:', error);
-                } finally {
-                    setIsInboxLoading(false);
-                }
-            };
+        if (activeTab === 'Email' && liveEmails.length === 0) {
             fetchInbox();
         }
     }, [activeTab]);
+
+    const handleLoadMore = () => {
+        if (nextPageToken) {
+            fetchInbox(true, nextPageToken);
+        }
+    };
 
     // Filter Logic
     const communicationData = useMemo(() => {
@@ -647,6 +666,36 @@ function CommunicationPage() {
                                     )}
                                 </div>
                             ))}
+
+                            {activeTab === 'Email' && nextPageToken && (
+                                <div style={{ textAlign: 'center', padding: '20px' }}>
+                                    <button 
+                                        onClick={handleLoadMore}
+                                        disabled={isMoreLoading}
+                                        style={{
+                                            padding: '8px 24px',
+                                            borderRadius: '20px',
+                                            border: '1px solid #0ea5e9',
+                                            background: 'transparent',
+                                            color: '#0ea5e9',
+                                            fontSize: '0.85rem',
+                                            fontWeight: 600,
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s'
+                                        }}
+                                        onMouseOver={e => {
+                                            e.currentTarget.style.background = '#0ea5e9';
+                                            e.currentTarget.style.color = '#fff';
+                                        }}
+                                        onMouseOut={e => {
+                                            e.currentTarget.style.background = 'transparent';
+                                            e.currentTarget.style.color = '#0ea5e9';
+                                        }}
+                                    >
+                                        {isMoreLoading ? <><i className="fas fa-spinner fa-spin" style={{ marginRight: '8px' }}></i>Loading...</> : 'Load More Emails'}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

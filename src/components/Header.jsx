@@ -12,6 +12,7 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
     const [profilePicture, setProfilePicture] = useState('');
     const fileInputRef = useRef(null);
     const searchDebounceRef = useRef(null);
+    const audioRef = useRef(new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3')); // Professional notification ping
 
     // Search State
     const [searchTerm, setSearchTerm] = useState('');
@@ -88,8 +89,16 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
         try {
             const res = await getNotifications();
             if (res.success) {
-                setNotifications(res.data.notifications || []);
-                setUnreadCount(res.data.unreadCount || 0);
+                const newNotifications = res.data.notifications || [];
+                const newUnreadCount = res.data.unreadCount || 0;
+
+                // Play sound if unread count increased
+                if (newUnreadCount > unreadCount) {
+                    audioRef.current.play().catch(e => console.log('Audio play failed:', e));
+                }
+
+                setNotifications(newNotifications);
+                setUnreadCount(newUnreadCount);
             }
         } catch (error) {
             console.error('Failed to fetch notifications:', error);
@@ -456,3 +465,29 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
 }
 
 export default Header;
+
+// Add styles for the animations
+const styles = `
+@keyframes bellRing {
+  0% { transform: scale(1.4) rotate(0); }
+  10% { transform: scale(1.4) rotate(15deg); }
+  20% { transform: scale(1.4) rotate(-15deg); }
+  30% { transform: scale(1.4) rotate(10deg); }
+  40% { transform: scale(1.4) rotate(-10deg); }
+  50% { transform: scale(1.4) rotate(5deg); }
+  60% { transform: scale(1.4) rotate(-5deg); }
+  100% { transform: scale(1.4) rotate(0); }
+}
+
+@keyframes pulse {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+`;
+
+if (typeof document !== 'undefined') {
+    const styleSheet = document.createElement("style");
+    styleSheet.innerText = styles;
+    document.head.appendChild(styleSheet);
+}
