@@ -2173,6 +2173,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                                         <option value="Sq Yard">Sq Yard</option>
                                                         <option value="Sq Feet">Sq Feet</option>
                                                         <option value="Sq Meter">Sq Meter</option>
+                                                        <option value="Marla">Marla</option>
+                                                        <option value="Kanal">Kanal</option>
                                                         <option value="Acre">Acre</option>
                                                     </select>
                                                 </div>

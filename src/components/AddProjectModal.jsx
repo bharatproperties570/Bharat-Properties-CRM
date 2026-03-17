@@ -851,6 +851,8 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                             <select style={{ ...customSelectStyle, width: '100px', borderRadius: '0 8px 8px 0', borderLeft: '1px solid #e2e8f0', background: '#f8fafc' }} value={formData.landAreaUnit} onChange={e => setFormData({ ...formData, landAreaUnit: e.target.value })}>
                                 <option>Acres</option>
                                 <option>Hectares</option>
+                                <option>Marla</option>
+                                <option>Kanal</option>
                                 <option>Sq Yards</option>
                             </select>
                         </div>

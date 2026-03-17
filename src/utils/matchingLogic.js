@@ -21,7 +21,9 @@ export const parseSizeSqYard = (sizeStr) => {
     if (typeof sizeStr === 'number') return sizeStr;
     const match = sizeStr.match(/\(([\d.]+)\s*Sq Yard\)/);
     if (match) return parseFloat(match[1]);
-    const marlaMatch = sizeStr.match(/([\d.]+)\s*Marla/);
+    const kanalMatch = sizeStr.match(/([\d.]+)\s*Kanal/i);
+    if (kanalMatch) return parseFloat(kanalMatch[1]) * 605;
+    const marlaMatch = sizeStr.match(/([\d.]+)\s*Marla/i);
     if (marlaMatch) return parseFloat(marlaMatch[1]) * 30.25;
     return parseFloat(sizeStr.replace(/[^\d.]/g, '')) || 0;
 };

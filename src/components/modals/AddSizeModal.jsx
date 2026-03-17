@@ -58,6 +58,8 @@ const AddSizeModal = ({ isOpen, onClose, onSave, projectName, block, category, s
                             <option>Sq Ft</option>
                             <option>Sq Yd</option>
                             <option>Sq M</option>
+                            <option>Marla</option>
+                            <option>Kanal</option>
                             <option>Acres</option>
                         </select>
                     </div>
