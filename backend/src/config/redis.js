@@ -12,20 +12,25 @@ redisConnection.on('error', (err) => {
     // console.warn('⚠️ BullMQ Redis Connection Error (if Redis is not running locally):', err.message);
 });
 
-export const invalidateDashboardCache = async () => {
+export const safeRedisCall = async (method, ...args) => {
     try {
-        // Use a short timeout to prevent hanging if Redis is offline
+        if (!redisConnection || redisConnection.status !== 'ready') return null;
+        
         const timeout = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Redis Timeout')), 500)
+            setTimeout(() => reject(new Error('Redis Timeout')), 1000)
         );
-        await Promise.race([
-            redisConnection.del('dashboard_kpis'),
+        
+        return await Promise.race([
+            redisConnection[method](...args),
             timeout
         ]);
     } catch (err) {
-        // Silently fail if Redis is down
-        // console.warn('⚠️ Cache invalidation skipped: Redis offline or timed out.');
+        return null;
     }
+};
+
+export const invalidateDashboardCache = async () => {
+    await safeRedisCall('del', 'dashboard_kpis_v2');
 };
 
 export default redisConnection;

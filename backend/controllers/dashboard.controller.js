@@ -1,20 +1,21 @@
-import Lead from "../models/Lead.js";
 import Activity from "../models/Activity.js";
+import Lead from "../models/Lead.js";
 import Deal from "../models/Deal.js";
 import Lookup from "../models/Lookup.js";
 import Inventory from "../models/Inventory.js";
 import Project from "../models/Project.js";
+import User from "../models/User.js";
+import Team from "../models/Team.js";
 import mongoose from "mongoose";
-import redisConnection from "../src/config/redis.js";
+import redisConnection, { safeRedisCall } from "../src/config/redis.js";
 
 export const getDashboardStats = async (req, res) => {
     try {
         const { userId, teamId } = req.query;
         let cachedKpis = null;
 
-        // Skip cache if filtering
-        if (redisConnection.status === 'ready' && !userId && !teamId) {
-            cachedKpis = await redisConnection.get('dashboard_kpis_v2').catch(() => null);
+        if (!userId && !teamId) {
+            cachedKpis = await safeRedisCall('get', 'dashboard_kpis_v2');
         }
 
         if (cachedKpis) {
@@ -33,20 +34,33 @@ export const getDashboardStats = async (req, res) => {
 
         // ━━ LOOKUP MAP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const lookups = await Lookup.find({ lookup_type: { $in: ['Stage', 'InventoryStatus', 'Status', 'Source', 'PropertyType'] } });
-        const stageMap = {};
         const lookupMap = {};
         lookups.forEach(l => {
-            if (l.lookup_type === 'Stage') stageMap[l._id.toString()] = l.lookup_value;
             lookupMap[l._id.toString()] = l.lookup_value;
         });
 
+        // Resolve nested lookups (where value is another lookup ID)
+        for (let i = 0; i < 5; i++) {
+            let changed = false;
+            Object.keys(lookupMap).forEach(id => {
+                const val = lookupMap[id];
+                if (val && mongoose.Types.ObjectId.isValid(val) && lookupMap[val]) {
+                    lookupMap[id] = lookupMap[val];
+                    changed = true;
+                }
+            });
+            if (!changed) break;
+        }
+
         const CATEGORY_MAPPING = {
-            'INCOMING': ['New', 'Inbound', 'Incoming', 'Open', 'Lead', 'Unassigned'],
-            'PROSPECT': ['Prospect', 'Qualified', 'Warm', 'Interested', 'Follow-up'],
-            'OPPORTUNITY': ['Opportunity', 'Hot', 'Quote', 'Proposal', 'Presentation', 'Site Visit'],
-            'NEGOTIATION': ['Negotiation', 'Booked', 'Under Review', 'Contract', 'Reserved'],
-            'CLOSED': ['Closed Won', 'Closed Lost', 'Stalled', 'Dead', 'Won', 'Lost', 'Cancelled']
+            'INCOMING': ['New', 'Inbound', 'Incoming', 'Open', 'Lead', 'Unassigned', 'Lead Created', 'Lead Received', 'Inquiry', 'Project Inquiry'],
+            'PROSPECT': ['Prospect', 'Qualified', 'Warm', 'Interested', 'Follow-up', 'Engaged', 'Nurturing', 'Contacted', 'Contacted-Low Interest', 'Call Scheduled'],
+            'OPPORTUNITY': ['Opportunity', 'Hot', 'Quote', 'Proposal', 'Presentation', 'Site Visit', 'Site Visit Scheduled', 'Site Visit Done'],
+            'NEGOTIATION': ['Negotiation', 'Negotiating', 'Booked', 'Under Review', 'Contract', 'Reserved', 'Booking Done', 'Token Received'],
+            'WON': ['Closed Won', 'Sold', 'Won', 'Deal Closed', 'Closed'],
+            'LOST': ['Closed Lost', 'Stalled', 'Dead', 'Lost', 'Cancelled', 'Invalid', 'Rejection', 'Not Interested', 'Wrong Number']
         };
+
         const reverseMapping = {};
         Object.entries(CATEGORY_MAPPING).forEach(([cat, stages]) => {
             stages.forEach(s => { reverseMapping[s.toLowerCase()] = cat; });
@@ -65,12 +79,10 @@ export const getDashboardStats = async (req, res) => {
         } else if (teamId && mongoose.Types.ObjectId.isValid(teamId)) {
             baseLeadQuery.$or = [{ team: teamId }, { 'assignment.team': teamId }];
             baseDealQuery.$or = [{ team: teamId }, { 'assignment.team': teamId }];
-        } else {
-            // Optional: log if invalid IDs are passed
-            if (userId || teamId) console.warn(`[Dashboard] Invalid IDs received: userId=${userId}, teamId=${teamId}`);
         }
 
         // ━━ 1. ACTIVITY STATS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        console.log("[Dashboard] Fetching Activity stats...");
         const [overdueCount, todayActivityCount, upcomingCount, thisMonthActivities] = await Promise.all([
             Activity.countDocuments({ ...baseActQuery, dueDate: { $lt: today }, status: { $regex: /pending|in progress/i } }),
             Activity.countDocuments({ ...baseActQuery, dueDate: { $gte: today, $lt: tomorrow } }),
@@ -78,7 +90,6 @@ export const getDashboardStats = async (req, res) => {
             Activity.countDocuments({ ...baseActQuery, createdAt: { $gte: thisMonthStart } })
         ]);
 
-        // Activity type breakdown (last 30 days)
         const activityTypeBreakdown = await Activity.aggregate([
             { $match: { ...baseActQuery, createdAt: { $gte: new Date(Date.now() - 30 * 86400000) } } },
             { $group: { _id: '$type', count: { $sum: 1 } } },
@@ -87,6 +98,7 @@ export const getDashboardStats = async (req, res) => {
         ]);
 
         // ━━ 2. LEAD STATS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        console.log("[Dashboard] Fetching Lead stats...");
         const [leadsByStageRaw, newLeadsThisMonth, newLeadsLastMonth, leadsBySource] = await Promise.all([
             Lead.aggregate([
                 { $match: baseLeadQuery },
@@ -101,21 +113,15 @@ export const getDashboardStats = async (req, res) => {
             ])
         ]);
 
-        const leadCategories = { INCOMING: 0, PROSPECT: 0, OPPORTUNITY: 0, NEGOTIATION: 0, CLOSED: 0 };
+        const leadCategories = { INCOMING: 0, PROSPECT: 0, OPPORTUNITY: 0, NEGOTIATION: 0, WON: 0, LOST: 0 };
         leadsByStageRaw.forEach(item => {
-            let stageValue = 'New';
-            if (item._id) {
-                stageValue = mongoose.Types.ObjectId.isValid(item._id)
-                    ? (stageMap[item._id.toString()] || 'New')
-                    : String(item._id);
-            }
-            const cat = reverseMapping[stageValue.toLowerCase()] || 'INCOMING';
+            const label = lookupMap[item._id?.toString()] || item._id || 'New';
+            const cat = reverseMapping[label.toString().toLowerCase()] || 'INCOMING';
             leadCategories[cat] += item.count;
         });
         const populatedLeads = Object.entries(leadCategories).map(([status, count]) => ({ status, count }));
-        const totalLeads = leadsByStageRaw.reduce((sum, l) => sum + l.count, 0) || 1;
+        const totalLeads = leadsByStageRaw.reduce((sum, l) => sum + l.count, 0);
 
-        // Lead growth trend (last 6 months)
         const leadTrendRaw = await Lead.aggregate([
             { $match: { ...baseLeadQuery, createdAt: { $gte: new Date(Date.now() - 180 * 86400000) } } },
             {
@@ -128,11 +134,15 @@ export const getDashboardStats = async (req, res) => {
         ]);
         const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
         const leadTrend = {
-            categories: leadTrendRaw.map(l => `${monthNames[l._id.month - 1]} ${String(l._id.year).slice(-2)}`),
+            categories: leadTrendRaw.map(l => {
+                const mIdx = (l._id.month || 1) - 1;
+                return `${monthNames[mIdx] || 'Jan'} ${String(l._id.year || today.getFullYear()).slice(-2)}`;
+            }),
             series: [{ name: 'New Leads', data: leadTrendRaw.map(l => l.count) }]
         };
 
         // ━━ 3. DEAL STATS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        console.log("[Dashboard] Fetching Deal stats...");
         const [dealsByStageRaw, dealsThisMonth, recentDeals] = await Promise.all([
             Deal.aggregate([
                 { $match: baseDealQuery },
@@ -151,14 +161,12 @@ export const getDashboardStats = async (req, res) => {
             PROSPECT: { count: 0, value: 0 },
             OPPORTUNITY: { count: 0, value: 0 },
             NEGOTIATION: { count: 0, value: 0 },
-            CLOSED: { count: 0, value: 0 }
+            WON: { count: 0, value: 0 },
+            LOST: { count: 0, value: 0 }
         };
         dealsByStageRaw.forEach(item => {
-            const stageValue = item._id || 'Open';
-            let normalizedStage = stageValue.toLowerCase();
-            if (normalizedStage === 'open') normalizedStage = 'new';
-            if (normalizedStage === 'quote') normalizedStage = 'opportunity';
-            const cat = reverseMapping[normalizedStage] || 'INCOMING';
+            const label = lookupMap[item._id?.toString()] || item._id || 'Open';
+            const cat = reverseMapping[label.toString().toLowerCase()] || 'INCOMING';
             dealCategories[cat].count += item.count;
             dealCategories[cat].value += (item.value || 0);
         });
@@ -168,6 +176,7 @@ export const getDashboardStats = async (req, res) => {
         const pipelineValue = (dealCategories.INCOMING.value + dealCategories.PROSPECT.value + dealCategories.OPPORTUNITY.value + dealCategories.NEGOTIATION.value);
 
         // ━━ 4. INVENTORY STATS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        console.log("[Dashboard] Fetching Inventory stats...");
         const matchLookupIds = (regex) => Object.entries(lookupMap).filter(([_, val]) => regex.test(val)).map(([id]) => new mongoose.Types.ObjectId(id));
         const availableIds = matchLookupIds(/available/i);
         const soldIds = matchLookupIds(/sold/i);
@@ -221,6 +230,7 @@ export const getDashboardStats = async (req, res) => {
             series: [{ name: 'Commission (₹)', data: revenueBySourceRaw.map(r => Math.round(r.total || 0)) }]
         };
 
+        console.log("[Dashboard] Processing Financials...");
         // Cash flow last 6 months
         const sixMonthsAgo = new Date(Date.now() - 180 * 86400000);
         const cashFlowRaw = await Deal.aggregate([
@@ -229,7 +239,10 @@ export const getDashboardStats = async (req, res) => {
             { $sort: { "_id.year": 1, "_id.month": 1 } }
         ]);
         const cashFlowProjection = {
-            categories: cashFlowRaw.map(c => `${monthNames[c._id.month - 1]} ${String(c._id.year).slice(-2)}`),
+            categories: cashFlowRaw.map(c => {
+                const mIdx = (c._id.month || 1) - 1;
+                return `${monthNames[mIdx] || 'Jan'} ${String(c._id.year || today.getFullYear()).slice(-2)}`;
+            }),
             series: [{ name: 'Commission Collected', data: cashFlowRaw.map(c => c.total || 0) }],
             dealsPerMonth: cashFlowRaw.map(c => c.deals || 0)
         };
@@ -243,9 +256,9 @@ export const getDashboardStats = async (req, res) => {
         const pendingCommission = revenueAgg[0]?.pending || 0;
 
         // ━━ 6. PERFORMANCE METRICS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        const achievedAmount = dealCategories['CLOSED'].value || 0;
+        const achievedAmount = dealCategories['WON'].value || 0;
         const targetAmount = 50000000; // ₹5Cr monthly target
-        const wonLeadsCount = leadCategories['CLOSED'] || 0;
+        const wonLeadsCount = leadCategories['WON'] || 0;
         const conversionRate = Math.round((wonLeadsCount / totalLeads) * 100);
         const leadMoMGrowth = lastMonthStart > 0 && newLeadsLastMonth > 0
             ? Math.round(((newLeadsThisMonth - newLeadsLastMonth) / newLeadsLastMonth) * 100)
@@ -342,19 +355,44 @@ export const getDashboardStats = async (req, res) => {
                 dueDate: { $lt: today }
             }),
             // User Availability
-            mongoose.model('User').aggregate([
+            User.aggregate([
                 { $match: { isActive: true } },
                 { $group: { _id: '$status', count: { $sum: 1 } } }
             ]),
             // MTD Visits by Project
             Activity.aggregate([
                 { $match: { ...baseActQuery, type: 'Site Visit', createdAt: { $gte: thisMonthStart } } },
-                { $group: { _id: '$details.projectName', count: { $sum: 1 }, conducted: { $sum: { $cond: [{ $eq: ["$status", "Completed"] }, 1, 0] } } } },
+                {
+                    $project: {
+                        projectName: '$details.projectName',
+                        isCompleted: {
+                            $let: {
+                                vars: { statusVal: { $toString: '$status' } },
+                                in: {
+                                    $or: [
+                                        { $eq: ["$$statusVal", "Completed"] },
+                                        { $in: ["$status", matchLookupIds(/completed/i)] }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                { $group: { _id: '$projectName', count: { $sum: 1 }, conducted: { $sum: { $cond: ["$isCompleted", 1, 0] } } } },
                 { $sort: { count: -1 } }
             ]),
             // MTD Bookings by Project
             Deal.aggregate([
-                { $match: { ...baseDealQuery, stage: 'Booked', createdAt: { $gte: thisMonthStart } } },
+                {
+                    $match: {
+                        ...baseDealQuery,
+                        $or: [
+                            { stage: 'Booked' },
+                            { stage: { $in: matchLookupIds(/booked/i) } }
+                        ],
+                        createdAt: { $gte: thisMonthStart }
+                    }
+                },
                 { $group: { _id: '$projectName', count: { $sum: 1 }, value: { $sum: '$price' } } },
                 { $sort: { count: -1 } }
             ])
@@ -489,9 +527,9 @@ export const getDashboardStats = async (req, res) => {
             leadSourceStats
         };
 
-        // Cache for 60 seconds (only if ready)
-        if (redisConnection.status === 'ready') {
-            await redisConnection.setex('dashboard_kpis_v2', 60, JSON.stringify(dashboardData)).catch(() => null);
+        // Optional: Cache background-calculated KPIs for 1 min
+        if (!userId && !teamId) {
+            await safeRedisCall('setex', 'dashboard_kpis_v2', 60, JSON.stringify(dashboardData));
         }
 
         res.json({ success: true, data: dashboardData });

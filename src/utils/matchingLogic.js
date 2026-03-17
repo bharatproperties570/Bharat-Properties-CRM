@@ -5,13 +5,15 @@ const inventoryData = [];
 export const parsePrice = (priceStr) => {
     if (!priceStr && priceStr !== 0) return 0;
     if (typeof priceStr === 'number') return priceStr;
-    return parseFloat(String(priceStr).replace(/,/g, '').replace(/[^\d.]/g, '')) || 0;
+    const str = typeof priceStr === 'string' ? priceStr : String(priceStr || "");
+    return parseFloat(str.replace(/,/g, '').replace(/[^\d.]/g, '')) || 0;
 };
 
 export const parseBudget = (budgetStr) => {
     if (!budgetStr && budgetStr !== 0) return { min: 0, max: 0 };
     if (typeof budgetStr === 'number') return { min: budgetStr, max: budgetStr };
-    const numbers = String(budgetStr).replace(/[^\d-]/g, '').split('-').map(n => parseFloat(n) || 0);
+    const str = typeof budgetStr === 'string' ? budgetStr : String(budgetStr || "");
+    const numbers = str.replace(/[^\d-]/g, '').split('-').map(n => parseFloat(n) || 0);
     if (numbers.length === 1) return { min: numbers[0], max: numbers[0] };
     return { min: numbers[0], max: numbers[1] };
 };
@@ -19,13 +21,15 @@ export const parseBudget = (budgetStr) => {
 export const parseSizeSqYard = (sizeStr) => {
     if (!sizeStr) return 0;
     if (typeof sizeStr === 'number') return sizeStr;
-    const match = sizeStr.match(/\(([\d.]+)\s*Sq Yard\)/);
+    const str = typeof sizeStr === 'string' ? sizeStr : String(sizeStr || "");
+    
+    const match = str.match(/\(([\d.]+)\s*Sq Yard\)/);
     if (match) return parseFloat(match[1]);
-    const kanalMatch = sizeStr.match(/([\d.]+)\s*Kanal/i);
+    const kanalMatch = str.match(/([\d.]+)\s*Kanal/i);
     if (kanalMatch) return parseFloat(kanalMatch[1]) * 605;
-    const marlaMatch = sizeStr.match(/([\d.]+)\s*Marla/i);
+    const marlaMatch = str.match(/([\d.]+)\s*Marla/i);
     if (marlaMatch) return parseFloat(marlaMatch[1]) * 30.25;
-    return parseFloat(sizeStr.replace(/[^\d.]/g, '')) || 0;
+    return parseFloat(str.replace(/[^\d.]/g, '')) || 0;
 };
 
 // Utility to normalize items for matching

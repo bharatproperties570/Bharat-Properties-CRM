@@ -431,7 +431,7 @@ class EmailService {
                 return '';
             };
 
-            body = getBody(response.data.payload);
+            let body = getBody(response.data.payload);
 
             // If still empty and there is a direct body (simple messages)
             if (!body && response.data.payload.body?.data) {
