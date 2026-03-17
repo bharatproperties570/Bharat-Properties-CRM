@@ -1009,12 +1009,16 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                 if (!c) return null;
                                 // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
                                 const intent = renderValue(getLookupValue('Requirement', c.reqDisplay?.intent), null) || 'Any';
-                                const category = renderValue(getLookupValue('Requirement', c.reqDisplay?.category), null) || '';
-                                const subCategory = Array.isArray(c.reqDisplay?.subCategory) 
-                                    ? c.reqDisplay.subCategory.map(s => getLookupValue('Sub Requirement', s)).filter(Boolean).join(', ')
-                                    : (renderValue(getLookupValue('Sub Requirement', c.reqDisplay?.subCategory), null) || '');
-                                
-                                const fullPropertyType = [category, subCategory].filter(Boolean).join(' - ');
+                                const category = renderValue(getLookupValue('Category', c.reqDisplay?.category), null) || '';
+                                const subCategory = Array.isArray(c.reqDisplay?.subCategory)
+                                    ? c.reqDisplay.subCategory.map(s => getLookupValue('SubCategory', s)).filter(Boolean).join(', ')
+                                    : (renderValue(getLookupValue('SubCategory', c.reqDisplay?.subCategory), null) || '');
+
+                                const fullPropertyType = [
+                                    intent,
+                                    category,
+                                    Array.isArray(subCategory) ? subCategory.join(", ") : subCategory
+                                ].filter(Boolean).filter(s => s !== "Any").join(" - ");
 
                                 // Unified Scoring Logic for List View
                                 const liveBackendScore = liveScores[c._id];
@@ -1033,18 +1037,6 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                     <div
                                         key={c._id || c.name}
                                         className="list-item lead-list-grid"
-                                        style={{
-                                            padding: "15px 2rem",
-                                            background: isSelected(c.name) ? '#f0f9ff' : '#fff',
-                                            transition: 'all 0.2s',
-                                        }}
-                                        onMouseOver={(e) => {
-                                            if (!isSelected(c._id)) e.currentTarget.style.background = '#fafbfc';
-                                        }}
-                                        onMouseOut={(e) => {
-                                            if (!isSelected(c._id)) e.currentTarget.style.background = '#fff';
-                                            else e.currentTarget.style.background = '#f0f9ff';
-                                        }}
                                     >
                                         <div>
                                             <input
