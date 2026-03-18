@@ -6,10 +6,18 @@ const redisConnection = new Redis({
     port: process.env.REDIS_PORT || 6379,
     password: process.env.REDIS_PASSWORD || undefined,
     maxRetriesPerRequest: null, // Required by BullMQ
+    retryStrategy(times) {
+        // Return null to stop retrying after 3 times if we are in development
+        if (times > 3 && process.env.NODE_ENV !== 'production') {
+            console.warn('❌ Redis connection failed. Proceeding without Redis (Queues will be disabled).');
+            return null; 
+        }
+        return Math.min(times * 100, 3000);
+    }
 });
 
 redisConnection.on('error', (err) => {
-    // console.warn('⚠️ BullMQ Redis Connection Error (if Redis is not running locally):', err.message);
+    // console.warn('⚠️ Redis Connection Error:', err.message);
 });
 
 export const safeRedisCall = async (method, ...args) => {
