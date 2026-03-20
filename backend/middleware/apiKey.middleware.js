@@ -3,6 +3,11 @@
  * Expects X-API-KEY header.
  */
 export const verifyApiKey = (req, res, next) => {
+    // Allow CORS preflight requests
+    if (req.method === 'OPTIONS') {
+        return next();
+    }
+
     const apiKey = req.headers['x-api-key'];
     const expectedKey = process.env.WEBSITE_INTEGRATION_KEY;
 
