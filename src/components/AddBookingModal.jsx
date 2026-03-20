@@ -48,7 +48,9 @@ const AddBookingModal = ({ isOpen, onClose, onSave, dealId = null }) => {
         seller: '', // Tracked internally, populated from unit selection
 
         dealId: '',
-        remarks: ''
+        remarks: '',
+        size: '',
+        sizeLabel: ''
     });
 
     // Auto-generate Form ID (Application No)
@@ -198,10 +200,12 @@ const AddBookingModal = ({ isOpen, onClose, onSave, dealId = null }) => {
                 ...formData,
                 property: propId,
                 unitNumber: unit.unitNumber || unit.unitNo || '',
-                seller: unit.owners?.[0]?._id || unit.owners?.[0] || ''
+                seller: unit.owners?.[0]?._id || unit.owners?.[0] || '',
+                size: unit.size?.value || unit.size || '',
+                sizeLabel: (unit.sizeLabel && typeof unit.sizeLabel === 'object') ? (unit.sizeLabel._id || unit.sizeLabel.id) : unit.sizeLabel || ''
             });
         } else {
-            setFormData({ ...formData, property: propId, seller: '' });
+            setFormData({ ...formData, property: propId, seller: '', size: '', sizeLabel: '' });
         }
     };
 

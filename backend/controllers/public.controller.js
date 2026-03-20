@@ -4,12 +4,19 @@ import Contact from "../models/Contact.js";
 import Lead from "../models/Lead.js";
 import Activity from "../models/Activity.js";
 import Lookup from "../models/Lookup.js";
+import Inventory from "../models/Inventory.js";
+import SystemSetting from "../models/SystemSetting.js";
 import mongoose from "mongoose";
+
+const escapeRegExp = (string) => {
+    if (!string) return '';
+    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
 
 const resolveLookup = async (type, value) => {
     if (!value) return null;
     if (mongoose.Types.ObjectId.isValid(value)) return value;
-    const escapedValue = String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedValue = escapeRegExp(value);
     let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } });
     if (!lookup) {
         lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
@@ -29,9 +36,12 @@ export const getListings = async (req, res) => {
         const { type, limit = 10, city: cityName } = req.query;
         let query = { isPublished: true };
         
-        // City Filtering
+        // City Filtering: Search in location OR projectName
         if (cityName) {
-            query['location'] = { $regex: new RegExp(cityName, 'i') };
+            query['$or'] = [
+                { 'location': { $regex: new RegExp(cityName, 'i') } },
+                { 'projectName': { $regex: new RegExp(cityName, 'i') } }
+            ];
         }
 
         let sort = { publishedAt: -1 }; 
@@ -155,11 +165,12 @@ export const getProjects = async (req, res) => {
         const { status, city: cityName, limit = 10 } = req.query;
         let query = { isPublished: true };
 
-        // City Filtering
+        // City Filtering: Search in address.city OR locationSearch
         if (cityName) {
             query['$or'] = [
                 { 'address.city': { $regex: new RegExp(cityName, 'i') } },
-                { 'locationSearch': { $regex: new RegExp(cityName, 'i') } }
+                { 'locationSearch': { $regex: new RegExp(cityName, 'i') } },
+                { 'name': { $regex: new RegExp(cityName, 'i') } }
             ];
         }
 
@@ -346,6 +357,9 @@ export const getProjectBySlug = async (req, res) => {
 export const submitPropertyForm = async (req, res) => {
     try {
         const { contact, ...propertyData } = req.body;
+        const projectName = propertyData.projectName || propertyData.project;
+        const block = propertyData.block;
+        const unitNo = propertyData.unitNo;
 
         // 1. Resolve Contact
         let contactRecord = await Contact.findOne({ 
@@ -365,21 +379,78 @@ export const submitPropertyForm = async (req, res) => {
             });
         }
 
-        // 2. Create Deal (Pending Verification)
+        // 1.5 Find Matching Inventory for Enrichment
+        let inventoryId = null;
+        let inheritedSpecs = {};
+        if (projectName && block && unitNo) {
+            const inventory = await Inventory.findOne({
+                projectName: { $regex: new RegExp(`^${escapeRegExp(projectName)}$`, 'i') },
+                block: { $regex: new RegExp(`^${escapeRegExp(block)}$`, 'i') },
+                $or: [
+                    { unitNo: { $regex: new RegExp(`^${escapeRegExp(unitNo)}$`, 'i') } },
+                    { unitNumber: { $regex: new RegExp(`^${escapeRegExp(unitNo)}$`, 'i') } }
+                ]
+            });
+            
+            if (inventory) {
+                inventoryId = inventory._id;
+                inheritedSpecs = {
+                    unitSpecification: {
+                        facing: inventory.facing,
+                        direction: inventory.direction,
+                        orientation: inventory.orientation,
+                        roadWidth: inventory.roadWidth,
+                        builtupType: inventory.builtupType,
+                        ownership: inventory.ownership,
+                        length: inventory.length,
+                        width: inventory.width,
+                        sizeLabel: inventory.sizeLabel,
+                        totalSaleableArea: inventory.totalSaleableArea?.value,
+                        builtUpArea: inventory.builtUpArea?.value,
+                        carpetArea: inventory.carpetArea?.value
+                    },
+                    locationDetails: inventory.address,
+                    builtupDetails: inventory.builtupDetails,
+                    furnishing: {
+                        furnishType: inventory.furnishType,
+                        furnishedItems: inventory.furnishedItems,
+                        possessionStatus: inventory.possessionStatus,
+                        constructionAge: inventory.constructionAge || inventory.ageOfConstruction
+                    },
+                    category: inventory.category,
+                    subCategory: inventory.subCategory,
+                    propertyType: inventory.unitType || inventory.category
+                };
+            }
+        }
+
+        // 2. Create Deal (Standard CRM Structure)
         const dealData = {
-            projectName: propertyData.project,
-            block: propertyData.block,
-            unitNo: propertyData.unitNo,
-            priceDetails: { totalAmount: propertyData.expectedPrice },
-            propertyDetails: {
-                area: propertyData.totalArea,
-                areaUnit: propertyData.areaUnit,
-                type: await resolveLookup('PropertyType', propertyData.type === 'calculated' ? 'Residential' : propertyData.type)
-            },
+            projectName,
+            block,
+            unitNo,
+            inventoryId,
+            intent: propertyData.intent || propertyData.availableFor || 'Sell',
+            price: propertyData.expectedPrice || propertyData.price,
+            size: propertyData.totalArea || inheritedSpecs.unitSpecification?.totalSaleableArea,
+            sizeUnit: propertyData.areaUnit || 'Sq Yard',
+            propertyType: inheritedSpecs.propertyType || await resolveLookup('PropertyType', propertyData.propertyType || 'Residential'),
+            category: inheritedSpecs.category,
+            subCategory: inheritedSpecs.subCategory,
+            unitSpecification: inheritedSpecs.unitSpecification,
+            locationDetails: inheritedSpecs.locationDetails,
+            builtupDetails: inheritedSpecs.builtupDetails,
+            furnishing: inheritedSpecs.furnishing,
             status: 'Pending Verification',
-            description: propertyData.remarks,
+            tags: ['unverified', 'Professional-Capture'],
+            description: propertyData.remarks || propertyData.description,
             owner: contactRecord._id,
-            isPublished: false
+            ownerName: contactRecord.name,
+            ownerPhone: contact.mobile,
+            associateRole: propertyData.role || propertyData.associateWith,
+            associateRelationship: propertyData.relationship,
+            isPublished: false,
+            source: 'Website - Professional Deal Capture'
         };
 
         const deal = await Deal.create(dealData);
@@ -395,7 +466,7 @@ export const submitPropertyForm = async (req, res) => {
     }
 };
 
-// 5. Submit Lead Form (Website -> CRM Lead)
+// 5. Submit Lead Form (Website -> CRM Lead & Activity)
 export const submitLeadForm = async (req, res) => {
     try {
         const { name, mobile, email, city, activityType, reason, remarks, projectName, ...rest } = req.body;
@@ -417,17 +488,57 @@ export const submitLeadForm = async (req, res) => {
             });
         }
 
-        // 2. Create Activity
-        const activity = await Activity.create({
-            type: activityType || 'Note',
-            subject: `${activityType || 'Website Inquiry'}: ${reason || 'General'}`,
-            description: remarks || `Website submission for ${projectName || 'General Inquiry'}. Full data: ${JSON.stringify(rest)}`,
+        // 2. Prepare Activity Data
+        let normalizedType = activityType;
+        if (activityType === 'Phone Consultation') normalizedType = 'Call';
+        
+        // Resolve Project ID if possible
+        let projectId = null;
+        if (projectName && projectName !== 'General Inquiry') {
+            const project = await Project.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(projectName)}$`, 'i') } }).lean();
+            if (project) projectId = project._id;
+        }
+
+        const activityData = {
+            type: normalizedType || 'Meeting',
+            subject: `Consultation [${normalizedType}]: ${name} - ${reason || 'General'}`,
+            description: remarks || `Website consultation request for ${projectName || 'General Inquiry'}.`,
             status: 'Pending',
             entityType: 'Lead',
             entityId: lead._id,
             dueDate: rest.dueDate || new Date(),
-            dueTime: rest.dueTime
-        });
+            dueTime: rest.dueTime || '10:00',
+            tags: ['Website-Consultation'],
+            details: {
+                source: 'Website - Professional Consultation',
+                projectName: projectName,
+                projectId: projectId,
+                block: rest.block,
+                unitNumber: rest.unitNumber,
+            }
+        };
+
+        // Enrich details based on type for CRM UI alignment
+        if (normalizedType === 'Meeting') {
+            activityData.details.meetingType = rest.locationType === 'Virtual' ? 'Virtual' : 'Office';
+            activityData.details.meetingLocation = rest.locationAddress || rest.meetingLocation;
+            activityData.details.purpose = reason; // Mapped to Agenda
+        } else if (normalizedType === 'Site Visit') {
+            activityData.details.meetingLocation = rest.locationAddress;
+            activityData.details.purpose = reason; // Mapped to Visit Type
+            activityData.details.visitedProperties = [{
+                project: projectName,
+                block: rest.block,
+                property: rest.unitNumber,
+                result: 'Interested' 
+            }];
+        } else if (normalizedType === 'Call') {
+            activityData.details.purpose = reason; // Mapped to Call Purpose
+            activityData.details.callOutcome = 'Scheduled';
+        }
+
+        // 3. Create Activity
+        const activity = await Activity.create(activityData);
 
         res.status(201).json({
             success: true,
@@ -437,6 +548,72 @@ export const submitLeadForm = async (req, res) => {
         });
     } catch (error) {
         console.error('Lead submission error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// 6. Fetch Public Settings (Relations, Activity Lookups etc.)
+export const getPublicSettings = async (req, res) => {
+    try {
+        const masterFields = await SystemSetting.findOne({ key: 'masterFields' }).lean();
+        const activityFields = await SystemSetting.findOne({ key: 'activityMasterFields' }).lean();
+        
+        const relations = masterFields?.value?.relations || [];
+        const activityMasterFields = activityFields?.value || {};
+        
+        res.status(200).json({
+            success: true,
+            data: {
+                relations,
+                activityMasterFields
+            }
+        });
+    } catch (error) {
+        console.error('getPublicSettings error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// 7. Fetch Available Units for Project/Block
+export const getAvailableUnits = async (req, res) => {
+    try {
+        const { project, block } = req.query;
+        if (!project) {
+            return res.status(400).json({ success: false, message: 'Project is required' });
+        }
+
+        const query = { 
+            $or: [
+                { projectName: project },
+                { projectId: mongoose.Types.ObjectId.isValid(project) ? project : undefined }
+            ].filter(q => q.projectName || q.projectId)
+        };
+
+        if (block) {
+            query.block = block;
+        }
+
+        // Fetch distinct unit numbers
+        const units = await Inventory.find(query)
+            .select('unitNo unitNumber size price status')
+            .lean();
+
+        // Format units for frontend dropdown
+        const formattedUnits = units.map(u => ({
+            id: u._id,
+            unitNo: u.unitNo || u.unitNumber,
+            size: u.size,
+            price: u.price,
+            status: u.status 
+        }));
+
+        res.status(200).json({
+            success: true,
+            count: formattedUnits.length,
+            data: formattedUnits
+        });
+    } catch (error) {
+        console.error('getAvailableUnits error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };

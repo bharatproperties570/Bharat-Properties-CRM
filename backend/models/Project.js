@@ -76,7 +76,8 @@ const ProjectSchema = new mongoose.Schema({
     projectImages: [{
         title: String,
         category: String,
-        path: String
+        path: String,
+        url: String
     }],
     projectVideos: [{
         title: String,

@@ -50,7 +50,7 @@ const RouteLoading = () => (
     </div>
 );
 
-const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, onEditCompany, onAddActivity, onAddDeal, onAddInventory, onAddProject }) => {
+const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, onEditCompany, onAddActivity, onAddDeal, onAddInventory, onAddProject, onEditProject }) => {
     const renderContent = () => {
         switch (currentView) {
             case 'dashboard':
@@ -108,6 +108,7 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
                     onBack={() => onNavigate('projects')}
                     onNavigate={onNavigate}
                     onAddActivity={onAddActivity}
+                    onEditProject={onEditProject}
                 />;
             case 'inventory':
                 return <InventoryPage onNavigate={onNavigate} onAddActivity={onAddActivity} />;

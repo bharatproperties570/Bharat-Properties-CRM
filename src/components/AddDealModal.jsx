@@ -112,7 +112,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         const sizeStr = typeof size === 'object' ? (size.lookup_value || size.name || size.label || size.value || "") : String(size);
         if (!sizeStr) return "Sq Yard";
 
-        const lowerSize = sizeStr.toLowerCase();
+        const lowerSize = String(sizeStr).toLowerCase();
         if (lowerSize.includes('sq yard')) return 'Sq Yard';
         if (lowerSize.includes('sq meter') || lowerSize.includes('sq mtr')) return 'Sq Meter';
         if (lowerSize.includes('sq feet') || lowerSize.includes('sq ft')) return 'Sq Feet';
@@ -762,6 +762,11 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                                 {formData.size && (
                                     <span style={{ fontSize: '0.8rem', color: '#6366f1', background: '#eef2ff', padding: '4px 10px', borderRadius: '20px', fontWeight: 600, border: '1px solid #c7d2fe' }}>
                                         <i className="fas fa-expand-arrows-alt mr-1"></i> Size: {renderValue(formData.size)}
+                                    </span>
+                                )}
+                                {(formData.unitSpecification?.sizeLabel || formData.sizeLabel) && (
+                                    <span style={{ fontSize: '0.8rem', color: '#8b5cf6', background: '#f5f3ff', padding: '4px 10px', borderRadius: '20px', fontWeight: 600, border: '1px solid #ddd6fe' }}>
+                                        <i className="fas fa-ruler-combined mr-1"></i> Label: {renderValue(getLookupValue('Size', formData.unitSpecification?.sizeLabel || formData.sizeLabel))}
                                     </span>
                                 )}
                                 {formData.propertyType && (

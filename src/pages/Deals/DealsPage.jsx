@@ -727,8 +727,13 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                     {renderValue(getLookupValue('Category', deal.category) || getLookupValue('PropertyType', deal.propertyType), 'N/A')}
                                                     {deal.subCategory ? ` - ${renderValue(getLookupValue('SubCategory', deal.subCategory))}` : ''}
                                                 </div>
-                                                <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>
+                                                <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                                     {renderValue(deal.size, 'N/A')}
+                                                    {(deal.sizeLabel || deal.unitSpecification?.sizeLabel || deal.sizeConfig) && (
+                                                         <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#4338ca', background: '#e0e7ff', padding: '2px 6px', borderRadius: '4px' }}>
+                                                             {getLookupValue('Size', deal.sizeLabel || deal.unitSpecification?.sizeLabel || (typeof deal.sizeConfig === 'object' ? deal.sizeConfig?.lookup_value : deal.sizeConfig))}
+                                                         </span>
+                                                     )}
                                                 </div>
                                             </div>
                                         </div>
@@ -737,7 +742,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                         <div className="super-cell">
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
                                                 <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem' }}></i>
-                                                <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{renderValue(getLookupValue('Location', deal.location))}</span>
+                                                 <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{renderValue(getLookupValue('Locality', deal.location) || getLookupValue('Area', deal.location) || getLookupValue('Location', deal.location))}</span>
                                             </div>
                                             {deal.projectName && (
                                                 <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px' }}>

@@ -508,43 +508,65 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
             document.body.style.overflow = 'hidden';
 
             if (projectToEdit) {
-                // Normalize Blocks: Ensure they are objects { name: '...' }
-                let normalizedBlocks = projectToEdit.blocks || [];
-                if (normalizedBlocks.length > 0 && typeof normalizedBlocks[0] === 'string') {
-                    normalizedBlocks = normalizedBlocks.map(b => ({ name: b }));
-                }
-
-                // Normalize Categories: Split legacy 'category' into 'category' and 'subCategory'
-                let normalizedCategory = projectToEdit.category || [];
-                let normalizedSubCategory = projectToEdit.subCategory || [];
-
-                if ((!projectToEdit.subCategory || projectToEdit.subCategory.length === 0) && normalizedCategory.length > 0) {
-                    const mainCategories = ['Residential', 'Commercial', 'Agricultural', 'Industrial', 'Institutional'];
-                    const actualCategories = normalizedCategory.filter(c => mainCategories.includes(c));
-                    const actualSubCategories = normalizedCategory.filter(c => !mainCategories.includes(c));
-
-                    // If we found split, use it. Otherwise keep as is (safer).
-                    if (actualCategories.length > 0 || actualSubCategories.length > 0) {
-                        normalizedCategory = actualCategories;
-                        normalizedSubCategory = actualSubCategories;
+                try {
+                    // Normalize Blocks: Ensure they are objects { name: '...' }
+                    let normalizedBlocks = projectToEdit.blocks || [];
+                    if (normalizedBlocks.length > 0 && typeof normalizedBlocks[0] === 'string') {
+                        normalizedBlocks = normalizedBlocks.map(b => ({ name: b }));
                     }
-                }
 
-                setFormData(prev => ({
-                    ...projectToEdit,
-                    category: (projectToEdit.category && projectToEdit.category.length > 0)
-                        ? projectToEdit.category.map(c => getLookupValueFromContext('Category', c))
-                        : normalizedCategory,
-                    subCategory: (projectToEdit.subCategory && projectToEdit.subCategory.length > 0)
-                        ? projectToEdit.subCategory.map(s => getLookupValueFromContext('SubCategory', s))
-                        : normalizedSubCategory,
-                    status: getLookupValueFromContext('ProjectStatus', projectToEdit.status),
-                    parkingType: getLookupValueFromContext('ParkingType', projectToEdit.parkingType),
-                    blocks: normalizedBlocks,
-                    assign: (projectToEdit.assign || []).map(u => (u && typeof u === 'object') ? (u._id || u.id) : u).filter(Boolean),
-                    team: (projectToEdit.team || []).map(t => (t && typeof t === 'object') ? (t._id || t.id) : t).filter(Boolean),
-                    owner: (projectToEdit.owner && typeof projectToEdit.owner === 'object') ? (projectToEdit.owner._id || projectToEdit.owner.id) : projectToEdit.owner
-                }));
+                    // Normalize Categories: Split legacy 'category' into 'category' and 'subCategory'
+                    let normalizedCategory = projectToEdit.category || [];
+                    if (!Array.isArray(normalizedCategory)) normalizedCategory = [normalizedCategory].filter(Boolean);
+                    
+                    let normalizedSubCategory = projectToEdit.subCategory || [];
+                    if (!Array.isArray(normalizedSubCategory)) normalizedSubCategory = [normalizedSubCategory].filter(Boolean);
+
+                    if (normalizedSubCategory.length === 0 && normalizedCategory.length > 0) {
+                        const mainCategories = ['Residential', 'Commercial', 'Agricultural', 'Industrial', 'Institutional'];
+                        const actualCategories = normalizedCategory.filter(c => mainCategories.includes(c));
+                        const actualSubCategories = normalizedCategory.filter(c => !mainCategories.includes(c));
+
+                        // If we found split, use it. Otherwise keep as is (safer).
+                        if (actualCategories.length > 0 || actualSubCategories.length > 0) {
+                            normalizedCategory = actualCategories;
+                            normalizedSubCategory = actualSubCategories;
+                        }
+                    }
+
+                    // Helper to ensure we get a string value from a lookup or object
+                    const safeString = (type, val) => {
+                        const result = getLookupValueFromContext(type, val);
+                        if (result && typeof result === 'object') {
+                            return result.lookup_value || result.name || result.label || result.value || String(result);
+                        }
+                        return result || '';
+                    };
+
+                    setFormData(prev => ({
+                        ...DEFAULT_FORM_DATA, // Use defaults for missing fields
+                        ...projectToEdit,
+                        category: (Array.isArray(projectToEdit.category) ? projectToEdit.category : [])
+                            .map(c => safeString('Category', c)).filter(v => v && typeof v === 'string'),
+                        subCategory: (Array.isArray(projectToEdit.subCategory) ? projectToEdit.subCategory : [])
+                            .map(s => safeString('SubCategory', s)).filter(v => v && typeof v === 'string'),
+                        status: safeString('ProjectStatus', projectToEdit.status),
+                        parkingType: safeString('ParkingType', projectToEdit.parkingType),
+                        blocks: normalizedBlocks.map(b => ({
+                            ...(typeof b === 'object' ? b : { name: String(b) }),
+                            name: (b && typeof b === 'object') ? (b.name || '') : String(b || '')
+                        })),
+                        assign: (Array.isArray(projectToEdit.assign) ? projectToEdit.assign : [])
+                            .map(u => (u && typeof u === 'object') ? (u._id || u.id) : u).filter(Boolean),
+                        team: (Array.isArray(projectToEdit.team) ? projectToEdit.team : [])
+                            .map(t => (t && typeof t === 'object') ? (t._id || t.id) : t).filter(Boolean),
+                        owner: (projectToEdit.owner && typeof projectToEdit.owner === 'object') ? (projectToEdit.owner._id || projectToEdit.owner.id) : (projectToEdit.owner || '')
+                    }));
+                } catch (err) {
+                    console.error("Critical error mapping project to edit form:", err, projectToEdit);
+                    toast.error("Error loading project data. Some fields may be missing.");
+                    setFormData({ ...DEFAULT_FORM_DATA, ...projectToEdit });
+                }
             } else {
                 setFormData(DEFAULT_FORM_DATA);
             }

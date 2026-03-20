@@ -5,7 +5,9 @@ import {
     getListingBySlug,
     getProjectBySlug,
     submitPropertyForm,
-    submitLeadForm
+    submitLeadForm,
+    getPublicSettings,
+    getAvailableUnits
 } from "../controllers/public.controller.js";
 import { verifyApiKey } from "../middleware/apiKey.middleware.js";
 
@@ -28,5 +30,9 @@ router.get("/projects/:slug", getProjectBySlug);
 // Submission Routes
 router.post("/submit-property", submitPropertyForm);
 router.post("/submit-lead", submitLeadForm);
+
+// Metadata Routes
+router.get("/public-settings", getPublicSettings);
+router.get("/available-units", getAvailableUnits);
 
 export default router;

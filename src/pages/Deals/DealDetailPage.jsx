@@ -66,7 +66,7 @@ const TableContainer = ({ children }) => (
 
 
 const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
-    const { propertyConfig, getLookupValue } = usePropertyConfig();
+    const { propertyConfig, getLookupValue, lookups } = usePropertyConfig();
     const [deal, setDeal] = useState(null);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('activity');
@@ -511,7 +511,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const getStrictLookupValue = useCallback((type, id) => {
         if (!id) return null;
 
-        const lookups = propertyConfig?.lookups || {};
+        const allLookups = lookups || {};
 
         if (typeof id === 'object') {
             const val = id.lookup_value || id.name || id.label || id.value || id;
@@ -522,8 +522,8 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         }
 
         const normalizedType = type ? type.replace(/\s+/g, '') : type;
-        if (lookups[normalizedType]) {
-            const found = lookups[normalizedType].find(l =>
+        if (allLookups[normalizedType]) {
+            const found = allLookups[normalizedType].find(l =>
                 l._id === id ||
                 l.id === id ||
                 (typeof id === 'string' && l.lookup_value === id)
@@ -577,7 +577,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                             background: 'linear-gradient(90deg, #f8fafc 0%, #eff6ff 100%)',
                                             padding: '16px 20px', borderRadius: '12px', border: '1px solid #dbeafe', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', marginTop: '8px'
                                         }}>
-                                            <DetailField label="Size Label" value={getStrictLookupValue('Size', inventory.sizeConfig || deal.sizeConfig) || inventory.sizeLabel || deal.sizeLabel || 'N/A'} />
+                                            <DetailField label="Size Label" value={getLookupValue('Size', inventory.sizeLabel || deal.sizeLabel || inventory.sizeConfig || deal.sizeConfig || deal.unitSpecification?.sizeLabel) || 'N/A'} />
                                             <DetailField label="Width" value={(inventory.width || deal.unitSpecification?.width) ? `${inventory.width || deal.unitSpecification?.width} ${renderValue(inventory.sizeUnit || deal.sizeUnit || 'Ft')}` : 'N/A'} />
                                             <DetailField label="Length" value={(inventory.length || deal.unitSpecification?.length) ? `${inventory.length || deal.unitSpecification?.length} ${renderValue(inventory.sizeUnit || deal.sizeUnit || 'Ft')}` : 'N/A'} />
                                         </div>
@@ -628,7 +628,11 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const renderLocationDetails = () => {
         const inventory = deal?.inventoryId || {};
         const address = inventory.address || {};
-        const locationStr = [address.tehsil, address.city, address.state].filter(Boolean).join(', ');
+        const locationStr = [
+            getLookupValue('Tehsil', address.tehsil),
+            getLookupValue('City', address.city),
+            getLookupValue('State', address.state)
+        ].filter(Boolean).join(', ');
 
         return (
             <div style={cardStyle} >
@@ -642,9 +646,9 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 </div>
                 <div style={{ padding: '24px', display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '24px' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                        <DetailField label="Tehsil, City, State" value={locationStr} />
-                        <DetailField label="Locality" value={address.locality || getLookupValue('Locality', deal.location)} />
-                        <DetailField label="Post Office / Pincode" value={address.postOffice && address.pinCode ? `${address.postOffice} - ${address.pinCode}` : (address.pinCode || address.postOffice)} />
+                        <DetailField label="Tehsil, City, State" value={renderLocationValue()} />
+                        <DetailField label="Locality" value={getLookupValue('Locality', address.locality || deal.location)} />
+                        <DetailField label="Post Office / Pincode" value={(address.postOffice || address.pinCode) ? `${getLookupValue('PostOffice', address.postOffice) || address.postOffice || ''} ${address.pinCode ? `- ${address.pinCode}` : ''}` : 'N/A'} />
                         <DetailField label="Landmark" value={address.landmark} />
                         <div style={{ gridColumn: 'span 2', background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', marginTop: '8px', position: 'relative' }}>
                             <div style={{ position: 'absolute', top: '-10px', left: '20px', background: '#fff', padding: '0 8px', fontSize: '0.65rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Full Address</div>
@@ -1454,94 +1458,56 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                             </h3>
                         </div>
                         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            {/* Inventory Owners Sub-section */}
-                            {(deal.inventoryId?.owners?.length > 0 || deal.inventoryId?.ownerName) && (
+                            {/* Property Owners Sub-section (Synced with Inventory) */}
+                            {deal.inventoryId?.owners?.length > 0 && (
                                 <div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                        <label style={{ fontSize: '0.6rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Owners</label>
-                                        <span style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: 700 }}>{deal.inventoryId?.owners?.length || 1}</span>
+                                        <label style={{ fontSize: '0.6rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Property Owners</label>
+                                        <span style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: 700 }}>{deal.inventoryId.owners.length}</span>
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        {deal.inventoryId?.owners && deal.inventoryId.owners.length > 0 ? (
-                                            deal.inventoryId.owners.map((owner, idx) => (
-                                                <div key={idx} style={{ padding: '10px', background: '#f0fdf4', borderRadius: '10px', border: '1px solid #dcfce7', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                    <div style={{ width: '32px', height: '32px', background: 'linear-gradient(135deg, #22c55e, #10b981)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: '0.75rem' }}>
-                                                        {getInitials(owner.name)}
+                                        {deal.inventoryId.owners.map((owner, idx) => (
+                                            <div key={idx} style={{ padding: '10px', background: '#f0fdf4', borderRadius: '10px', border: '1px solid #dcfce7', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <div style={{ width: '32px', height: '32px', background: 'linear-gradient(135deg, #22c55e, #10b981)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: '0.75rem' }}>
+                                                    {getInitials(owner.name)}
+                                                </div>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#166534', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{owner.name}</div>
+                                                    <div style={{ fontSize: '0.7rem', color: '#15803d', fontWeight: 600 }}>{owner.phones?.[0]?.number || owner.mobile || 'No Phone'}</div>
+                                                </div>
+                                                <div style={{ background: '#dcfce7', color: '#166534', fontSize: '0.5rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 900, textTransform: 'uppercase' }}>Owner</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Stakeholders Sub-section (Synced with Inventory) */}
+                            {deal.inventoryId?.associates?.length > 0 && (
+                                <div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <label style={{ fontSize: '0.6rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Stakeholders</label>
+                                        <span style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: 700 }}>{deal.inventoryId.associates.length}</span>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        {deal.inventoryId.associates.map((assoc, idx) => {
+                                            const contact = assoc.contact || assoc;
+                                            return (
+                                                <div key={idx} style={{ padding: '10px', background: '#fffbeb', borderRadius: '10px', border: '1px solid #fef3c7', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                    <div style={{ width: '32px', height: '32px', background: 'linear-gradient(135deg, #f59e0b, #fbbf24)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: '0.75rem' }}>
+                                                        {getInitials(contact.name)}
                                                     </div>
                                                     <div style={{ flex: 1, minWidth: 0 }}>
-                                                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#166534', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{owner.name}</div>
-                                                        <div style={{ fontSize: '0.7rem', color: '#15803d', fontWeight: 600 }}>{owner.phones?.[0]?.number || owner.mobile || 'No Phone'}</div>
+                                                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#92400e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{contact.name}</div>
+                                                        <div style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: 600 }}>{contact.phones?.[0]?.number || contact.mobile || 'No Phone'}</div>
                                                     </div>
-                                                    <div style={{ background: '#dcfce7', color: '#166534', fontSize: '0.5rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 900, textTransform: 'uppercase' }}>Owner</div>
+                                                    <div style={{ background: '#fef3c7', color: '#b45309', fontSize: '0.5rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 900, textTransform: 'uppercase' }}>{assoc.relationship || 'Assoc'}</div>
                                                 </div>
-                                            ))
-                                        ) : (
-                                            <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                <div style={{ width: '32px', height: '32px', background: '#e2e8f0', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontWeight: 900, fontSize: '0.75rem' }}>
-                                                    {getInitials(deal.inventoryId?.ownerName || 'NA')}
-                                                </div>
-                                                <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#1e293b' }}>{deal.inventoryId?.ownerName || 'N/A'}</div>
-                                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{deal.inventoryId?.ownerPhone || '--'}</div>
-                                                </div>
-                                            </div>
-                                        )}
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             )}
-
-                            {/* Associated Stakeholders Sub-section */}
-                            {(deal.inventoryId?.associates?.length > 0 || deal.inventoryId?.associatedContact) && (
-                                <div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                        <label style={{ fontSize: '0.6rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Associates</label>
-                                        <span style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: 700 }}>{deal.inventoryId?.associates?.length || 1}</span>
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        {deal.inventoryId?.associates && deal.inventoryId.associates.length > 0 ? (
-                                            deal.inventoryId.associates.map((assoc, idx) => {
-                                                const contact = assoc.contact || assoc;
-                                                return (
-                                                    <div key={idx} style={{ padding: '10px', background: '#fffbeb', borderRadius: '10px', border: '1px solid #fef3c7', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                        <div style={{ width: '32px', height: '32px', background: 'linear-gradient(135deg, #f59e0b, #fbbf24)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: '0.75rem' }}>
-                                                            {getInitials(contact.name)}
-                                                        </div>
-                                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                                            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#92400e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{contact.name}</div>
-                                                            <div style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: 600 }}>{contact.phones?.[0]?.number || contact.mobile || 'No Phone'}</div>
-                                                        </div>
-                                                        <div style={{ background: '#fef3c7', color: '#b45309', fontSize: '0.5rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 900, textTransform: 'uppercase' }}>{assoc.relationship || 'Assoc'}</div>
-                                                    </div>
-                                                );
-                                            })
-                                        ) : deal.inventoryId?.associatedContact && (
-                                            <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                <div style={{ width: '32px', height: '32px', background: '#e2e8f0', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontWeight: 900, fontSize: '0.75rem' }}>
-                                                    {getInitials(deal.inventoryId.associatedContact)}
-                                                </div>
-                                                <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#1e293b' }}>{deal.inventoryId.associatedContact}</div>
-                                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{deal.inventoryId.associatedPhone || '--'}</div>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Buyer Section */}
-                            <div style={{ marginTop: '4px', borderTop: '1px dashed #e2e8f0', paddingTop: '12px' }}>
-                                <label style={{ fontSize: '0.6rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px', display: 'block' }}>Deal Lead / Buyer</label>
-                                <div style={{ background: '#f0f9ff', padding: '12px', borderRadius: '12px', border: '1px solid #e0f2fe', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <div style={{ width: '32px', height: '32px', background: 'linear-gradient(135deg, #0ea5e9, #0284c7)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: '0.75rem' }}>
-                                        {getInitials(deal.associatedContact?.name || 'LB')}
-                                    </div>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <p style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0369a1', margin: 0 }}>{deal.associatedContact?.name || 'Not assigned'}</p>
-                                        <p style={{ fontSize: '0.8rem', color: '#0c4a6e', margin: 0, fontWeight: 600 }}>{deal.associatedContact?.phone || deal.associatedContact?.mobile || '--'}</p>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
                     </div>
 

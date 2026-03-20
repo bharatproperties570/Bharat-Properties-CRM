@@ -6,7 +6,18 @@ import { renderValue } from '../../utils/renderUtils';
 import Chart from 'react-apexcharts';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 
-const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => {
+const fixDriveUrl = (url) => {
+    if (!url) return url;
+    if (url.includes('drive.google.com')) {
+        const fileIdMatch = url.match(/\/file\/d\/([^\/]+)/) || url.match(/[?&]id=([^&]+)/);
+        if (fileIdMatch && fileIdMatch[1]) {
+            return `https://drive.google.com/uc?export=view&id=${fileIdMatch[1]}`;
+        }
+    }
+    return url;
+};
+
+const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity, onEditProject }) => {
     const { getLookupValue } = usePropertyConfig();
     const [project, setProject] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -79,8 +90,15 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => 
         }
     };
 
-    useEffect(() => {
+     useEffect(() => {
         fetchProjectDetails();
+        
+        // Listen for global project updates to refresh data
+        const handleProjectUpdate = () => {
+            fetchProjectDetails();
+        };
+        window.addEventListener('project-updated', handleProjectUpdate);
+        return () => window.removeEventListener('project-updated', handleProjectUpdate);
     }, [fetchProjectDetails]);
 
     if (loading) return (
@@ -162,7 +180,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => 
                                 fontSize: '0.7rem', fontWeight: 800,
                                 textTransform: 'uppercase', letterSpacing: '0.05em', border: '1px solid #e2e8f0'
                             }}>
-                                PRJ-{project._id.substring(project._id.length - 6).toUpperCase()}
+                                PRJ-{project?._id ? project._id.substring(Math.max(0, project._id.length - 6)).toUpperCase() : 'NEW'}
                             </span>
 
                             <span style={{
@@ -220,8 +238,8 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => 
                     <HeaderMetric label="Deals Running" value={activeDealsCount} color="#6366f1" />
                 </div>
 
-                <div style={{ display: 'flex', gap: '10px' }}>
-                    <ActionButton icon="edit" label="Edit" />
+                 <div style={{ display: 'flex', gap: '10px' }}>
+                    <ActionButton icon="edit" label="Edit" onClick={() => onEditProject && onEditProject(project)} />
                     <ActionButton icon="plus-square" label="Add Block" />
                     <ActionButton icon="plus" label="Inventory" primary />
                 </div>
@@ -402,7 +420,53 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity }) => 
                         </div>
                     </div>
 
-                    {/* Card 7: Sales Insights */}
+                    {/* Card 7: Project Media */}
+                    <div style={cardStyle}>
+                        <div style={sectionHeaderStyle}>
+                            <h3 style={sectionTitleStyle}><i className="fas fa-images text-blue-500"></i> Project Media & Gallery</h3>
+                        </div>
+                        <div style={{ padding: '24px' }}>
+                            {project.projectImages && project.projectImages.length > 0 ? (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '16px' }}>
+                                    {project.projectImages.map((img, idx) => (
+                                        <div key={idx} style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                                            <img 
+                                                src={fixDriveUrl(img.url || img.path) || 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80'} 
+                                                alt={img.title || 'Project Media'} 
+                                                style={{ width: '100%', height: '120px', objectFit: 'cover' }}
+                                                onError={(e) => { e.target.src = 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80'; }}
+                                            />
+                                            <div style={{ padding: '8px', background: '#fff' }}>
+                                                <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{img.title || 'No Title'}</div>
+                                                <div style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 600 }}>{img.category || 'Main'}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div style={{ textAlign: 'center', padding: '40px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
+                                    <i className="fas fa-image" style={{ fontSize: '2rem', color: '#cbd5e1', marginBottom: '12px', display: 'block' }}></i>
+                                    <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: 0 }}>No images uploaded for this project.</p>
+                                </div>
+                            )}
+
+                            {/* Videos Section */}
+                            {project.projectVideos && project.projectVideos.filter(v => v.url).length > 0 && (
+                                <div style={{ marginTop: '24px' }}>
+                                    <h4 style={{ fontSize: '0.8rem', fontWeight: 800, color: '#475569', marginBottom: '12px', textTransform: 'uppercase' }}>Videos</h4>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                                        {project.projectVideos.filter(v => v.url).map((vid, idx) => (
+                                            <a key={idx} href={vid.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', padding: '8px 16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 700, color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <i className="fab fa-youtube"></i> {vid.title || 'Project Video'}
+                                            </a>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Card 8: Sales Insights */}
                     <div style={cardStyle}>
                         <div style={sectionHeaderStyle}>
                             <h3 style={sectionTitleStyle}><i className="fas fa-atom text-purple-500"></i> Sales & Marketing Insights</h3>
@@ -570,8 +634,10 @@ const HeaderMetric = ({ label, value, color }) => (
     </div>
 );
 
-const ActionButton = ({ icon, label, primary, full }) => (
-    <button style={{
+const ActionButton = ({ icon, label, primary, full, onClick }) => (
+    <button 
+        onClick={onClick}
+        style={{
         background: primary ? '#10b981' : '#fff',
         color: primary ? '#fff' : '#475569',
         border: primary ? 'none' : '1px solid #e2e8f0',

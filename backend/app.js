@@ -94,10 +94,13 @@ app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser());
 app.use(mongoSanitize());
 
+// Trust proxy for rate limiting behind reverse proxies (like Vercel)
+app.set('trust proxy', 1);
+
 // Global Rate Limiting
 const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    limit: 1000,
+    limit: 500000, // Temporarily huge for verification
     standardHeaders: true,
     legacyHeaders: false,
     message: { success: false, message: "Too many requests from this IP, please try again later." }

@@ -27,6 +27,7 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
     const [showAddInventoryModal, setShowAddInventoryModal] = useState(false);
     const [showAddDealModal, setShowAddDealModal] = useState(false);
     const [editingInventory, setEditingInventory] = useState(null);
+    const [editingProject, setEditingProject] = useState(null);
     const [dealContext, setDealContext] = useState(null);
 
     // Modal Data State
@@ -63,12 +64,14 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
 
     // Handle Project Modal URL state
     const handleAddProject = () => {
+        setEditingProject(null);
         setShowAddProjectModal(true);
         window.history.pushState({ view: currentView, modal: 'add-project' }, '', '/projects/new');
     };
 
     const handleCloseProjectModal = () => {
         setShowAddProjectModal(false);
+        setEditingProject(null);
         // If we are currently at /projects/new, go back. 
         // We check this to avoid going back if the user navigated elsewhere (edge case)
         if (window.location.pathname === '/projects/new') {
@@ -184,6 +187,10 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
             setShowActivityModal(true);
         },
         onAddProject: handleAddProject,
+        onEditProject: (project) => {
+            setEditingProject(project);
+            setShowAddProjectModal(true);
+        },
         onAddInventory: (inventory) => {
             setEditingInventory(inventory || null);
             setShowAddInventoryModal(true);
@@ -268,7 +275,12 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                 <AddProjectModal
                     isOpen={showAddProjectModal}
                     onClose={handleCloseProjectModal}
-                    onSave={handleCloseProjectModal}
+                    onSave={() => {
+                        handleCloseProjectModal();
+                        // Trigger global refresh
+                        window.dispatchEvent(new Event('project-updated'));
+                    }}
+                    projectToEdit={editingProject}
                 />
 
                 <AddInventoryModal
