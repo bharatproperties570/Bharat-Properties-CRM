@@ -65,30 +65,28 @@ const allowedOrigins = [
 const envOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [];
 const combinedOrigins = [...new Set([...allowedOrigins, ...envOrigins])];
 
-// Simple CORS for development/production
+// Robust CORS Mirror
 app.use(cors({
     origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
+        
+        const isAllowed = 
+            origin.includes('bharatproperties') || 
+            origin.includes('localhost') || 
+            origin.includes('127.0.0.1') || 
+            origin.endsWith('.vercel.app');
 
-        if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
-            return callback(null, true);
+        if (isAllowed) {
+            callback(null, true);
+        } else {
+            callback(null, false);
         }
-
-        if (combinedOrigins.indexOf(origin) !== -1 || origin === process.env.FRONTEND_URL) {
-            return callback(null, true);
-        }
-
-        // Check for Vercel preview URLs
-        if (origin.endsWith('.vercel.app')) {
-            return callback(null, true);
-        }
-
-        return callback(null, false);
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-API-KEY'],
-    credentials: true
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-API-KEY', 'X-Requested-With'],
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 204
 }));
 
 app.use(compression());
