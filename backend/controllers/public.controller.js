@@ -5,7 +5,7 @@ import Lead from "../models/Lead.js";
 import Activity from "../models/Activity.js";
 import Lookup from "../models/Lookup.js";
 import Inventory from "../models/Inventory.js";
-import GoogleReview from '../models/GoogleReview.js';
+import SocialReview from '../models/SocialReview.js';
 import SystemSetting from "../models/SystemSetting.js";
 import mongoose from "mongoose";
 import axios from "axios";
@@ -626,53 +626,45 @@ export const getAvailableUnits = async (req, res) => {
     }
 };
 
-// 8. Get Google Reviews with Cumulative Storage & 24h Sync
+// 8. Get Social Reviews (Google + Others)
 export const getGoogleReviews = async (req, res) => {
-    const CACHE_FILE = path.join(__dirname, '../cache/google-reviews.json');
-    const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+    const CACHE_FILE = path.join(__dirname, '../cache/social-reviews.json');
+    const CACHE_TTL = 24 * 60 * 60 * 1000;
     const PLACE_ID = 'ChIJKzFpydBGDjkRbTCco1_G2I4';
     const API_KEY = process.env.GOOGLE_PLACES_API_KEY;
 
     try {
         let shouldSync = true;
-        let metadata = { rating: 5, totalReviews: 0 };
+        let metadata = { rating: 4.3, totalReviews: 31 }; // Default based on last known state
 
-        // 1. Check Cache for Meta-Data and Sync Timing
         if (fs.existsSync(CACHE_FILE)) {
             const cacheData = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
             const now = Date.now();
-            metadata = {
-                rating: cacheData.data.rating,
-                totalReviews: cacheData.data.totalReviews
-            };
+            metadata = cacheData.data;
             if (now - cacheData.timestamp < CACHE_TTL) {
                 shouldSync = false;
             }
         }
 
-        // 2. Sync with Google if Cache Expired
         if (shouldSync && API_KEY) {
-            console.log('Syncing Google Reviews with API...');
             const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${PLACE_ID}&fields=reviews,rating,user_ratings_total&key=${API_KEY}`;
             const response = await axios.get(url);
 
             if (response.data.status === 'OK') {
                 const result = response.data.result;
-                
-                // Update Metadata
                 metadata = {
                     rating: result.rating,
                     totalReviews: result.user_ratings_total
                 };
 
-                // Upsert Reviews into Database
                 const googleReviews = result.reviews || [];
                 for (const rev of googleReviews) {
-                    await GoogleReview.updateOne(
-                        { author_name: rev.author_name, time: rev.time, place_id: PLACE_ID },
+                    await SocialReview.updateOne(
+                        { author_name: rev.author_name, time: rev.time, platform: 'google' },
                         { 
                             $set: { 
                                 ...rev, 
+                                platform: 'google',
                                 place_id: PLACE_ID 
                             } 
                         },
@@ -680,9 +672,7 @@ export const getGoogleReviews = async (req, res) => {
                     );
                 }
 
-                // Update Cache Timestamp & Metadata
-                const cacheDir = path.dirname(CACHE_FILE);
-                if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+                if (!fs.existsSync(path.dirname(CACHE_FILE))) fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
                 fs.writeFileSync(CACHE_FILE, JSON.stringify({
                     timestamp: Date.now(),
                     data: metadata
@@ -690,19 +680,18 @@ export const getGoogleReviews = async (req, res) => {
             }
         }
 
-        // 3. Fetch ALL stored reviews from DB
-        const storedReviews = await GoogleReview.find({ place_id: PLACE_ID })
+        // Fetch ALL reviews from all platforms
+        const allReviews = await SocialReview.find()
             .sort({ time: -1 })
             .lean();
 
-        // Normalize for Frontend
-        const normalizedReviews = storedReviews.map((rev, index) => ({
+        const normalizedReviews = allReviews.map((rev) => ({
             id: rev._id.toString(),
             name: rev.author_name,
             photo: rev.profile_photo_url,
             rating: rev.rating,
             review: rev.text,
-            platform: 'google',
+            platform: rev.platform || 'google',
             date: new Date(rev.time * 1000).toISOString().split('T')[0],
             verified: true,
             relativeTime: rev.relative_time_description
@@ -710,7 +699,6 @@ export const getGoogleReviews = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            source: shouldSync ? 'network' : 'database',
             data: {
                 ...metadata,
                 reviews: normalizedReviews
@@ -718,42 +706,7 @@ export const getGoogleReviews = async (req, res) => {
         });
 
     } catch (error) {
-        console.error('getGoogleReviews error:', error);
-        
-        // Fallback: Return whatever is in DB even if sync failed
-        const storedReviews = await GoogleReview.find({ place_id: PLACE_ID })
-            .sort({ time: -1 })
-            .lean();
-
-        if (storedReviews.length > 0) {
-            const normalizedReviews = storedReviews.map((rev) => ({
-                id: rev._id.toString(),
-                name: rev.author_name,
-                photo: rev.profile_photo_url,
-                rating: rev.rating,
-                review: rev.text,
-                platform: 'google',
-                date: new Date(rev.time * 1000).toISOString().split('T')[0],
-                verified: true
-            }));
-
-            // Use cached metadata if available
-            let metadata = { rating: 5, totalReviews: 0 };
-            if (fs.existsSync(CACHE_FILE)) {
-                const cacheData = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
-                metadata = cacheData.data;
-            }
-
-            return res.status(200).json({
-                success: true,
-                source: 'fallback-database',
-                data: {
-                    ...metadata,
-                    reviews: normalizedReviews
-                }
-            });
-        }
-
+        console.error('getSocialReviews error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };

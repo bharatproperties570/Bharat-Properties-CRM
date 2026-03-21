@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-const GoogleReviewSchema = new mongoose.Schema({
+const SocialReviewSchema = new mongoose.Schema({
     author_name: {
         type: String,
         required: true
@@ -21,9 +21,14 @@ const GoogleReviewSchema = new mongoose.Schema({
         required: true
     },
     language: String,
+    platform: {
+        type: String,
+        enum: ['google', 'facebook', 'instagram', 'linkedin', 'twitter', 'other'],
+        default: 'google',
+        required: true
+    },
     place_id: {
         type: String,
-        required: true,
         index: true
     }
 }, {
@@ -31,7 +36,6 @@ const GoogleReviewSchema = new mongoose.Schema({
 });
 
 // Create a composite unique index to prevent duplicate reviews
-// Using author_name and time as a unique identifier for a review at a specific place
-GoogleReviewSchema.index({ author_name: 1, time: 1, place_id: 1 }, { unique: true });
+SocialReviewSchema.index({ author_name: 1, time: 1, platform: 1, text: 1 }, { unique: true });
 
-export default mongoose.model('GoogleReview', GoogleReviewSchema);
+export default mongoose.model('SocialReview', SocialReviewSchema);
