@@ -7,6 +7,13 @@ import Lookup from "../models/Lookup.js";
 import Inventory from "../models/Inventory.js";
 import SystemSetting from "../models/SystemSetting.js";
 import mongoose from "mongoose";
+import axios from "axios";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -614,6 +621,94 @@ export const getAvailableUnits = async (req, res) => {
         });
     } catch (error) {
         console.error('getAvailableUnits error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// 8. Get Google Reviews with 24h Caching
+export const getGoogleReviews = async (req, res) => {
+    const CACHE_FILE = path.join(__dirname, '../cache/google-reviews.json');
+    const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+    const PLACE_ID = 'ChIJKzFpydBGDjkRbTCco1_G2I4';
+    const API_KEY = process.env.GOOGLE_PLACES_API_KEY;
+
+    try {
+        // 1. Check Cache
+        if (fs.existsSync(CACHE_FILE)) {
+            const cacheData = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
+            const now = Date.now();
+            if (now - cacheData.timestamp < CACHE_TTL) {
+                console.log('Serving Google Reviews from cache');
+                return res.status(200).json({
+                    success: true,
+                    source: 'cache',
+                    data: cacheData.data
+                });
+            }
+        }
+
+        // 2. Fetch from Google
+        if (!API_KEY) {
+            throw new Error('Google Places API Key is not configured');
+        }
+
+        const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${PLACE_ID}&fields=reviews,rating,user_ratings_total&key=${API_KEY}`;
+        const response = await axios.get(url);
+
+        if (response.data.status !== 'OK') {
+            throw new Error(`Google API Error: ${response.data.status}`);
+        }
+
+        const result = response.data.result;
+        
+        // Normalize reviews to match frontend ReviewCard format
+        const normalizedReviews = (result.reviews || []).map((rev, index) => ({
+            id: `google-${index}-${rev.time}`,
+            name: rev.author_name,
+            photo: rev.profile_photo_url,
+            rating: rev.rating,
+            review: rev.text,
+            platform: 'google',
+            date: new Date(rev.time * 1000).toISOString().split('T')[0],
+            verified: true
+        }));
+
+        const finalData = {
+            rating: result.rating,
+            totalReviews: result.user_ratings_total,
+            reviews: normalizedReviews
+        };
+
+        // 3. Save to Cache
+        const cacheDir = path.dirname(CACHE_FILE);
+        if (!fs.existsSync(cacheDir)) {
+            fs.mkdirSync(cacheDir, { recursive: true });
+        }
+        fs.writeFileSync(CACHE_FILE, JSON.stringify({
+            timestamp: Date.now(),
+            data: finalData
+        }));
+
+        res.status(200).json({
+            success: true,
+            source: 'network',
+            data: finalData
+        });
+
+    } catch (error) {
+        console.error('getGoogleReviews error:', error);
+        
+        // If API fails but cache exists (even if stale), serve cache as fallback
+        if (fs.existsSync(CACHE_FILE)) {
+            const cacheData = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
+            console.log('Serving stale cache due to API error');
+            return res.status(200).json({
+                success: true,
+                source: 'stale-cache',
+                data: cacheData.data
+            });
+        }
+
         res.status(500).json({ success: false, message: error.message });
     }
 };

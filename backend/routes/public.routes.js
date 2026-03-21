@@ -7,7 +7,8 @@ import {
     submitPropertyForm,
     submitLeadForm,
     getPublicSettings,
-    getAvailableUnits
+    getAvailableUnits,
+    getGoogleReviews
 } from "../controllers/public.controller.js";
 import { verifyApiKey } from "../middleware/apiKey.middleware.js";
 
@@ -34,5 +35,6 @@ router.post("/submit-lead", submitLeadForm);
 // Metadata Routes
 router.get("/public-settings", getPublicSettings);
 router.get("/available-units", getAvailableUnits);
+router.get("/google-reviews", getGoogleReviews);
 
 export default router;
