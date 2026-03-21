@@ -149,14 +149,17 @@ export const getListings = async (req, res) => {
                                     $or: [
                                         { $eq: ['$_id', '$$subCatId'] },
                                         { 
-                                            $cond: {
-                                                if: { $and: [
-                                                    { $eq: [{ $type: '$$subCatId' }, 'string'] },
-                                                    { $regexMatch: { input: '$$subCatId', regex: /^[0-9a-fA-F]{24}$/ } }
-                                                ]},
-                                                then: { $eq: ['$_id', { $toObjectId: '$$subCatId' }] },
-                                                else: false
-                                            }
+                                            $eq: [
+                                                '$_id', 
+                                                { 
+                                                    $convert: { 
+                                                        input: '$$subCatId', 
+                                                        to: 'objectId', 
+                                                        onError: null, 
+                                                        onNull: null 
+                                                    } 
+                                                }
+                                            ] 
                                         }
                                     ]
                                 }
