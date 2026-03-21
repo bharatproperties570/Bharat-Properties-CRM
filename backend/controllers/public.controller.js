@@ -139,9 +139,18 @@ export const getListings = async (req, res) => {
                 }
             },
             {
+                $lookup: {
+                    from: 'lookups',
+                    localField: 'subCategory',
+                    foreignField: '_id',
+                    as: 'resolvedSubCategory'
+                }
+            },
+            {
                 $addFields: {
                     siteVisitCount: { $size: '$visits' },
-                    id: '$_id' // For frontend compatibility
+                    id: '$_id',
+                    subCategory: { $ifNull: [{ $arrayElemAt: ['$resolvedSubCategory.lookup_value', 0] }, '$subCategory'] }
                 }
             },
             {
