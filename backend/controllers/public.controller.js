@@ -141,8 +141,28 @@ export const getListings = async (req, res) => {
             {
                 $lookup: {
                     from: 'lookups',
-                    localField: 'subCategory',
-                    foreignField: '_id',
+                    let: { subCatId: '$subCategory' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $or: [
+                                        { $eq: ['$_id', '$$subCatId'] },
+                                        { 
+                                            $cond: {
+                                                if: { $and: [
+                                                    { $eq: [{ $type: '$$subCatId' }, 'string'] },
+                                                    { $regexMatch: { input: '$$subCatId', regex: /^[0-9a-fA-F]{24}$/ } }
+                                                ]},
+                                                then: { $eq: ['$_id', { $toObjectId: '$$subCatId' }] },
+                                                else: false
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    ],
                     as: 'resolvedSubCategory'
                 }
             },
@@ -150,7 +170,12 @@ export const getListings = async (req, res) => {
                 $addFields: {
                     siteVisitCount: { $size: '$visits' },
                     id: '$_id',
-                    subCategory: { $ifNull: [{ $arrayElemAt: ['$resolvedSubCategory.lookup_value', 0] }, '$subCategory'] }
+                    subCategory: { 
+                        $ifNull: [
+                            { $arrayElemAt: ['$resolvedSubCategory.lookup_value', 0] }, 
+                            { $ifNull: ['$subCategoryName', '$subCategory'] } // Fallback to subCategoryName if exists
+                        ] 
+                    }
                 }
             },
             {
