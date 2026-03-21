@@ -5,6 +5,7 @@ import Lead from "../models/Lead.js";
 import Activity from "../models/Activity.js";
 import Lookup from "../models/Lookup.js";
 import Inventory from "../models/Inventory.js";
+import GoogleReview from '../models/GoogleReview.js';
 import SystemSetting from "../models/SystemSetting.js";
 import mongoose from "mongoose";
 import axios from "axios";
@@ -625,7 +626,7 @@ export const getAvailableUnits = async (req, res) => {
     }
 };
 
-// 8. Get Google Reviews with 24h Caching
+// 8. Get Google Reviews with Cumulative Storage & 24h Sync
 export const getGoogleReviews = async (req, res) => {
     const CACHE_FILE = path.join(__dirname, '../cache/google-reviews.json');
     const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
@@ -633,79 +634,123 @@ export const getGoogleReviews = async (req, res) => {
     const API_KEY = process.env.GOOGLE_PLACES_API_KEY;
 
     try {
-        // 1. Check Cache
+        let shouldSync = true;
+        let metadata = { rating: 5, totalReviews: 0 };
+
+        // 1. Check Cache for Meta-Data and Sync Timing
         if (fs.existsSync(CACHE_FILE)) {
             const cacheData = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
             const now = Date.now();
+            metadata = {
+                rating: cacheData.data.rating,
+                totalReviews: cacheData.data.totalReviews
+            };
             if (now - cacheData.timestamp < CACHE_TTL) {
-                console.log('Serving Google Reviews from cache');
-                return res.status(200).json({
-                    success: true,
-                    source: 'cache',
-                    data: cacheData.data
-                });
+                shouldSync = false;
             }
         }
 
-        // 2. Fetch from Google
-        if (!API_KEY) {
-            throw new Error('Google Places API Key is not configured');
+        // 2. Sync with Google if Cache Expired
+        if (shouldSync && API_KEY) {
+            console.log('Syncing Google Reviews with API...');
+            const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${PLACE_ID}&fields=reviews,rating,user_ratings_total&key=${API_KEY}`;
+            const response = await axios.get(url);
+
+            if (response.data.status === 'OK') {
+                const result = response.data.result;
+                
+                // Update Metadata
+                metadata = {
+                    rating: result.rating,
+                    totalReviews: result.user_ratings_total
+                };
+
+                // Upsert Reviews into Database
+                const googleReviews = result.reviews || [];
+                for (const rev of googleReviews) {
+                    await GoogleReview.updateOne(
+                        { author_name: rev.author_name, time: rev.time, place_id: PLACE_ID },
+                        { 
+                            $set: { 
+                                ...rev, 
+                                place_id: PLACE_ID 
+                            } 
+                        },
+                        { upsert: true }
+                    );
+                }
+
+                // Update Cache Timestamp & Metadata
+                const cacheDir = path.dirname(CACHE_FILE);
+                if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+                fs.writeFileSync(CACHE_FILE, JSON.stringify({
+                    timestamp: Date.now(),
+                    data: metadata
+                }));
+            }
         }
 
-        const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${PLACE_ID}&fields=reviews,rating,user_ratings_total&key=${API_KEY}`;
-        const response = await axios.get(url);
+        // 3. Fetch ALL stored reviews from DB
+        const storedReviews = await GoogleReview.find({ place_id: PLACE_ID })
+            .sort({ time: -1 })
+            .lean();
 
-        if (response.data.status !== 'OK') {
-            throw new Error(`Google API Error: ${response.data.status}`);
-        }
-
-        const result = response.data.result;
-        
-        // Normalize reviews to match frontend ReviewCard format
-        const normalizedReviews = (result.reviews || []).map((rev, index) => ({
-            id: `google-${index}-${rev.time}`,
+        // Normalize for Frontend
+        const normalizedReviews = storedReviews.map((rev, index) => ({
+            id: rev._id.toString(),
             name: rev.author_name,
             photo: rev.profile_photo_url,
             rating: rev.rating,
             review: rev.text,
             platform: 'google',
             date: new Date(rev.time * 1000).toISOString().split('T')[0],
-            verified: true
-        }));
-
-        const finalData = {
-            rating: result.rating,
-            totalReviews: result.user_ratings_total,
-            reviews: normalizedReviews
-        };
-
-        // 3. Save to Cache
-        const cacheDir = path.dirname(CACHE_FILE);
-        if (!fs.existsSync(cacheDir)) {
-            fs.mkdirSync(cacheDir, { recursive: true });
-        }
-        fs.writeFileSync(CACHE_FILE, JSON.stringify({
-            timestamp: Date.now(),
-            data: finalData
+            verified: true,
+            relativeTime: rev.relative_time_description
         }));
 
         res.status(200).json({
             success: true,
-            source: 'network',
-            data: finalData
+            source: shouldSync ? 'network' : 'database',
+            data: {
+                ...metadata,
+                reviews: normalizedReviews
+            }
         });
 
     } catch (error) {
         console.error('getGoogleReviews error:', error);
         
-        // If API fails but cache exists (even if stale), serve cache as fallback
-        if (fs.existsSync(CACHE_FILE)) {
-            const cacheData = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
-            console.log('Serving stale cache due to API error');
+        // Fallback: Return whatever is in DB even if sync failed
+        const storedReviews = await GoogleReview.find({ place_id: PLACE_ID })
+            .sort({ time: -1 })
+            .lean();
+
+        if (storedReviews.length > 0) {
+            const normalizedReviews = storedReviews.map((rev) => ({
+                id: rev._id.toString(),
+                name: rev.author_name,
+                photo: rev.profile_photo_url,
+                rating: rev.rating,
+                review: rev.text,
+                platform: 'google',
+                date: new Date(rev.time * 1000).toISOString().split('T')[0],
+                verified: true
+            }));
+
+            // Use cached metadata if available
+            let metadata = { rating: 5, totalReviews: 0 };
+            if (fs.existsSync(CACHE_FILE)) {
+                const cacheData = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
+                metadata = cacheData.data;
+            }
+
             return res.status(200).json({
                 success: true,
-                source: 'stale-cache',
-                data: cacheData.data
+                source: 'fallback-database',
+                data: {
+                    ...metadata,
+                    reviews: normalizedReviews
+                }
             });
         }
 
