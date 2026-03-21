@@ -176,9 +176,29 @@ export const getListings = async (req, res) => {
                     subCategory: { 
                         $ifNull: [
                             { $arrayElemAt: ['$resolvedSubCategory.lookup_value', 0] }, 
-                            { $ifNull: ['$subCategoryName', '$subCategory'] } // Fallback to subCategoryName if exists
+                            { $ifNull: ['$subCategoryName', '$subCategory'] }
                         ] 
                     }
+                }
+            },
+            {
+                $lookup: {
+                    from: 'inventories',
+                    localField: 'inventoryId',
+                    foreignField: '_id',
+                    as: 'inventoryData'
+                }
+            },
+            {
+                $addFields: {
+                    inventoryInfo: { $arrayElemAt: ['$inventoryData', 0] }
+                }
+            },
+            {
+                $addFields: {
+                    propertyDetails: { $ifNull: ['$propertyDetails', '$inventoryInfo.propertyDetails'] },
+                    unitSpecification: { $ifNull: ['$unitSpecification', '$inventoryInfo.unitSpecification'] },
+                    address: { $ifNull: ['$address', '$inventoryInfo.address'] }
                 }
             },
             {
@@ -188,7 +208,9 @@ export const getListings = async (req, res) => {
                     associatedContact: 0,
                     partyStructure: 0,
                     commission: 0,
-                    internalRM: 0
+                    internalRM: 0,
+                    inventoryData: 0,
+                    inventoryInfo: 0
                 }
             }
         ]);
@@ -307,16 +329,98 @@ export const getListingBySlug = async (req, res) => {
             isPublished: true
         };
 
-        const listing = await Deal.findOne(query)
-            .select('-owner -associatedContact -partyStructure -commission -internalRM')
-            .lean();
+        // Use aggregation for getListingBySlug too
+        const listings = await Deal.aggregate([
+            { $match: query },
+            {
+                $lookup: {
+                    from: 'lookups',
+                    let: { subCatId: '$subCategory' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $or: [
+                                        { $eq: ['$_id', '$$subCatId'] },
+                                        { 
+                                            $eq: [
+                                                '$_id', 
+                                                { 
+                                                    $convert: { 
+                                                        input: '$$subCatId', 
+                                                        to: 'objectId', 
+                                                        onError: null, 
+                                                        onNull: null 
+                                                    } 
+                                                }
+                                            ] 
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    ],
+                    as: 'resolvedSubCategory'
+                }
+            },
+            {
+                $lookup: {
+                    from: 'activities',
+                    let: { dealId: '$_id' },
+                    pipeline: [
+                        { $match: { 
+                            $expr: { $eq: ['$entityId', '$$dealId'] },
+                            type: 'Site Visit',
+                            status: 'Completed'
+                        }}
+                    ],
+                    as: 'visits'
+                }
+            },
+            {
+                $lookup: {
+                    from: 'inventories',
+                    localField: 'inventoryId',
+                    foreignField: '_id',
+                    as: 'inventoryData'
+                }
+            },
+            {
+                $addFields: {
+                    siteVisitCount: { $size: '$visits' },
+                    id: '$_id',
+                    subCategory: { 
+                        $ifNull: [
+                            { $arrayElemAt: ['$resolvedSubCategory.lookup_value', 0] }, 
+                            { $ifNull: ['$subCategoryName', '$subCategory'] }
+                        ] 
+                    },
+                    inventoryInfo: { $arrayElemAt: ['$inventoryData', 0] }
+                }
+            },
+            {
+                $addFields: {
+                    propertyDetails: { $ifNull: ['$propertyDetails', '$inventoryInfo.propertyDetails'] },
+                    unitSpecification: { $ifNull: ['$unitSpecification', '$inventoryInfo.unitSpecification'] },
+                    address: { $ifNull: ['$address', '$inventoryInfo.address'] },
+                    location: { $ifNull: ['$location', '$inventoryInfo.address.city'] }
+                }
+            },
+            {
+                $project: {
+                    visits: 0, owner: 0, associatedContact: 0, partyStructure: 0, commission: 0, internalRM: 0,
+                    inventoryData: 0, inventoryInfo: 0, resolvedSubCategory: 0
+                }
+            }
+        ]);
 
-        if (!listing) {
+        if (!listings || listings.length === 0) {
             return res.status(404).json({ success: false, message: 'Listing not found' });
         }
 
-        res.status(200).json({ success: true, data: listing });
+        res.status(200).json({ success: true, data: listings[0] });
     } catch (error) {
+        console.error('getListingBySlug error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };
