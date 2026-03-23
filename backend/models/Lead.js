@@ -116,6 +116,18 @@ const LeadSchema = new mongoose.Schema({
     interestedInventory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' }],
 }, { timestamps: true });
 
+// ━━ PERFORMANCE INDEXES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// owner + stage + updatedAt: covers team/owner filter on leads list page
+LeadSchema.index({ owner: 1, stage: 1, updatedAt: -1 });
+// assignment.team + stage: covers team-filtered lead queries
+LeadSchema.index({ 'assignment.team': 1, stage: 1 });
+// assignment.assignedTo + updatedAt: covers assigned-to filter
+LeadSchema.index({ 'assignment.assignedTo': 1, updatedAt: -1 });
+// lastActivityAt: used in NFA (No Future Activity) dashboard metric
+LeadSchema.index({ lastActivityAt: 1 });
+// mobile + email: fast duplicate detection
+LeadSchema.index({ mobile: 1, email: 1 });
+
 // Virtual for full name
 LeadSchema.virtual("fullName").get(function () {
     return `${this.salutation} ${this.firstName} ${this.lastName}`.trim();

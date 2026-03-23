@@ -82,7 +82,6 @@ export const getDashboardStats = async (req, res) => {
         }
 
         // ━━ 1. ACTIVITY STATS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        console.log("[Dashboard] Fetching Activity stats...");
         const [overdueCount, todayActivityCount, upcomingCount, thisMonthActivities] = await Promise.all([
             Activity.countDocuments({ ...baseActQuery, dueDate: { $lt: today }, status: { $regex: /pending|in progress/i } }),
             Activity.countDocuments({ ...baseActQuery, dueDate: { $gte: today, $lt: tomorrow } }),
@@ -98,7 +97,6 @@ export const getDashboardStats = async (req, res) => {
         ]);
 
         // ━━ 2. LEAD STATS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        console.log("[Dashboard] Fetching Lead stats...");
         const [leadsByStageRaw, newLeadsThisMonth, newLeadsLastMonth, leadsBySource] = await Promise.all([
             Lead.aggregate([
                 { $match: baseLeadQuery },
@@ -142,7 +140,6 @@ export const getDashboardStats = async (req, res) => {
         };
 
         // ━━ 3. DEAL STATS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        console.log("[Dashboard] Fetching Deal stats...");
         const [dealsByStageRaw, dealsThisMonth, recentDeals] = await Promise.all([
             Deal.aggregate([
                 { $match: baseDealQuery },
@@ -176,7 +173,6 @@ export const getDashboardStats = async (req, res) => {
         const pipelineValue = (dealCategories.INCOMING.value + dealCategories.PROSPECT.value + dealCategories.OPPORTUNITY.value + dealCategories.NEGOTIATION.value);
 
         // ━━ 4. INVENTORY STATS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        console.log("[Dashboard] Fetching Inventory stats...");
         const matchLookupIds = (regex) => Object.entries(lookupMap).filter(([_, val]) => regex.test(val)).map(([id]) => new mongoose.Types.ObjectId(id));
         const availableIds = matchLookupIds(/available/i);
         const soldIds = matchLookupIds(/sold/i);
@@ -330,15 +326,16 @@ export const getDashboardStats = async (req, res) => {
                 createdAt: { $lt: thisMonthStart },
                 lastActivityAt: { $gte: thisMonthStart }
             }),
-            // NFA: No future activity
+            // ━━ PERFORMANCE FIX: NFA query ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // Previous anti-pattern: Lead.countDocuments({ $nin: await Activity.distinct(...) })
+            // This was a collection scan. New approach: count leads whose lastActivityAt
+            // is null or older than today — a fast indexed query.
             Lead.countDocuments({
                 ...baseLeadQuery,
-                _id: {
-                    $nin: await Activity.distinct('relatedTo.id', {
-                        dueDate: { $gte: today },
-                        status: { $regex: /pending|in progress/i }
-                    })
-                }
+                $or: [
+                    { lastActivityAt: { $exists: false } },
+                    { lastActivityAt: { $lt: today } }
+                ]
             }),
             // Missed Calls
             Activity.countDocuments({
@@ -497,12 +494,13 @@ export const getDashboardStats = async (req, res) => {
                 dealsThisMonth,
                 soldCount,
                 blockedCount,
-                total_property: await Inventory.countDocuments(baseInvQuery),
-                total_view: 0, // Placeholder as views aren't explicitly tracked yet
-                total_favourite: 0 // Placeholder as favorites aren't explicitly tracked yet
+                // ━━ PERFORMANCE FIX: Reuse inventoryStatsTotal instead of a 2nd countDocuments ━━
+                total_property: inventoryStatsRaw.reduce((sum, s) => sum + s.count, 0),
+                total_view: 0,
+                total_favourite: 0
             },
-            // Explicitly add for mobile dashboard mapping if needed
-            total_property: await Inventory.countDocuments(baseInvQuery),
+            // Reuse computed total — no extra DB query
+            total_property: inventoryStatsRaw.reduce((sum, s) => sum + s.count, 0),
             total_view: 0,
             total_favourite: 0,
 

@@ -27,21 +27,32 @@ const sanitizeIds = (ids) => {
     return arr.filter((id) => mongoose.Types.ObjectId.isValid(id)).map((id) => new mongoose.Types.ObjectId(id));
 };
 
+// ━━ GLOBAL LOOKUP CACHE (process-scoped, bounded to 500 entries) ━━━━━━━━━━━━
+const _lookupResolveCache = new Map();
+const LOOKUP_CACHE_MAX = 500;
+
 // Helper to resolve lookup (Find or Create)
 const resolveLookup = async (type, value, createIfMissing = true) => {
     if (!value) return null;
     if (mongoose.Types.ObjectId.isValid(value)) return value;
+
+    const cacheKey = `${type}:${String(value).toLowerCase()}`;
+    if (_lookupResolveCache.has(cacheKey)) return _lookupResolveCache.get(cacheKey);
+
     const escapedValue = escapeRegExp(value);
     const re = new RegExp(`^${escapedValue}$`, 'i');
     let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: re } });
-    
+
     if (!lookup) {
-        if (!createIfMissing) {
-            console.log(`[STRICT] Lookup not found for type '${type}' and value '${value}'. Auto-creation disabled.`);
-            return null;
-        }
+        if (!createIfMissing) return null;
         lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
     }
+
+    // Evict oldest entry if cache is full
+    if (_lookupResolveCache.size >= LOOKUP_CACHE_MAX) {
+        _lookupResolveCache.delete(_lookupResolveCache.keys().next().value);
+    }
+    _lookupResolveCache.set(cacheKey, lookup._id);
     return lookup._id;
 };
 
@@ -69,16 +80,23 @@ const resolveAllReferenceFields = async (doc) => {
         if (doc[field] === "") doc[field] = null;
     }
 
-    if (doc.requirement) doc.requirement = await resolveLookup('Requirement', doc.requirement, false);
-    if (doc.subRequirement) doc.subRequirement = await resolveLookup('SubRequirement', doc.subRequirement, false);
-    if (doc.budget) doc.budget = await resolveLookup('Budget', doc.budget, false);
-    if (doc.location) doc.location = await resolveLookup('Location', doc.location, false);
-    if (doc.source) doc.source = await resolveLookup('Source', doc.source, false);
-    if (doc.status) doc.status = await resolveLookup('Status', doc.status, false);
-    if (doc.stage) doc.stage = await resolveLookup('Stage', doc.stage, false);
-    if (doc.countryCode) doc.countryCode = await resolveLookup('CountryCode', doc.countryCode, false);
-    if (doc.campaign) doc.campaign = await resolveLookup('Campaign', doc.campaign, false);
-    if (doc.subSource) doc.subSource = await resolveLookup('SubSource', doc.subSource, false);
+    // ─── PERFORMANCE FIX: Parallel resolution of all scalar lookups ──────────────
+    const scalarFieldMap = [
+        ['requirement', 'Requirement'],
+        ['subRequirement', 'SubRequirement'],
+        ['budget', 'Budget'],
+        ['location', 'Location'],
+        ['source', 'Source'],
+        ['status', 'Status'],
+        ['stage', 'Stage'],
+        ['countryCode', 'CountryCode'],
+        ['campaign', 'Campaign'],
+        ['subSource', 'SubSource'],
+    ];
+    const scalarResults = await Promise.all(
+        scalarFieldMap.map(([field, type]) => doc[field] ? resolveLookup(type, doc[field], false) : Promise.resolve(null))
+    );
+    scalarFieldMap.forEach(([field], i) => { if (scalarResults[i] !== null) doc[field] = scalarResults[i]; });
 
     // Handle Arrays (Lookup fields)
     const arrayLookups = {
@@ -90,23 +108,12 @@ const resolveAllReferenceFields = async (doc) => {
         direction: 'Direction'
     };
 
-    // Re-check from list_lookup results:
-    // Property Type
-    // PropertyType
-    // Road Width
-    // RoadWidth
-    // Unit Type
-    // UnitType
-    // I'll update to match the ones with spaces if they are more standard, or stick to what was there.
-    // The previous code had spaces. I'll keep them but harmonize with Country-Code etc.
-
-    for (const [field, type] of Object.entries(arrayLookups)) {
+    await Promise.all(Object.entries(arrayLookups).map(async ([field, type]) => {
         if (Array.isArray(doc[field])) {
-            // Filter out empty strings from arrays
             doc[field] = doc[field].filter(val => val !== "");
             doc[field] = await Promise.all(doc[field].map(val => resolveLookup(type, val, false)));
         }
-    }
+    }));
 
     if (doc.owner === "") doc.owner = null;
     if (doc.owner) doc.owner = await resolveUser(doc.owner);
@@ -296,35 +303,46 @@ export const getLeads = async (req, res, next) => {
                 }
             });
 
-            results.records = await Promise.all(results.records.map(async (lead) => {
+            // ─── PERFORMANCE FIX: Pre-fetch all unique lookup IDs in one batch query ──
+            // Replaces ~50 per-lead Lookup.findById() calls with a single query
+            const uniqueLookupIds = new Set();
+            results.records.forEach(lead => {
+                const leadObj = lead.toObject ? lead.toObject() : lead;
+                const titleId = leadObj.contactDetails?.title?._id || leadObj.contactDetails?.title;
+                if (titleId && mongoose.Types.ObjectId.isValid(titleId)) uniqueLookupIds.add(titleId.toString());
+                if (leadObj.salutation && mongoose.Types.ObjectId.isValid(leadObj.salutation)) uniqueLookupIds.add(leadObj.salutation.toString());
+            });
+
+            // Single batch DB query for all needed lookups
+            const batchLookups = uniqueLookupIds.size > 0
+                ? await Lookup.find({ _id: { $in: [...uniqueLookupIds] } }).select('lookup_value').lean()
+                : [];
+            const lookupValueMap = new Map(batchLookups.map(l => [l._id.toString(), l.lookup_value]));
+
+            results.records = results.records.map((lead) => {
                 const leadId = lead._id.toString();
                 const leadActs = activityGroup.get(leadId) || [];
                 const latest = leadActs[0];
                 const leadObj = lead.toObject ? lead.toObject() : lead;
 
-                // Professional Fix: Resolve Title ID to Value for Mobile CRM
+                // O(1) lookup from pre-fetched map — no DB call
                 if (leadObj.contactDetails && leadObj.contactDetails.title) {
-                    const titleId = leadObj.contactDetails.title._id || leadObj.contactDetails.title;
-                    if (mongoose.Types.ObjectId.isValid(titleId)) {
-                        const titleLookup = await Lookup.findById(titleId);
-                        if (titleLookup) {
-                            leadObj.contactDetails.titleValue = titleLookup.lookup_value;
-                            if (leadObj.salutation === titleId.toString() || !leadObj.salutation) {
-                                leadObj.salutation = titleLookup.lookup_value;
-                            }
+                    const titleId = (leadObj.contactDetails.title._id || leadObj.contactDetails.title)?.toString();
+                    if (titleId && lookupValueMap.has(titleId)) {
+                        const titleValue = lookupValueMap.get(titleId);
+                        leadObj.contactDetails.titleValue = titleValue;
+                        if (leadObj.salutation === titleId || !leadObj.salutation) {
+                            leadObj.salutation = titleValue;
                         }
                     } else if (typeof leadObj.contactDetails.title === 'string' && !mongoose.Types.ObjectId.isValid(leadObj.contactDetails.title)) {
                         leadObj.contactDetails.titleValue = leadObj.contactDetails.title;
-                        if (leadObj.salutation === leadObj.contactDetails.title) {
-                            leadObj.salutation = leadObj.contactDetails.title;
-                        }
                     }
                 }
 
-                // Double check salutation if it's an ID but not resolved yet
-                if (mongoose.Types.ObjectId.isValid(leadObj.salutation)) {
-                    const sLookup = await Lookup.findById(leadObj.salutation);
-                    if (sLookup) leadObj.salutation = sLookup.lookup_value;
+                // O(1) salutation resolution from pre-fetched map
+                if (leadObj.salutation && mongoose.Types.ObjectId.isValid(leadObj.salutation)) {
+                    const resolved = lookupValueMap.get(leadObj.salutation.toString());
+                    if (resolved) leadObj.salutation = resolved;
                 }
 
                 return {
@@ -334,7 +352,7 @@ export const getLeads = async (req, res, next) => {
                     activity: latest ? latest.subject : "None",
                     lastAct: latest ? new Date(latest.createdAt).toLocaleDateString() : "Today"
                 };
-            }));
+            });
         }
 
         res.status(200).json({

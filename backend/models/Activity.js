@@ -45,6 +45,17 @@ const ActivitySchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
+// ━━ PERFORMANCE INDEXES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// These compound indexes cover the most common query patterns in the CRM.
+// entityId + status: used in getLeads activity fetch (per lead page)
+ActivitySchema.index({ entityId: 1, status: 1, createdAt: -1 });
+// dueDate + status: used in dashboard overdue/today/upcoming counts
+ActivitySchema.index({ dueDate: 1, status: 1 });
+// type + createdAt: used in dashboard activityTypeBreakdown aggregation
+ActivitySchema.index({ type: 1, createdAt: -1 });
+// entityType + entityId: used in all entity-specific lookups
+ActivitySchema.index({ entityType: 1, entityId: 1 });
+
 ActivitySchema.post('save', invalidateDashboardCache);
 ActivitySchema.post('findOneAndUpdate', invalidateDashboardCache);
 ActivitySchema.post('findOneAndDelete', invalidateDashboardCache);
