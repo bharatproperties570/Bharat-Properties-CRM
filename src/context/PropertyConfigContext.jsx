@@ -81,60 +81,90 @@ export const PropertyConfigProvider = ({ children }) => {
         }
     }, []);
 
+    // --- OPTIMIZED LOOKUP RESOLUTION (O(1)) ---
+    // Pre-calculate flat maps for instant ID -> Value and Value -> ID resolution
+    // This eliminates the O(n * m) nested loops that cause UI lag in tables
+    const lookupMap = React.useMemo(() => {
+        const map = new Map();
+        // 1. Add all lookups across all categories
+        Object.values(lookups).forEach(categoryLookups => {
+            if (Array.isArray(categoryLookups)) {
+                categoryLookups.forEach(l => {
+                    const id = l._id || l.id;
+                    if (id) map.set(id.toString(), l.lookup_value);
+                });
+            }
+        });
+        // 2. Add all projects
+        if (Array.isArray(projects)) {
+            projects.forEach(p => {
+                const id = p._id || p.id;
+                if (id) map.set(id.toString(), p.name || p.projectName || p.title);
+            });
+        }
+        return map;
+    }, [lookups, projects]);
+
+    const typeValueMap = React.useMemo(() => {
+        const map = new Map(); // Map<normalizedType, Map<value, id>>
+        Object.entries(lookups).forEach(([type, categoryLookups]) => {
+            if (Array.isArray(categoryLookups)) {
+                const valToId = new Map();
+                categoryLookups.forEach(l => {
+                    const id = l._id || l.id;
+                    if (id) valToId.set(l.lookup_value, id.toString());
+                });
+                map.set(type, valToId);
+            }
+        });
+        return map;
+    }, [lookups]);
+
     const getLookupId = useCallback((type, value) => {
+        if (!value) return null;
+        if (typeof value === 'object' && value._id) return value._id.toString();
+        
         // Standardize type (e.g. 'Property Type' -> 'PropertyType')
         const normalizedType = type ? type.replace(/\s+/g, '') : type;
-        if (!lookups[normalizedType] || !value) return null;
-        if (typeof value === 'object' && value._id) return value._id;
-        const found = lookups[normalizedType].find(l =>
-            l.lookup_value === value ||
-            (typeof value === 'string' && value === l._id)
-        );
-        return found ? found._id : null;
-    }, [lookups]);
+
+        // O(1) Search in specific category Map
+        const categoryMap = typeValueMap.get(normalizedType);
+        if (categoryMap && categoryMap.has(value)) {
+            return categoryMap.get(value);
+        }
+
+        // Fallback for case where value is already an ID (string matching)
+        if (typeof value === 'string' && /^[0-9a-fA-F]{24}$/.test(value)) {
+            return value;
+        }
+
+        return null;
+    }, [typeValueMap]);
 
     const getLookupValue = useCallback((type, id) => {
         if (!id) return id;
 
-        // If it's already a populated object, extract the displayable value
+        // Case A: ID is already a populated object
         if (typeof id === 'object') {
             const val = id.lookup_value || id.name || id.label || id.value || id.displayName;
             if (val && typeof val !== 'object') return val;
-            // If it's still an object or not found, return a string representation or fallback
             return typeof id.toString === 'function' && id.toString() !== '[object Object]' ? id.toString() : '-';
         }
 
-        // Standardize type (e.g. 'Property Type' -> 'PropertyType')
-        const normalizedType = type ? type.replace(/\s+/g, '') : type;
+        const idStr = id.toString();
 
-        // 1. Try the specified category first (efficient)
-        if (lookups[normalizedType]) {
-            const found = lookups[normalizedType].find(l => l._id === id || l.id === id);
-            if (found) return found.lookup_value;
+        // Case B: O(1) Instant Resolution using pre-calculated Map
+        // We first try the global map (covers both specific category and fallbacks)
+        const resolved = lookupMap.get(idStr);
+        if (resolved) return resolved;
+
+        // Case C: ID is not a mongo ID (likely a raw string/value)
+        if (typeof id === 'string' && !/^[0-9a-fA-F]{24}$/.test(id)) {
+            return id;
         }
 
-        // 2. Global Fallback: Search across all categories if ID is not found in specified type
-        for (const category in lookups) {
-            if (Array.isArray(lookups[category])) {
-                const found = lookups[category].find(l => l._id === id || l.id === id);
-                if (found) return found.lookup_value;
-            }
-        }
-
-        // 3. Project Fallback: Check if it's a project ID
-        if (projects && Array.isArray(projects)) {
-            const foundProject = projects.find(p => p._id === id || p.id === id);
-            if (foundProject) return foundProject.name || foundProject.projectName || foundProject.title;
-        }
-
-        // Professional Fix: If it's a string (likely an ID) and we didn't find it, return null 
-        // This allows the component to use its own fallback logic (e.g. lead.sourceFallback)
-        if (typeof id === 'string' && id.match(/^[0-9a-fA-F]{24}$/)) {
-            return null;
-        }
-
-        return id;
-    }, [lookups, projects]);
+        return null;
+    }, [lookupMap]);
 
     const findLookup = useCallback((type, value, parentId = null) => {
         const normalizedType = type ? type.replace(/\s+/g, '') : type;

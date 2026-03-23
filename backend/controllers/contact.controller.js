@@ -209,6 +209,8 @@ export const getContact = async (req, res, next) => {
 const resolveAllReferenceFields = async (obj) => {
     if (!obj || typeof obj !== 'object') return;
 
+    const promises = [];
+
     for (const key in obj) {
         if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
         const value = obj[key];
@@ -225,10 +227,10 @@ const resolveAllReferenceFields = async (obj) => {
 
             const lookupMap = {
                 title: 'Title',
-                countryCode: 'Country-Code', // Fixed: was CountryCode
-                professionCategory: 'ProfessionalCategory', // Fixed: was ProfessionCategory
-                professionSubCategory: 'ProfessionalSubCategory', // Fixed: was ProfessionSubCategory
-                designation: 'ProfessionalDesignation', // Fixed: was Designation
+                countryCode: 'Country-Code',
+                professionCategory: 'ProfessionalCategory',
+                professionSubCategory: 'ProfessionalSubCategory',
+                designation: 'ProfessionalDesignation',
                 source: 'Source',
                 subSource: 'SubSource',
                 campaign: 'Campaign',
@@ -238,13 +240,15 @@ const resolveAllReferenceFields = async (obj) => {
             };
 
             if (lookupMap[key]) {
-                obj[key] = await resolveLookup(lookupMap[key], value);
+                promises.push((async () => {
+                    obj[key] = await resolveLookup(lookupMap[key], value);
+                })());
             } else if (key === 'owner' || key === 'assignedTo') {
-                obj[key] = await resolveUser(value);
+                promises.push((async () => {
+                    obj[key] = await resolveUser(value);
+                })());
             }
         } else if (typeof value === 'object') {
-            // ONLY normalize to ID if it's a known reference field
-            // Otherwise, recurse to find nested strings to resolve
             const refFields = [
                 'title', 'countryCode', 'professionCategory', 'professionSubCategory',
                 'designation', 'source', 'subSource', 'campaign', 'owner', 'assignedTo',
@@ -257,22 +261,21 @@ const resolveAllReferenceFields = async (obj) => {
             if (value._id && refFields.includes(key)) {
                 obj[key] = value._id;
             } else if (Array.isArray(value)) {
-                obj[key] = await Promise.all(value.map(async (item) => {
-                    if (item && typeof item === 'object') {
-                        // If item in array has _id and we are in a ref array (like requirement in Lead), we might need it
-                        // But for Contact, most arrays are embedded objects (phones, emails, etc.)
-                        // We should NOT generically return item._id here.
-                        // Instead, recurse into the item to resolve its fields.
+                // For arrays, we still handle them but try to keep them non-blocking for each other
+                promises.push(Promise.all(value.map(async (item) => {
+                    if (item && typeof item === 'object' && !(item instanceof mongoose.Types.ObjectId)) {
                         await resolveAllReferenceFields(item);
-                        return item;
                     }
                     return item;
-                }));
+                })));
             } else if (!(value instanceof mongoose.Types.ObjectId)) {
-                await resolveAllReferenceFields(value);
+                promises.push(resolveAllReferenceFields(value));
             }
         }
     }
+
+    // --- OPTIMIZATION: Parallelize ALL resolutions ---
+    await Promise.all(promises);
 
     // Sync top-level owner/team to assignment if missing
     if (obj.owner && (!obj.assignment || !obj.assignment.assignedTo)) {
@@ -607,6 +610,8 @@ export const searchDuplicates = async (req, res, next) => {
 import Lookup from "../models/Lookup.js";
 
 // Helper to resolve lookup (Find or Create)
+// --- OPTIMIZATION 12: In-Memory Lookup Cache ---
+const _lookupResolveCache = new Map();
 const resolveLookup = async (type, value) => {
     if (!value) return null;
 
@@ -617,10 +622,22 @@ const resolveLookup = async (type, value) => {
 
     if (mongoose.Types.ObjectId.isValid(value)) return value;
 
+    // Check Cache First
+    const cacheKey = `${type}:${value}`;
+    if (_lookupResolveCache.has(cacheKey)) return _lookupResolveCache.get(cacheKey);
+
     let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: value });
     if (!lookup) {
         lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
     }
+
+    // Cache Result (LRU-style simple limit to 500 entries)
+    if (_lookupResolveCache.size > 500) {
+        const firstKey = _lookupResolveCache.keys().next().value;
+        _lookupResolveCache.delete(firstKey);
+    }
+    _lookupResolveCache.set(cacheKey, lookup._id);
+
     return lookup._id;
 };
 

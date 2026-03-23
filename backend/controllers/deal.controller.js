@@ -10,6 +10,9 @@ import Lookup from "../models/Lookup.js";
 import AuditLog from "../models/AuditLog.js";
 import { syncDocumentsToContact } from "../utils/sync.js";
 
+// --- OPTIMIZATION: In-Memory Lookup Cache (Process Scoped) ---
+const _lookupResolveCache = new Map();
+
 export const matchDeals = async (req, res) => {
     try {
         const { leadId } = req.query;
@@ -77,8 +80,18 @@ export const getDeals = async (req, res) => {
         const resolveFilter = async (type, value) => {
             if (!value) return null;
             if (mongoose.Types.ObjectId.isValid(value)) return value;
+
+            const cacheKey = `${type}:${value}`;
+            if (_lookupResolveCache.has(cacheKey)) return _lookupResolveCache.get(cacheKey);
+
             const lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapeRegExp(value)}$`, 'i') } });
-            return lookup ? lookup._id : null;
+            const result = lookup ? lookup._id : null;
+            
+            if (result) {
+                if (_lookupResolveCache.size > 200) _lookupResolveCache.clear();
+                _lookupResolveCache.set(cacheKey, result);
+            }
+            return result;
         };
 
         if (category) query.category = await resolveFilter('Category', category);
@@ -173,36 +186,36 @@ export const getDeals = async (req, res) => {
         ];
         const results = await paginate(Deal, query, Number(page), Number(limit), { updatedAt: -1 }, populateFields);
 
-        // Enhanced: Category-based counts for deal list view footer
-        const categories = await Lookup.find({ lookup_type: 'Category' });
-        const categoryCounts = await Promise.all(categories.map(async (cat) => {
-            // Count where deal has category OR deal's linked inventory has category
-            const count = await Deal.aggregate([
-                { $match: { ...query } },
-                {
-                    $lookup: {
-                        from: 'inventories',
-                        localField: 'inventoryId',
-                        foreignField: '_id',
-                        as: 'inventory'
-                    }
-                },
-                { $unwind: { path: '$inventory', preserveNullAndEmptyArrays: true } },
-                {
-                    $match: {
-                        $or: [
-                            { category: cat._id },
-                            { category: cat._id.toString() },
-                            { category: cat.lookup_value },
-                            { 'inventory.category': cat._id },
-                            { 'inventory.category': cat._id.toString() },
-                            { 'inventory.category': cat.lookup_value }
-                        ]
-                    }
-                },
-                { $count: 'total' }
-            ]);
-            return { name: cat.lookup_value, count: count[0]?.total || 0 };
+        // --- OPTIMIZATION 11: Single Aggregation for Category Counts ---
+        const categoryStatsAgg = await Deal.aggregate([
+            { $match: { ...query } },
+            {
+                $lookup: {
+                    from: 'inventories',
+                    localField: 'inventoryId',
+                    foreignField: '_id',
+                    as: 'inventory'
+                }
+            },
+            { $unwind: { path: '$inventory', preserveNullAndEmptyArrays: true } },
+            {
+                $project: {
+                    activeCategory: { $ifNull: ["$category", "$inventory.category"] }
+                }
+            },
+            {
+                $group: {
+                    _id: "$activeCategory",
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+
+        const categoryMapStats = new Map(categoryStatsAgg.map(s => [String(s._id), s.count]));
+        const categories = await Lookup.find({ lookup_type: 'Category' }).lean();
+        const categoryCounts = categories.map(cat => ({
+            name: cat.lookup_value,
+            count: categoryMapStats.get(String(cat._id)) || categoryMapStats.get(cat.lookup_value) || 0
         }));
 
         // Fetch latest activities for owners and associates
@@ -224,13 +237,21 @@ export const getDeals = async (req, res) => {
             });
         }
 
+        // --- OPTIMIZATION 10: Batch Inventory Fetch ---
+        const inventoryIdsToFetch = [...new Set(results.records.map(d => d.inventoryId).filter(Boolean))];
+        const inventoryMap = new Map();
+        if (inventoryIdsToFetch.length > 0) {
+            const inventories = await Inventory.find({ _id: { $in: inventoryIdsToFetch } }).populate('owners').lean();
+            inventories.forEach(inv => inventoryMap.set(String(inv._id), inv));
+        }
+
         // Attach last activity and live owner to each deal
-        const enrichedRecords = await Promise.all(results.records.map(async (deal) => {
+        const enrichedRecords = results.records.map((deal) => {
             const dealObj = deal.toObject ? deal.toObject() : deal;
 
-            // Live Owner Sync: If NOT closed, fetch current owner from inventory
+            // Live Owner Sync: Use batched inventory data
             if (!dealObj.closingDetails?.isClosed && dealObj.inventoryId) {
-                const inventory = await Inventory.findById(dealObj.inventoryId).populate('owners');
+                const inventory = inventoryMap.get(String(dealObj.inventoryId));
                 if (inventory && inventory.owners && inventory.owners.length > 0) {
                     dealObj.owner = inventory.owners[0];
                 }
@@ -248,7 +269,7 @@ export const getDeals = async (req, res) => {
                 .sort((a, b) => new Date(b.performedAt) - new Date(a.performedAt))[0] || null;
 
             return dealObj;
-        }));
+        });
 
         res.json({
             success: true,
