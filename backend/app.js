@@ -74,6 +74,8 @@ app.use(cors({
             origin.includes('bharatproperties') || 
             origin.includes('localhost') || 
             origin.includes('127.0.0.1') || 
+            origin.includes('192.168.') ||
+            origin.endsWith('.loca.lt') ||
             origin.endsWith('.vercel.app');
 
         if (isAllowed) {
@@ -83,7 +85,7 @@ app.use(cors({
         }
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-API-KEY', 'X-Requested-With'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-API-KEY', 'X-Requested-With', 'bypass-tunnel-reminder'],
     credentials: true,
     preflightContinue: false,
     optionsSuccessStatus: 204

@@ -942,7 +942,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                                 <div style={{
                                                     gridColumn: 'span 2',
                                                     display: 'grid',
-                                                    gridTemplateColumns: '1fr 1fr 1fr',
+                                                    gridTemplateColumns: '1fr 1fr 1fr 1fr',
                                                     gap: '16px',
                                                     background: 'linear-gradient(90deg, #f8fafc 0%, #f0fdf4 100%)',
                                                     padding: '16px 20px',
@@ -951,6 +951,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onNavigate, o
                                                     boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
                                                     alignItems: 'center'
                                                 }}>
+                                                    <DetailField label="Size Label" value={getStrictLookupValue('Size', inventory.sizeConfig) || renderValue(inventory.sizeConfig) || inventory.sizeLabel || 'N/A'} />
                                                     <DetailField label="Total Saleable Area" value={saleable ? `${saleable} ${renderValue(areaUnit)}` : 'N/A'} />
                                                     <DetailField label="Covered Area" value={covered ? `${covered} ${renderValue(areaUnit)}` : 'N/A'} />
                                                     <DetailField label="Carpet Area" value={carpet ? `${carpet} ${renderValue(areaUnit)}` : 'N/A'} />

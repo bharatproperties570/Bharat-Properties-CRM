@@ -115,10 +115,12 @@ const ContactSchema = new mongoose.Schema({
         documentName: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' }, // Legacy? Or same as type?
 
         documentNo: String,
+        documentNumber: String,
         projectName: String,
         block: String,
         unitNumber: String,
-        documentPicture: String
+        documentPicture: String,
+        url: String
     }],
 
     // Legacy/Additional fields

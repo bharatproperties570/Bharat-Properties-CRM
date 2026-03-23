@@ -133,8 +133,11 @@ const InventorySchema = new mongoose.Schema({
 
     // Documents & Media
     inventoryDocuments: [{
+        documentCategory: String,
         documentName: String,
         documentType: String,
+        documentNo: String,
+        documentNumber: String,
         linkedContactMobile: String,
         url: String
     }],
@@ -220,39 +223,54 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
             return lookup._id;
         };
 
-        if (update.intent) {
-            if (Array.isArray(update.intent)) {
-                update.intent = await Promise.all(update.intent.map(async (val) => {
+        // Robust Resolver for both top-level and $set/atomic updates
+        const processUpdate = async (obj) => {
+            if (!obj) return;
+
+            // Handle intent
+            if (obj.intent) {
+                const resolveIntent = async (val) => {
+                    if (typeof val === 'object' && val !== null && val._id) return val._id;
                     if (mongoose.Types.ObjectId.isValid(val)) return val;
                     return await resolveLookupLocal('Intent', val);
-                }));
-            } else {
-                // Handle legacy single value update
-                if (!mongoose.Types.ObjectId.isValid(update.intent)) {
-                    update.intent = [await resolveLookupLocal('Intent', update.intent)];
+                };
+                if (Array.isArray(obj.intent)) {
+                    obj.intent = await Promise.all(obj.intent.map(resolveIntent));
                 } else {
-                    update.intent = [update.intent];
+                    obj.intent = [await resolveIntent(obj.intent)];
                 }
             }
-        }
-        if (update.status && !mongoose.Types.ObjectId.isValid(update.status)) update.status = await resolveLookupLocal('Status', update.status);
 
-        // Address component resolution (Handles both nested object and dot-notation)
-        const address = update.address || {};
-        if (address.city && !mongoose.Types.ObjectId.isValid(address.city)) address.city = await resolveLookupLocal('City', address.city);
-        if (address.tehsil && !mongoose.Types.ObjectId.isValid(address.tehsil)) address.tehsil = await resolveLookupLocal('Tehsil', address.tehsil);
-        if (address.state && !mongoose.Types.ObjectId.isValid(address.state)) address.state = await resolveLookupLocal('State', address.state);
-        if (address.locality && !mongoose.Types.ObjectId.isValid(address.locality)) address.locality = await resolveLookupLocal('Area', address.locality);
-        if (address.area && !mongoose.Types.ObjectId.isValid(address.area)) address.area = await resolveLookupLocal('Area', address.area);
-        if (address.location && !mongoose.Types.ObjectId.isValid(address.location)) address.location = await resolveLookupLocal('Area', address.location);
+            // Handle status
+            if (obj.status) {
+                if (typeof obj.status === 'object' && obj.status !== null && obj.status._id) obj.status = obj.status._id;
+                if (!mongoose.Types.ObjectId.isValid(obj.status)) {
+                    obj.status = await resolveLookupLocal('Status', obj.status);
+                }
+            }
 
-        // Dot notation support
-        if (update['address.city'] && !mongoose.Types.ObjectId.isValid(update['address.city'])) update['address.city'] = await resolveLookupLocal('City', update['address.city']);
-        if (update['address.tehsil'] && !mongoose.Types.ObjectId.isValid(update['address.tehsil'])) update['address.tehsil'] = await resolveLookupLocal('Tehsil', update['address.tehsil']);
-        if (update['address.state'] && !mongoose.Types.ObjectId.isValid(update['address.state'])) update['address.state'] = await resolveLookupLocal('State', update['address.state']);
-        if (update['address.locality'] && !mongoose.Types.ObjectId.isValid(update['address.locality'])) update['address.locality'] = await resolveLookupLocal('Area', update['address.locality']);
-        if (update['address.area'] && !mongoose.Types.ObjectId.isValid(update['address.area'])) update['address.area'] = await resolveLookupLocal('Area', update['address.area']);
-        if (update['address.location'] && !mongoose.Types.ObjectId.isValid(update['address.location'])) update['address.location'] = await resolveLookupLocal('Area', update['address.location']);
+            // Address component resolution
+            const address = obj.address || {};
+            if (address.city && !mongoose.Types.ObjectId.isValid(address.city)) address.city = await resolveLookupLocal('City', address.city);
+            if (address.tehsil && !mongoose.Types.ObjectId.isValid(address.tehsil)) address.tehsil = await resolveLookupLocal('Tehsil', address.tehsil);
+            if (address.state && !mongoose.Types.ObjectId.isValid(address.state)) address.state = await resolveLookupLocal('State', address.state);
+            if (address.locality && !mongoose.Types.ObjectId.isValid(address.locality)) address.locality = await resolveLookupLocal('Area', address.locality);
+            if (address.area && !mongoose.Types.ObjectId.isValid(address.area)) address.area = await resolveLookupLocal('Area', address.area);
+            if (address.location && !mongoose.Types.ObjectId.isValid(address.location)) address.location = await resolveLookupLocal('Area', address.location);
+
+            // Dot notation support
+            if (obj['address.city'] && !mongoose.Types.ObjectId.isValid(obj['address.city'])) obj['address.city'] = await resolveLookupLocal('City', obj['address.city']);
+            if (obj['address.tehsil'] && !mongoose.Types.ObjectId.isValid(obj['address.tehsil'])) obj['address.tehsil'] = await resolveLookupLocal('Tehsil', obj['address.tehsil']);
+            if (obj['address.state'] && !mongoose.Types.ObjectId.isValid(obj['address.state'])) obj['address.state'] = await resolveLookupLocal('State', obj['address.state']);
+            if (obj['address.locality'] && !mongoose.Types.ObjectId.isValid(obj['address.locality'])) obj['address.locality'] = await resolveLookupLocal('Area', obj['address.locality']);
+            if (obj['address.area'] && !mongoose.Types.ObjectId.isValid(obj['address.area'])) obj['address.area'] = await resolveLookupLocal('Area', obj['address.area']);
+            if (obj['address.location'] && !mongoose.Types.ObjectId.isValid(obj['address.location'])) obj['address.location'] = await resolveLookupLocal('Area', obj['address.location']);
+        };
+
+        // Process top-level, $set, and other relevant operators
+        await processUpdate(update);
+        if (update.$set) await processUpdate(update.$set);
+        if (update.$setOnInsert) await processUpdate(update.$setOnInsert);
 
         next();
     } catch (error) {

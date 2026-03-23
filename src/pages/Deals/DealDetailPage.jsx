@@ -27,32 +27,33 @@ import { usePropertyConfig } from '../../context/PropertyConfigContext';
 // ---------------- STYLED COMPONENTS & SHARED STYLES ----------------
 const cardStyle = {
     background: '#fff',
-    borderRadius: '16px',
+    borderRadius: '20px',
     border: '1px solid #e2e8f0',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
+    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05)',
     marginBottom: '24px',
-    overflow: 'hidden'
+    overflow: 'hidden',
+    transition: 'transform 0.2s ease, box-shadow 0.2s ease'
 };
 
 const sectionHeaderStyle = {
-    padding: '16px 20px',
+    padding: '20px 24px',
     borderBottom: '1px solid #f1f5f9',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    background: '#fff'
+    background: 'linear-gradient(to right, #fff, #f8fafc)'
 };
 
 const sectionTitleStyle = {
-    fontSize: '0.9rem',
-    fontWeight: 800,
-    color: '#1e293b',
+    fontSize: '0.95rem',
+    fontWeight: 900,
+    color: '#0f172a',
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
     margin: 0,
     display: 'flex',
     alignItems: 'center',
-    gap: '10px'
+    gap: '12px'
 };
 
 const thStyle = { padding: '14px 20px', fontSize: '0.65rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' };
@@ -289,13 +290,67 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
 
     const handleTogglePublish = async () => {
         const newStatus = !deal.isPublished;
-        try {
-            const res = await api.put(`deals/${dealId}`, {
-                isPublished: newStatus,
-                publishedAt: newStatus ? new Date() : null
+        let shareUnitNumber = deal.websiteMetadata?.shareUnitNumber || false;
+        let shareLocation = deal.websiteMetadata?.shareLocation || false;
+
+        if (newStatus) {
+            // Step 1: Unit Number Prompt
+            const unitResult = await Swal.fire({
+                title: 'Unit Number Privacy',
+                text: "Do you want to share the Unit Number publicly on the website?",
+                icon: 'question',
+                showCancelButton: true,
+                showDenyButton: true,
+                confirmButtonColor: '#3b82f6',
+                denyButtonColor: '#64748b',
+                confirmButtonText: 'Yes, Share Unit No',
+                denyButtonText: 'No, Keep Confidential',
+                cancelButtonText: 'Cancel Toggle',
+                background: '#fff',
+                borderRadius: '16px'
             });
+
+            if (unitResult.isDismissed && !unitResult.isDenied) return;
+            shareUnitNumber = unitResult.isConfirmed;
+
+            // Step 2: Location Privacy Prompt
+            const locationResult = await Swal.fire({
+                title: 'Location Privacy',
+                text: "Do you want to share the exact House/Plot Number and Street publicly?",
+                icon: 'question',
+                showCancelButton: true,
+                showDenyButton: true,
+                confirmButtonColor: '#3b82f6',
+                denyButtonColor: '#64748b',
+                confirmButtonText: 'Yes, Share Location',
+                denyButtonText: 'No, Keep Confidential',
+                cancelButtonText: 'Cancel Toggle',
+                background: '#fff',
+                borderRadius: '16px'
+            });
+
+            if (locationResult.isDismissed && !locationResult.isDenied) return;
+            shareLocation = locationResult.isConfirmed;
+        }
+
+        try {
+            const payload = {
+                isPublished: newStatus,
+                publishedAt: newStatus ? new Date() : null,
+                websiteMetadata: {
+                    ...deal.websiteMetadata,
+                    shareUnitNumber: shareUnitNumber,
+                    shareLocation: shareLocation
+                }
+            };
+
+            const res = await api.put(`deals/${dealId}`, payload);
             if (res.data && (res.data.success || res.data.status === 'success')) {
-                setDeal(prev => ({ ...prev, isPublished: newStatus }));
+                setDeal(prev => ({ 
+                    ...prev, 
+                    isPublished: newStatus,
+                    websiteMetadata: payload.websiteMetadata
+                }));
                 toast.success(newStatus ? 'Listing published to Website!' : 'Listing removed from Website');
             } else {
                 toast.error('Failed to update publication status');
@@ -540,85 +595,37 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
 
     // UNIT SPECIFICATIONS - Aligned with InventoryDetailPage
     const renderUnitSpecifications = () => {
-        const inventory = deal?.inventoryId || {};
-        const basicDetails = [
-            // Removed redundant Category, Subcategory, etc. if requested
-            { label: 'Built-up Type', value: getLookupValue('BuiltupType', inventory.builtupType || deal.builtupType) },
-            { label: 'Furnishing', value: getLookupValue('Furnishing', inventory.furnishing || deal.furnishing) }
-        ];
+        const specs = [
+            { label: 'Inventory ID', value: deal.inventoryId?.inventoryId },
+            { label: 'Unit Number', value: deal.unitNo },
+            { label: 'Unit Type', value: deal.unitType },
+            { label: 'Size Label', value: getStrictLookupValue('Size', deal.sizeConfig || deal.inventoryId?.sizeConfig) || deal.sizeLabel },
+            { label: 'Block / Phase', value: deal.block },
+            { label: 'Floor Level', value: getLookupValue('FloorLevel', deal.inventoryId?.floorNo) || deal.floorNo },
+            { label: 'Accommodation', value: getLookupValue('Accommodation', deal.inventoryId?.accommodation) },
+            { label: 'Total Area', value: deal.area ? `${deal.area} ${getLookupValue('AreaUnit', deal.areaUnit) || deal.areaUnit || 'Sq.Ft'}` : null },
+            { label: 'Dimensions', value: deal.inventoryId?.width && deal.inventoryId?.length ? `${deal.inventoryId.width} x ${deal.inventoryId.length}` : null },
+            { label: 'Facing', value: getLookupValue('Facing', deal.inventoryId?.facing) },
+            { label: 'Primary Road', value: getLookupValue('RoadWidth', deal.inventoryId?.roadWidth) },
+        ].filter(s => s.value);
 
         return (
-            <div style={cardStyle} >
+            <div style={cardStyle}>
                 <div style={sectionHeaderStyle}>
                     <h3 style={sectionTitleStyle}>
-                        <div style={{ width: '32px', height: '32px', background: '#f0f9ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
-                            <i className="fas fa-th-list text-blue-500" style={{ fontSize: '0.9rem' }}></i>
+                        <div style={{ width: '32px', height: '32px', background: '#fef3c7', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
+                            <i className="fas fa-microchip text-amber-500" style={{ fontSize: '0.9rem' }}></i>
                         </div>
-                        Unit Specifications
+                        Technical Specifications
                     </h3>
                 </div>
-                <div style={{ padding: '24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
-                    <div>
-                        <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#475569', marginBottom: '16px', display: 'flex', alignItems: 'center' }}>
-                            <i className="fas fa-home" style={{ marginRight: '8px', fontSize: '0.8rem', color: '#2563eb' }}></i> Details
-                        </h4>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                            {basicDetails.map((field, idx) => (
-                                <DetailField key={idx} label={field.label} value={field.value} />
-                            ))}
-                            {(() => {
-                                const subCategoryValue = getLookupValue('SubCategory', inventory.subCategory || deal.subCategory);
-                                const isPlotOrHouse = ['Plot', 'Independent House'].includes(subCategoryValue);
-
-                                if (isPlotOrHouse) {
-                                    return (
-                                        <div style={{
-                                            gridColumn: 'span 2', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px',
-                                            background: 'linear-gradient(90deg, #f8fafc 0%, #eff6ff 100%)',
-                                            padding: '16px 20px', borderRadius: '12px', border: '1px solid #dbeafe', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', marginTop: '8px'
-                                        }}>
-                                            <DetailField label="Size Label" value={getLookupValue('Size', inventory.sizeLabel || deal.sizeLabel || inventory.sizeConfig || deal.sizeConfig || deal.unitSpecification?.sizeLabel) || 'N/A'} />
-                                            <DetailField label="Width" value={(inventory.width || deal.unitSpecification?.width) ? `${inventory.width || deal.unitSpecification?.width} ${renderValue(inventory.sizeUnit || deal.sizeUnit || 'Ft')}` : 'N/A'} />
-                                            <DetailField label="Length" value={(inventory.length || deal.unitSpecification?.length) ? `${inventory.length || deal.unitSpecification?.length} ${renderValue(inventory.sizeUnit || deal.sizeUnit || 'Ft')}` : 'N/A'} />
-                                        </div>
-                                    );
-                                } else {
-                                    return (
-                                        <div style={{
-                                            gridColumn: 'span 2', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px',
-                                            background: 'linear-gradient(90deg, #f8fafc 0%, #f0fdf4 100%)',
-                                            padding: '16px 20px', borderRadius: '12px', border: '1px solid #dcfce7', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', marginTop: '8px'
-                                        }}>
-                                            <DetailField label="Total Saleable Area" value={(inventory.totalSaleableArea?.value || deal.unitSpecification?.totalSaleableArea) ? `${inventory.totalSaleableArea?.value || deal.unitSpecification?.totalSaleableArea} ${renderValue(inventory.sizeUnit || deal.sizeUnit || 'Sq.Ft.')}` : 'N/A'} />
-                                            <DetailField label="Covered Area" value={(inventory.builtUpArea?.value || deal.unitSpecification?.builtUpArea) ? `${inventory.builtUpArea?.value || deal.unitSpecification?.builtUpArea} ${renderValue(inventory.sizeUnit || deal.sizeUnit || 'Sq.Ft.')}` : 'N/A'} />
-                                            <DetailField label="Carpet Area" value={(inventory.carpetArea?.value || deal.unitSpecification?.carpetArea) ? `${inventory.carpetArea?.value || deal.unitSpecification?.carpetArea} ${renderValue(inventory.sizeUnit || deal.sizeUnit || 'Sq.Ft.')}` : 'N/A'} />
-                                        </div>
-                                    );
-                                }
-                            })()}
+                <div style={{ padding: '24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'x-32px y-16px' }}>
+                    {specs.map((spec, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #f1f5f9' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{spec.label}</span>
+                            <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b' }}>{spec.value}</span>
                         </div>
-                    </div>
-                    <div>
-                        <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#475569', marginBottom: '16px', display: 'flex', alignItems: 'center' }}>
-                            <i className="fas fa-compass" style={{ marginRight: '8px', fontSize: '0.8rem', color: '#f59e0b' }}></i> Orientation
-                        </h4>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                            <DetailField label="Facing" value={getLookupValue('Facing', inventory.facing)} />
-                            <DetailField label="Road Width" value={inventory.roadWidth} />
-                            <div style={{
-                                gridColumn: 'span 2', padding: '12px', borderRadius: '10px', background: '#fffbeb', border: '1px solid #fde68a',
-                                display: 'flex', alignItems: 'center', gap: '12px'
-                            }}>
-                                <div style={{ width: '40px', height: '40px', background: '#fff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <i className="fas fa-compass text-amber-500"></i>
-                                </div>
-                                <div>
-                                    <p style={{ fontSize: '0.65rem', color: '#92400e', fontWeight: 800, textTransform: 'uppercase', margin: 0 }}>Primary Direction</p>
-                                    <p style={{ fontSize: '0.95rem', color: '#1e293b', fontWeight: 800, margin: 0 }}>{getLookupValue('Direction', inventory.direction) || 'Not Specified'}</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    ))}
                 </div>
             </div>
         );
@@ -628,36 +635,42 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const renderLocationDetails = () => {
         const inventory = deal?.inventoryId || {};
         const address = inventory.address || {};
-        const locationStr = [
-            getLookupValue('Tehsil', address.tehsil),
-            getLookupValue('City', address.city),
-            getLookupValue('State', address.state)
-        ].filter(Boolean).join(', ');
+        
+        const locations = [
+            { label: 'Project / Site', value: deal.projectName },
+            { label: 'Sector / Locality', value: deal.location },
+            { label: 'Tehsil', value: getLookupValue('Tehsil', address.tehsil) || address.tehsil },
+            { label: 'City', value: getLookupValue('City', address.city) || address.city },
+            { label: 'State', value: getLookupValue('State', address.state) || address.state },
+            { label: 'Google Maps', value: inventory.mapUrl ? 'LINK AVAILABLE' : null, isLink: true },
+        ].filter(l => l.value);
 
         return (
-            <div style={cardStyle} >
+            <div style={cardStyle}>
                 <div style={sectionHeaderStyle}>
                     <h3 style={sectionTitleStyle}>
-                        <div style={{ width: '32px', height: '32px', background: '#fffbeb', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
-                            <i className="fas fa-map-marker-alt text-amber-500" style={{ fontSize: '0.9rem' }}></i>
+                        <div style={{ width: '32px', height: '32px', background: '#dcfce7', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
+                            <i className="fas fa-map-marked-alt text-emerald-500" style={{ fontSize: '0.9rem' }}></i>
                         </div>
-                        Location Details
+                        Geography & Connectivity
                     </h3>
                 </div>
-                <div style={{ padding: '24px', display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '24px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                        <DetailField label="Tehsil, City, State" value={renderLocationValue()} />
-                        <DetailField label="Locality" value={getLookupValue('Locality', address.locality || deal.location)} />
-                        <DetailField label="Post Office / Pincode" value={(address.postOffice || address.pinCode) ? `${getLookupValue('PostOffice', address.postOffice) || address.postOffice || ''} ${address.pinCode ? `- ${address.pinCode}` : ''}` : 'N/A'} />
-                        <DetailField label="Landmark" value={address.landmark} />
-                        <div style={{ gridColumn: 'span 2', background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', marginTop: '8px', position: 'relative' }}>
-                            <div style={{ position: 'absolute', top: '-10px', left: '20px', background: '#fff', padding: '0 8px', fontSize: '0.65rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Full Address</div>
-                            <p style={{ fontSize: '0.9rem', color: '#1e293b', margin: 0, fontWeight: 500, lineHeight: '1.5' }}>
-                                {[address.hNo, address.street, address.locality, address.city, address.state, address.pinCode].filter(Boolean).join(', ') || 'No detailed address available'}
-                            </p>
-                        </div>
+                <div style={{ padding: '24px', display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '32px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'x-24px y-12px', alignContent: 'start' }}>
+                        {locations.map((loc, i) => (
+                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
+                                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{loc.label}</span>
+                                {loc.isLink ? (
+                                    <a href={inventory.mapUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.7rem', fontWeight: 900, color: '#4f46e5', textDecoration: 'none' }}>
+                                        VIEW MAP <i className="fas fa-external-link-alt ml-1"></i>
+                                    </a>
+                                ) : (
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#1e293b' }}>{loc.value}</span>
+                                )}
+                            </div>
+                        ))}
                     </div>
-                    <div style={{ background: '#f8fafc', borderRadius: '10px', height: '220px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                    <div style={{ background: '#f8fafc', borderRadius: '16px', height: '220px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
                         {(() => {
                             const lat = inventory.latitude || address.lat;
                             const lng = inventory.longitude || address.lng;
@@ -666,8 +679,8 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                             }
                             return (
                                 <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', background: '#f8fafc' }}>
-                                    <i className="fas fa-map-marked-alt" style={{ fontSize: '2.5rem', marginBottom: '12px', opacity: 0.3 }}></i>
-                                    <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Real-time Map Unavailable</span>
+                                    <i className="fas fa-map-marked-alt" style={{ fontSize: '2rem', marginBottom: '12px', opacity: 0.3 }}></i>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase' }}>Map Data Syncing...</span>
                                 </div>
                             );
                         })()}
@@ -698,47 +711,60 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const stageStyle = stageColors[currentStage] || stageColors['Open'];
 
     return (
-        <div className="deal-detail-page" style={{ background: '#f8fafc', minHeight: '100vh', paddingBottom: '60px', fontFamily: '"Inter", sans-serif' }}>
-            {/* 🛡️ PROFESSIONAL TRANSACTION HEADER */}
+        <div className="deal-detail-page" style={{ background: '#f1f5f9', minHeight: '100vh', paddingBottom: '60px', fontFamily: '"Inter", sans-serif', color: '#1e293b' }}>
+            {/* 🛡️ PROFESSIONAL TRANSACTION COMMAND CENTER HEADER */}
             <header style={{
                 position: 'sticky', top: 0, zIndex: 1000,
-                background: 'rgba(255, 255, 255, 0.9)', borderBottom: '1px solid #e2e8f0',
-                padding: '16px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.05)', backdropFilter: 'blur(12px)'
+                background: 'rgba(255, 255, 255, 0.85)', borderBottom: '1px solid rgba(226, 232, 240, 0.8)',
+                padding: '16px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.03)', backdropFilter: 'blur(20px)'
             }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '28px' }}>
                     <button onClick={onBack} style={{
                         background: '#fff', border: '1px solid #e2e8f0',
-                        borderRadius: '12px', width: '40px', height: '40px',
-                        cursor: 'pointer', color: '#64748b', transition: 'all 0.2s',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center'
-                    }} className="hover:border-blue-400 hover:text-blue-500">
-                        <i className="fas fa-chevron-left"></i>
+                        borderRadius: '14px', width: '44px', height: '44px',
+                        cursor: 'pointer', color: '#475569', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+                    }} className="hover:border-indigo-400 hover:text-indigo-600 hover:shadow-md">
+                        <i className="fas fa-chevron-left" style={{ fontSize: '1.1rem' }}></i>
                     </button>
 
-                    {/* Deal Score Indicator */}
+                    {/* Deal Score Indicator - Premium Styling */}
                     <div className={`score-indicator ${liveScoreData.score >= 80 ? 'super-hot' : liveScoreData.score >= 55 ? 'hot' : liveScoreData.score >= 30 ? 'warm' : 'cold'}`}
                         style={{
-                            background: liveScoreData.color,
-                            width: '44px', height: '44px', borderRadius: '50%',
+                            background: `linear-gradient(135deg, ${liveScoreData.color}, ${liveScoreData.color}dd)`,
+                            width: '52px', height: '52px', borderRadius: '16px',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: '0.9rem', fontWeight: 900, color: '#fff',
-                            boxShadow: `0 4px 12px ${liveScoreData.color}44`,
-                            border: '3px solid #fff'
+                            fontSize: '1.1rem', fontWeight: 900, color: '#fff',
+                            boxShadow: `0 8px 16px ${liveScoreData.color}44`,
+                            border: '2px solid #fff',
+                            transform: 'rotate(-5deg)'
                         }}
-                        title={`Live Deal Score: ${liveScoreData.score}% (${liveScoreData.label})`}
+                        title={`Live Deal Intelligence Score: ${liveScoreData.score}% (${liveScoreData.label})`}
                     >
                         {liveScoreData.score || '0'}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                        <span style={{ fontSize: '0.6rem', fontWeight: 700, color: liveScoreData.color, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{liveScoreData.label}</span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
-                            <h1 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a', margin: 0, letterSpacing: '-0.02em', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                            <span style={{ 
+                                fontSize: '0.65rem', 
+                                fontWeight: 900, 
+                                color: '#fff', 
+                                background: liveScoreData.color,
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                textTransform: 'uppercase', 
+                                letterSpacing: '0.08em' 
+                            }}>{liveScoreData.label}</span>
+                            
+                            <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0f172a', margin: 0, letterSpacing: '-0.03em', display: 'flex', alignItems: 'baseline', gap: '10px' }}>
                                 {renderValue(deal.unitNo)}
-                                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#64748b' }}>
-                                    ({renderValue(deal.unitType) || 'Unit'})
+                                <span style={{ fontSize: '1rem', fontWeight: 600, color: '#64748b' }}>
+                                    {renderValue(deal.unitType) || 'Unit'}
                                 </span>
                             </h1>
+                        {/* Status elements and alerts follow in the same flex row */}
                             {/* Stage Badge moved to pipeline */}
 
                             {/* Deal Death Alert */}
@@ -1075,28 +1101,28 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 {/* LEFT MAIN TRANSACTION SECTION - Flexible Width */}
                 <div style={{ flex: '1.5', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
 
-                    {/* 💰 PRICING & FINANCIAL INTELLIGENCE */}
+                    {/* 💰 PREMIUM PRICING & FINANCIAL COMMAND */}
                     <div style={cardStyle} >
-                        <div style={sectionHeaderStyle}>
-                            <h3 style={sectionTitleStyle}>
-                                <div style={{ width: '32px', height: '32px', background: '#ecfdf5', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
-                                    <i className="fas fa-hand-holding-usd text-emerald-500" style={{ fontSize: '0.9rem' }}></i>
+                        <div style={{ ...sectionHeaderStyle, background: 'linear-gradient(135deg, #1e1b4b, #312e81)', borderBottom: 'none' }}>
+                            <h3 style={{ ...sectionTitleStyle, color: '#fff' }}>
+                                <div style={{ width: '36px', height: '36px', background: 'rgba(255,255,255,0.1)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
+                                    <i className="fas fa-vault text-amber-400" style={{ fontSize: '1rem' }}></i>
                                 </div>
-                                Pricing & Negotiation
+                                Pricing & Negotiation Strategy
                             </h3>
                             <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', background: '#f1f5f9', padding: '4px 10px', borderRadius: '6px' }}>
-                                    MODE: {deal.pricingMode?.toUpperCase() || 'TOTAL'}
+                                <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#fff', background: 'rgba(255,255,255,0.1)', padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                    VALUATION: {deal.pricingMode?.toUpperCase() || 'MARKET'}
                                 </span>
                             </div>
                         </div>
-                        <div style={{ padding: '24px' }}>
-                            {/* High Level Price Matrix */}
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
-                                <PriceCard label="Target Price" value={deal.price} subValue={numberToIndianWords(deal.price)} theme="gray" />
+                        <div style={{ padding: '28px', background: '#fff' }}>
+                            {/* High Level Price Matrix - Premium Styling */}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '32px' }}>
+                                <PriceCard label="Target Price" value={deal.price} subValue={numberToIndianWords(deal.price)} theme="indigo" />
                                 <PriceCard label="Current Quote" value={deal.quotePrice || 0} subValue={numberToIndianWords(deal.quotePrice || 0)} theme="blue" />
                                 <PriceCard
-                                    label="Spread"
+                                    label="Deal Spread"
                                     value={(deal.quotePrice || 0) - deal.price}
                                     theme={(deal.quotePrice || 0) >= deal.price ? 'green' : 'red'}
                                     isDiff
@@ -1104,20 +1130,21 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                 <PriceCard label="Negotiability" value={deal.pricingNature?.negotiable ? 'FLEXIBLE' : 'FIXED'} theme="orange" isStatus />
                             </div>
 
-                            {/* 🤝 OFFER HISTORY TABLE */}
-                            <div style={cardStyle}>
-                                <div style={sectionHeaderStyle}>
-                                    <h3 style={sectionTitleStyle}>
-                                        <i className="fas fa-history text-indigo-500 mr-2"></i> Offer History
+                            {/* 🤝 ENHANCED OFFER HISTORY */}
+                            <div style={{ ...cardStyle, boxShadow: 'none', border: '1px solid #f1f5f9', background: '#f8fafc' }}>
+                                <div style={{ ...sectionHeaderStyle, background: 'transparent', padding: '16px 20px' }}>
+                                    <h3 style={{ ...sectionTitleStyle, fontSize: '0.85rem' }}>
+                                        <i className="fas fa-comments-dollar text-indigo-600 mr-2"></i> Transaction History
                                     </h3>
                                     <button
                                         onClick={() => setIsOfferModalOpen(true)}
                                         style={{
-                                            background: '#eff6ff', color: '#2563eb', border: 'none',
-                                            padding: '8px 16px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800,
-                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px'
-                                        }} className="hover:bg-blue-100">
-                                        <i className="fas fa-plus"></i> ADD OFFER
+                                            background: '#4f46e5', color: '#fff', border: 'none',
+                                            padding: '8px 18px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800,
+                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
+                                            boxShadow: '0 4px 12px rgba(79, 70, 229, 0.2)'
+                                        }} className="hover:bg-indigo-700 transition-all">
+                                        <i className="fas fa-plus"></i> NEW OFFER
                                     </button>
                                 </div>
                                 <div style={{ padding: '0' }}>
@@ -1447,67 +1474,87 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                     </div>
 
                     {/* CONTACT INFORMATION */}
-                    {/* SIDEBAR STAKEHOLDERS - Aligned with InventoryDetailPage */}
-                    <div style={cardStyle}>
-                        <div style={{ ...sectionHeaderStyle, borderBottom: '1px solid rgba(226, 232, 240, 0.5)' }}>
-                            <h3 style={sectionTitleStyle}>
-                                <div style={{ width: '32px', height: '32px', background: 'linear-gradient(135deg, #eff6ff, #dbeafe)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
-                                    <i className="fas fa-address-book text-blue-600" style={{ fontSize: '0.8rem' }}></i>
-                                </div>
-                                Contact Information
-                            </h3>
-                        </div>
-                        <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            {/* Property Owners Sub-section (Synced with Inventory) */}
-                            {deal.inventoryId?.owners?.length > 0 && (
-                                <div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                        <label style={{ fontSize: '0.6rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Property Owners</label>
-                                        <span style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: 700 }}>{deal.inventoryId.owners.length}</span>
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        {deal.inventoryId.owners.map((owner, idx) => (
-                                            <div key={idx} style={{ padding: '10px', background: '#f0fdf4', borderRadius: '10px', border: '1px solid #dcfce7', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                <div style={{ width: '32px', height: '32px', background: 'linear-gradient(135deg, #22c55e, #10b981)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: '0.75rem' }}>
-                                                    {getInitials(owner.name)}
-                                                </div>
-                                                <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#166534', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{owner.name}</div>
-                                                    <div style={{ fontSize: '0.7rem', color: '#15803d', fontWeight: 600 }}>{owner.phones?.[0]?.number || owner.mobile || 'No Phone'}</div>
-                                                </div>
-                                                <div style={{ background: '#dcfce7', color: '#166534', fontSize: '0.5rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 900, textTransform: 'uppercase' }}>Owner</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
+                    {/* 🛡️ MISSION CONTROL SIDEBAR */}
+                    <div style={{ flex: '1', display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
-                            {/* Stakeholders Sub-section (Synced with Inventory) */}
-                            {deal.inventoryId?.associates?.length > 0 && (
-                                <div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                        <label style={{ fontSize: '0.6rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Stakeholders</label>
-                                        <span style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: 700 }}>{deal.inventoryId.associates.length}</span>
+                        {/* 🎯 TOP MATCHED LEADS - High Priority Logic */}
+                        <div style={{ ...cardStyle, border: '1px solid #dcfce7', background: '#fff' }}>
+                            <div style={{ ...sectionHeaderStyle, background: 'linear-gradient(135deg, #065f46, #064e3b)', borderBottom: 'none' }}>
+                                <h3 style={{ ...sectionTitleStyle, color: '#fff' }}>
+                                    <div style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
+                                        <i className="fas fa-bullseye text-emerald-400" style={{ fontSize: '0.9rem' }}></i>
                                     </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        {deal.inventoryId.associates.map((assoc, idx) => {
-                                            const contact = assoc.contact || assoc;
-                                            return (
-                                                <div key={idx} style={{ padding: '10px', background: '#fffbeb', borderRadius: '10px', border: '1px solid #fef3c7', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                    <div style={{ width: '32px', height: '32px', background: 'linear-gradient(135deg, #f59e0b, #fbbf24)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: '0.75rem' }}>
-                                                        {getInitials(contact.name)}
+                                    Priority Deal Matching
+                                </h3>
+                                <button
+                                    onClick={() => onNavigate('inventory-matching', deal.inventoryId?._id || deal.inventoryId)}
+                                    style={{ fontSize: '0.65rem', fontWeight: 900, color: '#34d399', background: 'none', border: 'none', cursor: 'pointer', textTransform: 'uppercase' }}
+                                >
+                                    CENTRE →
+                                </button>
+                            </div>
+                            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {matchingLeads && matchingLeads.length > 0 ? matchingLeads.slice(0, 3).map((lead, idx) => (
+                                    <div key={idx} style={{
+                                        padding: '14px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0',
+                                        cursor: 'pointer', transition: 'all 0.2s'
+                                    }} className="hover:border-emerald-400 group" onClick={() => onNavigate('lead-detail', lead._id)}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div>
+                                                <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a', margin: '0 0 2px 0' }}>{lead.name}</h4>
+                                                <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>{formatIndianCurrency(lead.budget || 0)} Budget</p>
+                                            </div>
+                                            <div style={{ textAlign: 'right' }}>
+                                                <span style={{ fontSize: '1rem', fontWeight: 900, color: '#059669' }}>{lead.score || 0}%</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )) : (
+                                    <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8', fontSize: '0.75rem' }}>No direct matches found.</div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* 👥 TRANSACTION STAKEHOLDERS */}
+                        <div style={cardStyle}>
+                            <div style={sectionHeaderStyle}>
+                                <h3 style={sectionTitleStyle}>
+                                    <i className="fas fa-user-tie text-indigo-600"></i> Key Stakeholders
+                                </h3>
+                            </div>
+                            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                {deal.inventoryId?.owners?.length > 0 && (
+                                    <div>
+                                        <label style={{ fontSize: '0.6rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: '10px' }}>Primary Owners</label>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                            {deal.inventoryId.owners.map((owner, idx) => (
+                                                <div key={idx} style={{ padding: '12px', background: 'linear-gradient(to right, #f0fdf4, #fff)', borderRadius: '14px', border: '1px solid #dcfce7', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                    <div style={{ width: '36px', height: '36px', background: '#10b981', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: '0.8rem' }}>
+                                                        {getInitials(owner.name)}
                                                     </div>
-                                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#92400e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{contact.name}</div>
-                                                        <div style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: 600 }}>{contact.phones?.[0]?.number || contact.mobile || 'No Phone'}</div>
+                                                    <div style={{ flex: 1 }}>
+                                                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#064e3b' }}>{owner.name}</div>
+                                                        <div style={{ fontSize: '0.7rem', color: '#059669', fontWeight: 600 }}>{owner.phones?.[0]?.number || 'NO PHONE'}</div>
                                                     </div>
-                                                    <div style={{ background: '#fef3c7', color: '#b45309', fontSize: '0.5rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 900, textTransform: 'uppercase' }}>{assoc.relationship || 'Assoc'}</div>
                                                 </div>
-                                            );
-                                        })}
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div>
+                                    <label style={{ fontSize: '0.6rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: '10px' }}>Deal Internal Team</label>
+                                    <div style={{ padding: '12px', background: 'linear-gradient(to right, #f5f3ff, #fff)', borderRadius: '14px', border: '1px solid #ddd6fe', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <div style={{ width: '36px', height: '36px', background: '#4f46e5', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: '0.8rem' }}>
+                                            {getInitials(deal.assignedTo?.name || 'U')}
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#312e81' }}>{deal.assignedTo?.name || 'Unassigned'}</div>
+                                            <div style={{ fontSize: '0.7rem', color: '#4f46e5', fontWeight: 600 }}>RM / Deal Custodian</div>
+                                        </div>
                                     </div>
                                 </div>
-                            )}
+                            </div>
                         </div>
                     </div>
 
@@ -1853,21 +1900,36 @@ const SidebarStat = ({ label, value }) => (
 
 const PriceCard = ({ label, value, subValue, theme, isDiff, isStatus }) => {
     const themes = {
-        gray: { bg: '#f8fafc', text: '#64748b', val: '#1e293b' },
-        blue: { bg: '#eff6ff', text: '#2563eb', val: '#1d4ed8' },
-        green: { bg: '#f0fdf4', text: '#15803d', val: '#166534' },
-        red: { bg: '#fef2f2', text: '#dc2626', val: '#991b1b' },
-        orange: { bg: '#fff7ed', text: '#ea580c', val: '#c2410c' }
+        gray: { bg: '#f8fafc', text: '#64748b', val: '#0f172a', border: '#e2e8f0' },
+        blue: { bg: 'linear-gradient(135deg, #eff6ff, #dbeafe)', text: '#2563eb', val: '#1e40af', border: '#bfdbfe' },
+        indigo: { bg: 'linear-gradient(135deg, #f5f3ff, #ede9fe)', text: '#4f46e5', val: '#3730a3', border: '#ddd6fe' },
+        green: { bg: 'linear-gradient(135deg, #f0fdf4, #dcfce7)', text: '#15803d', val: '#166534', border: '#bbf7d0' },
+        red: { bg: 'linear-gradient(135deg, #fef2f2, #fee2e2)', text: '#dc2626', val: '#991b1b', border: '#fecaca' },
+        orange: { bg: 'linear-gradient(135deg, #fff7ed, #ffedd5)', text: '#ea580c', val: '#c2410c', border: '#fed7aa' }
     };
     const t = themes[theme] || themes.gray;
 
     return (
-        <div style={{ background: t.bg, padding: '16px', borderRadius: '12px', border: `1px solid ${t.text}11` }}>
-            <p style={{ fontSize: '0.6rem', color: t.text, fontWeight: 900, textTransform: 'uppercase', margin: '0 0 6px 0', letterSpacing: '0.05em' }}>{label}</p>
-            <p style={{ fontSize: isStatus ? '1.1rem' : '1.3rem', fontWeight: 900, color: t.val, margin: 0 }}>
+        <div style={{ 
+            background: t.bg, 
+            padding: '20px', 
+            borderRadius: '16px', 
+            border: `1px solid ${t.border}`,
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+        }}>
+            <p style={{ fontSize: '0.65rem', color: t.text, fontWeight: 900, textTransform: 'uppercase', margin: 0, letterSpacing: '0.1em' }}>{label}</p>
+            <p style={{ fontSize: isStatus ? '1.1rem' : '1.4rem', fontWeight: 900, color: t.val, margin: 0, letterSpacing: '-0.02em' }}>
                 {isStatus ? value : (isDiff && value > 0 ? '+' : '') + formatIndianCurrency(value)}
             </p>
-            {subValue && <p style={{ fontSize: '0.6rem', color: t.text, fontWeight: 600, marginTop: '4px', opacity: 0.8, fontStyle: 'italic' }}>{subValue}</p>}
+            {subValue && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: t.text, opacity: 0.5 }}></div>
+                    <p style={{ fontSize: '0.65rem', color: t.text, fontWeight: 700, margin: 0, opacity: 0.8 }}>{subValue}</p>
+                </div>
+            )}
         </div>
     );
 };
@@ -1925,11 +1987,12 @@ const TabItem = ({ id, label, active, onClick }) => (
     <button
         onClick={() => onClick(id)}
         style={{
-            padding: '12px 20px', background: 'transparent', border: 'none',
-            borderBottom: active ? '3px solid #2563eb' : '3px solid transparent',
-            color: active ? '#2563eb' : '#64748b', fontSize: '0.85rem',
-            fontWeight: active ? 800 : 600, cursor: 'pointer', transition: 'all 0.2s',
-            whiteSpace: 'nowrap'
+            padding: '14px 24px', background: 'transparent', border: 'none',
+            borderBottom: active ? '3px solid #4f46e5' : '3px solid transparent',
+            color: active ? '#4f46e5' : '#64748b', fontSize: '0.85rem',
+            fontWeight: active ? 900 : 600, cursor: 'pointer', transition: 'all 0.3s',
+            whiteSpace: 'nowrap',
+            letterSpacing: '0.02em'
         }}
     >
         {label}

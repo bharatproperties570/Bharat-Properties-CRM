@@ -184,8 +184,28 @@ export const getListings = async (req, res) => {
             {
                 $lookup: {
                     from: 'inventories',
-                    localField: 'inventoryId',
-                    foreignField: '_id',
+                    let: { invId: '$inventoryId', projName: '$projectName', blk: '$block', unt: '$unitNo' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $or: [
+                                        { $and: [{ $ne: ['$$invId', null] }, { $eq: ['$_id', '$$invId'] }] },
+                                        { $and: [
+                                            { $ne: ['$$projName', null] },
+                                            { $ne: ['$$unt', null] },
+                                            { $eq: ['$projectName', '$$projName'] },
+                                            { $eq: ['$block', '$$blk'] },
+                                            { $or: [
+                                                { $eq: ['$unitNo', '$$unt'] },
+                                                { $eq: ['$unitNumber', '$$unt'] }
+                                            ]}
+                                        ]}
+                                    ]
+                                }
+                            }
+                        }
+                    ],
                     as: 'inventoryData'
                 }
             },
@@ -198,7 +218,65 @@ export const getListings = async (req, res) => {
                 $addFields: {
                     propertyDetails: { $ifNull: ['$propertyDetails', '$inventoryInfo.propertyDetails'] },
                     unitSpecification: { $ifNull: ['$unitSpecification', '$inventoryInfo.unitSpecification'] },
-                    address: { $ifNull: ['$address', '$inventoryInfo.address'] }
+                    address: { $ifNull: ['$address', '$inventoryInfo.address'] },
+                    sizeLabel: { $ifNull: ['$sizeLabel', '$inventoryInfo.sizeLabel'] }
+                }
+            },
+            {
+                $addFields: {
+                    'propertyDetails.facing': { $ifNull: ['$propertyDetails.facing', '$inventoryInfo.facing'] },
+                    'propertyDetails.direction': { $ifNull: ['$propertyDetails.direction', '$inventoryInfo.direction'] },
+                    'propertyDetails.roadWidth': { $ifNull: ['$propertyDetails.roadWidth', '$inventoryInfo.roadWidth'] },
+                }
+            },
+            {
+                $lookup: { from: 'lookups', let: { val: '$category' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedCategory' }
+            },
+            {
+                $lookup: { from: 'lookups', let: { val: '$propertyType' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedPropertyType' }
+            },
+            {
+                $lookup: { from: 'lookups', let: { val: '$location' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedLocation' }
+            },
+            {
+                $lookup: { from: 'lookups', let: { val: '$propertyDetails.facing' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedFacing' }
+            },
+            {
+                $lookup: { from: 'lookups', let: { val: '$propertyDetails.direction' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedDirection' }
+            },
+            {
+                $lookup: { from: 'lookups', let: { val: '$propertyDetails.roadWidth' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedRoadWidth' }
+            },
+            {
+                $lookup: {
+                    from: 'projects',
+                    let: { pId: '$projectId', pName: '$projectName' },
+                    pipeline: [
+                        { $match: { $expr: { $or: [ 
+                             { $eq: ['$_id', '$$pId'] }, 
+                             { $eq: ['$_id', { $convert: { input: '$$pId', to: 'objectId', onError: null, onNull: null } } ] },
+                             { $eq: ['$_id', '$$pName'] }, 
+                             { $eq: ['$_id', { $convert: { input: '$$pName', to: 'objectId', onError: null, onNull: null } } ] }
+                        ] } } }
+                    ],
+                    as: 'resolvedProject'
+                }
+            },
+            {
+                $addFields: {
+                    projectName: { $ifNull: [{ $arrayElemAt: ['$resolvedProject.name', 0] }, { $ifNull: [{ $arrayElemAt: ['$resolvedProject.projectName', 0] }, '$projectName'] }] },
+                    category: { $ifNull: [{ $arrayElemAt: ['$resolvedCategory.lookup_value', 0] }, '$category'] },
+                    propertyType: { $ifNull: [{ $arrayElemAt: ['$resolvedPropertyType.lookup_value', 0] }, '$propertyType'] },
+                    location: { $ifNull: [{ $arrayElemAt: ['$resolvedLocation.lookup_value', 0] }, '$location'] },
+                    'propertyDetails.facing': { $ifNull: [{ $arrayElemAt: ['$resolvedFacing.lookup_value', 0] }, '$propertyDetails.facing'] },
+                    'propertyDetails.direction': { $ifNull: [{ $arrayElemAt: ['$resolvedDirection.lookup_value', 0] }, '$propertyDetails.direction'] },
+                    'propertyDetails.roadWidth': { $ifNull: [{ $arrayElemAt: ['$resolvedRoadWidth.lookup_value', 0] }, '$propertyDetails.roadWidth'] },
+                    'address.hNo': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.hNo' } },
+                    'address.street': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.street' } },
+                    'address.landmark': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.landmark' } },
+                    'address.area': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.area' } },
+                    unitNo: { $cond: { if: { $eq: ['$websiteMetadata.shareUnitNumber', false] }, then: 'Confidential', else: '$unitNo' } },
+                    unitNumber: { $cond: { if: { $eq: ['$websiteMetadata.shareUnitNumber', false] }, then: 'Confidential', else: '$unitNumber' } }
                 }
             },
             {
@@ -210,7 +288,15 @@ export const getListings = async (req, res) => {
                     commission: 0,
                     internalRM: 0,
                     inventoryData: 0,
-                    inventoryInfo: 0
+                    inventoryInfo: 0,
+                    resolvedCategory: 0,
+                    resolvedPropertyType: 0,
+                    resolvedLocation: 0,
+                    resolvedFacing: 0,
+                    resolvedDirection: 0,
+                    resolvedRoadWidth: 0,
+                    resolvedProject: 0,
+                    resolvedSubCategory: 0
                 }
             }
         ]);
@@ -324,7 +410,7 @@ export const getListingBySlug = async (req, res) => {
         const query = {
             $or: [
                 { 'websiteMetadata.slug': slug },
-                { _id: slug.match(/^[0-9a-fA-F]{24}$/) ? slug : null }
+                { _id: slug.match(/^[0-9a-fA-F]{24}$/) ? new mongoose.Types.ObjectId(slug) : null }
             ],
             isPublished: true
         };
@@ -380,8 +466,28 @@ export const getListingBySlug = async (req, res) => {
             {
                 $lookup: {
                     from: 'inventories',
-                    localField: 'inventoryId',
-                    foreignField: '_id',
+                    let: { invId: '$inventoryId', projName: '$projectName', blk: '$block', unt: '$unitNo' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $or: [
+                                        { $and: [{ $ne: ['$$invId', null] }, { $eq: ['$_id', '$$invId'] }] },
+                                        { $and: [
+                                            { $ne: ['$$projName', null] },
+                                            { $ne: ['$$unt', null] },
+                                            { $eq: ['$projectName', '$$projName'] },
+                                            { $eq: ['$block', '$$blk'] },
+                                            { $or: [
+                                                { $eq: ['$unitNo', '$$unt'] },
+                                                { $eq: ['$unitNumber', '$$unt'] }
+                                            ]}
+                                        ]}
+                                    ]
+                                }
+                            }
+                        }
+                    ],
                     as: 'inventoryData'
                 }
             },
@@ -403,13 +509,73 @@ export const getListingBySlug = async (req, res) => {
                     propertyDetails: { $ifNull: ['$propertyDetails', '$inventoryInfo.propertyDetails'] },
                     unitSpecification: { $ifNull: ['$unitSpecification', '$inventoryInfo.unitSpecification'] },
                     address: { $ifNull: ['$address', '$inventoryInfo.address'] },
-                    location: { $ifNull: ['$location', '$inventoryInfo.address.city'] }
+                    location: { $ifNull: ['$location', '$inventoryInfo.address.city'] },
+                    sizeLabel: { $ifNull: ['$sizeLabel', '$inventoryInfo.sizeLabel'] }
+                }
+            },
+            {
+                $addFields: {
+                    'propertyDetails.facing': { $ifNull: ['$propertyDetails.facing', '$inventoryInfo.facing'] },
+                    'propertyDetails.direction': { $ifNull: ['$propertyDetails.direction', '$inventoryInfo.direction'] },
+                    'propertyDetails.roadWidth': { $ifNull: ['$propertyDetails.roadWidth', '$inventoryInfo.roadWidth'] },
+                }
+            },
+            {
+                $lookup: { from: 'lookups', let: { val: '$category' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedCategory' }
+            },
+            {
+                $lookup: { from: 'lookups', let: { val: '$propertyType' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedPropertyType' }
+            },
+            {
+                $lookup: { from: 'lookups', let: { val: '$location' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedLocation' }
+            },
+            {
+                $lookup: { from: 'lookups', let: { val: '$propertyDetails.facing' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedFacing' }
+            },
+            {
+                $lookup: { from: 'lookups', let: { val: '$propertyDetails.direction' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedDirection' }
+            },
+            {
+                $lookup: { from: 'lookups', let: { val: '$propertyDetails.roadWidth' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedRoadWidth' }
+            },
+            {
+                $lookup: {
+                    from: 'projects',
+                    let: { pId: '$projectId', pName: '$projectName' },
+                    pipeline: [
+                        { $match: { $expr: { $or: [ 
+                             { $eq: ['$_id', '$$pId'] }, 
+                             { $eq: ['$_id', { $convert: { input: '$$pId', to: 'objectId', onError: null, onNull: null } } ] },
+                             { $eq: ['$_id', '$$pName'] }, 
+                             { $eq: ['$_id', { $convert: { input: '$$pName', to: 'objectId', onError: null, onNull: null } } ] }
+                        ] } } }
+                    ],
+                    as: 'resolvedProject'
+                }
+            },
+            {
+                $addFields: {
+                    projectName: { $ifNull: [{ $arrayElemAt: ['$resolvedProject.name', 0] }, { $ifNull: [{ $arrayElemAt: ['$resolvedProject.projectName', 0] }, '$projectName'] }] },
+                    category: { $ifNull: [{ $arrayElemAt: ['$resolvedCategory.lookup_value', 0] }, '$category'] },
+                    propertyType: { $ifNull: [{ $arrayElemAt: ['$resolvedPropertyType.lookup_value', 0] }, '$propertyType'] },
+                    location: { $ifNull: [{ $arrayElemAt: ['$resolvedLocation.lookup_value', 0] }, '$location'] },
+                    'propertyDetails.facing': { $ifNull: [{ $arrayElemAt: ['$resolvedFacing.lookup_value', 0] }, '$propertyDetails.facing'] },
+                    'propertyDetails.direction': { $ifNull: [{ $arrayElemAt: ['$resolvedDirection.lookup_value', 0] }, '$propertyDetails.direction'] },
+                    'propertyDetails.roadWidth': { $ifNull: [{ $arrayElemAt: ['$resolvedRoadWidth.lookup_value', 0] }, '$propertyDetails.roadWidth'] },
+                    'address.hNo': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.hNo' } },
+                    'address.street': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.street' } },
+                    'address.landmark': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.landmark' } },
+                    'address.area': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.area' } },
+                    unitNo: { $cond: { if: { $eq: ['$websiteMetadata.shareUnitNumber', false] }, then: 'Confidential', else: '$unitNo' } },
+                    unitNumber: { $cond: { if: { $eq: ['$websiteMetadata.shareUnitNumber', false] }, then: 'Confidential', else: '$unitNumber' } }
                 }
             },
             {
                 $project: {
                     visits: 0, owner: 0, associatedContact: 0, partyStructure: 0, commission: 0, internalRM: 0,
-                    inventoryData: 0, inventoryInfo: 0, resolvedSubCategory: 0
+                    inventoryData: 0, inventoryInfo: 0, resolvedSubCategory: 0,
+                    resolvedCategory: 0, resolvedPropertyType: 0, resolvedLocation: 0, resolvedFacing: 0,
+                    resolvedDirection: 0, resolvedRoadWidth: 0, resolvedProject: 0
                 }
             }
         ]);
@@ -433,7 +599,7 @@ export const getProjectBySlug = async (req, res) => {
         const query = {
             $or: [
                 { 'websiteMetadata.slug': slug },
-                { _id: slug.match(/^[0-9a-fA-F]{24}$/) ? slug : null }
+                { _id: slug.match(/^[0-9a-fA-F]{24}$/) ? new mongoose.Types.ObjectId(slug) : null }
             ],
             isPublished: true
         };
@@ -708,7 +874,27 @@ export const getPublicSettings = async (req, res) => {
         const activityFields = await SystemSetting.findOne({ key: 'activityMasterFields' }).lean();
         
         const relations = masterFields?.value?.relations || [];
-        const activityMasterFields = activityFields?.value || {};
+        const rawActivityFields = activityFields?.value || {};
+        
+        // Flatten activities for the website (Call -> callPurposes, Meeting -> meetingPurposes, etc.)
+        const activityMasterFields = {
+            callPurposes: [],
+            meetingPurposes: [],
+            siteVisitTypes: []
+        };
+
+        if (Array.isArray(rawActivityFields.activities)) {
+            rawActivityFields.activities.forEach(act => {
+                const purposes = (act.purposes || []).map(p => p.name);
+                if (act.name === 'Call') {
+                    activityMasterFields.callPurposes = purposes;
+                } else if (act.name === 'Meeting') {
+                    activityMasterFields.meetingPurposes = purposes;
+                } else if (act.name === 'Site Visit') {
+                    activityMasterFields.siteVisitTypes = purposes;
+                }
+            });
+        }
         
         res.status(200).json({
             success: true,

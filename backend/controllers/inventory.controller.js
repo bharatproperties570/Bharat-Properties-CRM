@@ -389,7 +389,9 @@ export const addInventory = async (req, res) => {
 
 export const updateInventory = async (req, res) => {
     try {
+        console.log(`[DEBUG] updateInventory for ID: ${req.params.id}`);
         const data = { ...req.body };
+        console.log(`[DEBUG] Payload keys: ${Object.keys(data).join(', ')}`);
 
         // Resolve Reference Fields to prevent CastErrors
         if (data.category) data.category = await resolveLookup('Category', data.category, false);
@@ -465,8 +467,15 @@ export const updateInventory = async (req, res) => {
             await syncDocumentsToContact(data.inventoryDocuments, metadata);
         }
 
+        if (!inventory) {
+            console.warn(`[DEBUG] Inventory not found: ${req.params.id}`);
+            return res.status(404).json({ success: false, error: "Inventory item not found" });
+        }
+
+        console.log(`[DEBUG] updateInventory SUCCESS for ID: ${req.params.id}`);
         res.status(200).json({ success: true, data: inventory });
     } catch (error) {
+        console.error(`[DEBUG] updateInventory ERROR: ${error.message}`);
         res.status(400).json({ success: false, error: error.message });
     }
 };
