@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { api, lookupsAPI } from '../../../utils/api';
 import toast from 'react-hot-toast';
 import CreateGlobalConfigModal from '../../../components/CreateGlobalConfigModal';
@@ -29,7 +29,7 @@ const DealSettingsPage = () => {
     const [viewMode, setViewMode] = useState('list');
 
     // --- State ---
-    const [loading, setLoading] = useState(true);
+    const [, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
@@ -141,7 +141,7 @@ const DealSettingsPage = () => {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [collectorPagination.limit, collectorPagination.page, collectorSearch, config.key, globalPagination.limit, globalPagination.page, globalSearch]);
 
     // Initial Load & States
     useEffect(() => {
@@ -211,27 +211,13 @@ const DealSettingsPage = () => {
     };
 
     // --- Handlers ---
-    const handleConfigChange = (field, value) => {
-        setConfig(prev => ({ ...prev, [field]: value }));
-    };
 
-    const handleSlabChange = (index, field, value) => {
-        const newSlabs = [...config.registrationSlabs];
-        newSlabs[index] = { ...newSlabs[index], [field]: value };
-        setConfig(prev => ({ ...prev, registrationSlabs: newSlabs }));
-    };
 
-    const addSlab = () => {
-        setConfig(prev => ({
-            ...prev,
-            registrationSlabs: [...prev.registrationSlabs, { min: 0, max: 0, amount: 0 }]
-        }));
-    };
 
-    const removeSlab = (index) => {
-        const newSlabs = config.registrationSlabs.filter((_, i) => i !== index);
-        setConfig(prev => ({ ...prev, registrationSlabs: newSlabs }));
-    };
+
+
+
+
 
     const handleRateChange = (field, value) => {
         setRateForm(prev => {
@@ -472,13 +458,7 @@ const DealSettingsPage = () => {
     };
 
     // --- Styles ---
-    const sectionStyle = {
-        background: '#fff',
-        padding: '24px',
-        borderRadius: '12px',
-        border: '1px solid #e2e8f0',
-        marginBottom: '24px'
-    };
+
 
     const labelStyle = {
         display: 'block',
@@ -765,7 +745,9 @@ const DealSettingsPage = () => {
                                                 <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                                                     <button
                                                         onClick={() => {
-                                                            const { coveredAreaPriceSqYds, coveredAreaPriceSqFt, ...restConfig } = cfg.value;
+                                                            const restConfig = { ...cfg.value };
+                                                            delete restConfig.coveredAreaPriceSqYds;
+                                                            delete restConfig.coveredAreaPriceSqFt;
                                                             setConfig(restConfig);
                                                             setIsConfigModalOpen(true);
                                                         }}

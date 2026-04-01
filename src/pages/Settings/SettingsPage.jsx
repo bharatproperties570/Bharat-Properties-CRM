@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { api, API_BASE_URL } from '../../utils/api';
+import { API_BASE_URL } from '../../utils/api';
 import Toast from '../../components/Toast';
 import AddUserModal from '../../components/AddUserModal';
 import CreateRoleModal from '../../components/CreateRoleModal';
 import AssignReportingModal from '../../components/AssignReportingModal';
 import CreateTeamModal from '../../components/CreateTeamModal';
 import InactivateUserModal from '../../components/InactivateUserModal';
-import { usePropertyConfig } from '../../context/PropertyConfigContext';
+
 import { useUserContext } from '../../context/UserContext';
 import { getInitials } from '../../utils/helpers';
 import { renderValue } from '../../utils/renderUtils';
@@ -26,7 +26,7 @@ import CustomizeCompanyPage from './views/CustomizeCompanyPage';
 import DealSettingsPage from './views/DealSettingsPage';
 import DealDetailsPage from './views/DealDetailsPage';
 import ActivitySettingsPage from './views/ActivitySettingsPage';
-import CustomizeFeedbackPage from './views/CustomizeFeedbackPage';
+
 import FeedbackTemplatePage from './views/FeedbackTemplatePage';
 import TriggersSettingsPage from './views/TriggersSettingsPage';
 import FieldRulesSettingsPage from './views/FieldRulesSettingsPage';
@@ -44,6 +44,7 @@ import DealCaptureSettingsPage from './views/DealCaptureSettingsPage';
 import FeedbackSettingsPage from './views/FeedbackSettingsPage';
 import FormsSettingsPage from './views/FormsSettingsPage';
 import StagePage from './views/StagePage';
+import AiAgentsSettingsPage from './views/AiAgentsSettingsPage';
 
 
 // --- Sub-Components (Defined Outside to prevent re-creation crashes) ---
@@ -123,7 +124,7 @@ const UserCard = ({ name, team, initials, isAdmin, count, hasAddIcon, isHighligh
     </div>
 );
 
-const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, users }) => {
+const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, users, onAddUser }) => {
     const [permissionModule, setPermissionModule] = useState('leads');
     const [showModuleDropdown, setShowModuleDropdown] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -133,7 +134,7 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
 
     // Build hierarchy tree from users
     const buildHierarchy = () => {
-        if (!users || users.length === 0) return [];
+        if (!users || users.length === 0) return { roots: [], childrenMap: new Map() };
 
         // Find root users (those without reportingTo or whose reportingTo is not in the list)
         const userMap = new Map(users.map(u => [u._id, u]));
@@ -157,9 +158,9 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
     const { roots, childrenMap } = buildHierarchy();
 
     // Filter users by search term
-    const filteredRoots = searchTerm
+    const filteredRoots = (searchTerm && roots)
         ? roots.filter(u => (u.fullName || u.name || '').toLowerCase().includes(searchTerm.toLowerCase()))
-        : roots;
+        : (roots || []);
 
     // Recursive component to render user node and its children
     const UserNode = ({ user, level = 0 }) => {
@@ -288,16 +289,15 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
                 </div>
                 <button
                     className="btn-outline"
-                    onClick={() => setExpandedUsers(new Set(users.map(u => u._id)))}
+                    onClick={() => setExpandedUsers(new Set((users || []).map(u => u._id)))}
                     style={{ background: '#fff', padding: '8px 16px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid #e2e8f0' }}
                 >
                     Expand All
                 </button>
             </div>
 
-            {/* Dynamic Tree visualization */}
             <div style={{ minHeight: '500px', position: 'relative' }}>
-                {filteredRoots.length === 0 ? (
+                {(filteredRoots || []).length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
                         <i className="fas fa-users" style={{ fontSize: '3rem', marginBottom: '16px', opacity: 0.3 }}></i>
                         <p style={{ fontSize: '0.9rem', fontWeight: 600 }}>
@@ -367,7 +367,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                 </div>
                 <button className="btn-primary" onClick={() => onNewUser()} style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700 }}>+ New user</button>
             </div>
-            <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+            <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'visible' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                     <thead>
                         <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
@@ -384,7 +384,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                     </thead>
                     <tbody>
                         {filteredUsers.map((user, index) => {
-                            const isLastItems = index >= filteredUsers.length - 2 && filteredUsers.length > 2;
+                            const isLastItems = index >= filteredUsers.length - 3 && filteredUsers.length > 2;
                             return (
                                 <tr key={user._id || user.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                     <td style={{ padding: '16px', fontWeight: 700 }}>{user.fullName || user.name}</td>
@@ -490,7 +490,7 @@ const RolesList = ({ onNewRole, roles, onDeleteRole }) => {
                 </div>
                 <button className="btn-primary" onClick={() => onNewRole()} style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700 }}>+ New role</button>
             </div>
-            <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+            <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'visible' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                     <thead>
                         <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
@@ -549,7 +549,7 @@ const TeamsList = ({ teams, onNewTeam, onEditTeam, onDeleteTeam }) => {
                 </div>
                 <button className="btn-primary" onClick={() => onNewTeam()} style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700 }}>+ New Team</button>
             </div>
-            <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+            <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'visible' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                     <thead>
                         <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
@@ -683,7 +683,7 @@ const SettingsPage = () => {
         setTimeout(() => setNotification(prev => ({ ...prev, show: false })), 3000);
     };
 
-    const handleAddUser = async (userData) => {
+    const handleAddUser = async () => {
         // The modal now handles the API call, so we just refresh
         refreshData();
         showToast(editingUser ? 'User updated successfully' : 'User created successfully');
@@ -701,14 +701,14 @@ const SettingsPage = () => {
         }
     };
 
-    const handleSaveRole = async (roleData) => {
+    const handleSaveRole = async () => {
         // Modal already handles API call
         refreshData();
         showToast('Role saved successfully');
         setIsCreateRoleModalOpen(false);
     };
 
-    const handleSaveTeam = (teamData) => {
+    const handleSaveTeam = () => {
         refreshData();
         showToast(editingTeam ? 'Team updated successfully' : 'Team created successfully');
         setIsCreateTeamModalOpen(false);
@@ -811,7 +811,7 @@ const SettingsPage = () => {
         { title: 'Data', items: [{ id: 'import', label: 'Import' }, { id: 'bulk-update', label: 'Bulk update' }, { id: 'export', label: 'Export' }, { id: 'forms', label: 'Forms' }, { id: 'enrichment', label: 'Prospecting and enrichment' }, { id: 'duplicate-mgt', label: 'Duplicate Management' }] },
         { title: 'Communication channels', items: [{ id: 'email', label: 'Email' }, { id: 'calls', label: 'Calls' }, { id: 'messaging', label: 'Messaging' }, { id: 'feedback-templates', label: 'Message Templates' }] },
         { title: 'Customize', items: [{ id: 'company-c', label: 'Company' }, { id: 'project-c', label: 'Project' }, { id: 'leads-c', label: 'Leads' }, { id: 'contacts-c', label: 'Contacts' }, { id: 'properties-c', label: 'Properties' }, { id: 'parsing-rules', label: 'Parsing Rules' }, { id: 'post-sales', label: 'Post Sales' }, { id: 'deal-details', label: 'Deals' }, { id: 'task-c', label: 'Activities' }] },
-        { title: 'Integrations', items: [{ id: 'integrations', label: 'Integrations' }, { id: 'api', label: 'API' }] },
+        { title: 'Integrations', items: [{ id: 'integrations', label: 'Integrations' }, { id: 'ai-agents', label: 'AI Agent Hub' }, { id: 'api', label: 'API' }] },
         { title: 'Business rules', items: [{ id: 'field-rules', label: 'Field rules' }, { id: 'distributions', label: 'Distributions' }, { id: 'sequences', label: 'Sequences' }, { id: 'automated-actions', label: 'Automated actions' }, { id: 'triggers', label: 'Triggers' }, { id: 'scoring', label: 'Scoring' }, { id: 'stage-c', label: 'Stage' }] },
         { title: 'Notes', items: [{ id: 'layouts', label: 'Layouts' }] }
     ];
@@ -975,10 +975,11 @@ const SettingsPage = () => {
                                 onToggleStatus={handleToggleStatus}
                             />}
                             {subTab === 'user-hierarchy' && <UserHierarchy
+                                users={users}
                                 showPermissions={showPermissions}
                                 setShowPermissions={setShowPermissions}
-                                users={users}
                                 onAssignUser={handleAssignMember}
+                                onAddUser={() => { setEditingUser(null); setIsAddUserModalOpen(true); }}
                             />}
                             {subTab === 'teams' && <TeamsList
                                 teams={teams}
@@ -1006,6 +1007,8 @@ const SettingsPage = () => {
                         <MessagingSettingsPage />
                     ) : activeTab === 'integrations' ? (
                         <IntegrationsSettingsPage />
+                    ) : activeTab === 'ai-agents' ? (
+                        <AiAgentsSettingsPage />
                     ) : activeTab === 'scoring' ? (
                         <ScoringSettingsPage />
                     ) : activeTab === 'company-c' ? (

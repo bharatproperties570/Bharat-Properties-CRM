@@ -79,7 +79,7 @@ const ClosingFormModal = ({ isOpen, onClose, entity, entityType, onComplete }) =
             }
         };
         if (isOpen) fetchContacts();
-    }, [isOpen]);
+    }, [isOpen, closingData.newOwnerId]);
 
     React.useEffect(() => {
         const handleClickOutside = () => setShowSuggestions(false);

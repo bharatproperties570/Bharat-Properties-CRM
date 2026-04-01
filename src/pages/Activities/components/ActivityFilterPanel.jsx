@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import { useUserContext } from '../../../context/UserContext';
 import { ACTIVITY_TYPES, ACTIVITY_STATUSES, PRIORITIES } from '../../../utils/activityFilterLogic';
 // Mock data removed
 
 const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset }) => {
+    const { users = [] } = useUserContext();
     // Local state for temporary filter changes before applying (if we wanted "Apply" button)
     // But we are doing real-time, so we might pass changes directly. 
     // However, for consistency with other panels, we often use local state + Apply, 
@@ -202,7 +203,7 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
                         >
                             <option value="">Select User...</option>
                             {users.map(u => (
-                                <option key={u.id} value={u.name}>{u.name} ({u.role})</option>
+                                <option key={u.id || u._id} value={u.name}>{u.name} ({typeof u.role === 'object' ? u.role.name : u.role})</option>
                             ))}
                         </select>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>

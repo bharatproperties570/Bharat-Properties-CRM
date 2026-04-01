@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useDistribution } from '../context/DistributionContext';
 import { useUserContext } from '../context/UserContext';
 
@@ -589,7 +589,7 @@ const CreateDistributionRuleModal = ({ isOpen, onClose, editingRule = null }) =>
                                     onClick={() => {
                                         const loc = document.getElementById('sim_location').value;
                                         const budget = document.getElementById('sim_budget').value;
-                                        const mockLead = { location: loc, budget: budget, source: 'Website' };
+                                        // const mockLead = { location: loc, budget: budget, source: 'Website' };
 
                                         // Simple internal simulation for UI feedback
                                         const matches = formData.conditions.length === 0 || formData.conditions.every(c => {

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 import {
     evaluateConditions,
     distributeRoundRobin,
@@ -16,6 +16,7 @@ import { distributionRulesAPI } from '../utils/api';
 
 const DistributionContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useDistribution = () => {
     const context = useContext(DistributionContext);
     if (!context) {
@@ -27,13 +28,18 @@ export const useDistribution = () => {
 export const DistributionProvider = ({ children }) => {
     const [distributionRules, setDistributionRules] = useState([]);
     const [distributionLog, setDistributionLog] = useState([]);
-    const [agentWorkload, setAgentWorkload] = useState({});
+    const [agentWorkload] = useState({});
     const [roundRobinState, setRoundRobinState] = useState({});
     const [isLoading, setIsLoading] = useState(true);
 
     // Load distribution rules from backend on mount
     useEffect(() => {
         const loadRules = async () => {
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                setIsLoading(false);
+                return;
+            }
             try {
                 const data = await distributionRulesAPI.getAll();
                 // Ensure data is always an array
@@ -180,7 +186,7 @@ export const DistributionProvider = ({ children }) => {
         let assignmentResult = null;
 
         switch (rule.distributionType) {
-            case 'roundRobin':
+            case 'roundRobin': {
                 const lastIndex = roundRobinState[rule.id] || 0;
                 assignmentResult = distributeRoundRobin(rule.assignmentTarget, workload, lastIndex, users);
                 if (assignmentResult) {
@@ -190,42 +196,48 @@ export const DistributionProvider = ({ children }) => {
                     }));
                 }
                 break;
+            }
 
-            case 'loadBased':
+            case 'loadBased': {
                 assignmentResult = distributeLoadBased(rule.assignmentTarget, workload, users);
                 break;
+            }
 
-            case 'skillBased':
+            case 'skillBased': {
                 assignmentResult = distributeSkillBased(
                     rule.assignmentTarget,
                     entityData,
                     context.agentSkills || {}
                 );
                 break;
+            }
 
-            case 'locationBased':
+            case 'locationBased': {
                 assignmentResult = distributeLocationBased(
                     rule.assignmentTarget,
                     entityData,
                     context.agentTerritories || {}
                 );
                 break;
+            }
 
-            case 'sourceBased':
+            case 'sourceBased': {
                 assignmentResult = distributeSourceBased(
                     rule.assignmentTarget,
                     entityData,
                     context.sourceMapping || {}
                 );
                 break;
+            }
 
-            case 'scoreBased':
+            case 'scoreBased': {
                 assignmentResult = distributeScoreBased(
                     rule.assignmentTarget,
                     entityData,
                     context.scoreBands || {}
                 );
                 break;
+            }
 
             default:
                 return { success: false, reason: 'Invalid distribution type' };
@@ -310,7 +322,7 @@ export const DistributionProvider = ({ children }) => {
     /**
      * Check and execute reassignment if needed
      */
-    const checkAndReassign = (entity, entityType, context) => {
+    const checkAndReassign = (entity, entityType) => {
         // Find rule that originally assigned this entity
         const originalLog = distributionLog.find(
             log => log.entityId === entity.id && log.entityType === entityType

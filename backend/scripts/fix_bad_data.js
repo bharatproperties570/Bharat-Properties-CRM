@@ -3,7 +3,6 @@ import mongoose from 'mongoose';
 import Contact from '../models/Contact.js';
 import Lead from '../models/Lead.js';
 import Lookup from '../models/Lookup.js';
-import User from '../models/User.js';
 import config from '../src/config/env.js';
 
 const resolveLookup = async (type, value) => {
@@ -44,19 +43,7 @@ const fixData = async () => {
 
         // 3. Fix generic string values in Ref fields for Lead
         // Fields: source, status, budget, location
-        const fixField = async (field, type) => {
-            // Find docs where field is a string (not ObjectId) - minimal check is validation failure or just regex
-            // But we can't easily query $type string in mixed field if it's not consistent.
-            // We'll iterate all leads and check? No, too slow.
-            // We can query specific known bad values if we knew them.
-            // Or use $where (slow).
 
-            // For now, let's assume the error taught us about "Buy".
-            // We can check if any field has value that is NOT an ObjectId.
-            // But let's just do a cursory check for common strings if we can guess them.
-        };
-
-        // Check for other common strings based on previous experience or common defaults
         // "Active" status
         const badLeadsStatus = await Lead.find({ status: 'Active' });
         if (badLeadsStatus.length > 0) {

@@ -11,8 +11,7 @@ import { useUserContext } from '../context/UserContext';
 import { renderValue } from '../utils/renderUtils';
 
 // 3.4 MB Unused data removed for performance
-import { LOCATION_DATA } from '../constants/locationConstants';
-import { PROPERTY_CATEGORIES, DIRECTION_OPTIONS } from '../constants/propertyConstants';
+// DIRECTION_OPTIONS import removed if unused
 
 // Simple Custom Multi-Select Component
 const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled }) => {
@@ -107,8 +106,7 @@ const COUNTRY_CODES = [
     { name: 'United Arab Emirates', dial_code: '+971', code: 'AE' },
 ];
 
-const STAGES = ['New', 'Contacted', 'Interested', 'Meeting Scheduled', 'Negotiation', 'Qualified', 'Won', 'Lost'];
-const STATUSES = ['Active', 'Inactive', 'Pending', 'Closed'];
+
 
 // Financial Constants
 
@@ -121,29 +119,7 @@ const STATUSES = ['Active', 'Inactive', 'Pending', 'Closed'];
 
 
 // Duplicate check now uses the real API instead of local mock arrays
-const MOCK_CONTACTS = [];
 
-const companyList = [
-    'Bharat Properties',
-    'Tech Solutions',
-    'City Hospital',
-    'Creative Design',
-    'Real Estate Co',
-    'Alpha Corp',
-    'Beta Industries'
-];
-
-const SOURCE_OPTIONS = [
-    "Walk-in",
-    "Reference",
-    "Google",
-    "Facebook",
-    "Instagram",
-    "Website",
-    "99Acres",
-    "MagicBricks",
-    "Other",
-];
 
 // Duplicate Popup Component (Restyled for Side Panel)
 const DuplicateResults = ({ contacts, onUpdate, isBlocked }) => {
@@ -376,45 +352,7 @@ const AnimatedSegmentControl = ({ options, value, onChange }) => {
     );
 };
 
-const AnimatedChipGroup = ({ options, value, onChange }) => {
-    const toggleOption = (option) => {
-        const newValue = value.includes(option)
-            ? value.filter(v => v !== option)
-            : [...value, option];
-        onChange(newValue);
-    };
 
-    return (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {options.map(option => {
-                const isActive = value.includes(option);
-                return (
-                    <button
-                        key={option}
-                        type="button"
-                        onClick={() => toggleOption(option)}
-                        style={{
-                            padding: '8px 16px',
-                            borderRadius: '24px',
-                            border: isActive ? '1px solid #3b82f6' : '1px solid #e2e8f0',
-                            background: isActive ? '#eff6ff' : '#fff',
-                            color: isActive ? '#2563eb' : '#64748b',
-                            fontSize: '0.9rem',
-                            fontWeight: isActive ? 600 : 500,
-                            cursor: 'pointer',
-                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                            transform: isActive ? 'scale(1.05)' : 'scale(1)',
-                            boxShadow: isActive ? '0 2px 4px rgba(59, 130, 246, 0.15)' : 'none',
-                            outline: 'none'
-                        }}
-                    >
-                        {option}
-                    </button>
-                );
-            })}
-        </div>
-    );
-};
 
 const BUDGET_VALUES = [
     { value: 500000, label: "5 Lakh" },
@@ -443,7 +381,7 @@ const BUDGET_VALUES = [
     { value: 1000000000, label: "100 Crore" }
 ];
 
-const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entityType = 'lead', contactData, title = "Add New Lead", saveLabel = "Save", initialTab = null }) => {
+const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entityType = 'lead', contactData, saveLabel = "Save", initialTab = null }) => {
     const { propertyConfig, masterFields, leadMasterFields, getLookupId, getLookupValue, projects: allProjects } = usePropertyConfig();
     const { validate, validateAsync } = useFieldRules(); // Get Validator Engine
     const { executeDistribution } = useDistribution(); // Get Distribution Engine
@@ -455,20 +393,15 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
     // UI Enforcement State
     const [hiddenFields, setHiddenFields] = useState([]);
-    const [readOnlyFields, setReadOnlyFields] = useState([]);
+    const [, setReadOnlyFields] = useState([]);
     const [isSaving, setIsSaving] = useState(false);
     const [fieldErrors, setFieldErrors] = useState({}); // Fix #5: inline per-field error state
 
 
 
     // Master Fields Options
-    const facingOptions = masterFields?.facings || [];
-    const roadWidthOptions = masterFields?.roadWidths || [];
-    const unitTypeOptions = masterFields?.unitTypes || [];
     const countryCodeOptions = masterFields?.countryCodes || [];
     const titleOptions = masterFields?.titles || [];
-    const directionOptions = masterFields?.directions || DIRECTION_OPTIONS;
-    const floorLevelOptions = masterFields?.floorLevels || [];
 
     const [locationTab, setLocationTab] = useState('select'); // 'select' or 'search'
     const [showSpecificUnit, setShowSpecificUnit] = useState(false);
@@ -478,10 +411,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
     // Contact Search State
     const [contactSearchQuery, setContactSearchQuery] = useState('');
-    const [contactSearchResults, setContactSearchResults] = useState([]);
-    const [isContactSearchLoading, setIsContactSearchLoading] = useState(false);
     const [selectedContact, setSelectedContact] = useState(null);
-
     // Input Style
     const inputStyle = {
         width: '100%',
@@ -740,14 +670,14 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 setSelectedContact(cd);
             }
         }
-    }, [initialData, mode]);
+    }, [initialData, mode, getLookupValue]);
 
-    const handleInputChange = (field, value) => {
+    const handleInputChange = React.useCallback((field, value) => {
         setFormData(prev => ({
             ...prev,
             [field]: value
         }));
-    };
+    }, []);
 
     const handleProjectCityChange = (city) => {
         setFormData(prev => ({
@@ -771,7 +701,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             if (contactSearchQuery.length >= 2) {
                 handleContactSearch(contactSearchQuery);
             } else {
-                setContactSearchResults([]);
+                // setContactSearchResults([]);
             }
         }, 500);
 
@@ -779,25 +709,20 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     }, [contactSearchQuery]);
 
     const handleContactSearch = async (query) => {
-        setIsContactSearchLoading(true);
+        // setIsContactSearchLoading(true);
         try {
-            const response = await api.get(`contacts?search=${query}`);
-            if (response.data && response.data.success) {
-                setContactSearchResults(response.data.docs);
-            } else {
-                setContactSearchResults([]);
-            }
+            await api.get(`contacts?search=${query}`);
         } catch (error) {
             console.error("Error searching contacts:", error);
-            setContactSearchResults([]);
+            // setContactSearchResults([]);
         } finally {
-            setIsContactSearchLoading(false);
+            // setIsContactSearchLoading(false);
         }
     };
 
     const handleSelectContact = (contact) => {
         setContactSearchQuery('');
-        setContactSearchResults([]);
+        // setContactSearchResults([]);
         setSelectedContact(contact);
 
         setFormData(prev => ({
@@ -1123,11 +1048,13 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     const handleNext = () => {
         if (currentTab === 'requirement') setCurrentTab('location');
         else if (currentTab === 'location') setCurrentTab('basic');
+        else if (currentTab === 'basic') setCurrentTab('system');
     };
 
     const handlePrev = () => {
         if (currentTab === 'location') setCurrentTab('requirement');
         else if (currentTab === 'basic') setCurrentTab('location');
+        else if (currentTab === 'system') setCurrentTab('basic');
     };
 
     // Placeholder for Populate
@@ -1208,7 +1135,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         }, 500);
 
         return () => clearTimeout(timer);
-    }, [formData.name, formData.phones, formData.emails]);
+    }, [formData, formData.name, formData.phones, formData.emails]);
 
     const searchInputRef = useRef(null);
     const areaInputRef = useRef(null); // New Ref for Area Search
@@ -1272,7 +1199,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 }));
             });
         }
-    }, [currentTab, locationTab]);
+    }, [currentTab, locationTab, setFormData]);
 
     if (!isOpen) return null;
 
@@ -1329,6 +1256,11 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                         <><i className="fas fa-info-circle"></i> Basic Details</>
                                     )}
                                 </button>
+                                {entityType === 'lead' && (
+                                    <button onClick={() => setCurrentTab('system')} style={tabStyle(currentTab === 'system')}>
+                                        <i className="fas fa-cog"></i> System
+                                    </button>
+                                )}
                             </div>
                         </div>
                     )}
@@ -1675,1026 +1607,68 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                 </div>
 
                             </div>
-                        ) : currentTab === 'basic' ? (<div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
-
-
-                            {/* Identity & Contact Consolidation */}
-                            <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                    <i className="fas fa-user-circle" style={{ color: '#3b82f6' }}></i> Identity Details
-                                </h3>
-
-                                <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr 1fr', gap: '20px', marginBottom: '24px' }}>
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Title</label>
-                                        <select
-                                            value={formData.title}
-                                            onChange={(e) => handleInputChange('title', e.target.value)}
-                                            style={customSelectStyle}
-                                        >
-                                            <option value="">Select</option>
-                                            {titleOptions.map(opt => (
-                                                <option key={typeof opt === 'object' ? (opt._id || opt.id) : opt} value={typeof opt === 'object' ? (opt._id || opt.id) : opt}>
-                                                    {renderValue(opt)}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div style={{ position: 'relative' }}>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>First Name <span style={{ color: '#ef4444' }}>*</span></label>
-                                        <input
-                                            type="text"
-                                            value={formData.name}
-                                            onChange={(e) => handleInputChange('name', e.target.value)}
-                                            placeholder="Enter first name"
-                                            autoComplete="off"
-                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Last Name</label>
-                                        <input
-                                            type="text"
-                                            value={formData.surname}
-                                            onChange={(e) => handleInputChange('surname', e.target.value)}
-                                            placeholder="Enter last name"
-                                            autoComplete="off"
-                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
-                                        />
-                                    </div>
-                                    {(!showOnlyRequired && entityType !== 'lead') && (
-                                        <div style={{ gridColumn: '1 / -1' }}>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Father/Husband Name</label>
-                                            <input
-                                                type="text"
-                                                value={formData.fatherName}
-                                                onChange={(e) => handleInputChange('fatherName', e.target.value)}
-                                                placeholder="Enter father or husband's name"
-                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
-                                            />
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Phones */}
-                                <div style={{ marginBottom: '24px' }}>
-                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '12px' }}>Mobile Numbers <span style={{ color: '#ef4444' }}>*</span></label>
-                                    {formData.phones.map((phone, index) => (
-                                        <div key={index} style={{ display: 'grid', gridTemplateColumns: '100px 1fr 100px 40px', gap: '8px', marginBottom: '12px' }}>
-                                            <select
-                                                value={formData.countryCode}
-                                                onChange={(e) => handleInputChange('countryCode', e.target.value)}
-                                                style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#f8fafc', fontSize: '0.9rem', color: '#475569' }}
-                                            >
-                                                {countryCodeOptions?.length > 0
-                                                    ? countryCodeOptions.map(c => <option key={c._id} value={renderValue(c)}>{renderValue(c)}</option>)
-                                                    : COUNTRY_CODES.map(c => <option key={c.code} value={c.dial_code}>{c.dial_code} ({c.code})</option>)
-                                                }
-                                            </select>
-                                            <input
-                                                type="tel"
-                                                value={phone.number}
-                                                onChange={(e) => {
-                                                    const newPhones = [...formData.phones];
-                                                    newPhones[index].number = e.target.value;
-                                                    handleInputChange('phones', newPhones);
-                                                }}
-                                                placeholder="Enter mobile number"
-                                                autoComplete="off"
-                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
-                                            />
-                                            <select
-                                                value={phone.type}
-                                                onChange={(e) => {
-                                                    const newPhones = [...formData.phones];
-                                                    newPhones[index].type = e.target.value;
-                                                    handleInputChange('phones', newPhones);
-                                                }}
-                                                style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', color: '#475569' }}
-                                            >
-                                                <option value="Personal">Personal</option>
-                                                <option value="Work">Work</option>
-                                                <option value="Home">Home</option>
-                                            </select>
-                                            <button type="button" onClick={() => {
-                                                if (index === 0) handleInputChange('phones', [...formData.phones, { number: '', type: 'Personal' }]);
-                                                else {
-                                                    const newPhones = formData.phones.filter((_, i) => i !== index);
-                                                    handleInputChange('phones', newPhones);
-                                                }
-                                            }} style={{ borderRadius: '6px', border: 'none', background: index === 0 ? '#eff6ff' : '#fef2f2', color: index === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                <i className={`fas ${index === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                {/* Emails */}
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '12px' }}>Email Addresses</label>
-                                    {formData.emails.map((email, index) => (
-                                        <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr minmax(100px, 120px) 40px', gap: '12px', marginBottom: '12px' }}>
-                                            <input
-                                                type="email"
-                                                value={email.address}
-                                                onChange={(e) => {
-                                                    const newEmails = [...formData.emails];
-                                                    newEmails[index].address = e.target.value;
-                                                    handleInputChange('emails', newEmails);
-                                                }}
-                                                placeholder="Enter email address"
-                                                autoComplete="off"
-                                                style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
-                                            />
-                                            <select
-                                                value={email.type}
-                                                onChange={(e) => {
-                                                    const newEmails = [...formData.emails];
-                                                    newEmails[index].type = e.target.value;
-                                                    handleInputChange('emails', newEmails);
-                                                }}
-                                                style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', color: '#475569' }}
-                                            >
-                                                <option value="Personal">Personal</option>
-                                                <option value="Work">Work</option>
-                                            </select>
-                                            <button type="button" onClick={() => {
-                                                if (index === 0) handleInputChange('emails', [...formData.emails, { address: '', type: 'Personal' }]);
-                                                else {
-                                                    const newEmails = formData.emails.filter((_, i) => i !== index);
-                                                    handleInputChange('emails', newEmails);
-                                                }
-                                            }} style={{ borderRadius: '6px', border: 'none', background: index === 0 ? '#eff6ff' : '#fef2f2', color: index === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                <i className={`fas ${index === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-
-
-                            {!showOnlyRequired && (
-                                <>
-                                    {/* Campaign & Source (Dynamic Hierarchy) */}
-                                    <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                        <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                            <i className="fas fa-bullhorn" style={{ color: '#f59e0b' }}></i> Campaign & Source
-                                        </h3>
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '20px' }}>
-                                            {/* Campaign */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Campaign Name</label>
-                                                <select
-                                                    value={formData.campaign}
-                                                    onChange={(e) => {
-                                                        handleInputChange('campaign', e.target.value);
-                                                        handleInputChange('source', '');
-                                                        handleInputChange('subSource', '');
-                                                    }}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Campaign</option>
-                                                    {(leadMasterFields?.campaigns || []).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                                                </select>
-                                            </div>
-
-                                            {/* Source */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
-                                                <select
-                                                    value={formData.source}
-                                                    onChange={(e) => {
-                                                        handleInputChange('source', e.target.value);
-                                                        handleInputChange('subSource', '');
-                                                    }}
-                                                    disabled={!formData.campaign}
-                                                    style={!formData.campaign ? customSelectStyleDisabled : customSelectStyle}
-                                                >
-                                                    <option value="">Select Source</option>
-                                                    {(() => {
-                                                        const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign);
-                                                        return (selectedCamp?.sources || []).map(s => <option key={s.name} value={s.name}>{s.name}</option>);
-                                                    })()}
-                                                </select>
-                                            </div>
-
-                                            {/* Medium */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Medium</label>
-                                                <select
-                                                    value={formData.subSource}
-                                                    onChange={(e) => handleInputChange('subSource', e.target.value)}
-                                                    disabled={!formData.source}
-                                                    style={!formData.source ? customSelectStyleDisabled : customSelectStyle}
-                                                >
-                                                    <option value="">Select Medium</option>
-                                                    {(() => {
-                                                        const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign);
-                                                        const selectedSrc = (selectedCamp?.sources || []).find(s => s.name === formData.source);
-                                                        return (selectedSrc?.mediums || []).map(m => <option key={m} value={m}>{m}</option>);
-                                                    })()}
-                                                </select>
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Tags</label>
-                                            <div style={{
-                                                width: '100%',
-                                                padding: '6px 12px',
-                                                borderRadius: '6px',
-                                                border: '1px solid #cbd5e1',
-                                                background: '#fff',
-                                                display: 'flex',
-                                                flexWrap: 'wrap',
-                                                gap: '6px',
-                                                alignItems: 'center',
-                                                minHeight: '42px'
-                                            }}>
-                                                {formData.tags.map((tag, index) => (
-                                                    <div key={index} style={{
-                                                        background: '#eff6ff',
-                                                        color: '#3b82f6',
-                                                        padding: '4px 10px',
-                                                        borderRadius: '16px',
-                                                        fontSize: '0.8rem',
-                                                        fontWeight: 500,
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '6px'
-                                                    }}>
-                                                        {tag}
-                                                        <span
-                                                            onClick={() => handleInputChange('tags', formData.tags.filter((_, i) => i !== index))}
-                                                            style={{ cursor: 'pointer', fontSize: '1rem', lineHeight: '0.8' }}
-                                                        >&times;</span>
-                                                    </div>
-                                                ))}
-                                                <input
-                                                    type="text"
-                                                    placeholder={formData.tags.length === 0 ? "Add tags (Press Enter)" : ""}
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Enter' && e.target.value.trim()) {
-                                                            e.preventDefault();
-                                                            if (!formData.tags.includes(e.target.value.trim())) {
-                                                                handleInputChange('tags', [...formData.tags, e.target.value.trim()]);
-                                                            }
-                                                            e.target.value = '';
-                                                        } else if (e.key === 'Backspace' && !e.target.value && formData.tags.length > 0) {
-                                                            handleInputChange('tags', formData.tags.slice(0, -1));
-                                                        }
-                                                    }}
-                                                    style={{
-                                                        border: 'none',
-                                                        outline: 'none',
-                                                        fontSize: '0.9rem',
-                                                        color: '#1e293b',
-                                                        flex: 1,
-                                                        minWidth: '120px'
-                                                    }}
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-                                </>
-                            )}
-
-                            {/* Professional Details Card */}
-
-
-                            {/* System Assignment Card */}
-                            <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                    <i className="fas fa-sliders-h" style={{ color: '#64748b' }}></i> System Assignment
-                                </h3>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Team <span style={{ color: '#ef4444' }}>*</span></label>
-
-                                        <select
-                                            value={formData.team}
-                                            onChange={(e) => {
-                                                const newTeam = e.target.value;
-                                                setFormData(prev => ({
-                                                    ...prev,
-                                                    team: newTeam,
-                                                    owner: '' // Reset owner when team changes
-                                                }));
-                                            }}
-                                            style={customSelectStyle}
-                                        >
-                                            <option value="">Select Team</option>
-                                            {teams?.map(team => (
-                                                <option key={team._id} value={team._id}>{team.name}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Assign <span style={{ color: '#ef4444' }}>*</span></label>
-
-                                        <select
-                                            value={formData.owner}
-                                            onChange={(e) => handleInputChange('owner', e.target.value)}
-                                            style={customSelectStyle}
-                                        >
-                                            <option value="">Select Owner</option>
-                                            {/* Filter users based on selected team */}
-                                            {users
-                                                .filter(user => !formData.team || (user.team && user.team === formData.team) || (user.team?._id === formData.team))
-                                                .map(user => (
-                                                    <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
-                                                ))
-                                            }
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Visibility <span style={{ color: '#ef4444' }}>*</span></label>
-
-                                        <select
-                                            value={formData.visibleTo}
-                                            onChange={(e) => handleInputChange('visibleTo', e.target.value)}
-                                            style={customSelectStyle}
-                                        >
-                                            <option value="">Select Visibility</option>
-                                            <option value="Private">Private</option>
-                                            <option value="Team">Team</option>
-                                            <option value="Everyone">Everyone</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Description Card */}
-                            <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                                <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                    <i className="fas fa-sticky-note" style={{ color: '#8b5cf6' }}></i> Notes & Description
-                                </h3>
-                                <textarea
-                                    value={formData.description}
-                                    onChange={(e) => handleInputChange('description', e.target.value)}
-                                    placeholder="Enter any additional notes or comments..."
-                                    style={{
-                                        width: '100%',
-                                        minHeight: '100px',
-                                        padding: '12px',
-                                        borderRadius: '8px',
-                                        border: '1px solid #cbd5e1',
-                                        fontSize: '0.9rem',
-                                        outline: 'none',
-                                        color: '#1e293b',
-                                        resize: 'vertical',
-                                        fontFamily: 'inherit'
-                                    }}
-                                />
-                            </div>
-                        </div>
+                        ) : currentTab === 'basic' ? (
+                            <BasicDetailsSection
+                                formData={formData}
+                                handleInputChange={handleInputChange}
+                                titleOptions={titleOptions}
+                                countryCodeOptions={countryCodeOptions}
+                                COUNTRY_CODES={COUNTRY_CODES}
+                                leadMasterFields={leadMasterFields}
+                                entityType={entityType}
+                                showOnlyRequired={showOnlyRequired}
+                                customSelectStyle={customSelectStyle}
+                                customSelectStyleDisabled={customSelectStyleDisabled}
+                                renderValue={renderValue}
+                            />
+                        ) : currentTab === 'system' ? (
+                            <SystemSection
+                                formData={formData}
+                                handleInputChange={handleInputChange}
+                                users={users}
+                                teams={teams}
+                                customSelectStyle={customSelectStyle}
+                            />
                         ) : currentTab === 'requirement' ? (
-                            <div className="no-scrollbar" style={{ padding: '4px' }}>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-
-                                    <div style={sectionCardStyle}>
-                                        <h4 style={labelStyle}>Requirement Type</h4>
-                                        <AnimatedSegmentControl
-                                            options={['Buy', 'Rent', 'Lease']}
-                                            value={formData.requirement}
-                                            onChange={(val) => handleInputChange('requirement', val)}
-                                        />
-                                    </div>
-
-
-                                    {/* Property Category */}
-                                    <div style={sectionCardStyle}>
-                                        <h4 style={labelStyle}>Property Category</h4>
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))', gap: '8px' }}> {/* Reduced grid gap and min-width */}
-                                            {(propertyConfig && Object.keys(propertyConfig).length > 0 ? Object.keys(propertyConfig) : ['Residential', 'Commercial', 'Industrial', 'Agricultural', 'Institutional']).map(catLabel => {
-                                                const iconMap = {
-                                                    'Residential': 'fa-home',
-                                                    'Commercial': 'fa-building',
-                                                    'Industrial': 'fa-industry',
-                                                    'Agricultural': 'fa-seedling',
-                                                    'Institutional': 'fa-university'
-                                                };
-                                                const icon = iconMap[catLabel] || 'fa-tag';
-                                                
-                                                return (
-                                                    <button
-                                                        key={catLabel}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const newCats = formData.propertyType.includes(catLabel)
-                                                                ? formData.propertyType.filter(c => c !== catLabel)
-                                                                : [...formData.propertyType, catLabel];
-                                                            handleInputChange('propertyType', newCats);
-                                                        }}
-                                                        style={{
-                                                            padding: '6px',
-                                                            borderRadius: '8px',
-                                                            border: formData.propertyType.includes(catLabel) ? '1px solid #3b82f6' : '1px solid #e2e8f0',
-                                                            background: formData.propertyType.includes(catLabel) ? '#eff6ff' : '#fff',
-                                                            color: formData.propertyType.includes(catLabel) ? '#2563eb' : '#64748b',
-                                                            display: 'flex',
-                                                            flexDirection: 'column',
-                                                            alignItems: 'center',
-                                                            gap: '4px',
-                                                            cursor: 'pointer',
-                                                            transition: 'all 0.2s',
-                                                            height: '100%'
-                                                        }}
-                                                    >
-                                                        <i className={`fas ${icon}`} style={{ fontSize: '0.9rem' }}></i>
-                                                        <span style={{ fontSize: '0.75rem', fontWeight: 600, textAlign: 'center' }}>{catLabel}</span>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-
-                                    {/* Sub Categories */}
-                                    {formData.propertyType.length > 0 && (
-                                        <div style={sectionCardStyle}>
-                                            <h4 style={labelStyle}>Property Sub-Category</h4>
-                                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                                {Array.from(new Set(formData.propertyType.flatMap(cat => propertyConfig[cat]?.subCategories.map(sub => sub.name) || []))).map(sub => (
-                                                    <button
-                                                        key={sub}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const newSubs = formData.subType.includes(sub)
-                                                                ? formData.subType.filter(s => s !== sub)
-                                                                : [...formData.subType, sub];
-                                                            handleInputChange('subType', newSubs);
-                                                        }}
-                                                        style={{
-                                                            padding: '6px 14px',
-                                                            borderRadius: '20px',
-                                                            border: formData.subType.includes(sub) ? '1px solid #6366f1' : '1px solid #e2e8f0',
-                                                            background: formData.subType.includes(sub) ? '#eef2ff' : '#fff',
-                                                            color: formData.subType.includes(sub) ? '#4f46e5' : '#64748b',
-                                                            fontSize: '0.85rem',
-                                                            cursor: 'pointer',
-                                                            fontWeight: formData.subType.includes(sub) ? 500 : 400,
-                                                            transition: 'all 0.2s'
-                                                        }}
-                                                    >
-                                                        {sub}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Area Range and Size Type */}
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                        <div style={sectionCardStyle}>
-                                            <h4 style={labelStyle}>Area Range</h4>
-                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                <input
-                                                    type="text"
-                                                    value={formData.areaMin}
-                                                    onChange={(e) => handleInputChange('areaMin', e.target.value)}
-                                                    placeholder="Min"
-                                                    style={{ ...inputStyle, minWidth: '0', flex: 1 }} // Allow shrink
-                                                />
-                                                <span style={{ color: '#94a3b8' }}>-</span>
-                                                <input
-                                                    type="text"
-                                                    value={formData.areaMax}
-                                                    onChange={(e) => handleInputChange('areaMax', e.target.value)}
-                                                    placeholder="Max"
-                                                    style={{ ...inputStyle, minWidth: '0', flex: 1 }} // Allow shrink
-                                                />
-                                                <div style={{ width: '130px', flexShrink: 0 }}> {/* Adjusted width */}
-                                                    <select
-                                                        value={formData.areaMetric}
-                                                        onChange={(e) => handleInputChange('areaMetric', e.target.value)}
-                                                        style={{ ...inputStyle, paddingRight: '4px' }}
-                                                    >
-                                                        <option value="Sq Yard">Sq Yard</option>
-                                                        <option value="Sq Feet">Sq Feet</option>
-                                                        <option value="Sq Meter">Sq Meter</option>
-                                                        <option value="Marla">Marla</option>
-                                                        <option value="Kanal">Kanal</option>
-                                                        <option value="Acre">Acre</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div style={sectionCardStyle}>
-                                            <h4 style={labelStyle}>Size Type</h4>
-                                            <CustomMultiSelect
-                                                options={(() => {
-                                                    // Dynamic Size Types based on selected Sub-Categories
-                                                    if (formData.subType.length === 0) return [];
-
-                                                    const allRawTypes = formData.subType.flatMap(subName => {
-                                                        // Find the subcategory object across all categories
-                                                        for (const cat of Object.values(propertyConfig)) {
-                                                            const foundSub = cat.subCategories.find(s => s.name === subName);
-                                                            if (foundSub) {
-                                                                // Extract names from object-based types
-                                                                return foundSub.types.map(t => typeof t === 'string' ? t : t.name) || [];
-                                                            }
-                                                        }
-                                                        return [];
-                                                    });
-
-                                                    return Array.from(new Set(allRawTypes)).sort();
-                                                })()}
-                                                value={formData.unitType}
-                                                onChange={(val) => handleInputChange('unitType', val)}
-                                                placeholder={formData.subType.length > 0 ? "Select Size Types" : "Select Sub-Category First"}
-                                                disabled={formData.subType.length === 0}
-                                            />
-                                        </div>
-                                    </div>
-
-                                    {/* Transaction Details */}
-                                    <div style={{ background: '#f0f9ff', padding: '16px', borderRadius: '8px', border: '1px solid #bae6fd' }}>
-                                        <h4 style={{ ...labelStyle, color: '#0369a1', marginBottom: '16px' }}>Transaction Preferences</h4>
-
-                                        {/* Row 1: Budget Range */}
-                                        <div style={{ marginBottom: '20px' }}>
-                                            <label style={{ fontSize: '0.85rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>
-                                                Budget Range <span style={{ color: '#ef4444' }}>*</span>
-                                            </label>
-                                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                                <select
-                                                    value={formData.budgetMin}
-                                                    onChange={(e) => {
-                                                        const newVal = e.target.value;
-                                                        handleInputChange('budgetMin', newVal);
-                                                        if (formData.budgetMax && Number(formData.budgetMax) <= Number(newVal)) {
-                                                            handleInputChange('budgetMax', '');
-                                                        }
-                                                    }}
-                                                    style={{ ...customSelectStyle, flex: 1 }}
-                                                >
-                                                    <option value="">Min</option>
-                                                    {BUDGET_VALUES.map((opt) => (
-                                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                                    ))}
-                                                </select>
-
-                                                <span style={{ color: '#94a3b8', fontWeight: 600 }}>-</span>
-
-                                                <select
-                                                    value={formData.budgetMax}
-                                                    onChange={(e) => handleInputChange('budgetMax', e.target.value)}
-                                                    style={{ ...customSelectStyle, flex: 1 }}
-                                                    disabled={!formData.budgetMin}
-                                                >
-                                                    <option value="">Max</option>
-                                                    {BUDGET_VALUES
-                                                        .filter(opt => !formData.budgetMin || opt.value > Number(formData.budgetMin))
-                                                        .map((opt) => (
-                                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                                        ))
-                                                    }
-                                                </select>
-                                            </div>
-                                        </div>
-
-                                        {/* Row 2: Transaction Type & Funding */}
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', alignItems: 'start' }}>
-                                            <div>
-                                                <label style={{ fontSize: '0.8rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>Transaction Type</label>
-                                                <select
-                                                    value={formData.transactionType}
-                                                    onChange={(e) => handleInputChange('transactionType', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Type</option>
-                                                    {(leadMasterFields?.transactionTypes || []).map(type => (
-                                                        <option key={type} value={type}>{type}</option>
-                                                    ))}
-                                                </select>
-
-                                                {/* Percentage Input for Flexible */}
-                                                {formData.transactionType === 'Flexible' && (
-                                                    <div style={{ marginTop: '12px' }}>
-                                                        <label style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px', display: 'block' }}>White Portion (%)</label>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                            <input
-                                                                type="range"
-                                                                min="0"
-                                                                max="100"
-                                                                step="5"
-                                                                value={formData.whitePortion || 50}
-                                                                onChange={(e) => handleInputChange('whitePortion', e.target.value)}
-                                                                style={{ flex: 1, accentColor: '#3b82f6' }}
-                                                            />
-                                                            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#3b82f6', width: '40px', textAlign: 'right' }}>
-                                                                {formData.whitePortion || 50}%
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Funding */}
-                                            <div>
-                                                <label style={{ fontSize: '0.8rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>Funding</label>
-                                                <select
-                                                    value={formData.funding}
-                                                    onChange={(e) => handleInputChange('funding', e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Funding</option>
-                                                    {(leadMasterFields?.fundingTypes || []).map(fund => (
-                                                        <option key={fund} value={fund}>{fund}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Other Specifics Grid */}
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '16px' }}>
-                                        <div>
-                                            <h4 style={labelStyle}>Furnishing</h4>
-                                            <select
-                                                value={formData.furnishing}
-                                                onChange={(e) => handleInputChange('furnishing', e.target.value)}
-                                                style={customSelectStyle}
-                                            >
-                                                <option value="">Any</option>
-                                                {(leadMasterFields?.furnishingStatuses || []).map(status => (
-                                                    <option key={status} value={status}>{status}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <h4 style={labelStyle}>Timeline</h4>
-                                            <select
-                                                value={formData.timeline}
-                                                onChange={(e) => handleInputChange('timeline', e.target.value)}
-                                                style={customSelectStyle}
-                                            >
-                                                <option value="">Any</option>
-                                                {(leadMasterFields?.timelines || []).map(time => (
-                                                    <option key={time} value={time}>{time}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    <div style={{ marginTop: '16px' }}>
-                                        <label style={{ fontSize: '0.8rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>Send Matched Deals via</label>
-                                        <CustomMultiSelect
-                                            options={['WhatsApp', 'Message', 'RCS Message', 'Mail']}
-                                            value={formData.sendMatchedDeal}
-                                            onChange={(val) => handleInputChange('sendMatchedDeal', val)}
-                                            placeholder="Select Channels"
-                                        />
-                                    </div>
-
-
-                                </div>
-                            </div>
-
+                            <RequirementSection
+                                formData={formData}
+                                handleInputChange={handleInputChange}
+                                sectionCardStyle={sectionCardStyle}
+                                labelStyle={labelStyle}
+                                propertyConfig={propertyConfig}
+                                inputStyle={inputStyle}
+                                BUDGET_VALUES={BUDGET_VALUES}
+                                leadMasterFields={leadMasterFields}
+                                customSelectStyle={customSelectStyle}
+                                CustomMultiSelect={CustomMultiSelect}
+                                AnimatedSegmentControl={AnimatedSegmentControl}
+                            />
                         ) : currentTab === 'location' ? (
-
-                            <div className="no-scrollbar">
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-
-                                    {/* Toggle Mode */}
-                                    <div style={{ display: 'flex', justifyContent: 'center' }}>
-                                        <div style={{ background: '#f8fafc', padding: '4px', borderRadius: '12px', display: 'flex', gap: '8px', border: '1px solid #e2e8f0' }}>
-                                            <button
-                                                type="button"
-                                                onClick={() => setLocationTab('search')}
-                                                style={{
-                                                    padding: '10px 24px',
-                                                    borderRadius: '8px',
-                                                    border: locationTab === 'search' ? '1px solid #3b82f6' : '1px solid transparent',
-                                                    background: locationTab === 'search' ? '#eff6ff' : 'transparent',
-                                                    color: locationTab === 'search' ? '#2563eb' : '#64748b',
-                                                    fontWeight: 600,
-                                                    boxShadow: locationTab === 'search' ? '0 1px 2px rgba(59, 130, 246, 0.1)' : 'none',
-                                                    cursor: 'pointer',
-                                                    transition: 'all 0.2s',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '8px',
-                                                    fontSize: '0.9rem'
-                                                }}
-                                            >
-                                                <i className="fas fa-map-marker-alt"></i>
-                                                Search Location
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setLocationTab('select')}
-                                                style={{
-                                                    padding: '10px 24px',
-                                                    borderRadius: '8px',
-                                                    border: locationTab === 'select' ? '1px solid #3b82f6' : '1px solid transparent',
-                                                    background: locationTab === 'select' ? '#eff6ff' : 'transparent',
-                                                    color: locationTab === 'select' ? '#2563eb' : '#64748b',
-                                                    fontWeight: 600,
-                                                    boxShadow: locationTab === 'select' ? '0 1px 2px rgba(59, 130, 246, 0.1)' : 'none',
-                                                    cursor: 'pointer',
-                                                    transition: 'all 0.2s',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '8px',
-                                                    fontSize: '0.9rem'
-                                                }}
-                                            >
-                                                <i className="fas fa-building"></i>
-                                                Select Project
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {locationTab === 'search' ? (
-                                        <div style={sectionCardStyle}>
-                                            <h4 style={labelStyle}>Search Location</h4>
-
-                                            {/* Row 1: Search Location (Flex Grow) + Range (Fixed) */}
-                                            <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', alignItems: 'flex-start' }}>
-                                                <div style={{ flex: 1 }}>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Search Location</label>
-                                                    <input
-                                                        ref={searchInputRef}
-                                                        type="text"
-                                                        value={formData.searchLocation}
-                                                        onChange={(e) => handleInputChange('searchLocation', e.target.value)}
-                                                        placeholder="Search area, city or landmark..."
-                                                        style={{ ...inputStyle, paddingLeft: '32px', backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%2394a3b8\' stroke-width=\'2\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' d=\'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z\' /%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: '10px center', backgroundSize: '16px' }}
-                                                    />
-                                                </div>
-                                                <div style={{ width: '140px' }}>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Range</label>
-                                                    <select
-                                                        value={formData.range}
-                                                        onChange={(e) => handleInputChange('range', e.target.value)}
-                                                        style={customSelectStyle}
-                                                    >
-                                                        <option value="0 km">Exact</option>
-                                                        <option value="Within 1 km">0-1 km</option>
-                                                        <option value="Within 2 km">0-2 km</option>
-                                                        <option value="Within 5 km">0-5 km</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-
-                                            {/* Row 2: Street/Road/Landmark Address (New Field) */}
-                                            <div style={{ marginBottom: '20px' }}>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Street/Road/Landmark Address</label>
-                                                <input
-                                                    type="text"
-                                                    value={formData.streetAddress}
-                                                    onChange={(e) => handleInputChange('streetAddress', e.target.value)}
-                                                    placeholder="Enter street name, road no, or landmark"
-                                                    style={inputStyle}
-                                                />
-                                            </div>
-
-                                            {/* Row 3: Location/Sector & Area (Equal Size) */}
-                                            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '20px', marginBottom: '20px' }}>
-                                                <div>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Location/Sector</label>
-                                                    <input type="text" value={formData.locArea} onChange={(e) => handleInputChange('locArea', e.target.value)} style={inputStyle} />
-                                                </div>
-                                                <div>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Area</label>
-                                                    <input
-                                                        ref={areaInputRef}
-                                                        type="text"
-                                                        value={formData.areaSearch}
-                                                        onChange={(e) => handleInputChange('areaSearch', e.target.value)}
-                                                        placeholder="Search area..."
-                                                        style={inputStyle}
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            {/* Row 4: City, State, Pin Code (Equal Size) */}
-                                            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', gap: '20px' }}>
-                                                <div>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>City</label>
-                                                    <input type="text" value={formData.locCity} onChange={(e) => handleInputChange('locCity', e.target.value)} style={inputStyle} />
-                                                </div>
-                                                <div>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>State</label>
-                                                    <input type="text" value={formData.locState} onChange={(e) => handleInputChange('locState', e.target.value)} style={inputStyle} />
-                                                </div>
-                                                <div>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Pin Code</label>
-                                                    <input type="text" value={formData.locPinCode} onChange={(e) => handleInputChange('locPinCode', e.target.value)} style={inputStyle} />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div style={sectionCardStyle}>
-                                            <h4 style={labelStyle}>Select Project</h4>
-
-                                            {/* City Selection (Single) */}
-                                            <div style={{ marginBottom: '20px' }}>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>City</label>
-                                                <select
-                                                    value={formData.projectCity}
-                                                    onChange={(e) => handleProjectCityChange(e.target.value)}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select City</option>
-                                                    {cities.map(city => (
-                                                        <option key={city} value={city}>{city}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-
-                                            {/* Project Selection (Multi, Dependent on City) */}
-                                            <div style={{ marginBottom: '20px' }}>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Project Name</label>
-                                                <CustomMultiSelect
-                                                    options={availableProjects}
-                                                    value={formData.projectName}
-                                                    onChange={handleProjectSelectionChange}
-                                                    placeholder={formData.projectCity ? "Select Projects" : "Select City First"}
-                                                    disabled={!formData.projectCity}
-                                                />
-                                            </div>
-
-                                            {/* Block/Tower Selection (Multi, Dependent on Project) */}
-                                            <div style={{ marginBottom: '20px' }}>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Block/Tower</label>
-                                                <CustomMultiSelect
-                                                    options={availableTowers}
-                                                    value={formData.projectTowers}
-                                                    onChange={(val) => handleInputChange('projectTowers', val)} // Simple update
-                                                    placeholder={formData.projectName.length > 0 ? "Select Towers" : "Select Project First"}
-                                                    disabled={formData.projectName.length === 0}
-                                                />
-                                            </div>
-
-                                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'spaceBetween', alignItems: 'center', marginBottom: '16px' }}>
-                                                    <h5 style={{ margin: 0, fontSize: '0.9rem', color: '#334155' }}>Specific Units</h5>
-                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#64748b', cursor: 'pointer' }}>
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={showSpecificUnit}
-                                                            onChange={(e) => setShowSpecificUnit(e.target.checked)}
-                                                        />
-                                                        I have specific unit numbers
-                                                    </label>
-                                                </div>
-
-                                                {showSpecificUnit && (
-                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Unit Type</label>
-                                                            <select
-                                                                value={formData.specificUnitType}
-                                                                onChange={(e) => handleInputChange('specificUnitType', e.target.value)}
-                                                                style={customSelectStyle}
-                                                            >
-                                                                <option value="single">Single Unit</option>
-                                                                <option value="row">Row/Multiple</option>
-                                                            </select>
-                                                        </div>
-                                                        <div>
-                                                            <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Unit No. (Start)</label>
-                                                            <input
-                                                                type="text"
-                                                                value={formData.propertyNo}
-                                                                onChange={(e) => handleInputChange('propertyNo', e.target.value)}
-                                                                placeholder="e.g. 101"
-                                                                style={inputStyle}
-                                                            />
-                                                        </div>
-                                                        {formData.specificUnitType === 'row' && (
-                                                            <div>
-                                                                <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Unit No. (End)</label>
-                                                                <input
-                                                                    type="text"
-                                                                    value={formData.propertyNoEnd}
-                                                                    onChange={(e) => handleInputChange('propertyNoEnd', e.target.value)}
-                                                                    placeholder="e.g. 110"
-                                                                    style={inputStyle}
-                                                                />
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    <div style={sectionCardStyle}>
-                                        <h4 style={labelStyle}>Orientation & Placement</h4>
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '20px' }}>
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Facing</label>
-                                                <CustomMultiSelect
-                                                    options={masterFields.facings || []} // Use from Context
-                                                    value={formData.facing}
-                                                    onChange={(val) => handleInputChange('facing', val)}
-                                                    placeholder="Select Facing"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Road Width</label>
-                                                <CustomMultiSelect
-                                                    options={masterFields.roadWidths || []} // Use from Context
-                                                    value={formData.roadWidth}
-                                                    onChange={(val) => handleInputChange('roadWidth', val)}
-                                                    placeholder="Select Width"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Direction</label>
-                                                <CustomMultiSelect
-                                                    options={masterFields.directions || []} // Use from Context
-                                                    value={formData.direction || []}
-                                                    onChange={(val) => handleInputChange('direction', val)}
-                                                    placeholder="Select Direction"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Unit Type</label>
-                                                <CustomMultiSelect
-                                                    options={masterFields.unitTypes || []} // Use from Context
-                                                    value={formData.propertyUnitType || []}
-                                                    onChange={(val) => handleInputChange('propertyUnitType', val)}
-                                                    placeholder="Select Unit Type"
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Campaign Details (Moved from Basic Info) */}
-                                    <div style={sectionCardStyle}>
-                                        <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                                            <i className="fas fa-bullhorn" style={{ color: '#f59e0b' }}></i> Campaign Details
-                                        </h3>
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
-                                            {/* Campaign - Level 1 */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Campaign Name</label>
-                                                <select
-                                                    value={formData.campaign}
-                                                    onChange={(e) => {
-                                                        handleInputChange('campaign', e.target.value);
-                                                        handleInputChange('source', '');
-                                                        handleInputChange('subSource', '');
-                                                    }}
-                                                    style={customSelectStyle}
-                                                >
-                                                    <option value="">Select Campaign</option>
-                                                    {(leadMasterFields?.campaigns || []).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                                                </select>
-                                            </div>
-
-                                            {/* Source - Level 2 */}
-                                            {!hiddenFields.includes('source') && (
-                                                <div>
-                                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
-                                                    <select
-                                                        value={formData.source}
-                                                        onChange={(e) => {
-                                                            handleInputChange('source', e.target.value);
-                                                            handleInputChange('subSource', '');
-                                                        }}
-                                                        disabled={!formData.campaign}
-                                                        style={!formData.campaign ? customSelectStyleDisabled : customSelectStyle}
-                                                    >
-                                                        <option value="">Select Source</option>
-                                                        {(() => {
-                                                            const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign);
-                                                            return (selectedCamp?.sources || []).map(s => <option key={s.name} value={s.name}>{s.name}</option>);
-                                                        })()}
-                                                    </select>
-                                                </div>
-                                            )}
-
-                                            {/* Medium - Level 3 */}
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Medium</label>
-                                                <select
-                                                    value={formData.subSource}
-                                                    onChange={(e) => handleInputChange('subSource', e.target.value)}
-                                                    disabled={!formData.source}
-                                                    style={!formData.source ? customSelectStyleDisabled : customSelectStyle}
-                                                >
-                                                    <option value="">Select Medium</option>
-                                                    {(() => {
-                                                        const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign);
-                                                        const selectedSrc = (selectedCamp?.sources || []).find(s => s.name === formData.source);
-                                                        return (selectedSrc?.mediums || []).map(m => <option key={m} value={m}>{m}</option>);
-                                                    })()}
-                                                </select>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        ) : null
-                        }
+                            <LocationSection
+                                formData={formData}
+                                handleInputChange={handleInputChange}
+                                sectionCardStyle={sectionCardStyle}
+                                labelStyle={labelStyle}
+                                inputStyle={inputStyle}
+                                customSelectStyle={customSelectStyle}
+                                customSelectStyleDisabled={customSelectStyleDisabled}
+                                locationTab={locationTab}
+                                setLocationTab={setLocationTab}
+                                searchInputRef={searchInputRef}
+                                areaInputRef={areaInputRef}
+                                handleProjectCityChange={handleProjectCityChange}
+                                cities={cities}
+                                masterFields={masterFields}
+                                leadMasterFields={leadMasterFields}
+                                CustomMultiSelect={CustomMultiSelect}
+                                availableProjects={availableProjects}
+                                handleProjectSelectionChange={handleProjectSelectionChange}
+                                availableTowers={availableTowers}
+                                showSpecificUnit={showSpecificUnit}
+                                setShowSpecificUnit={setShowSpecificUnit}
+                                hiddenFields={hiddenFields}
+                            />
+                        ) : null}
 
                     </div >
 
@@ -2770,7 +1744,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                             )}
 
                             {/* Next/Save Button */}
-                            {((entityType === 'lead' && currentTab !== 'basic') || (entityType !== 'lead' && currentTab !== 'other')) && !showOnlyRequired ? (
+                            {((entityType === 'lead' && currentTab !== 'system') || (entityType !== 'lead' && currentTab !== 'basic')) && !showOnlyRequired ? (
                                 <button onClick={handleNext} style={buttonStyle.primary}>Next</button>
                             ) : (
                                 <button
@@ -2804,3 +1778,843 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 };
 
 export default AddLeadModal;
+
+// --- Sub Components for Performance ---
+
+const BasicDetailsSection = React.memo(function BasicDetailsSection({
+    formData,
+    handleInputChange,
+    titleOptions,
+    countryCodeOptions,
+    COUNTRY_CODES,
+    leadMasterFields,
+    entityType,
+    showOnlyRequired,
+    customSelectStyle,
+    customSelectStyleDisabled,
+    renderValue
+}) {
+    return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        {/* Identity & Contact Consolidation */}
+        <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+            <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                <i className="fas fa-user-circle" style={{ color: '#3b82f6' }}></i> Identity Details
+            </h3>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr 1fr', gap: '20px', marginBottom: '24px' }}>
+                <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Title</label>
+                    <select
+                        value={formData.title}
+                        onChange={(e) => handleInputChange('title', e.target.value)}
+                        style={customSelectStyle}
+                    >
+                        <option value="">Select</option>
+                        {titleOptions.map(opt => (
+                            <option key={typeof opt === 'object' ? (opt._id || opt.id) : opt} value={typeof opt === 'object' ? (opt._id || opt.id) : opt}>
+                                {renderValue(opt)}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                <div style={{ position: 'relative' }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>First Name <span style={{ color: '#ef4444' }}>*</span></label>
+                    <input
+                        type="text"
+                        value={formData.name}
+                        onChange={(e) => handleInputChange('name', e.target.value)}
+                        placeholder="Enter first name"
+                        autoComplete="off"
+                        style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
+                    />
+                </div>
+                <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Last Name</label>
+                    <input
+                        type="text"
+                        value={formData.surname}
+                        onChange={(e) => handleInputChange('surname', e.target.value)}
+                        placeholder="Enter last name"
+                        autoComplete="off"
+                        style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
+                    />
+                </div>
+                {(!showOnlyRequired && entityType !== 'lead') && (
+                    <div style={{ gridColumn: '1 / -1' }}>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Father/Husband Name</label>
+                        <input
+                            type="text"
+                            value={formData.fatherName}
+                            onChange={(e) => handleInputChange('fatherName', e.target.value)}
+                            placeholder="Enter father or husband's name"
+                            style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
+                        />
+                    </div>
+                )}
+            </div>
+
+            {/* Phones */}
+            <div style={{ marginBottom: '24px' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '12px' }}>Mobile Numbers <span style={{ color: '#ef4444' }}>*</span></label>
+                {formData.phones.map((phone, index) => (
+                    <div key={index} style={{ display: 'grid', gridTemplateColumns: '100px 1fr 100px 40px', gap: '8px', marginBottom: '12px' }}>
+                        <select
+                            value={formData.countryCode}
+                            onChange={(e) => handleInputChange('countryCode', e.target.value)}
+                            style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#f8fafc', fontSize: '0.9rem', color: '#475569' }}
+                        >
+                            {countryCodeOptions?.length > 0
+                                ? countryCodeOptions.map(c => <option key={c._id} value={renderValue(c)}>{renderValue(c)}</option>)
+                                : COUNTRY_CODES.map(c => <option key={c.code} value={c.dial_code}>{c.dial_code} ({c.code})</option>)
+                            }
+                        </select>
+                        <input
+                            type="tel"
+                            value={phone.number}
+                            onChange={(e) => {
+                                const newPhones = [...formData.phones];
+                                newPhones[index].number = e.target.value;
+                                handleInputChange('phones', newPhones);
+                            }}
+                            placeholder="Enter mobile number"
+                            autoComplete="off"
+                            style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
+                        />
+                        <select
+                            value={phone.type}
+                            onChange={(e) => {
+                                const newPhones = [...formData.phones];
+                                newPhones[index].type = e.target.value;
+                                handleInputChange('phones', newPhones);
+                            }}
+                            style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', color: '#475569' }}
+                        >
+                            <option value="Personal">Personal</option>
+                            <option value="Work">Work</option>
+                            <option value="Home">Home</option>
+                        </select>
+                        <button type="button" onClick={() => {
+                            if (index === 0) handleInputChange('phones', [...formData.phones, { number: '', type: 'Personal' }]);
+                            else {
+                                const newPhones = formData.phones.filter((_, i) => i !== index);
+                                handleInputChange('phones', newPhones);
+                            }
+                        }} style={{ borderRadius: '6px', border: 'none', background: index === 0 ? '#eff6ff' : '#fef2f2', color: index === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <i className={`fas ${index === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
+                        </button>
+                    </div>
+                ))}
+            </div>
+
+            {/* Emails */}
+            <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '12px' }}>Email Addresses</label>
+                {formData.emails.map((email, index) => (
+                    <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr minmax(100px, 120px) 40px', gap: '12px', marginBottom: '12px' }}>
+                        <input
+                            type="email"
+                            value={email.address}
+                            onChange={(e) => {
+                                const newEmails = [...formData.emails];
+                                newEmails[index].address = e.target.value;
+                                handleInputChange('emails', newEmails);
+                            }}
+                            placeholder="Enter email address"
+                            autoComplete="off"
+                            style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' }}
+                        />
+                        <select
+                            value={email.type}
+                            onChange={(e) => {
+                                const newEmails = [...formData.emails];
+                                newEmails[index].type = e.target.value;
+                                handleInputChange('emails', newEmails);
+                            }}
+                            style={{ padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', color: '#475569' }}
+                        >
+                            <option value="Personal">Personal</option>
+                            <option value="Work">Work</option>
+                        </select>
+                        <button type="button" onClick={() => {
+                            if (index === 0) handleInputChange('emails', [...formData.emails, { address: '', type: 'Personal' }]);
+                            else {
+                                const newEmails = formData.emails.filter((_, i) => i !== index);
+                                handleInputChange('emails', newEmails);
+                            }
+                        }} style={{ borderRadius: '6px', border: 'none', background: index === 0 ? '#eff6ff' : '#fef2f2', color: index === 0 ? '#3b82f6' : '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <i className={`fas ${index === 0 ? 'fa-plus' : 'fa-trash'}`}></i>
+                        </button>
+                    </div>
+                ))}
+            </div>
+        </div>
+
+        {!showOnlyRequired && (
+            <>
+                {/* Campaign & Source (Dynamic Hierarchy) */}
+                <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                    <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                        <i className="fas fa-bullhorn" style={{ color: '#f59e0b' }}></i> Campaign & Source
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+                        {/* Campaign */}
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Campaign Name</label>
+                            <select
+                                value={formData.campaign}
+                                onChange={(e) => {
+                                    handleInputChange('campaign', e.target.value);
+                                    handleInputChange('source', '');
+                                    handleInputChange('subSource', '');
+                                }}
+                                style={customSelectStyle}
+                            >
+                                <option value="">Select Campaign</option>
+                                {(leadMasterFields?.campaigns || []).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                            </select>
+                        </div>
+
+                        {/* Source */}
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
+                            <select
+                                value={formData.source}
+                                onChange={(e) => {
+                                    handleInputChange('source', e.target.value);
+                                    handleInputChange('subSource', '');
+                                }}
+                                disabled={!formData.campaign}
+                                style={!formData.campaign ? customSelectStyleDisabled : customSelectStyle}
+                            >
+                                <option value="">Select Source</option>
+                                {(() => {
+                                    const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign);
+                                    return (selectedCamp?.sources || []).map(s => <option key={s.name} value={s.name}>{s.name}</option>);
+                                })()}
+                            </select>
+                        </div>
+
+                        {/* Medium */}
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Medium</label>
+                            <select
+                                value={formData.subSource}
+                                onChange={(e) => handleInputChange('subSource', e.target.value)}
+                                disabled={!formData.source}
+                                style={!formData.source ? customSelectStyleDisabled : customSelectStyle}
+                            >
+                                <option value="">Select Medium</option>
+                                {(() => {
+                                    const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign);
+                                    const selectedSrc = (selectedCamp?.sources || []).find(s => s.name === formData.source);
+                                    return (selectedSrc?.mediums || []).map(m => <option key={m} value={m}>{m}</option>);
+                                })()}
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Tags</label>
+                        <div style={{
+                            width: '100%',
+                            padding: '6px 12px',
+                            borderRadius: '6px',
+                            border: '1px solid #cbd5e1',
+                            background: '#fff',
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: '6px',
+                            alignItems: 'center',
+                            minHeight: '42px'
+                        }}>
+                            {formData.tags.map((tag, index) => (
+                                <div key={index} style={{
+                                    background: '#eff6ff',
+                                    color: '#3b82f6',
+                                    padding: '4px 10px',
+                                    borderRadius: '16px',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 500,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}>
+                                    {tag}
+                                    <span
+                                        onClick={() => handleInputChange('tags', formData.tags.filter((_, i) => i !== index))}
+                                        style={{ cursor: 'pointer', fontSize: '1rem', lineHeight: '0.8' }}
+                                    >&times;</span>
+                                </div>
+                            ))}
+                            <input
+                                type="text"
+                                placeholder={formData.tags.length === 0 ? "Add tags (Press Enter)" : ""}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && e.target.value.trim()) {
+                                        e.preventDefault();
+                                        if (!formData.tags.includes(e.target.value.trim())) {
+                                            handleInputChange('tags', [...formData.tags, e.target.value.trim()]);
+                                        }
+                                        e.target.value = '';
+                                    } else if (e.key === 'Backspace' && !e.target.value && formData.tags.length > 0) {
+                                        handleInputChange('tags', formData.tags.slice(0, -1));
+                                    }
+                                }}
+                                style={{
+                                    border: 'none',
+                                    outline: 'none',
+                                    fontSize: '0.9rem',
+                                    color: '#1e293b',
+                                    flex: 1,
+                                    minWidth: '120px'
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
+            </>
+        )}
+    </div>
+    );
+});
+
+const SystemSection = React.memo(function SystemSection({
+    formData,
+    handleInputChange,
+    users,
+    teams,
+    customSelectStyle
+}) {
+    return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        {/* System Details Grouped */}
+        <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+            <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                <i className="fas fa-cog" style={{ color: '#64748b' }}></i> Assignment & Visibility
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+                <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Assigned Team</label>
+                    <select
+                        value={formData.team}
+                        onChange={(e) => {
+                            handleInputChange('team', e.target.value);
+                            handleInputChange('owner', ''); // Clear owner when team changes
+                        }}
+                        style={customSelectStyle}
+                    >
+                        <option value="">Select Team</option>
+                        {teams.map(team => (
+                            <option key={team._id || team.id} value={team._id || team.id}>{team.name}</option>
+                        ))}
+                    </select>
+                </div>
+                <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Assigned Owner <span style={{ color: '#ef4444' }}>*</span></label>
+                    <select
+                        value={formData.owner}
+                        onChange={(e) => handleInputChange('owner', e.target.value)}
+                        style={customSelectStyle}
+                    >
+                        <option value="">Select Owner</option>
+                        {/* Filter users based on selected team */}
+                        {users
+                            .filter(user => !formData.team || (user.team && user.team === formData.team) || (user.team?._id === formData.team))
+                            .map(user => (
+                                <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
+                            ))
+                        }
+                    </select>
+                </div>
+                <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Visibility <span style={{ color: '#ef4444' }}>*</span></label>
+
+                    <select
+                        value={formData.visibleTo}
+                        onChange={(e) => handleInputChange('visibleTo', e.target.value)}
+                        style={customSelectStyle}
+                    >
+                        <option value="">Select Visibility</option>
+                        <option value="Private">Private</option>
+                        <option value="Team">Team</option>
+                        <option value="Everyone">Everyone</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        {/* Description Card */}
+        <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+            <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                <i className="fas fa-sticky-note" style={{ color: '#8b5cf6' }}></i> Notes & Description
+            </h3>
+            <textarea
+                value={formData.description}
+                onChange={(e) => handleInputChange('description', e.target.value)}
+                placeholder="Enter any additional notes or comments..."
+                style={{
+                    width: '100%',
+                    minHeight: '100px',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.9rem',
+                    outline: 'none',
+                    color: '#1e293b',
+                    resize: 'vertical',
+                    fontFamily: 'inherit'
+                }}
+            />
+        </div>
+    </div>
+    );
+});
+
+const RequirementSection = React.memo(function RequirementSection({
+    formData,
+    handleInputChange,
+    sectionCardStyle,
+    labelStyle,
+    propertyConfig,
+    inputStyle,
+    BUDGET_VALUES,
+    leadMasterFields,
+    customSelectStyle,
+    CustomMultiSelect,
+    AnimatedSegmentControl
+}) {
+    return (
+        <div className="no-scrollbar" style={{ padding: '4px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={sectionCardStyle}>
+                    <h4 style={labelStyle}>Requirement Type</h4>
+                    <AnimatedSegmentControl
+                        options={['Buy', 'Rent', 'Lease']}
+                        value={formData.requirement}
+                        onChange={(val) => handleInputChange('requirement', val)}
+                    />
+                </div>
+
+                <div style={sectionCardStyle}>
+                    <h4 style={labelStyle}>Property Category</h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))', gap: '8px' }}>
+                        {(propertyConfig && Object.keys(propertyConfig).length > 0 ? Object.keys(propertyConfig) : ['Residential', 'Commercial', 'Industrial', 'Agricultural', 'Institutional']).map(catLabel => {
+                            const iconMap = {
+                                'Residential': 'fa-home',
+                                'Commercial': 'fa-building',
+                                'Industrial': 'fa-industry',
+                                'Agricultural': 'fa-seedling',
+                                'Institutional': 'fa-university'
+                            };
+                            return (
+                                <button
+                                    key={catLabel}
+                                    type="button"
+                                    onClick={() => {
+                                        const newCats = formData.propertyType.includes(catLabel)
+                                            ? formData.propertyType.filter(c => c !== catLabel)
+                                            : [...formData.propertyType, catLabel];
+                                        handleInputChange('propertyType', newCats);
+                                    }}
+                                    style={{
+                                        padding: '6px',
+                                        borderRadius: '8px',
+                                        border: formData.propertyType.includes(catLabel) ? '1px solid #3b82f6' : '1px solid #e2e8f0',
+                                        background: formData.propertyType.includes(catLabel) ? '#eff6ff' : '#fff',
+                                        color: formData.propertyType.includes(catLabel) ? '#2563eb' : '#64748b',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s',
+                                        height: '100%'
+                                    }}
+                                >
+                                    <i className={`fas ${iconMap[catLabel] || 'fa-tag'}`} style={{ fontSize: '0.9rem' }}></i>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 600, textAlign: 'center' }}>{catLabel}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {formData.propertyType.length > 0 && (
+                    <div style={sectionCardStyle}>
+                        <h4 style={labelStyle}>Property Sub-Category</h4>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            {Array.from(new Set(formData.propertyType.flatMap(cat => propertyConfig[cat]?.subCategories.map(sub => sub.name) || []))).map(sub => (
+                                <button
+                                    key={sub}
+                                    type="button"
+                                    onClick={() => {
+                                        const newSubs = formData.subType.includes(sub)
+                                            ? formData.subType.filter(s => s !== sub)
+                                            : [...formData.subType, sub];
+                                        handleInputChange('subType', newSubs);
+                                    }}
+                                    style={{
+                                        padding: '6px 14px',
+                                        borderRadius: '20px',
+                                        border: formData.subType.includes(sub) ? '1px solid #6366f1' : '1px solid #e2e8f0',
+                                        background: formData.subType.includes(sub) ? '#eef2ff' : '#fff',
+                                        color: formData.subType.includes(sub) ? '#4f46e5' : '#64748b',
+                                        fontSize: '0.85rem',
+                                        cursor: 'pointer',
+                                        fontWeight: formData.subType.includes(sub) ? 500 : 400,
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    {sub}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div style={sectionCardStyle}>
+                        <h4 style={labelStyle}>Area Range</h4>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <input
+                                type="text"
+                                value={formData.areaMin}
+                                onChange={(e) => handleInputChange('areaMin', e.target.value)}
+                                placeholder="Min"
+                                style={{ ...inputStyle, minWidth: '0', flex: 1 }}
+                            />
+                            <span style={{ color: '#94a3b8' }}>-</span>
+                            <input
+                                type="text"
+                                value={formData.areaMax}
+                                onChange={(e) => handleInputChange('areaMax', e.target.value)}
+                                placeholder="Max"
+                                style={{ ...inputStyle, minWidth: '0', flex: 1 }}
+                            />
+                            <div style={{ width: '130px', flexShrink: 0 }}>
+                                <select
+                                    value={formData.areaMetric}
+                                    onChange={(e) => handleInputChange('areaMetric', e.target.value)}
+                                    style={{ ...inputStyle, paddingRight: '4px' }}
+                                >
+                                    <option value="Sq Yard">Sq Yard</option>
+                                    <option value="Sq Feet">Sq Feet</option>
+                                    <option value="Sq Meter">Sq Meter</option>
+                                    <option value="Marla">Marla</option>
+                                    <option value="Kanal">Kanal</option>
+                                    <option value="Acre">Acre</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={sectionCardStyle}>
+                        <h4 style={labelStyle}>Size Type</h4>
+                        <CustomMultiSelect
+                            options={(() => {
+                                if (formData.subType.length === 0) return [];
+                                const allRawTypes = formData.subType.flatMap(subName => {
+                                    for (const cat of Object.values(propertyConfig)) {
+                                        const foundSub = cat.subCategories.find(s => s.name === subName);
+                                        if (foundSub) return foundSub.types.map(t => typeof t === 'string' ? t : t.name) || [];
+                                    }
+                                    return [];
+                                });
+                                return Array.from(new Set(allRawTypes)).sort();
+                            })()}
+                            value={formData.unitType}
+                            onChange={(val) => handleInputChange('unitType', val)}
+                            placeholder={formData.subType.length > 0 ? "Select Size Types" : "Select Sub-Category First"}
+                            disabled={formData.subType.length === 0}
+                        />
+                    </div>
+                </div>
+
+                <div style={{ background: '#f0f9ff', padding: '16px', borderRadius: '8px', border: '1px solid #bae6fd' }}>
+                    <h4 style={{ ...labelStyle, color: '#0369a1', marginBottom: '16px' }}>Transaction Preferences</h4>
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{ fontSize: '0.85rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>Budget Range <span style={{ color: '#ef4444' }}>*</span></label>
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                            <select
+                                value={formData.budgetMin}
+                                onChange={(e) => {
+                                    const newVal = e.target.value;
+                                    handleInputChange('budgetMin', newVal);
+                                    if (formData.budgetMax && Number(formData.budgetMax) <= Number(newVal)) handleInputChange('budgetMax', '');
+                                }}
+                                style={{ ...customSelectStyle, flex: 1 }}
+                            >
+                                <option value="">Min</option>
+                                {BUDGET_VALUES.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                            </select>
+                            <span style={{ color: '#94a3b8', fontWeight: 600 }}>-</span>
+                            <select
+                                value={formData.budgetMax}
+                                onChange={(e) => handleInputChange('budgetMax', e.target.value)}
+                                style={{ ...customSelectStyle, flex: 1 }}
+                                disabled={!formData.budgetMin}
+                            >
+                                <option value="">Max</option>
+                                {BUDGET_VALUES.filter(opt => !formData.budgetMin || opt.value > Number(formData.budgetMin)).map((opt) => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', alignItems: 'start' }}>
+                        <div>
+                            <label style={{ fontSize: '0.8rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>Transaction Type</label>
+                            <select
+                                value={formData.transactionType}
+                                onChange={(e) => handleInputChange('transactionType', e.target.value)}
+                                style={customSelectStyle}
+                            >
+                                <option value="">Select Type</option>
+                                {(leadMasterFields?.transactionTypes || []).map(type => <option key={type} value={type}>{type}</option>)}
+                            </select>
+                            {formData.transactionType === 'Flexible' && (
+                                <div style={{ marginTop: '12px' }}>
+                                    <label style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px', display: 'block' }}>White Portion (%)</label>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <input type="range" min="0" max="100" step="5" value={formData.whitePortion || 50} onChange={(e) => handleInputChange('whitePortion', e.target.value)} style={{ flex: 1, accentColor: '#3b82f6' }} />
+                                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#3b82f6', width: '40px', textAlign: 'right' }}>{formData.whitePortion || 50}%</span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        <div>
+                            <label style={{ fontSize: '0.8rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>Funding</label>
+                            <select value={formData.funding} onChange={(e) => handleInputChange('funding', e.target.value)} style={customSelectStyle}>
+                                <option value="">Select Funding</option>
+                                {(leadMasterFields?.fundingTypes || []).map(fund => <option key={fund} value={fund}>{fund}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '16px' }}>
+                    <div>
+                        <h4 style={labelStyle}>Furnishing</h4>
+                        <select value={formData.furnishing} onChange={(e) => handleInputChange('furnishing', e.target.value)} style={customSelectStyle}>
+                            <option value="">Any</option>
+                            {(leadMasterFields?.furnishingStatuses || []).map(status => <option key={status} value={status}>{status}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <h4 style={labelStyle}>Timeline</h4>
+                        <select value={formData.timeline} onChange={(e) => handleInputChange('timeline', e.target.value)} style={customSelectStyle}>
+                            <option value="">Any</option>
+                            {(leadMasterFields?.timelines || []).map(time => <option key={time} value={time}>{time}</option>)}
+                        </select>
+                    </div>
+                </div>
+
+                <div style={{ marginTop: '16px' }}>
+                    <label style={{ fontSize: '0.8rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>Send Matched Deals via</label>
+                    <CustomMultiSelect
+                        options={['WhatsApp', 'Message', 'RCS Message', 'Mail']}
+                        value={formData.sendMatchedDeal}
+                        onChange={(val) => handleInputChange('sendMatchedDeal', val)}
+                        placeholder="Select Channels"
+                    />
+                </div>
+            </div>
+        </div>
+    );
+});
+
+const LocationSection = React.memo(function LocationSection({
+    formData,
+    handleInputChange,
+    sectionCardStyle,
+    labelStyle,
+    inputStyle,
+    customSelectStyle,
+    customSelectStyleDisabled,
+    locationTab,
+    setLocationTab,
+    searchInputRef,
+    areaInputRef,
+    handleProjectCityChange,
+    cities,
+    masterFields,
+    leadMasterFields,
+    CustomMultiSelect,
+    availableProjects,
+    handleProjectSelectionChange,
+    availableTowers,
+    showSpecificUnit,
+    setShowSpecificUnit,
+    hiddenFields
+}) {
+    return (
+        <div className="no-scrollbar">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                    <div style={{ background: '#f8fafc', padding: '4px', borderRadius: '12px', display: 'flex', gap: '8px', border: '1px solid #e2e8f0' }}>
+                        <button type="button" onClick={() => setLocationTab('search')} style={{ padding: '10px 24px', borderRadius: '8px', border: locationTab === 'search' ? '1px solid #3b82f6' : '1px solid transparent', background: locationTab === 'search' ? '#eff6ff' : 'transparent', color: locationTab === 'search' ? '#2563eb' : '#64748b', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem' }}>
+                            <i className="fas fa-map-marker-alt"></i> Search Location
+                        </button>
+                        <button type="button" onClick={() => setLocationTab('select')} style={{ padding: '10px 24px', borderRadius: '8px', border: locationTab === 'select' ? '1px solid #3b82f6' : '1px solid transparent', background: locationTab === 'select' ? '#eff6ff' : 'transparent', color: locationTab === 'select' ? '#2563eb' : '#64748b', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem' }}>
+                            <i className="fas fa-building"></i> Select Project
+                        </button>
+                    </div>
+                </div>
+
+                {locationTab === 'search' ? (
+                    <div style={sectionCardStyle}>
+                        <h4 style={labelStyle}>Search Location</h4>
+                        <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', alignItems: 'flex-start' }}>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Search Location</label>
+                                <input ref={searchInputRef} type="text" value={formData.searchLocation} onChange={(e) => handleInputChange('searchLocation', e.target.value)} placeholder="Search area, city or landmark..." style={{ ...inputStyle, paddingLeft: '32px', backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%2394a3b8\' stroke-width=\'2\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' d=\'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z\' /%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: '10px center', backgroundSize: '16px' }} />
+                            </div>
+                            <div style={{ width: '140px' }}>
+                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Range</label>
+                                <select value={formData.range} onChange={(e) => handleInputChange('range', e.target.value)} style={customSelectStyle}>
+                                    <option value="0 km">Exact</option>
+                                    <option value="Within 1 km">0-1 km</option>
+                                    <option value="Within 2 km">0-2 km</option>
+                                    <option value="Within 5 km">0-5 km</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Street/Road/Landmark Address</label>
+                            <input type="text" value={formData.streetAddress} onChange={(e) => handleInputChange('streetAddress', e.target.value)} placeholder="Enter street name, road no, or landmark" style={inputStyle} />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '20px', marginBottom: '20px' }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Location/Sector</label>
+                                <input type="text" value={formData.locArea} onChange={(e) => handleInputChange('locArea', e.target.value)} style={inputStyle} />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Area</label>
+                                <input ref={areaInputRef} type="text" value={formData.areaSearch} onChange={(e) => handleInputChange('areaSearch', e.target.value)} placeholder="Search area..." style={inputStyle} />
+                            </div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', gap: '20px' }}>
+                            <div><label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>City</label><input type="text" value={formData.locCity} onChange={(e) => handleInputChange('locCity', e.target.value)} style={inputStyle} /></div>
+                            <div><label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>State</label><input type="text" value={formData.locState} onChange={(e) => handleInputChange('locState', e.target.value)} style={inputStyle} /></div>
+                            <div><label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Pin Code</label><input type="text" value={formData.locPinCode} onChange={(e) => handleInputChange('locPinCode', e.target.value)} style={inputStyle} /></div>
+                        </div>
+                    </div>
+                ) : (
+                    <div style={sectionCardStyle}>
+                        <h4 style={labelStyle}>Select Project</h4>
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>City</label>
+                            <select value={formData.projectCity} onChange={(e) => handleProjectCityChange(e.target.value)} style={customSelectStyle}>
+                                <option value="">Select City</option>
+                                {cities.map(city => <option key={city} value={city}>{city}</option>)}
+                            </select>
+                        </div>
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Project Name</label>
+                            <CustomMultiSelect
+                                options={availableProjects}
+                                value={formData.projectName}
+                                onChange={handleProjectSelectionChange}
+                                placeholder={formData.projectCity ? "Select Projects" : "Select City First"}
+                                disabled={!formData.projectCity}
+                            />
+                        </div>
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Block/Tower</label>
+                            <CustomMultiSelect
+                                options={availableTowers}
+                                value={formData.projectTowers}
+                                onChange={(val) => handleInputChange('projectTowers', val)}
+                                placeholder={formData.projectName.length > 0 ? "Select Towers" : "Select Project First"}
+                                disabled={formData.projectName.length === 0}
+                            />
+                        </div>
+                        <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                <h5 style={{ margin: 0, fontSize: '0.9rem', color: '#334155' }}>Specific Units</h5>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#64748b', cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={showSpecificUnit} onChange={(e) => setShowSpecificUnit(e.target.checked)} />
+                                    I have specific unit numbers
+                                </label>
+                            </div>
+                            {showSpecificUnit && (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'fr 1fr', gap: '16px' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Unit Type</label>
+                                        <select value={formData.specificUnitType} onChange={(e) => handleInputChange('specificUnitType', e.target.value)} style={customSelectStyle}>
+                                            <option value="single">Single Unit</option>
+                                            <option value="row">Row/Multiple</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Unit No. (Start)</label>
+                                        <input type="text" value={formData.propertyNo} onChange={(e) => handleInputChange('propertyNo', e.target.value)} placeholder="e.g. 101" style={inputStyle} />
+                                    </div>
+                                    {formData.specificUnitType === 'row' && (
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Unit No. (End)</label>
+                                            <input type="text" value={formData.propertyNoEnd} onChange={(e) => handleInputChange('propertyNoEnd', e.target.value)} placeholder="e.g. 110" style={inputStyle} />
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                <div style={sectionCardStyle}>
+                    <h4 style={labelStyle}>Orientation & Placement</h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '20px' }}>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Facing</label>
+                            <CustomMultiSelect options={masterFields.facings || []} value={formData.facing} onChange={(val) => handleInputChange('facing', val)} placeholder="Select Facing" />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Road Width</label>
+                            <CustomMultiSelect options={masterFields.roadWidths || []} value={formData.roadWidth} onChange={(val) => handleInputChange('roadWidth', val)} placeholder="Select Width" />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Direction</label>
+                            <CustomMultiSelect options={masterFields.directions || []} value={formData.direction || []} onChange={(val) => handleInputChange('direction', val)} placeholder="Select Direction" />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Unit Type</label>
+                            <CustomMultiSelect options={masterFields.unitTypes || []} value={formData.propertyUnitType || []} onChange={(val) => handleInputChange('propertyUnitType', val)} placeholder="Select Unit Type" />
+                        </div>
+                    </div>
+                </div>
+
+                <div style={sectionCardStyle}>
+                    <h3 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                        <i className="fas fa-bullhorn" style={{ color: '#f59e0b' }}></i> Campaign Details
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Campaign Name</label>
+                            <select value={formData.campaign} onChange={(e) => { handleInputChange('campaign', e.target.value); handleInputChange('source', ''); handleInputChange('subSource', ''); }} style={customSelectStyle}>
+                                <option value="">Select Campaign</option>
+                                {(leadMasterFields?.campaigns || []).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                            </select>
+                        </div>
+                        {!hiddenFields.includes('source') && (
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Source</label>
+                                <select value={formData.source} onChange={(e) => { handleInputChange('source', e.target.value); handleInputChange('subSource', ''); }} disabled={!formData.campaign} style={!formData.campaign ? customSelectStyleDisabled : customSelectStyle}>
+                                    <option value="">Select Source</option>
+                                    {(() => { const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign); return (selectedCamp?.sources || []).map(s => <option key={s.name} value={s.name}>{s.name}</option>); })()}
+                                </select>
+                            </div>
+                        )}
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '8px' }}>Medium</label>
+                            <select value={formData.subSource} onChange={(e) => handleInputChange('subSource', e.target.value)} disabled={!formData.source} style={!formData.source ? customSelectStyleDisabled : customSelectStyle}>
+                                <option value="">Select Medium</option>
+                                {(() => { const selectedCamp = (leadMasterFields?.campaigns || []).find(c => c.name === formData.campaign); const selectedSrc = (selectedCamp?.sources || []).find(s => s.name === formData.source); return (selectedSrc?.mediums || []).map(m => <option key={m} value={m}>{m}</option>); })()}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+});

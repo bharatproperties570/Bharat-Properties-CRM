@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 import { numberToIndianWords } from '../utils/numberToWords';
 
 const AddBookingModal = ({ isOpen, onClose, onSave, dealId = null }) => {
-    const [isLoadingData, setIsLoadingData] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [projects, setProjects] = useState([]);
     const [units, setUnits] = useState([]);
@@ -69,7 +68,6 @@ const AddBookingModal = ({ isOpen, onClose, onSave, dealId = null }) => {
 
     useEffect(() => {
         const fetchData = async () => {
-            setIsLoadingData(true);
             try {
                 const [projRes, contactRes, userRes] = await Promise.all([
                     api.get('/projects'),
@@ -82,8 +80,6 @@ const AddBookingModal = ({ isOpen, onClose, onSave, dealId = null }) => {
             } catch (error) {
                 console.error('[AddBookingModal] Error fetching modal data:', error);
                 toast.error('Failed to load form data');
-            } finally {
-                setIsLoadingData(false);
             }
         };
 

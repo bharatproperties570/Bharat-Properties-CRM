@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { MODULE_CONFIG, parseCSV } from '../../../utils/dataManagementUtils';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
@@ -30,7 +30,7 @@ const BulkUpdatePage = () => {
     const [affectedCount, setAffectedCount] = useState(0);
 
     const activeConfig = MODULE_CONFIG[module];
-    const availableFields = activeConfig ? activeConfig.fields : [];
+    const availableFields = useMemo(() => activeConfig ? activeConfig.fields : [], [activeConfig]);
 
     // Reset when module changes
     useEffect(() => {

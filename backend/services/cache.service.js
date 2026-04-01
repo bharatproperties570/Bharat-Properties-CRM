@@ -19,7 +19,7 @@ try {
         maxRetriesPerRequest: 1
     });
 
-    redis.on('error', (err) => {
+    redis.on('error', () => {
         if (!redisAvailable) {
             console.warn('⚠️  Redis not available - caching disabled (development mode)');
             redisAvailable = false;

@@ -108,14 +108,7 @@ const normalizeAllContacts = async () => {
                 if (Array.isArray(contact[path])) {
                     let arrayChanged = false;
                     const newArray = await Promise.all(contact[path].map(async (item) => {
-                        let itemChanged = false;
-                        for (const [f, type] of Object.entries(itemFields)) {
-                            if (item[f] && !mongoose.Types.ObjectId.isValid(item[f])) {
-                                item[f] = await resolveLookup(type, item[f]);
-                                itemChanged = true;
-                                arrayChanged = true;
-                            }
-                        }
+
                         return item;
                     }));
                     if (arrayChanged) {

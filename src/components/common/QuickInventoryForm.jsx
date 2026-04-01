@@ -1,4 +1,3 @@
-import React from 'react';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 
 // Consolidated Style
@@ -8,7 +7,7 @@ const selectStyle = { ...inputStyle, appearance: 'none', background: '#fff', cur
 const disabledStyle = { ...selectStyle, background: '#f8fafc', color: '#94a3b8', cursor: 'not-allowed' };
 
 const QuickInventoryForm = ({ formData, setFormData, onTriggerModal }) => {
-    const { projects, masterFields, sizes } = usePropertyConfig();
+    const { projects, sizes } = usePropertyConfig();
 
     return (
         <div style={{ background: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>

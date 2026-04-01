@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 const InactivateUserModal = ({ isOpen, onClose, onConfirm, user }) => {
     const [reason, setReason] = useState('');

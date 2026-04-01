@@ -70,7 +70,7 @@ async function sanitizeDeals() {
         console.log("Checking Leads...");
         const leads = await Lead.find({});
         let updatedLeads = 0;
-        const leadRefs = ["assignedTo", "contacts", "project"]; // project can be ID or string
+
 
         for (const lead of leads) {
             let needsUpdate = false;

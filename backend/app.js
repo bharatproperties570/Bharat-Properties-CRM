@@ -44,26 +44,17 @@ import salesGoalRoutes from "./routes/salesGoal.routes.js";
 import notificationSettingRoutes from "./routes/notificationSetting.routes.js";
 import publicRoutes from "./routes/public.routes.js";
 import googleSettingsRoutes from "./routes/googleSettings.routes.js";
+import webhookRoutes from "./routes/webhook.routes.js";
+import marketingRoutes from "./routes/marketing.routes.js";
+import integrationSettingsRoutes from "./routes/integrationSettings.routes.js";
+import conversationRoutes from "./routes/conversation.routes.js";
+import aiAgentRoutes from "./routes/aiAgent.routes.js";
 
 const app = express();
 
-const allowedOrigins = [
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://localhost:8081",
-    "http://192.168.1.10:3000",
-    "http://192.168.1.10:8081",
-    "https://bharat-properties-crm.vercel.app",
-    "https://api.bharatproperties.co",
-    "https://crm.bharatproperties.com",
-    "https://www.bharatproperties.co",
-    "https://bharatproperties.co"
-];
+// CORS configuration moved to middleware function below
 
-const envOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [];
-const combinedOrigins = [...new Set([...allowedOrigins, ...envOrigins])];
+// combinedOrigins was unused
 
 // Robust CORS Mirror
 app.use(cors({
@@ -123,8 +114,12 @@ app.get("/api/health", (req, res) => {
 app.use((req, res, next) => {
     if (process.env.NODE_ENV !== 'production') {
         try {
-            console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url.split('?')[0]}`);
-        } catch (err) { }
+            if (process.stdout.writable) {
+                console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url.split('?')[0]}`);
+            }
+        } catch (err) {
+            // Silently ignore logging errors to avoid crashing the request
+        }
     }
     next();
 });
@@ -170,12 +165,17 @@ app.use("/api/sales-goals", salesGoalRoutes);
 app.use("/api/notification-settings", notificationSettingRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/settings/google", googleSettingsRoutes);
+app.use("/api/webhooks", webhookRoutes);   // Marketing automation webhooks
+app.use("/api/marketings", marketingRoutes); // Marketing Suite AI Agent Stats
+app.use("/api/settings/ai", integrationSettingsRoutes);
+app.use("/api/settings/ai-agents", aiAgentRoutes);
+app.use("/api/conversations", conversationRoutes);
 
 import fs from 'fs';
 import path from 'path';
 
 // Error Handling
-app.use((err, req, res, next) => {
+app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
     if (err.isDuplicateMerge) {
         return res.status(200).json({
             success: true,
@@ -187,7 +187,9 @@ app.use((err, req, res, next) => {
     const logPath = path.join(process.cwd(), 'error.log');
     try {
         fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${req.method} ${req.url}\n${err.stack}\n\n`);
-    } catch (fsErr) { }
+    } catch (fsErr) {
+        console.error('Failed to log error to file:', fsErr);
+    }
     res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
 });
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { MODULE_CONFIG, generateCSV, downloadFile } from '../../../utils/dataManagementUtils';
 import toast from 'react-hot-toast';
 
@@ -16,7 +16,7 @@ const ExportDataPage = () => {
         if (activeConfig) {
             setSelectedColumns(activeConfig.fields.map(f => f.key));
         }
-    }, [module]);
+    }, [module, activeConfig]);
 
     const toggleColumn = (key) => {
         if (selectedColumns.includes(key)) {

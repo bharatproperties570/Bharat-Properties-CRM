@@ -1,12 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
-import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { fetchLookup } from '../utils/fetchLookup'; // Ensure this utility exists or use api directly
 
 const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, ownerType, ownerName, onUpdate }) => {
 
-    const { masterFields } = usePropertyConfig(); // Keep hooks at top level
+
 
     // Use finalEntityId and finalEntityType instead of entityId/entityType in the rest of the component
     // We need to replace usages of entityId with finalEntityId and entityType with finalEntityType
@@ -43,8 +42,43 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
     const [selectedUnit, setSelectedUnit] = useState('');
 
     // Duplication Check
+    // Duplication Check
     const [isDuplicate, setIsDuplicate] = useState(false);
     const [duplicateMessage, setDuplicateMessage] = useState('');
+
+    const fetchCategories = useCallback(async () => {
+        const data = await fetchLookup("Document-Category");
+        setCategories(data || []);
+    }, []);
+
+    const fetchProjects = useCallback(async () => {
+        try {
+            const res = await api.get('/projects');
+            if (res.data.success) {
+                setProjects(res.data.data || []);
+            }
+        } catch (error) {
+            console.error("Error fetching projects:", error);
+        }
+    }, []);
+
+    const getEndpoint = useCallback(() => {
+        return activeEntityType.toLowerCase() === 'contact' ? 'contacts' : 'leads';
+    }, [activeEntityType]);
+
+    const fetchDocuments = useCallback(async () => {
+        setLoading(true);
+        try {
+            const response = await api.get(`${getEndpoint()}/${activeEntityId}`);
+            if (response.data && response.data.success) {
+                setDocuments(response.data.data.documents || []);
+            }
+        } catch (error) {
+            console.error("Error fetching documents:", error);
+        } finally {
+            setLoading(false);
+        }
+    }, [activeEntityId, getEndpoint]);
 
     useEffect(() => {
         if (isOpen && activeEntityId) {
@@ -52,13 +86,7 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
             fetchCategories();
             fetchProjects();
         }
-    }, [isOpen, activeEntityId]);
-
-    // Fetch Categories
-    const fetchCategories = async () => {
-        const data = await fetchLookup("Document-Category");
-        setCategories(data || []);
-    };
+    }, [isOpen, activeEntityId, fetchDocuments, fetchCategories, fetchProjects]);
 
     // Fetch Types when Category changes
     useEffect(() => {
@@ -72,18 +100,6 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
             setTypes([]);
         }
     }, [selectedCategory]);
-
-    // Fetch Projects
-    const fetchProjects = async () => {
-        try {
-            const res = await api.get('/projects');
-            if (res.data.success) {
-                setProjects(res.data.data || []);
-            }
-        } catch (error) {
-            console.error("Error fetching projects:", error);
-        }
-    };
 
     // Set Blocks when Project changes
     useEffect(() => {
@@ -103,21 +119,13 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
         if (selectedProject) {
             const fetchInventory = async () => {
                 try {
-                    // Fetch inventory filtered by Project and Block (if selected)
-                    // If block is not selected, maybe show all units? Or wait for block?
-                    // User requirement: Project -> Block -> Unit. So wait for block if blocks exist.
-
                     const params = {
                         project: selectedProject,
-                        status: 'Available' // Only show available units? Or all? User didn't specify, but usually link to valid units.
+                        status: 'Available'
                     };
-
-                    // If project has blocks, require block selection? 
-                    // Let's filter by block if selected.
                     if (selectedBlock) {
-                        params.block = selectedBlock.name || selectedBlock; // Adjust based on block object structure
+                        params.block = selectedBlock.name || selectedBlock;
                     }
-
                     const res = await api.get('/inventory', { params });
                     if (res.data.success) {
                         setUnits(res.data.data || []);
@@ -137,25 +145,6 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
         }
     }, [selectedProject, selectedBlock, blocks]);
 
-
-    const getEndpoint = () => {
-        return activeEntityType.toLowerCase() === 'contact' ? 'contacts' : 'leads';
-    };
-
-    const fetchDocuments = async () => {
-        setLoading(true);
-        try {
-            const response = await api.get(`${getEndpoint()}/${activeEntityId}`);
-            if (response.data && response.data.success) {
-                setDocuments(response.data.data.documents || []);
-            }
-        } catch (error) {
-            console.error("Error fetching documents:", error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
     // Check for duplication
     useEffect(() => {
         const checkDuplication = async () => {
@@ -167,7 +156,7 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
 
             try {
                 const response = await api.post('duplication-rules/check-document', {
-                    documentType: selectedType, // ID of lookup
+                    documentType: selectedType,
                     documentNo: docNumber,
                     excludeEntityId: activeEntityId,
                     entityType: activeEntityType

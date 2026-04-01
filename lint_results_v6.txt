@@ -1,0 +1,218 @@
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/Activities/ActivityRelatedTo.jsx
+  1:10  warning  'FormLabel' is defined but never used        no-unused-vars
+  3:55  warning  'onRemoveRelated' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/Activities/RecordingPlayer.jsx
+  2:23  warning  'Volume2' is defined but never used              no-unused-vars
+  2:32  warning  'Download' is defined but never used             no-unused-vars
+  2:56  warning  'Clock' is defined but never used                no-unused-vars
+  7:12  warning  'isMuted' is assigned a value but never used     no-unused-vars
+  7:21  warning  'setIsMuted' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/Activities/sections/SiteVisitActivitySection.jsx
+  1:33  warning  'FormInput' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/Activities/sections/TaskActivitySection.jsx
+  6:11  warning  'purpose' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/AddBookingModal.jsx
+  7:12  warning  'isLoadingData' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/AddDealModal.jsx
+  139:46  warning  'intent' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/AddInventoryDocumentModal.jsx
+  8:13  warning  'propertyConfig' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/AddInventoryModal.jsx
+   1:31  warning  'useRef' is defined but never used            no-unused-vars
+   4:10  warning  'useContactConfig' is defined but never used  no-unused-vars
+  19:47  warning  'onAdd' is defined but never used             no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/AddOfferModal.jsx
+  2:10  warning  'renderValue' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/AddProjectModal.jsx
+  355:12  warning  'newPriceRow' is assigned a value but never used       no-unused-vars
+  355:25  warning  'setNewPriceRow' is assigned a value but never used    no-unused-vars
+  372:11  warning  'canCreateProject' is assigned a value but never used  no-unused-vars
+  492:33  warning  'prev' is defined but never used                       no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/AddProjectPriceModal.jsx
+  453:91  warning  'idx' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/AddQuoteModal.jsx
+   2:25   warning  'CircleDollarSign' is defined but never used           no-unused-vars
+   2:43   warning  'Percent' is defined but never used                    no-unused-vars
+   2:68   warning  'ChevronDown' is defined but never used                no-unused-vars
+   2:116  warning  'PhoneCall' is defined but never used                  no-unused-vars
+  13:13   warning  'dealMasterFields' is assigned a value but never used  no-unused-vars
+  17:12   warning  'loadingSettings' is assigned a value but never used   no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/CallHistoryTimeline.jsx
+  58:42  warning  'idx' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/ContactDetail/ContactCoreInfo.jsx
+  10:5  warning  'aiStats' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/ContactDetail/ContactHistory.jsx
+  7:5  warning  'renderValue' is defined but never used   no-unused-vars
+  8:5  warning  'renderLookup' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/CreateActivityModal.jsx
+  5:35  warning  'FormInput' is defined but never used     no-unused-vars
+  5:46  warning  'ActivityCard' is defined but never used  no-unused-vars
+  5:60  warning  'SectionTitle' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/CreateDistributionRuleModal.jsx
+  592:47  warning  'mockLead' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/CreateTeamModal.jsx
+  3:10  warning  'getInitials' is defined but never used  no-unused-vars
+  4:8   warning  'Toast' is defined but never used        no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/DealDetail/DealDetailHeader.jsx
+   5:10  warning  'getStageProbability' is defined but never used   no-unused-vars
+  15:5   warning  'handleMarkAsLost' is defined but never used      no-unused-vars
+  16:5   warning  'onNavigate' is defined but never used            no-unused-vars
+  29:5   warning  'currentStage' is defined but never used          no-unused-vars
+  33:11  warning  'getInitials' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/DealDetail/DealFinancialSection.jsx
+  4:39  warning  'financials' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/DealDetail/DealFinancialTabs.jsx
+  62:52  warning  'type' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/DealDetail/DealStakeholders.jsx
+  2:35  warning  'getLookupValue' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/DealFormBuilder/DealFormBuilder.jsx
+  1:20  warning  'useEffect' is defined but never used       no-unused-vars
+  3:36  warning  'LucideSettings' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/DocumentUploadModal.jsx
+    9:13  warning  'masterFields' is assigned a value but never used                                                                                                                                            no-unused-vars
+  141:11  warning  The 'getEndpoint' function makes the dependencies of useCallback Hook (at line 157) change on every render. To fix this, wrap the definition of 'getEndpoint' in its own useCallback() Hook  react-hooks/exhaustive-deps
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/EnterprisePipeline.jsx
+   4:5  warning  'Circle' is defined but never used        no-unused-vars
+   9:5  warning  'Calendar' is defined but never used      no-unused-vars
+  11:5  warning  'AlertCircle' is defined but never used   no-unused-vars
+  12:5  warning  'ChevronRight' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/FeedbackFormBuilder/FeedbackFormBuilder.jsx
+   5:24  warning  'LucideEye' is defined but never used                    no-unused-vars
+   5:35  warning  'LucideSave' is defined but never used                   no-unused-vars
+   5:47  warning  'LucidePlus' is defined but never used                   no-unused-vars
+   6:5   warning  'LucideTrash2' is defined but never used                 no-unused-vars
+   6:19  warning  'LucideMoveUp' is defined but never used                 no-unused-vars
+   6:33  warning  'LucideMoveDown' is defined but never used               no-unused-vars
+  28:29  warning  'setActiveSectionId' is assigned a value but never used  no-unused-vars
+  30:12  warning  'isPreviewMode' is assigned a value but never used       no-unused-vars
+  30:27  warning  'setIsPreviewMode' is assigned a value but never used    no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/FilterDropdown.jsx
+  51:43  warning  'key' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/FilterPanel.jsx
+   1:10  warning  'useEffect' is defined but never used  no-unused-vars
+  19:43  warning  'key' is defined but never used        no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/InventoryFeedbackModal.jsx
+  258:80  warning  '_' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/LeadFormBuilder/LeadFormBuilder.jsx
+  1:20  warning  'useEffect' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/ManageTagsModal.jsx
+   1:31  warning  'useRef' is defined but never used                       no-unused-vars
+  10:12  warning  'selectedSummary' is assigned a value but never used     no-unused-vars
+  10:29  warning  'setSelectedSummary' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/QuickDealForm.jsx
+  24:12  warning  'showAdvanced' is assigned a value but never used     no-unused-vars
+  24:26  warning  'setShowAdvanced' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/SendMessageModal.jsx
+  17:12  warning  'rcsMedia' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/Sidebar.jsx
+  1:10  warning  'Home' is defined but never used           no-unused-vars
+  1:16  warning  'Users' is defined but never used          no-unused-vars
+  1:23  warning  'BarChart3' is defined but never used      no-unused-vars
+  1:34  warning  'Settings' is defined but never used       no-unused-vars
+  1:44  warning  'Grid' is defined but never used           no-unused-vars
+  1:50  warning  'MessageSquare' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/SingleDealLifecycle.jsx
+   5:5  warning  'Clock' is defined but never used         no-unused-vars
+   6:5  warning  'Calendar' is defined but never used      no-unused-vars
+  10:5  warning  'ChevronRight' is defined but never used  no-unused-vars
+  12:5  warning  'ArrowRight' is defined but never used    no-unused-vars
+  15:5  warning  'DollarSign' is defined but never used    no-unused-vars
+  16:5  warning  'Shield' is defined but never used        no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/UploadModal.jsx
+   1:20  warning  'useRef' is defined but never used                            no-unused-vars
+  19:11  warning  'projectMasterFieldsSafe' is assigned a value but never used  no-unused-vars
+  20:12  warning  'currentTime' is assigned a value but never used              no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/VerificationBadge.jsx
+  31:11  warning  'isNotInterested' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/common/QuickInventoryForm.jsx
+  10:23  warning  'masterFields' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/context/ActivityContext.jsx
+  2:10  warning  'api' is defined but never used                                                                                                 no-unused-vars
+  6:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/context/AutomatedActionsContext.jsx
+    5:14  warning  Fast refresh only works when a file only exports components. Move your React context(s) to a separate file                      react-refresh/only-export-components
+   43:63  warning  'context' is assigned a value but never used                                                                                    no-unused-vars
+  118:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/context/CallContext.jsx
+  1:47  warning  'useEffect' is defined but never used                                                                                           no-unused-vars
+  6:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/context/ContactConfigContext.jsx
+  6:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/context/DistributionContext.jsx
+   19:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+   30:27  warning  'setAgentWorkload' is assigned a value but never used                                                                           no-unused-vars
+  319:51  warning  'context' is defined but never used                                                                                             no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/context/FieldRulesContext.jsx
+    4:10  warning  'STAGE_LABELS' is defined but never used                                                                                        no-unused-vars
+    8:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  154:46  warning  'module' is defined but never used                                                                                              no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/context/ParsingContext.jsx
+  7:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/context/PropertyConfigContext.jsx
+     9:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  1774:96  warning  'requiredForm' is assigned a value but never used                                                                               no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/context/SequenceContext.jsx
+  164:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/context/TriggersContext.jsx
+  414:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/context/UserContext.jsx
+  6:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/hooks/useActivityForm.js
+   1:44  warning  'useRef' is defined but never used                         no-unused-vars
+  10:13  warning  'activityMasterFields' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/hooks/useContactSync.js
+  6:10  warning  'useEffect' is defined but never used  no-unused-vars
+
+✖ 113 problems (0 errors, 113 warnings)
+

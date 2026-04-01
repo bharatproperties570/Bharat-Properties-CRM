@@ -7,6 +7,21 @@ const isProd = import.meta.env.PROD;
 export const API_BASE_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : 'http://localhost:4000/api');
 
 // Notification APIs
+export const marketingAPI = {
+    getStats: () => api.get('/marketings/stats').then(res => res.data),
+    getCampaignHistory: () => api.get('/marketings/campaign-runs').then(res => res.data),
+    getRecentDeals: () => api.get('/marketings/recent-deals').then(res => res.data),
+    generateSocial: (dealId, platform) => api.post('/marketings/generate-social', { dealId, platform }).then(res => res.data),
+    generateEmail: (dealId, audience) => api.post('/marketings/generate-email', { dealId, audience }).then(res => res.data),
+    runAgent: () => api.post('/marketings/run-agent').then(res => res.data),
+    
+    // LinkedIn Integration
+    getLinkedInAuthUrl: () => api.get('/marketings/linkedin/auth-url').then(res => res.data),
+    handleLinkedInCallback: (code) => api.post('/marketings/linkedin/callback', { code }).then(res => res.data),
+    getLinkedInStatus: () => api.get('/marketings/linkedin/status').then(res => res.data),
+    saveLinkedInConfig: (config) => api.post('/marketings/linkedin/config', config).then(res => res.data)
+};
+
 export const getNotifications = () => api.get('/notifications');
 export const markNotificationAsRead = (id) => api.put(`/notifications/${id}/read`);
 export const markAllNotificationsAsRead = () => api.put('/notifications/read-all');
@@ -29,6 +44,19 @@ api.interceptors.request.use(
         return config;
     },
     (error) => {
+        return Promise.reject(error);
+    }
+);
+
+// Add a response interceptor to handle 401 errors
+api.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error.response?.status === 401) {
+            console.warn('Unauthorized request detected. Clearing session...');
+            localStorage.removeItem('authToken');
+            // Do not force reload/redirect here; let UserContext handle the state change
+        }
         return Promise.reject(error);
     }
 );
@@ -81,6 +109,12 @@ const apiRequest = async (endpoint, options = {}) => {
             const isJson = contentType && contentType.includes("application/json");
 
             if (!response.ok) {
+                if (response.status === 401) {
+                    console.warn('Unauthorized fetch request detected.');
+                    localStorage.removeItem('authToken');
+                    throw new Error('Unauthorized access');
+                }
+
                 if (response.status === 429) {
                     const error = new Error('Too many requests. Please wait a moment and try again.');
                     error.status = 429;
@@ -204,6 +238,10 @@ export const systemSettingsAPI = {
         method: 'POST',
         body: JSON.stringify({ key, ...data })
     }),
+    testAi: (type, config) => apiRequest('/system-settings/test-ai', {
+        method: 'POST',
+        body: JSON.stringify({ type, config })
+    }),
     delete: (key) => apiRequest(`/system-settings/${key}`, { method: 'DELETE' }),
 };
 
@@ -213,6 +251,25 @@ export const googleSettingsAPI = {
     handleCallback: (code) => apiRequest('/settings/google/callback', { method: 'POST', body: JSON.stringify({ code }) }),
     getStatus: () => apiRequest('/settings/google/status'),
     disconnect: () => apiRequest('/settings/google/disconnect', { method: 'POST' }),
+};
+
+// Integration API
+export const integrationSettingsAPI = {
+    getSettings: () => apiRequest('/settings/ai'),
+    updateSettings: (data) => apiRequest('/settings/ai', { method: 'POST', body: JSON.stringify(data) }),
+    getAvailableAi: () => apiRequest('/settings/ai/available-ai')
+};
+
+// AI Settings API
+export const aiSettingsAPI = {
+    getSettings: () => apiRequest('/settings/ai'),
+    updateSettings: (data) => apiRequest('/settings/ai', { method: 'POST', body: JSON.stringify(data) }),
+};
+
+// Conversation API
+export const conversationAPI = {
+    getActive: () => apiRequest('/conversations/active'),
+    updateStatus: (id, status) => apiRequest(`/conversations/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
 };
 
 // Users API
@@ -348,6 +405,8 @@ export const parsingRulesAPI = {
 // Intake API
 export const intakeAPI = {
     getAll: () => apiRequest('/intake'),
+    getById: (id) => apiRequest(`/intake/${id}`),
+    createIntake: (data) => apiRequest('/intake', { method: 'POST', body: JSON.stringify(data) }),
     updateStatus: (id, status) => apiRequest(`/intake/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
     uploadZip: (file) => {
         const formData = new FormData();
@@ -372,8 +431,18 @@ export const authAPI = {
     register: (data) => apiRequest('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
 };
 
+// AI Agents API
+export const aiAgentsAPI = {
+    getAll: () => apiRequest('/settings/ai-agents'),
+    getById: (id) => apiRequest(`/settings/ai-agents/${id}`),
+    create: (data) => apiRequest('/settings/ai-agents', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id, data) => apiRequest(`/settings/ai-agents/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id) => apiRequest(`/settings/ai-agents/${id}`, { method: 'DELETE' }),
+};
+
 export default {
     auth: authAPI,
+    aiAgents: aiAgentsAPI,
     users: usersAPI,
     roles: rolesAPI,
     leads: leadsAPI,
@@ -393,5 +462,7 @@ export default {
     enrichment: enrichmentAPI,
     parsingRules: parsingRulesAPI,
     intake: intakeAPI,
-    googleSettings: googleSettingsAPI
+    googleSettings: googleSettingsAPI,
+    aiSettings: aiSettingsAPI,
+    conversations: conversationAPI
 };

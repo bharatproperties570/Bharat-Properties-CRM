@@ -30,7 +30,7 @@ const storage = multer.diskStorage({
     filename: (req, file, cb) => {
         // Prevent Path traversal & overwrite attacks
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const sanitizeFilename = file.originalname.replace(/[^a-zA-Z0-9_\-\.]/g, '');
+        const sanitizeFilename = file.originalname.replace(/[^a-zA-Z0-9_\-.]/g, '');
         cb(null, file.fieldname + '-' + uniqueSuffix + '-' + sanitizeFilename);
     }
 });

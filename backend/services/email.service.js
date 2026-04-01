@@ -7,7 +7,9 @@ import LeadIngestionService from './LeadIngestionService.js';
 import Lead from '../models/Lead.js';
 import Deal from '../models/Deal.js';
 import Contact from '../models/Contact.js';
-import Activity from '../models/Activity.js';
+
+import mongoose from 'mongoose';
+import { createNotification } from '../controllers/notification.controller.js';
 import { getOAuth2Client, getGmailService } from '../utils/googleAuth.js';
 
 class EmailService {

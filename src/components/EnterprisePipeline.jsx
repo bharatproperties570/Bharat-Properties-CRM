@@ -1,15 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
     CheckCircle,
-    Circle,
     Clock,
     Phone,
     Users,
     Home,
-    Calendar,
     TrendingUp,
-    AlertCircle,
-    ChevronRight,
     Info,
     MessageSquare,
     Activity as ActivityIcon,

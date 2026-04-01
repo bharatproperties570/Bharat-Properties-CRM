@@ -108,6 +108,7 @@ cronWorker.on('failed', (job, err) => {
     console.error(`[Cron Worker] Job ${job?.name} failed: ${err.message}`);
 });
 
+// eslint-disable-next-line no-unused-vars
 cronWorker.on('error', err => {
     // console.warn('⚠️ [Cron Worker] Redis Offline, suppressing crash...');
 });

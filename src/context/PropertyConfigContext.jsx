@@ -6,6 +6,7 @@ import { api, lookupsAPI, systemSettingsAPI } from '../utils/api';
 
 const PropertyConfigContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const usePropertyConfig = () => {
     const context = useContext(PropertyConfigContext);
     if (!context) {
@@ -62,347 +63,16 @@ export const PropertyConfigProvider = ({ children }) => {
     // --- LOOKUPS STATE ---
     const [lookups, setLookups] = useState({}); // { type: [lookupObjects] }
 
-    const refreshSizes = useCallback(async () => {
-        try {
-            // SINGLE SOURCE OF TRUTH: Fetch from Lookups ('Size' category)
-            const sizesResponse = await lookupsAPI.getByCategory('Size');
-            let lookupSizes = [];
-            if (sizesResponse && sizesResponse.status === "success" && Array.isArray(sizesResponse.data)) {
-                lookupSizes = sizesResponse.data.map(l => ({
-                    id: l._id,
-                    name: l.lookup_value,
-                    ...l.metadata
-                }));
-            }
+    // --- HOISTED STATES (Fixes ReferenceError: Cannot access before initialization) ---
+    // Moved to top so they are initialized before useCallback/useEffect hooks that depend on them.
 
-            setSizes(lookupSizes);
-        } catch (error) {
-            console.error('Failed to refresh sizes:', error);
-        }
-    }, []);
+    const [sizes, setSizes] = useState([]);
 
-    // --- OPTIMIZED LOOKUP RESOLUTION (O(1)) ---
-    // Pre-calculate flat maps for instant ID -> Value and Value -> ID resolution
-    // This eliminates the O(n * m) nested loops that cause UI lag in tables
-    const lookupMap = React.useMemo(() => {
-        const map = new Map();
-        // 1. Add all lookups across all categories
-        Object.values(lookups).forEach(categoryLookups => {
-            if (Array.isArray(categoryLookups)) {
-                categoryLookups.forEach(l => {
-                    const id = l._id || l.id;
-                    if (id) map.set(id.toString(), l.lookup_value);
-                });
-            }
-        });
-        // 2. Add all projects
-        if (Array.isArray(projects)) {
-            projects.forEach(p => {
-                const id = p._id || p.id;
-                if (id) map.set(id.toString(), p.name || p.projectName || p.title);
-            });
-        }
-        return map;
-    }, [lookups, projects]);
+    const [companyMasterFields, setCompanyMasterFields] = useState({
+        companyTypes: [],
+        industries: []
+    });
 
-    const typeValueMap = React.useMemo(() => {
-        const map = new Map(); // Map<normalizedType, Map<value, id>>
-        Object.entries(lookups).forEach(([type, categoryLookups]) => {
-            if (Array.isArray(categoryLookups)) {
-                const valToId = new Map();
-                categoryLookups.forEach(l => {
-                    const id = l._id || l.id;
-                    if (id) valToId.set(l.lookup_value, id.toString());
-                });
-                map.set(type, valToId);
-            }
-        });
-        return map;
-    }, [lookups]);
-
-    const getLookupId = useCallback((type, value) => {
-        if (!value) return null;
-        if (typeof value === 'object' && value._id) return value._id.toString();
-        
-        // Standardize type (e.g. 'Property Type' -> 'PropertyType')
-        const normalizedType = type ? type.replace(/\s+/g, '') : type;
-
-        // O(1) Search in specific category Map
-        const categoryMap = typeValueMap.get(normalizedType);
-        if (categoryMap && categoryMap.has(value)) {
-            return categoryMap.get(value);
-        }
-
-        // Fallback for case where value is already an ID (string matching)
-        if (typeof value === 'string' && /^[0-9a-fA-F]{24}$/.test(value)) {
-            return value;
-        }
-
-        return null;
-    }, [typeValueMap]);
-
-    const getLookupValue = useCallback((type, id) => {
-        if (!id) return id;
-
-        // Case A: ID is already a populated object
-        if (typeof id === 'object') {
-            const val = id.lookup_value || id.name || id.label || id.value || id.displayName;
-            if (val && typeof val !== 'object') return val;
-            return typeof id.toString === 'function' && id.toString() !== '[object Object]' ? id.toString() : '-';
-        }
-
-        const idStr = id.toString();
-
-        // Case B: O(1) Instant Resolution using pre-calculated Map
-        // We first try the global map (covers both specific category and fallbacks)
-        const resolved = lookupMap.get(idStr);
-        if (resolved) return resolved;
-
-        // Case C: ID is not a mongo ID (likely a raw string/value)
-        if (typeof id === 'string' && !/^[0-9a-fA-F]{24}$/.test(id)) {
-            return id;
-        }
-
-        return null;
-    }, [lookupMap]);
-
-    const findLookup = useCallback((type, value, parentId = null) => {
-        const normalizedType = type ? type.replace(/\s+/g, '') : type;
-        if (!lookups[normalizedType]) return null;
-        return lookups[normalizedType].find(l =>
-            l.lookup_value === value &&
-            (!parentId || l.parent_lookup_id === parentId)
-        );
-    }, [lookups]);
-
-    const refreshLookups = useCallback(async () => {
-        try {
-            console.log('[PropertyConfigContext] Refreshing all lookups in one call...');
-            const response = await lookupsAPI.getAll();
-
-            let allLookups = [];
-            if (response && response.status === "success" && Array.isArray(response.data)) {
-                allLookups = response.data;
-            } else if (Array.isArray(response)) {
-                allLookups = response;
-            }
-
-            const newLookups = {};
-            allLookups.forEach(item => {
-                let type = item.lookup_type || item.type || '';
-                // Normalize keys by removing spaces so 'Unit Type' and 'UnitType' merge
-                type = type.replace(/\s+/g, '');
-
-                if (!newLookups[type]) newLookups[type] = [];
-                newLookups[type].push(item);
-            });
-
-            setLookups(newLookups);
-
-            // Populate masterFields from Lookups (Facing, Direction, etc.)
-            setMasterFields(prev => ({
-                ...prev,
-                facings: newLookups['Facing']?.map(l => l.lookup_value) || [],
-                directions: newLookups['Direction']?.map(l => l.lookup_value) || [],
-                roadWidths: newLookups['RoadWidth']?.map(l => l.lookup_value) || [],
-                unitTypes: newLookups['UnitType']?.map(l => l.lookup_value) || [],
-                titles: newLookups['Title'] || [],
-                relations: newLookups['Relation']?.map(l => ({
-                    id: l._id,
-                    name: l.lookup_value
-                })) || []
-            }));
-
-            // Reconstruct propertyConfig from Lookups (for compatibility)
-            // This is a complex mapping, we'll implement it if needed, 
-            // but for now let's focus on providing the lookup lists.
-
-            // Map Sizes for refreshSizes compatibility
-            if (newLookups['Size']) {
-                const normalizedSizes = newLookups['Size'].map(l => ({
-                    id: l._id,
-                    name: l.lookup_value,
-                    ...l.metadata
-                }));
-                setSizes(normalizedSizes);
-            }
-
-            return newLookups;
-        } catch (error) {
-            console.error('[PropertyConfigContext] Failed to refresh lookups:', error);
-            return {};
-        }
-    }, []);
-
-    // Load all configurations from backend on mount
-    useEffect(() => {
-        const loadAllConfigs = async () => {
-            try {
-                // 1. LOAD LOOKUPS FIRST (Primary source for normalized fields)
-                const fetchedLookups = await refreshLookups();
-
-                // Set Company Master Fields from fetched lookups
-                setCompanyMasterFields({
-                    companyTypes: fetchedLookups['CompanyType'] || [],
-                    industries: fetchedLookups['Industry'] || []
-                });
-
-                // 2. LOAD SYSTEM SETTINGS (Secondary source / Remaining configs)
-                const response = await systemSettingsAPI.getAll({ limit: 100 });
-                if (response && response.data) {
-                    const settings = response.data;
-                    const settingsList = Array.isArray(settings) ? settings : (settings.docs || []);
-
-                    // Map settings to state (Aligned with useSystemSetting camelCase keys)
-                    const foundKeys = new Set();
-                    settingsList.forEach(setting => {
-                        foundKeys.add(setting.key);
-                        switch (setting.key) {
-                            case 'propertyConfig': setPropertyConfig(setting.value, true); break;
-                            case 'masterFields': setMasterFields(setting.value, true); break;
-                            case 'projectMasterFields': setProjectMasterFields(setting.value, true); break;
-                            case 'projectAmenities': setProjectAmenities(setting.value, true); break;
-                            case 'leadMasterFields': setLeadMasterFields(setting.value, true); break;
-                            case 'scoringAttributes': setScoringAttributes(setting.value, true); break;
-                            case 'scoringConfig': setScoringConfig(setting.value, true); break;
-                            case 'behaviouralSignals': setBehaviouralSignals(setting.value, true); break;
-                            case 'dealFitSignals': setDealFitSignals(setting.value, true); break;
-                            case 'financialSignals': setFinancialSignals(setting.value, true); break;
-                            case 'decayRules': setDecayRules(setting.value, true); break;
-                            case 'aiSignals': setAiSignals(setting.value, true); break;
-                            case 'sourceQualityScores': setSourceQualityScores(setting.value, true); break;
-                            case 'inventoryFitScores': setInventoryFitScores(setting.value, true); break;
-                            case 'stageMultipliers': setStageMultipliers(setting.value, true); break;
-                            case 'dealScoringRules': setDealScoringRules(setting.value, true); break;
-                            case 'scoreBands': setScoreBands(setting.value, true); break;
-                            case 'activityMasterFields': setActivityMasterFields(setting.value, true); break;
-                            case 'stageMappingRules': setStageMappingRules(setting.value, true); break;
-                            case 'syncRules': setSyncRules(setting.value, true); break;
-                            case 'sequenceConfig': setSequenceConfig(setting.value, true); break;
-                            case 'agingRules': setAgingRules(setting.value, true); break;
-                            case 'forecastConfig': setForecastConfig(setting.value, true); break;
-                            case 'dealHealthConfig': setDealHealthConfig(setting.value, true); break;
-                            case 'intentSignals': setIntentSignals(setting.value, true); break;
-                            case 'dealMasterFields': setDealMasterFields(setting.value, true); break;
-
-                            // Backward compatibility
-                            case 'property_config': if (!foundKeys.has('propertyConfig')) setPropertyConfig(setting.value, true); break;
-                            case 'master_fields': if (!foundKeys.has('masterFields')) setMasterFields(setting.value, true); break;
-                            case 'activity_master_fields': if (!foundKeys.has('activityMasterFields')) setActivityMasterFields(setting.value, true); break;
-                            case 'lead_master_fields': if (!foundKeys.has('leadMasterFields')) setLeadMasterFields(setting.value, true); break;
-                            case 'score_bands': if (!foundKeys.has('scoreBands')) setScoreBands(setting.value, true); break;
-
-                            default: break;
-                        }
-                    });
-
-                    // Professional Fix: Backfill missing settings to MongoDB
-                    // If a key is expected but not found in backend, push the current frontend value (defaults/localStorage)
-                    const expectedKeys = ['propertyConfig', 'activityMasterFields', 'leadMasterFields', 'stageMultipliers', 'scoreBands', 'masterFields', 'dealMasterFields'];
-                    expectedKeys.forEach(k => {
-                        if (!foundKeys.has(k)) {
-                            console.log(`[PropertyConfigContext] Backfilling missing setting to MongoDB: ${k}`);
-                            // We use a small delay to ensure states are initialized or use localStorage directly for backfill
-                            const localVal = window.localStorage.getItem(k);
-                            if (localVal) {
-                                systemSettingsAPI.upsert(k, { value: JSON.parse(localVal), category: 'crm_config' })
-                                    .catch(e => console.error(`Backfill failed for ${k}:`, e));
-                            }
-                        }
-                    });
-                }
-
-                // REDUNDANT CALLS REMOVED: 
-                // Company lookups and Sizes are now handled within refreshLookups()
-
-                // FETCH REAL PROJECTS FROM BACKEND
-                console.log("[PropertyConfigContext] Fetching projects...");
-                const projectsRes = await api.get('/projects');
-                console.log("[PropertyConfigContext] Projects response:", projectsRes.data);
-
-                if (projectsRes.data && projectsRes.data.success && Array.isArray(projectsRes.data.data)) {
-                    setProjects(projectsRes.data.data);
-                } else if (Array.isArray(projectsRes.data)) {
-                    // Handle case where API might return array directly (less likely but possible based on controller)
-                    setProjects(projectsRes.data);
-                } else {
-                    console.warn("[PropertyConfigContext] Unexpected projects data format:", projectsRes.data);
-                    setProjects([]);
-                }
-            } catch (error) {
-                console.error('Failed to load configs from backend:', error);
-                // Fallback for projects if backend is down - use static list if needed
-                console.warn("[PropertyConfigContext] Using fallback static projects due to error.");
-                setProjects(PROJECTS_LIST);
-
-                // Keep backward compatibility for propertyConfig if needed
-                try {
-                    const lookups = await lookupsAPI.getByCategory('property_configuration');
-                    if (lookups && lookups.length > 0) {
-                        const config = lookups[0].value;
-                        if (config) setPropertyConfig(config);
-                    }
-                } catch (e) {
-                    console.error('Lookups fallback failed:', e);
-                }
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        loadAllConfigs();
-    }, [refreshSizes]);
-
-    const addProject = useCallback(async (newProject) => {
-        const project = {
-            id: Date.now(),
-            name: newProject.name,
-            location: newProject.location || '',
-            blocks: [],
-            units: [],
-            ...newProject
-        };
-        // Functional update to avoid dependency on 'projects' which changes
-        setProjects(prevProjects => {
-            const updatedProjects = [...prevProjects, project];
-            // Save to backend inside setter or using updated value?
-            // Better to trigger save effect or save here.
-
-            // Saving here requires handling async properly, but we can fire and forget for UI consistency
-            systemSettingsAPI.upsert('dynamic_projects', {
-                category: 'property',
-                value: updatedProjects,
-                isPublic: true
-            }).catch(err => console.error('Failed to save projects:', err));
-
-            return updatedProjects;
-        });
-        return project;
-    }, []);
-
-    const addBlock = async (projectId, blockName) => {
-        const updatedProjects = projects.map(p => {
-            if (p.id === projectId || p.name === projectId) { // Handle both ID or Name lookup
-                return { ...p, blocks: [...(p.blocks || []), blockName] };
-            }
-            return p;
-        });
-        setProjects(updatedProjects);
-
-        // Save to backend
-        try {
-            await systemSettingsAPI.upsert('dynamic_projects', {
-                category: 'property',
-                value: updatedProjects,
-                isPublic: true
-            });
-        } catch (error) {
-            console.error('Failed to save projects to backend:', error);
-        }
-    };
-
-
-    // Master Fields State (Property Specific)
-    // Initialized from LocalStorage or empty arrays; populated on load from Lookups
     const [masterFields, setMasterFields] = useSystemSetting('masterFields', {
         facings: [],
         roadWidths: [],
@@ -492,7 +162,6 @@ export const PropertyConfigProvider = ({ children }) => {
         }
     });
 
-    // Project Master Fields (Moved/Copied from Property)
     const [projectMasterFields, setProjectMasterFields] = useSystemSetting('projectMasterFields', {
         approvals: [
             'RERA', 'DTCP', 'TCP', 'CLU', 'OC', 'CC'
@@ -514,7 +183,6 @@ export const PropertyConfigProvider = ({ children }) => {
         ]
     });
 
-    // Dynamic Amenities Configuration
     const [projectAmenities, setProjectAmenities] = useSystemSetting('projectAmenities', {
         'Basic': [
             { id: 'bp1', name: 'Car Parking', icon: 'fa-car' },
@@ -555,286 +223,6 @@ export const PropertyConfigProvider = ({ children }) => {
         ]
     });
 
-    // Ensure new fields are added to state even if persisted (HMR/Storage fix)
-    React.useEffect(() => {
-        // ... (Logic to sync defaults if needed, simplified for clarity as we are hardcoding defaults above)
-    }, []);
-
-    // CRUD Operations exposed to the app
-    const updateConfig = useCallback(async (newConfig) => {
-        // Validation: Ensure newConfig is a valid object
-        if (!newConfig || typeof newConfig !== 'object' || Array.isArray(newConfig)) {
-            console.error('[PropertyConfigContext] Invalid config object provided to updateConfig');
-            return;
-        }
-
-        // Deep Validation: Ensure categories have subCategories array
-        const isValid = Object.values(newConfig).every(cat =>
-            cat && typeof cat === 'object' && Array.isArray(cat.subCategories)
-        );
-
-        if (!isValid) {
-            console.error('[PropertyConfigContext] Invalid category structure in updateConfig');
-            // We still update local state to allow UI to show something, but we might want to alert or block save
-            // For now, let's at least protect the backend
-        }
-
-        setPropertyConfig(newConfig);
-
-        if (!isValid) return; // Block backend save if invalid
-
-        // Professional Fix: Saving is now automatically handled by useSystemSetting's setValue (setPropertyConfig)
-        // However, we explicitly upsert here to ensure immediate sync and validation feedback if needed.
-        try {
-            await systemSettingsAPI.upsert('propertyConfig', {
-                category: 'crm_config',
-                value: newConfig,
-                isPublic: true,
-                description: 'Global property configuration (Validated)'
-            });
-        } catch (error) {
-            console.error('[PropertyConfigContext] Explicit save failed:', error);
-            // We don't throw here to avoid breaking UI if localStorage version succeeded
-        }
-    }, [setPropertyConfig]);
-
-    const updateMasterFields = useCallback(async (field, newValuesOrValue, mode = 'update') => {
-        const fieldToLookupType = {
-            facings: 'Facing',
-            directions: 'Direction',
-            roadWidths: 'RoadWidth',
-            unitTypes: 'UnitType',
-            relations: 'Relation'
-        };
-
-        const lookupType = fieldToLookupType[field];
-
-        if (lookupType) {
-            try {
-                if (mode === 'add') {
-                    await lookupsAPI.create({
-                        lookup_type: lookupType,
-                        lookup_value: newValuesOrValue,
-                        is_active: true
-                    });
-                } else if (mode === 'delete') {
-                    const lookupToDelete = lookups[lookupType]?.find(l => l.lookup_value === newValuesOrValue || l._id === newValuesOrValue);
-                    if (lookupToDelete) {
-                        await lookupsAPI.delete(lookupToDelete._id);
-                    }
-                }
-                // Always refresh from lookups to keep state in sync
-                await refreshLookups();
-                return;
-            } catch (error) {
-                console.error(`Failed to sync lookup for ${field}:`, error);
-            }
-        }
-
-        // For non-lookup fields or if direct update is needed
-        setMasterFields(prevFields => {
-            let updated;
-            if (mode === 'add') {
-                updated = { ...prevFields, [field]: [...(prevFields[field] || []), newValuesOrValue] };
-            } else if (mode === 'delete') {
-                updated = { ...prevFields, [field]: (prevFields[field] || []).filter(v => v !== newValuesOrValue) };
-            } else {
-                updated = { ...prevFields, [field]: newValuesOrValue };
-            }
-
-            // Professional cleanup: Only upsert to masterFields if it's NOT a lookup-driven field
-            if (!lookupType) {
-                systemSettingsAPI.upsert('masterFields', {
-                    category: 'crm_config',
-                    value: updated,
-                    isPublic: true
-                }).catch(e => console.error('Failed to save master fields:', e));
-            }
-            return updated;
-        });
-    }, [setMasterFields, lookups, refreshLookups]);
-
-    const updateProjectMasterFields = useCallback(async (field, newValuesOrValue, mode = 'update') => {
-        const fieldToLookupType = {
-            projectStatuses: 'ProjectStatus',
-            parkingTypes: 'ParkingType'
-        };
-
-        const lookupType = fieldToLookupType[field];
-
-        if (lookupType) {
-            try {
-                if (mode === 'add') {
-                    await lookupsAPI.create({
-                        lookup_type: lookupType,
-                        lookup_value: newValuesOrValue,
-                        is_active: true
-                    });
-                    await refreshLookups();
-                } else if (mode === 'delete') {
-                    const lookupToDelete = lookups[lookupType]?.find(l => l.lookup_value === newValuesOrValue || l._id === newValuesOrValue);
-                    if (lookupToDelete) {
-                        await lookupsAPI.delete(lookupToDelete._id);
-                        await refreshLookups();
-                    }
-                }
-            } catch (error) {
-                console.error(`Failed to sync lookup for ${field}:`, error);
-            }
-        }
-
-        setProjectMasterFields(prevFields => {
-            const updated = mode === 'update' ? { ...prevFields, [field]: newValuesOrValue } : prevFields;
-            systemSettingsAPI.upsert('projectMasterFields', {
-                category: 'crm_config',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save project master fields:', e));
-            return updated;
-        });
-    }, [setProjectMasterFields, lookups, refreshLookups]);
-
-    const syncCategoryLookup = useCallback(async (categoryName, mode = 'add', oldName = null) => {
-        try {
-            if (mode === 'add') {
-                await lookupsAPI.create({ lookup_type: 'Category', lookup_value: categoryName, is_active: true });
-            } else if (mode === 'update' && oldName) {
-                const existing = findLookup('Category', oldName);
-                if (existing) await lookupsAPI.update(existing._id, { lookup_value: categoryName });
-            } else if (mode === 'delete') {
-                const existing = findLookup('Category', categoryName);
-                if (existing) await lookupsAPI.delete(existing._id);
-            }
-            await refreshLookups();
-        } catch (error) {
-            console.error('Failed to sync Category lookup:', error);
-        }
-    }, [findLookup, refreshLookups]);
-
-    const syncSubCategoryLookup = useCallback(async (categoryName, subCategoryName, mode = 'add', oldName = null) => {
-        try {
-            const category = findLookup('Category', categoryName);
-            if (!category) return;
-
-            if (mode === 'add') {
-                await lookupsAPI.create({ lookup_type: 'SubCategory', lookup_value: subCategoryName, parent_lookup_id: category._id, is_active: true });
-            } else if (mode === 'update' && oldName) {
-                const existing = findLookup('SubCategory', oldName, category._id);
-                if (existing) await lookupsAPI.update(existing._id, { lookup_value: subCategoryName });
-            } else if (mode === 'delete') {
-                const existing = findLookup('SubCategory', subCategoryName, category._id);
-                if (existing) await lookupsAPI.delete(existing._id);
-            }
-            await refreshLookups();
-        } catch (error) {
-            console.error('Failed to sync SubCategory lookup:', error);
-        }
-    }, [findLookup, refreshLookups]);
-
-    const syncPropertyTypeLookup = useCallback(async (categoryName, subCategoryName, typeName, mode = 'add', oldName = null) => {
-        try {
-            const category = findLookup('Category', categoryName);
-            if (!category) return;
-            const subCategory = findLookup('SubCategory', subCategoryName, category._id);
-            if (!subCategory) return;
-
-            if (mode === 'add') {
-                await lookupsAPI.create({ lookup_type: 'PropertyType', lookup_value: typeName, parent_lookup_id: subCategory._id, is_active: true });
-            } else if (mode === 'update' && oldName) {
-                const existing = findLookup('PropertyType', oldName, subCategory._id);
-                if (existing) await lookupsAPI.update(existing._id, { lookup_value: typeName });
-            } else if (mode === 'delete') {
-                const existing = findLookup('PropertyType', typeName, subCategory._id);
-                if (existing) await lookupsAPI.delete(existing._id);
-            }
-            await refreshLookups();
-        } catch (error) {
-            console.error('Failed to sync PropertyType lookup:', error);
-        }
-    }, [findLookup, refreshLookups]);
-
-    const syncBuiltupTypeLookup = useCallback(async (categoryName, subCategoryName, typeName, builtupTypeName, mode = 'add', oldName = null) => {
-        try {
-            const category = findLookup('Category', categoryName);
-            if (!category) return;
-            const subCategory = findLookup('SubCategory', subCategoryName, category._id);
-            if (!subCategory) return;
-            const propertyType = findLookup('PropertyType', typeName, subCategory._id);
-            if (!propertyType) return;
-
-            if (mode === 'add') {
-                await lookupsAPI.create({ lookup_type: 'BuiltupType', lookup_value: builtupTypeName, parent_lookup_id: propertyType._id, is_active: true });
-            } else if (mode === 'update' && oldName) {
-                const existing = findLookup('BuiltupType', oldName, propertyType._id);
-                if (existing) await lookupsAPI.update(existing._id, { lookup_value: builtupTypeName });
-            } else if (mode === 'delete') {
-                const existing = findLookup('BuiltupType', builtupTypeName, propertyType._id);
-                if (existing) await lookupsAPI.delete(existing._id);
-            }
-            await refreshLookups();
-        } catch (error) {
-            console.error('Failed to sync BuiltupType lookup:', error);
-        }
-    }, [findLookup, refreshLookups]);
-
-    const updateProjectAmenities = useCallback(async (category, newAmenities) => {
-        setProjectAmenities(prevAmenities => {
-            const updated = { ...prevAmenities, [category]: newAmenities };
-            systemSettingsAPI.upsert('projectAmenities', {
-                category: 'crm_config',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save project amenities:', e));
-            return updated;
-        });
-    }, [setProjectAmenities]);
-
-    // Company Master Fields - Stores full Lookup objects
-    const [companyMasterFields, setCompanyMasterFields] = useState({
-        companyTypes: [],
-        industries: []
-    });
-
-    const updateCompanyMasterFields = useCallback(async (field, newItemValue) => {
-        const lookupTypeMap = {
-            companyTypes: 'CompanyType',
-            industries: 'Industry'
-        };
-        const lookupType = lookupTypeMap[field];
-        if (!lookupType) return;
-
-        try {
-            const res = await lookupsAPI.create({
-                lookup_type: lookupType,
-                lookup_value: newItemValue,
-                is_active: true
-            });
-            if (res && res.data) {
-                setCompanyMasterFields(prev => ({
-                    ...prev,
-                    [field]: [...prev[field], res.data]
-                }));
-            }
-        } catch (error) {
-            console.error(`Failed to add ${field} lookup:`, error);
-            throw error;
-        }
-    }, []);
-
-    const deleteCompanyMasterField = useCallback(async (field, lookupId) => {
-        try {
-            await lookupsAPI.delete(lookupId);
-            setCompanyMasterFields(prev => ({
-                ...prev,
-                [field]: prev[field].filter(item => item._id !== lookupId)
-            }));
-        } catch (error) {
-            console.error(`Failed to delete ${field} lookup:`, error);
-            throw error;
-        }
-    }, []);
-
-    // Lead & Campaign Master Fields
     const [leadMasterFields, setLeadMasterFields] = useSystemSetting('leadMasterFields', {
         transactionTypes: ['Collector Rate', 'Full White', 'Flexible'],
         fundingTypes: ['Home Loan', 'Self Funding', 'Loan Against Property', 'Personal Loan', 'Business Loan'],
@@ -852,38 +240,11 @@ export const PropertyConfigProvider = ({ children }) => {
         ]
     });
 
-    // Deal Master Fields
     const [dealMasterFields, setDealMasterFields] = useSystemSetting('dealMasterFields', {
         dealTypes: ['Cold', 'Warm', 'Hot', 'Very Hot'],
         buyerTypes: ['Male', 'Female', 'Joint']
     });
 
-    const updateDealMasterFields = useCallback(async (field, newValue, mode = 'update') => {
-        setDealMasterFields(prevFields => {
-            let updatedList = (prevFields && prevFields[field]) ? prevFields[field] : [];
-            if (mode === 'add') {
-                if (Array.isArray(updatedList) && !updatedList.includes(newValue)) {
-                    updatedList = [...updatedList, newValue];
-                }
-            } else if (mode === 'delete') {
-                if (Array.isArray(updatedList)) {
-                    updatedList = updatedList.filter(v => v !== newValue);
-                }
-            } else {
-                updatedList = newValue;
-            }
-
-            const updated = { ...prevFields, [field]: updatedList };
-            systemSettingsAPI.upsert('dealMasterFields', {
-                category: 'crm_config',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save deal master fields:', e));
-            return updated;
-        });
-    }, [setDealMasterFields]);
-
-    // Scoring Attributes State (Static Weights)
     const [scoringAttributes, setScoringAttributes] = useSystemSetting('scoringAttributes', {
         requirement: { label: 'Detailed Requirement', points: 32 },
         budget: { label: 'Budget Match', points: 10 },
@@ -893,19 +254,6 @@ export const PropertyConfigProvider = ({ children }) => {
         source: { label: 'High Intent Source', points: 5 }
     });
 
-    const updateScoringAttributes = useCallback(async (newAttributes) => {
-        setScoringAttributes(prev => {
-            const updated = { ...prev, ...newAttributes };
-            systemSettingsAPI.upsert('scoring_attributes', {
-                category: 'sales_config',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save scoring attributes:', e));
-            return updated;
-        });
-    }, [setScoringAttributes]);
-
-    // --- NEW: Phased Scoring Configuration ---
     const [scoringConfig, setScoringConfig] = useSystemSetting('scoringConfig', {
         behavioural: { enabled: false },
         dealFit: { enabled: false },
@@ -914,22 +262,6 @@ export const PropertyConfigProvider = ({ children }) => {
         ai: { enabled: false }
     });
 
-    const updateScoringConfig = useCallback(async (phase, newItem) => {
-        setScoringConfig(prev => {
-            const updated = {
-                ...prev,
-                [phase]: { ...prev[phase], ...newItem }
-            };
-            systemSettingsAPI.upsert('scoring_config', {
-                category: 'sales_config',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save scoring config:', e));
-            return updated;
-        });
-    }, [setScoringConfig]);
-
-    // Phase 1: Behavioural Scoring Signals
     const [behaviouralSignals, setBehaviouralSignals] = useSystemSetting('behaviouralSignals', {
         propertyMatchOpened: { label: 'Property Match Opened', points: 5 },
         sameLocationRepeated: { label: 'Same Location Repeatedly', points: 10 },
@@ -938,19 +270,6 @@ export const PropertyConfigProvider = ({ children }) => {
         repeatedNoResponse: { label: 'Repeated No Response', points: -10 }
     });
 
-    const updateBehaviouralSignals = useCallback(async (newSignals) => {
-        setBehaviouralSignals(prev => {
-            const updated = { ...prev, ...newSignals };
-            systemSettingsAPI.upsert('behavioural_signals', {
-                category: 'sales_config',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save behavioural signals:', e));
-            return updated;
-        });
-    }, [setBehaviouralSignals]);
-
-    // Phase 2: Deal-Fit Intelligence (Skeleton)
     const [dealFitSignals, setDealFitSignals] = useSystemSetting('dealFitSignals', {
         activeProperty: { label: 'Property Active', points: 10 },
         priceGapSmall: { label: 'Price Gap < 5%', points: 15 },
@@ -959,19 +278,6 @@ export const PropertyConfigProvider = ({ children }) => {
         ownerFlexible: { label: 'Owner Flexible', points: 15 }
     });
 
-    const updateDealFitSignals = useCallback(async (newSignals) => {
-        setDealFitSignals(prev => {
-            const updated = { ...prev, ...newSignals };
-            systemSettingsAPI.upsert('deal_fit_signals', {
-                category: 'sales_config',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save deal fit signals:', e));
-            return updated;
-        });
-    }, [setDealFitSignals]);
-
-    // Phase 3: Financial Readiness (Skeleton)
     const [financialSignals, setFinancialSignals] = useSystemSetting('financialSignals', {
         cashBuyer: { label: 'Cash Buyer', points: 25 },
         loanApproved: { label: 'Loan Pre-approved', points: 15 },
@@ -980,38 +286,12 @@ export const PropertyConfigProvider = ({ children }) => {
         flexiblePayment: { label: 'Flexible Payment Plan', points: 10 }
     });
 
-    const updateFinancialSignals = useCallback(async (newSignals) => {
-        setFinancialSignals(prev => {
-            const updated = { ...prev, ...newSignals };
-            systemSettingsAPI.upsert('financial_signals', {
-                category: 'sales_config',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save financial signals:', e));
-            return updated;
-        });
-    }, [setFinancialSignals]);
-
-    // Phase 4: Time Decay Rules (Skeleton)
     const [decayRules, setDecayRules] = useSystemSetting('decayRules', {
         inactive7: { label: '7 Days Inactivity', points: -5 },
         inactive14: { label: '14 Days Inactivity', points: -10 },
         inactive30: { label: '30 Days Inactivity (Auto-Dormant)', points: -20 } // -20 effectively kills the score usually
     });
 
-    const updateDecayRules = useCallback(async (newRules) => {
-        setDecayRules(prev => {
-            const updated = { ...prev, ...newRules };
-            systemSettingsAPI.upsert('decay_rules', {
-                category: 'sales_config',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save decay rules:', e));
-            return updated;
-        });
-    }, [setDecayRules]);
-
-    // Phase 5: AI Interpretation (Skeleton)
     const [aiSignals, setAiSignals] = useSystemSetting('aiSignals', {
         sentimentPositive: { label: 'Positive Sentiment Analysis', points: 20 },
         highIntentKeywords: { label: 'High Intent Keywords', points: 15 },
@@ -1019,19 +299,6 @@ export const PropertyConfigProvider = ({ children }) => {
         budgetConstraint: { label: 'Budget Constraint Mentioned', points: -10 }
     });
 
-    const updateAiSignals = useCallback(async (newSignals) => {
-        setAiSignals(prev => {
-            const updated = { ...prev, ...newSignals };
-            systemSettingsAPI.upsert('ai_signals', {
-                category: 'sales_config',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save AI signals:', e));
-            return updated;
-        });
-    }, [setAiSignals]);
-
-    // --- C. SOURCE QUALITY SCORES ---
     const [sourceQualityScores, setSourceQualityScores] = useSystemSetting('sourceQualityScores', {
         referral: { label: 'Referral', points: 20 },
         walkIn: { label: 'Walk-in', points: 15 },
@@ -1040,19 +307,7 @@ export const PropertyConfigProvider = ({ children }) => {
         portal: { label: 'Portal', points: 4 },
         coldCall: { label: 'Cold Call', points: 0 }
     });
-    const updateSourceQualityScores = useCallback(async (newScores) => {
-        setSourceQualityScores(prev => {
-            const updated = { ...prev, ...newScores };
-            systemSettingsAPI.upsert('source_quality_scores', {
-                category: 'sales_config',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save source quality scores:', e));
-            return updated;
-        });
-    }, [setSourceQualityScores]);
 
-    // --- D. INVENTORY FIT SCORES ---
     const [inventoryFitScores, setInventoryFitScores] = useSystemSetting('inventoryFitScores', {
         match5Plus: { label: 'Matching inventory \u2265 5', points: 10 },
         priceDev5: { label: 'Price deviation < 5%', points: 10 },
@@ -1060,38 +315,14 @@ export const PropertyConfigProvider = ({ children }) => {
         locked: { label: 'Inventory locked', points: -15 },
         none: { label: 'No inventory', points: -20 }
     });
-    const updateInventoryFitScores = useCallback(async (newScores) => {
-        setInventoryFitScores(prev => {
-            const updated = { ...prev, ...newScores };
-            systemSettingsAPI.upsert('inventory_fit_scores', {
-                category: 'sales_config',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save inventory fit scores:', e));
-            return updated;
-        });
-    }, [setInventoryFitScores]);
 
-    // --- F. STAGE MULTIPLIERS ---
     const [stageMultipliers, setStageMultipliers] = useSystemSetting('stageMultipliers', {
         incoming: { label: 'Incoming', value: 0.7 },
         prospect: { label: 'Prospect', value: 1.0 },
         opportunity: { label: 'Opportunity', value: 1.3 },
         negotiation: { label: 'Negotiation', value: 1.5 }
     });
-    const updateStageMultipliers = useCallback(async (newMultipliers) => {
-        setStageMultipliers(prev => {
-            const updated = { ...prev, ...newMultipliers };
-            systemSettingsAPI.upsert('stage_multipliers', {
-                category: 'sales_config',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save stage multipliers:', e));
-            return updated;
-        });
-    }, [setStageMultipliers]);
 
-    // --- DEAL SCORING ENGINE ---
     const [dealScoringRules, setDealScoringRules] = useSystemSetting('dealScoringRules', {
         stages: {
             open: { label: 'Open', points: 10 },
@@ -1112,50 +343,13 @@ export const PropertyConfigProvider = ({ children }) => {
             delay15: { label: 'Delay > 15 days', points: -20 }
         }
     });
-    const updateDealScoringRules = useCallback(async (section, newRules) => {
-        setDealScoringRules(prev => {
-            const updated = {
-                ...prev,
-                [section]: { ...prev[section], ...newRules }
-            };
-            systemSettingsAPI.upsert('deal_scoring_rules', {
-                category: 'sales_config',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save deal scoring rules:', e));
-            return updated;
-        });
-    }, [setDealScoringRules]);
 
-    // --- SCORE BANDS ---
-    const [scoreBands, setScoreBands] = useSystemSetting('scoreBands', {
-        cold: { label: 'Cold', min: 0, max: 30, color: '#64748b' },
-        warm: { label: 'Warm', min: 31, max: 60, color: '#f59e0b' },
-        hot: { label: 'Hot', min: 61, max: 80, color: '#ef4444' },
-        superHot: { label: 'Super Hot', min: 81, max: 100, color: '#7c3aed' }
-    });
-    const updateScoreBands = useCallback(async (newBands) => {
-        setScoreBands(newBands); // Direct set since argument is full new state
-        systemSettingsAPI.upsert('score_bands', {
-            category: 'sales_config',
-            value: newBands,
-            isPublic: true
-        }).catch(e => console.error('Failed to save score bands:', e));
-    }, [setScoreBands]);
+    const [scoreBands, setScoreBands] = useSystemSetting('scoreBands', [
+        { min: 80, label: 'Hot', color: '#ef4444', icon: 'fa-fire' },
+        { min: 50, label: 'Warm', color: '#f59e0b', icon: 'fa-bolt' },
+        { min: 0, label: 'Cold', color: '#3b82f6', icon: 'fa-snowflake' }
+    ]);
 
-    const updateLeadMasterFields = useCallback(async (field, newValues) => {
-        setLeadMasterFields(prevFields => {
-            const updated = { ...prevFields, [field]: newValues };
-            systemSettingsAPI.upsert('leadMasterFields', {
-                category: 'crm_config',
-                value: updated,
-                isPublic: true
-            }).catch(e => console.error('Failed to save lead master fields:', e));
-            return updated;
-        });
-    }, [setLeadMasterFields]);
-
-    // Activity Master Fields (Hierarchical: Activity -> Purpose -> Outcome { label, score })
     const [activityMasterFields, setActivityMasterFields] = useSystemSetting('activityMasterFields', {
         activities: [
             // ─────────────────────────────────────────────────────────────────────
@@ -1729,7 +923,6 @@ export const PropertyConfigProvider = ({ children }) => {
         ]
     });
 
-
     const updateActivityMasterFields = useCallback((activities) => {
         setActivityMasterFields(prev => ({ ...prev, activities }));
     }, [setActivityMasterFields]);
@@ -1753,7 +946,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setStageMappingRules]);
 
     // Update a single outcome's stage and requiredForm in activityMasterFields
-    const updateOutcomeStage = useCallback((activityName, purposeName, outcomeLabel, newStage, requiredForm = undefined) => {
+    const updateOutcomeStage = useCallback((activityName, purposeName, outcomeLabel, newStage) => {
         setActivityMasterFields(prev => {
             const activities = prev.activities.map(act => {
                 if (act.name !== activityName) return act;
@@ -1768,14 +961,6 @@ export const PropertyConfigProvider = ({ children }) => {
                                 // Core Fix: Only update fields that are provided, preserve others
                                 const updatedOutcome = { ...out };
                                 if (newStage !== undefined) updatedOutcome.stage = newStage;
-                                if (requiredForm !== undefined) {
-                                    updatedOutcome.requiredForm = requiredForm;
-                                    // Also sync to requiredForms array for new engine compatibility
-                                    updatedOutcome.requiredForms = [requiredForm].filter(Boolean);
-                                }
-                                if (changes?.requiredForms !== undefined) {
-                                    updatedOutcome.requiredForms = changes.requiredForms;
-                                }
                                 return updatedOutcome;
                             })
                         };
@@ -1857,7 +1042,880 @@ export const PropertyConfigProvider = ({ children }) => {
     const updateIntentSignal = useCallback((key, changes) => setIntentSignals(prev => ({ ...prev, [key]: { ...prev[key], ...changes } })), [setIntentSignals]);
 
 
-    const [sizes, setSizes] = useState([]);
+
+    const refreshSizes = useCallback(async () => {
+        try {
+            // SINGLE SOURCE OF TRUTH: Fetch from Lookups ('Size' category)
+            const sizesResponse = await lookupsAPI.getByCategory('Size');
+            let lookupSizes = [];
+            if (sizesResponse && sizesResponse.status === "success" && Array.isArray(sizesResponse.data)) {
+                lookupSizes = sizesResponse.data.map(l => ({
+                    id: l._id,
+                    name: l.lookup_value,
+                    ...l.metadata
+                }));
+            }
+
+            setSizes(lookupSizes);
+        } catch (error) {
+            console.error('Failed to refresh sizes:', error);
+        }
+    }, []);
+
+    // --- OPTIMIZED LOOKUP RESOLUTION (O(1)) ---
+    // Pre-calculate flat maps for instant ID -> Value and Value -> ID resolution
+    // This eliminates the O(n * m) nested loops that cause UI lag in tables
+    const lookupMap = React.useMemo(() => {
+        const map = new Map();
+        // 1. Add all lookups across all categories
+        Object.values(lookups).forEach(categoryLookups => {
+            if (Array.isArray(categoryLookups)) {
+                categoryLookups.forEach(l => {
+                    const id = l._id || l.id;
+                    if (id) map.set(id.toString(), l.lookup_value);
+                });
+            }
+        });
+        // 2. Add all projects
+        if (Array.isArray(projects)) {
+            projects.forEach(p => {
+                const id = p._id || p.id;
+                if (id) map.set(id.toString(), p.name || p.projectName || p.title);
+            });
+        }
+        return map;
+    }, [lookups, projects]);
+
+    const typeValueMap = React.useMemo(() => {
+        const map = new Map(); // Map<normalizedType, Map<value, id>>
+        Object.entries(lookups).forEach(([type, categoryLookups]) => {
+            if (Array.isArray(categoryLookups)) {
+                const valToId = new Map();
+                categoryLookups.forEach(l => {
+                    const id = l._id || l.id;
+                    if (id) valToId.set(l.lookup_value, id.toString());
+                });
+                map.set(type, valToId);
+            }
+        });
+        return map;
+    }, [lookups]);
+
+    const getLookupId = useCallback((type, value) => {
+        if (!value) return null;
+        if (typeof value === 'object' && value._id) return value._id.toString();
+        
+        // Standardize type (e.g. 'Property Type' -> 'PropertyType')
+        const normalizedType = type ? type.replace(/\s+/g, '') : type;
+
+        // O(1) Search in specific category Map
+        const categoryMap = typeValueMap.get(normalizedType);
+        if (categoryMap && categoryMap.has(value)) {
+            return categoryMap.get(value);
+        }
+
+        // Fallback for case where value is already an ID (string matching)
+        if (typeof value === 'string' && /^[0-9a-fA-F]{24}$/.test(value)) {
+            return value;
+        }
+
+        return null;
+    }, [typeValueMap]);
+
+    const getLookupValue = useCallback((type, id) => {
+        if (!id) return id;
+
+        // Case A: ID is already a populated object
+        if (typeof id === 'object') {
+            const val = id.lookup_value || id.name || id.label || id.value || id.displayName;
+            if (val && typeof val !== 'object') return val;
+            return typeof id.toString === 'function' && id.toString() !== '[object Object]' ? id.toString() : '-';
+        }
+
+        const idStr = id.toString();
+
+        // Case B: O(1) Instant Resolution using pre-calculated Map
+        // We first try the global map (covers both specific category and fallbacks)
+        const resolved = lookupMap.get(idStr);
+        if (resolved) return resolved;
+
+        // Case C: ID is not a mongo ID (likely a raw string/value)
+        if (typeof id === 'string' && !/^[0-9a-fA-F]{24}$/.test(id)) {
+            return id;
+        }
+
+        return null;
+    }, [lookupMap]);
+
+    const findLookup = useCallback((type, value, parentId = null) => {
+        const normalizedType = type ? type.replace(/\s+/g, '') : type;
+        if (!lookups[normalizedType]) return null;
+        return lookups[normalizedType].find(l =>
+            l.lookup_value === value &&
+            (!parentId || l.parent_lookup_id === parentId)
+        );
+    }, [lookups]);
+
+    const refreshLookups = useCallback(async () => {
+        try {
+            console.log('[PropertyConfigContext] Refreshing all lookups in one call...');
+            const response = await lookupsAPI.getAll();
+
+            let allLookups = [];
+            if (response && response.status === "success" && Array.isArray(response.data)) {
+                allLookups = response.data;
+            } else if (Array.isArray(response)) {
+                allLookups = response;
+            }
+
+            const newLookups = {};
+            allLookups.forEach(item => {
+                let type = item.lookup_type || item.type || '';
+                // Normalize keys by removing spaces so 'Unit Type' and 'UnitType' merge
+                type = type.replace(/\s+/g, '');
+
+                if (!newLookups[type]) newLookups[type] = [];
+                newLookups[type].push(item);
+            });
+
+            setLookups(newLookups);
+
+            // Populate masterFields from Lookups (Facing, Direction, etc.)
+            setMasterFields(prev => ({
+                ...prev,
+                facings: newLookups['Facing']?.map(l => l.lookup_value) || [],
+                directions: newLookups['Direction']?.map(l => l.lookup_value) || [],
+                roadWidths: newLookups['RoadWidth']?.map(l => l.lookup_value) || [],
+                unitTypes: newLookups['UnitType']?.map(l => l.lookup_value) || [],
+                titles: newLookups['Title'] || [],
+                relations: newLookups['Relation']?.map(l => ({
+                    id: l._id,
+                    name: l.lookup_value
+                })) || []
+            }));
+
+            // Reconstruct propertyConfig from Lookups (for compatibility)
+            // This is a complex mapping, we'll implement it if needed, 
+            // but for now let's focus on providing the lookup lists.
+
+            // Map Sizes for refreshSizes compatibility
+            if (newLookups['Size']) {
+                const normalizedSizes = newLookups['Size'].map(l => ({
+                    id: l._id,
+                    name: l.lookup_value,
+                    ...l.metadata
+                }));
+                setSizes(normalizedSizes);
+            }
+
+            return newLookups;
+        } catch (error) {
+            console.error('[PropertyConfigContext] Failed to refresh lookups:', error);
+            return {};
+        }
+    }, [setMasterFields, setSizes]);
+
+    // Load all configurations from backend on mount
+    useEffect(() => {
+        const loadAllConfigs = async () => {
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                setIsLoading(false);
+                return;
+            }
+            try {
+                // 1. LOAD LOOKUPS FIRST (Primary source for normalized fields)
+                const fetchedLookups = await refreshLookups();
+
+                // Set Company Master Fields from fetched lookups
+                setCompanyMasterFields({
+                    companyTypes: fetchedLookups['CompanyType'] || [],
+                    industries: fetchedLookups['Industry'] || []
+                });
+
+                // 2. LOAD SYSTEM SETTINGS (Secondary source / Remaining configs)
+                const response = await systemSettingsAPI.getAll({ limit: 100 });
+                if (response && response.data) {
+                    const settings = response.data;
+                    const settingsList = Array.isArray(settings) ? settings : (settings.docs || []);
+
+                    // Map settings to state (Aligned with useSystemSetting camelCase keys)
+                    const foundKeys = new Set();
+                    settingsList.forEach(setting => {
+                        foundKeys.add(setting.key);
+                        switch (setting.key) {
+                            case 'propertyConfig': setPropertyConfig(setting.value, true); break;
+                            case 'masterFields': setMasterFields(setting.value, true); break;
+                            case 'projectMasterFields': setProjectMasterFields(setting.value, true); break;
+                            case 'projectAmenities': setProjectAmenities(setting.value, true); break;
+                            case 'leadMasterFields': setLeadMasterFields(setting.value, true); break;
+                            case 'scoringAttributes': setScoringAttributes(setting.value, true); break;
+                            case 'scoringConfig': setScoringConfig(setting.value, true); break;
+                            case 'behaviouralSignals': setBehaviouralSignals(setting.value, true); break;
+                            case 'dealFitSignals': setDealFitSignals(setting.value, true); break;
+                            case 'financialSignals': setFinancialSignals(setting.value, true); break;
+                            case 'decayRules': setDecayRules(setting.value, true); break;
+                            case 'aiSignals': setAiSignals(setting.value, true); break;
+                            case 'sourceQualityScores': setSourceQualityScores(setting.value, true); break;
+                            case 'inventoryFitScores': setInventoryFitScores(setting.value, true); break;
+                            case 'stageMultipliers': setStageMultipliers(setting.value, true); break;
+                            case 'dealScoringRules': setDealScoringRules(setting.value, true); break;
+                            case 'scoreBands': setScoreBands(setting.value, true); break;
+                            case 'activityMasterFields': setActivityMasterFields(setting.value, true); break;
+                            case 'stageMappingRules': setStageMappingRules(setting.value, true); break;
+                            case 'syncRules': setSyncRules(setting.value, true); break;
+                            case 'sequenceConfig': setSequenceConfig(setting.value, true); break;
+                            case 'agingRules': setAgingRules(setting.value, true); break;
+                            case 'forecastConfig': setForecastConfig(setting.value, true); break;
+                            case 'dealHealthConfig': setDealHealthConfig(setting.value, true); break;
+                            case 'intentSignals': setIntentSignals(setting.value, true); break;
+                            case 'dealMasterFields': setDealMasterFields(setting.value, true); break;
+
+                            // Backward compatibility
+                            case 'property_config': if (!foundKeys.has('propertyConfig')) setPropertyConfig(setting.value, true); break;
+                            case 'master_fields': if (!foundKeys.has('masterFields')) setMasterFields(setting.value, true); break;
+                            case 'activity_master_fields': if (!foundKeys.has('activityMasterFields')) setActivityMasterFields(setting.value, true); break;
+                            case 'lead_master_fields': if (!foundKeys.has('leadMasterFields')) setLeadMasterFields(setting.value, true); break;
+                            case 'score_bands': if (!foundKeys.has('scoreBands')) setScoreBands(setting.value, true); break;
+
+                            default: break;
+                        }
+                    });
+
+                    // Professional Fix: Backfill missing settings to MongoDB
+                    // If a key is expected but not found in backend, push the current frontend value (defaults/localStorage)
+                    const expectedKeys = ['propertyConfig', 'activityMasterFields', 'leadMasterFields', 'stageMultipliers', 'scoreBands', 'masterFields', 'dealMasterFields'];
+                    expectedKeys.forEach(k => {
+                        if (!foundKeys.has(k)) {
+                            console.log(`[PropertyConfigContext] Backfilling missing setting to MongoDB: ${k}`);
+                            // We use a small delay to ensure states are initialized or use localStorage directly for backfill
+                            const localVal = window.localStorage.getItem(k);
+                            if (localVal) {
+                                systemSettingsAPI.upsert(k, { value: JSON.parse(localVal), category: 'crm_config' })
+                                    .catch(e => console.error(`Backfill failed for ${k}:`, e));
+                            }
+                        }
+                    });
+                }
+
+                // REDUNDANT CALLS REMOVED: 
+                // Company lookups and Sizes are now handled within refreshLookups()
+
+                // FETCH REAL PROJECTS FROM BACKEND
+                console.log("[PropertyConfigContext] Fetching projects...");
+                const projectsRes = await api.get('/projects');
+                console.log("[PropertyConfigContext] Projects response:", projectsRes.data);
+
+                if (projectsRes.data && projectsRes.data.success && Array.isArray(projectsRes.data.data)) {
+                    setProjects(projectsRes.data.data);
+                } else if (Array.isArray(projectsRes.data)) {
+                    // Handle case where API might return array directly (less likely but possible based on controller)
+                    setProjects(projectsRes.data);
+                } else {
+                    console.warn("[PropertyConfigContext] Unexpected projects data format:", projectsRes.data);
+                    setProjects([]);
+                }
+            } catch (error) {
+                console.error('Failed to load configs from backend:', error);
+                // Fallback for projects if backend is down - use static list if needed
+                console.warn("[PropertyConfigContext] Using fallback static projects due to error.");
+                setProjects(PROJECTS_LIST);
+
+                // Keep backward compatibility for propertyConfig if needed
+                try {
+                    const lookups = await lookupsAPI.getByCategory('property_configuration');
+                    if (lookups && lookups.length > 0) {
+                        const config = lookups[0].value;
+                        if (config) setPropertyConfig(config);
+                    }
+                } catch (e) {
+                    console.error('Lookups fallback failed:', e);
+                }
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        loadAllConfigs();
+    }, [
+        refreshSizes, 
+        refreshLookups, 
+        setPropertyConfig, 
+        setMasterFields, 
+        setProjectMasterFields, 
+        setProjectAmenities, 
+        setLeadMasterFields, 
+        setScoringAttributes, 
+        setScoringConfig, 
+        setBehaviouralSignals, 
+        setDealFitSignals, 
+        setFinancialSignals, 
+        setDecayRules, 
+        setAiSignals, 
+        setSourceQualityScores, 
+        setInventoryFitScores, 
+        setStageMultipliers, 
+        setDealScoringRules, 
+        setScoreBands, 
+        setActivityMasterFields, 
+        setStageMappingRules, 
+        setSyncRules, 
+        setSequenceConfig, 
+        setAgingRules, 
+        setForecastConfig, 
+        setDealHealthConfig, 
+        setIntentSignals, 
+        setDealMasterFields
+    ]);
+
+    const addProject = useCallback(async (newProject) => {
+        const project = {
+            id: Date.now(),
+            name: newProject.name,
+            location: newProject.location || '',
+            blocks: [],
+            units: [],
+            ...newProject
+        };
+        // Functional update to avoid dependency on 'projects' which changes
+        setProjects(prevProjects => {
+            const updatedProjects = [...prevProjects, project];
+            // Save to backend inside setter or using updated value?
+            // Better to trigger save effect or save here.
+
+            // Saving here requires handling async properly, but we can fire and forget for UI consistency
+            systemSettingsAPI.upsert('dynamic_projects', {
+                category: 'property',
+                value: updatedProjects,
+                isPublic: true
+            }).catch(err => console.error('Failed to save projects:', err));
+
+            return updatedProjects;
+        });
+        return project;
+    }, []);
+
+    const addBlock = async (projectId, blockName) => {
+        const updatedProjects = projects.map(p => {
+            if (p.id === projectId || p.name === projectId) { // Handle both ID or Name lookup
+                return { ...p, blocks: [...(p.blocks || []), blockName] };
+            }
+            return p;
+        });
+        setProjects(updatedProjects);
+
+        // Save to backend
+        try {
+            await systemSettingsAPI.upsert('dynamic_projects', {
+                category: 'property',
+                value: updatedProjects,
+                isPublic: true
+            });
+        } catch (error) {
+            console.error('Failed to save projects to backend:', error);
+        }
+    };
+
+
+    // Master Fields State (Property Specific)
+    // Initialized from LocalStorage or empty arrays; populated on load from Lookups
+
+
+    // Project Master Fields (Moved/Copied from Property)
+
+
+    // Dynamic Amenities Configuration
+
+
+    // Ensure new fields are added to state even if persisted (HMR/Storage fix)
+    React.useEffect(() => {
+        // ... (Logic to sync defaults if needed, simplified for clarity as we are hardcoding defaults above)
+    }, []);
+
+    // CRUD Operations exposed to the app
+    const updateConfig = useCallback(async (newConfig) => {
+        // Validation: Ensure newConfig is a valid object
+        if (!newConfig || typeof newConfig !== 'object' || Array.isArray(newConfig)) {
+            console.error('[PropertyConfigContext] Invalid config object provided to updateConfig');
+            return;
+        }
+
+        // Deep Validation: Ensure categories have subCategories array
+        const isValid = Object.values(newConfig).every(cat =>
+            cat && typeof cat === 'object' && Array.isArray(cat.subCategories)
+        );
+
+        if (!isValid) {
+            console.error('[PropertyConfigContext] Invalid category structure in updateConfig');
+            // We still update local state to allow UI to show something, but we might want to alert or block save
+            // For now, let's at least protect the backend
+        }
+
+        setPropertyConfig(newConfig);
+
+        if (!isValid) return; // Block backend save if invalid
+
+        // Professional Fix: Saving is now automatically handled by useSystemSetting's setValue (setPropertyConfig)
+        // However, we explicitly upsert here to ensure immediate sync and validation feedback if needed.
+        try {
+            await systemSettingsAPI.upsert('propertyConfig', {
+                category: 'crm_config',
+                value: newConfig,
+                isPublic: true,
+                description: 'Global property configuration (Validated)'
+            });
+        } catch (error) {
+            console.error('[PropertyConfigContext] Explicit save failed:', error);
+            // We don't throw here to avoid breaking UI if localStorage version succeeded
+        }
+    }, [setPropertyConfig]);
+
+    const updateMasterFields = useCallback(async (field, newValuesOrValue, mode = 'update') => {
+        const fieldToLookupType = {
+            facings: 'Facing',
+            directions: 'Direction',
+            roadWidths: 'RoadWidth',
+            unitTypes: 'UnitType',
+            relations: 'Relation'
+        };
+
+        const lookupType = fieldToLookupType[field];
+
+        if (lookupType) {
+            try {
+                if (mode === 'add') {
+                    await lookupsAPI.create({
+                        lookup_type: lookupType,
+                        lookup_value: newValuesOrValue,
+                        is_active: true
+                    });
+                } else if (mode === 'delete') {
+                    const lookupToDelete = lookups[lookupType]?.find(l => l.lookup_value === newValuesOrValue || l._id === newValuesOrValue);
+                    if (lookupToDelete) {
+                        await lookupsAPI.delete(lookupToDelete._id);
+                    }
+                }
+                // Always refresh from lookups to keep state in sync
+                await refreshLookups();
+                return;
+            } catch (error) {
+                console.error(`Failed to sync lookup for ${field}:`, error);
+            }
+        }
+
+        // For non-lookup fields or if direct update is needed
+        setMasterFields(prevFields => {
+            let updated;
+            if (mode === 'add') {
+                updated = { ...prevFields, [field]: [...(prevFields[field] || []), newValuesOrValue] };
+            } else if (mode === 'delete') {
+                updated = { ...prevFields, [field]: (prevFields[field] || []).filter(v => v !== newValuesOrValue) };
+            } else {
+                updated = { ...prevFields, [field]: newValuesOrValue };
+            }
+
+            // Professional cleanup: Only upsert to masterFields if it's NOT a lookup-driven field
+            if (!lookupType) {
+                systemSettingsAPI.upsert('masterFields', {
+                    category: 'crm_config',
+                    value: updated,
+                    isPublic: true
+                }).catch(e => console.error('Failed to save master fields:', e));
+            }
+            return updated;
+        });
+    }, [setMasterFields, lookups, refreshLookups]);
+
+    const updateProjectMasterFields = useCallback(async (field, newValuesOrValue, mode = 'update') => {
+        const fieldToLookupType = {
+            projectStatuses: 'ProjectStatus',
+            parkingTypes: 'ParkingType'
+        };
+
+        const lookupType = fieldToLookupType[field];
+
+        if (lookupType) {
+            try {
+                if (mode === 'add') {
+                    await lookupsAPI.create({
+                        lookup_type: lookupType,
+                        lookup_value: newValuesOrValue,
+                        is_active: true
+                    });
+                    await refreshLookups();
+                } else if (mode === 'delete') {
+                    const lookupToDelete = lookups[lookupType]?.find(l => l.lookup_value === newValuesOrValue || l._id === newValuesOrValue);
+                    if (lookupToDelete) {
+                        await lookupsAPI.delete(lookupToDelete._id);
+                        await refreshLookups();
+                    }
+                }
+            } catch (error) {
+                console.error(`Failed to sync lookup for ${field}:`, error);
+            }
+        }
+
+        setProjectMasterFields(prevFields => {
+            const updated = mode === 'update' ? { ...prevFields, [field]: newValuesOrValue } : prevFields;
+            systemSettingsAPI.upsert('projectMasterFields', {
+                category: 'crm_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save project master fields:', e));
+            return updated;
+        });
+    }, [setProjectMasterFields, lookups, refreshLookups]);
+
+    const syncCategoryLookup = useCallback(async (categoryName, mode = 'add', oldName = null) => {
+        try {
+            if (mode === 'add') {
+                await lookupsAPI.create({ lookup_type: 'Category', lookup_value: categoryName, is_active: true });
+            } else if (mode === 'update' && oldName) {
+                const existing = findLookup('Category', oldName);
+                if (existing) await lookupsAPI.update(existing._id, { lookup_value: categoryName });
+            } else if (mode === 'delete') {
+                const existing = findLookup('Category', categoryName);
+                if (existing) await lookupsAPI.delete(existing._id);
+            }
+            await refreshLookups();
+        } catch (error) {
+            console.error('Failed to sync Category lookup:', error);
+        }
+    }, [findLookup, refreshLookups]);
+
+    const syncSubCategoryLookup = useCallback(async (categoryName, subCategoryName, mode = 'add', oldName = null) => {
+        try {
+            const category = findLookup('Category', categoryName);
+            if (!category) return;
+
+            if (mode === 'add') {
+                await lookupsAPI.create({ lookup_type: 'SubCategory', lookup_value: subCategoryName, parent_lookup_id: category._id, is_active: true });
+            } else if (mode === 'update' && oldName) {
+                const existing = findLookup('SubCategory', oldName, category._id);
+                if (existing) await lookupsAPI.update(existing._id, { lookup_value: subCategoryName });
+            } else if (mode === 'delete') {
+                const existing = findLookup('SubCategory', subCategoryName, category._id);
+                if (existing) await lookupsAPI.delete(existing._id);
+            }
+            await refreshLookups();
+        } catch (error) {
+            console.error('Failed to sync SubCategory lookup:', error);
+        }
+    }, [findLookup, refreshLookups]);
+
+    const syncPropertyTypeLookup = useCallback(async (categoryName, subCategoryName, typeName, mode = 'add', oldName = null) => {
+        try {
+            const category = findLookup('Category', categoryName);
+            if (!category) return;
+            const subCategory = findLookup('SubCategory', subCategoryName, category._id);
+            if (!subCategory) return;
+
+            if (mode === 'add') {
+                await lookupsAPI.create({ lookup_type: 'PropertyType', lookup_value: typeName, parent_lookup_id: subCategory._id, is_active: true });
+            } else if (mode === 'update' && oldName) {
+                const existing = findLookup('PropertyType', oldName, subCategory._id);
+                if (existing) await lookupsAPI.update(existing._id, { lookup_value: typeName });
+            } else if (mode === 'delete') {
+                const existing = findLookup('PropertyType', typeName, subCategory._id);
+                if (existing) await lookupsAPI.delete(existing._id);
+            }
+            await refreshLookups();
+        } catch (error) {
+            console.error('Failed to sync PropertyType lookup:', error);
+        }
+    }, [findLookup, refreshLookups]);
+
+    const syncBuiltupTypeLookup = useCallback(async (categoryName, subCategoryName, typeName, builtupTypeName, mode = 'add', oldName = null) => {
+        try {
+            const category = findLookup('Category', categoryName);
+            if (!category) return;
+            const subCategory = findLookup('SubCategory', subCategoryName, category._id);
+            if (!subCategory) return;
+            const propertyType = findLookup('PropertyType', typeName, subCategory._id);
+            if (!propertyType) return;
+
+            if (mode === 'add') {
+                await lookupsAPI.create({ lookup_type: 'BuiltupType', lookup_value: builtupTypeName, parent_lookup_id: propertyType._id, is_active: true });
+            } else if (mode === 'update' && oldName) {
+                const existing = findLookup('BuiltupType', oldName, propertyType._id);
+                if (existing) await lookupsAPI.update(existing._id, { lookup_value: builtupTypeName });
+            } else if (mode === 'delete') {
+                const existing = findLookup('BuiltupType', builtupTypeName, propertyType._id);
+                if (existing) await lookupsAPI.delete(existing._id);
+            }
+            await refreshLookups();
+        } catch (error) {
+            console.error('Failed to sync BuiltupType lookup:', error);
+        }
+    }, [findLookup, refreshLookups]);
+
+    const updateProjectAmenities = useCallback(async (category, newAmenities) => {
+        setProjectAmenities(prevAmenities => {
+            const updated = { ...prevAmenities, [category]: newAmenities };
+            systemSettingsAPI.upsert('projectAmenities', {
+                category: 'crm_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save project amenities:', e));
+            return updated;
+        });
+    }, [setProjectAmenities]);
+
+    // Company Master Fields - Stores full Lookup objects
+
+
+    const updateCompanyMasterFields = useCallback(async (field, newItemValue) => {
+        const lookupTypeMap = {
+            companyTypes: 'CompanyType',
+            industries: 'Industry'
+        };
+        const lookupType = lookupTypeMap[field];
+        if (!lookupType) return;
+
+        try {
+            const res = await lookupsAPI.create({
+                lookup_type: lookupType,
+                lookup_value: newItemValue,
+                is_active: true
+            });
+            if (res && res.data) {
+                setCompanyMasterFields(prev => ({
+                    ...prev,
+                    [field]: [...prev[field], res.data]
+                }));
+            }
+        } catch (error) {
+            console.error(`Failed to add ${field} lookup:`, error);
+            throw error;
+        }
+    }, []);
+
+
+
+    // Lead & Campaign Master Fields
+
+
+    // Deal Master Fields
+
+
+    const updateDealMasterFields = useCallback(async (field, newValue, mode = 'update') => {
+        setDealMasterFields(prevFields => {
+            let updatedList = (prevFields && prevFields[field]) ? prevFields[field] : [];
+            if (mode === 'add') {
+                if (Array.isArray(updatedList) && !updatedList.includes(newValue)) {
+                    updatedList = [...updatedList, newValue];
+                }
+            } else if (mode === 'delete') {
+                if (Array.isArray(updatedList)) {
+                    updatedList = updatedList.filter(v => v !== newValue);
+                }
+            } else {
+                updatedList = newValue;
+            }
+
+            const updated = { ...prevFields, [field]: updatedList };
+            systemSettingsAPI.upsert('dealMasterFields', {
+                category: 'crm_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save deal master fields:', e));
+            return updated;
+        });
+    }, [setDealMasterFields]);
+
+    // Scoring Attributes State (Static Weights)
+
+
+    const updateScoringAttributes = useCallback(async (newAttributes) => {
+        setScoringAttributes(prev => {
+            const updated = { ...prev, ...newAttributes };
+            systemSettingsAPI.upsert('scoring_attributes', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save scoring attributes:', e));
+            return updated;
+        });
+    }, [setScoringAttributes]);
+
+    // --- NEW: Phased Scoring Configuration ---
+
+
+    const updateScoringConfig = useCallback(async (phase, newItem) => {
+        setScoringConfig(prev => {
+            const updated = {
+                ...prev,
+                [phase]: { ...prev[phase], ...newItem }
+            };
+            systemSettingsAPI.upsert('scoring_config', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save scoring config:', e));
+            return updated;
+        });
+    }, [setScoringConfig]);
+
+    // Phase 1: Behavioural Scoring Signals
+
+
+    const updateBehaviouralSignals = useCallback(async (newSignals) => {
+        setBehaviouralSignals(prev => {
+            const updated = { ...prev, ...newSignals };
+            systemSettingsAPI.upsert('behavioural_signals', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save behavioural signals:', e));
+            return updated;
+        });
+    }, [setBehaviouralSignals]);
+
+    // Phase 2: Deal-Fit Intelligence (Skeleton)
+
+
+    const updateDealFitSignals = useCallback(async (newSignals) => {
+        setDealFitSignals(prev => {
+            const updated = { ...prev, ...newSignals };
+            systemSettingsAPI.upsert('deal_fit_signals', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save deal fit signals:', e));
+            return updated;
+        });
+    }, [setDealFitSignals]);
+
+    // Phase 3: Financial Readiness (Skeleton)
+
+
+    const updateFinancialSignals = useCallback(async (newSignals) => {
+        setFinancialSignals(prev => {
+            const updated = { ...prev, ...newSignals };
+            systemSettingsAPI.upsert('financial_signals', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save financial signals:', e));
+            return updated;
+        });
+    }, [setFinancialSignals]);
+
+    // Phase 4: Time Decay Rules (Skeleton)
+
+
+    const updateDecayRules = useCallback(async (newRules) => {
+        setDecayRules(prev => {
+            const updated = { ...prev, ...newRules };
+            systemSettingsAPI.upsert('decay_rules', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save decay rules:', e));
+            return updated;
+        });
+    }, [setDecayRules]);
+
+    // Phase 5: AI Interpretation (Skeleton)
+
+
+    const updateAiSignals = useCallback(async (newSignals) => {
+        setAiSignals(prev => {
+            const updated = { ...prev, ...newSignals };
+            systemSettingsAPI.upsert('ai_signals', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save AI signals:', e));
+            return updated;
+        });
+    }, [setAiSignals]);
+
+    // --- C. SOURCE QUALITY SCORES ---
+
+    const updateSourceQualityScores = useCallback(async (newScores) => {
+        setSourceQualityScores(prev => {
+            const updated = { ...prev, ...newScores };
+            systemSettingsAPI.upsert('source_quality_scores', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save source quality scores:', e));
+            return updated;
+        });
+    }, [setSourceQualityScores]);
+
+    // --- D. INVENTORY FIT SCORES ---
+
+    const updateInventoryFitScores = useCallback(async (newScores) => {
+        setInventoryFitScores(prev => {
+            const updated = { ...prev, ...newScores };
+            systemSettingsAPI.upsert('inventory_fit_scores', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save inventory fit scores:', e));
+            return updated;
+        });
+    }, [setInventoryFitScores]);
+
+    // --- F. STAGE MULTIPLIERS ---
+
+    const updateStageMultipliers = useCallback(async (newMultipliers) => {
+        setStageMultipliers(prev => {
+            const updated = { ...prev, ...newMultipliers };
+            systemSettingsAPI.upsert('stage_multipliers', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save stage multipliers:', e));
+            return updated;
+        });
+    }, [setStageMultipliers]);
+
+    // --- DEAL SCORING ENGINE ---
+
+    const updateDealScoringRules = useCallback(async (section, newRules) => {
+        setDealScoringRules(prev => {
+            const updated = {
+                ...prev,
+                [section]: { ...prev[section], ...newRules }
+            };
+            systemSettingsAPI.upsert('deal_scoring_rules', {
+                category: 'sales_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save deal scoring rules:', e));
+            return updated;
+        });
+    }, [setDealScoringRules]);
+
+    // --- SCORE BANDS ---
+
+    const updateScoreBands = useCallback(async (newBands) => {
+        setScoreBands(newBands); // Direct set since argument is full new state
+        systemSettingsAPI.upsert('score_bands', {
+            category: 'sales_config',
+            value: newBands,
+            isPublic: true
+        }).catch(e => console.error('Failed to save score bands:', e));
+    }, [setScoreBands]);
+
+    const updateLeadMasterFields = useCallback(async (field, newValues) => {
+        setLeadMasterFields(prevFields => {
+            const updated = { ...prevFields, [field]: newValues };
+            systemSettingsAPI.upsert('leadMasterFields', {
+                category: 'crm_config',
+                value: updated,
+                isPublic: true
+            }).catch(e => console.error('Failed to save lead master fields:', e));
+            return updated;
+        });
+    }, [setLeadMasterFields]);
+
+
+
+
+
 
     const addSize = async (newSize) => {
         try {

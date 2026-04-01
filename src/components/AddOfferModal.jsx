@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import { renderValue } from '../utils/renderUtils';
+import { useState, useEffect } from 'react';
 
 const AddOfferModal = ({ isOpen, onClose, onSave, leads }) => {
     const [formData, setFormData] = useState({
@@ -28,7 +27,7 @@ const AddOfferModal = ({ isOpen, onClose, onSave, leads }) => {
         const { name, value } = e.target;
         setFormData(prev => {
             if (name === 'leadId') {
-                const selectedLead = leads.find(l => l._id === value);
+                const selectedLead = (leads || []).find(l => l._id === value);
                 return { ...prev, leadId: value, leadName: selectedLead ? selectedLead.name : '' };
             }
             return { ...prev, [name]: value };
@@ -99,7 +98,7 @@ const AddOfferModal = ({ isOpen, onClose, onSave, leads }) => {
                                     className="focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
                                 >
                                     <option value="">Select a Lead...</option>
-                                    {leads.map(lead => (
+                                    {(leads || []).map(lead => (
                                         <option key={lead._id} value={lead._id}>{lead.name} ({lead.phone || lead.mobile})</option>
                                     ))}
                                 </select>

@@ -261,7 +261,7 @@ export const bulkDeleteCompanies = async (req, res, next) => {
  * @route   POST /companies/import
  * @access  Private
  */
-export const importCompanies = async (req, res, next) => {
+export const importCompanies = async (req, res) => {
     try {
         const { data } = req.body;
         if (!data || !Array.isArray(data)) {

@@ -188,7 +188,7 @@ export const getDataScopeFilter = async (user, resourceOwnerId = 'assignedTo') =
             // Only see own data
             return { [resourceOwnerId]: user._id };
 
-        case 'team':
+        case 'team': {
             // See own data + team members' data
             // Try cache first
             let teamIds = await cacheService.getCachedTeamMembers(user._id.toString());
@@ -200,8 +200,9 @@ export const getDataScopeFilter = async (user, resourceOwnerId = 'assignedTo') =
             }
 
             return { [resourceOwnerId]: { $in: teamIds } };
+        }
 
-        case 'department':
+        case 'department': {
             // See all data in department
             // Try cache first
             let deptIds = await cacheService.getCachedDepartmentUsers(user.department);
@@ -213,6 +214,7 @@ export const getDataScopeFilter = async (user, resourceOwnerId = 'assignedTo') =
             }
 
             return { [resourceOwnerId]: { $in: deptIds } };
+        }
 
         case 'all':
             // See all data

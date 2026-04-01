@@ -4,7 +4,7 @@
  */
 
 import Lead, { resolveLeadLookup } from '../models/Lead.js';
-import Lookup from '../models/Lookup.js';
+
 import AuditLog from '../models/AuditLog.js';
 import { runFullLeadEnrichment } from '../src/utils/enrichmentEngine.js';
 import { autoAssign } from '../src/services/DistributionService.js';

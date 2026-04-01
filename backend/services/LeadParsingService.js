@@ -113,7 +113,7 @@ const parse99Acres = (body, data) => {
     // 3. Fallback to key-value pattern
     if (!data.name || !data.mobile) {
         const nameMatch = body.match(/Name:\s*([^\r\n]+)/i);
-        const mobileMatch = body.match(/Mobile:\s*([0-9\+\-\s]+)/i);
+        const mobileMatch = body.match(/Mobile:\s*([0-9+-\s]+)/i);
         const emailMatch = body.match(/Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
 
         if (nameMatch) data.name = nameMatch[1].trim();
@@ -129,7 +129,7 @@ const parse99Acres = (body, data) => {
  */
 const parseRealEstateIndia = (body, data) => {
     const nameMatch = body.match(/Sender Name:\s*([^\r\n]+)/i) || body.match(/Name:\s*([^\r\n]+)/i);
-    const mobileMatch = body.match(/Mobile:\s*([0-9\+\-\s]+)/i) || body.match(/Phone:\s*([0-9\+\-\s]+)/i);
+    const mobileMatch = body.match(/Mobile:\s*([0-9+-\s]+)/i) || body.match(/Phone:\s*([0-9+-\s]+)/i);
     const emailMatch = body.match(/Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
     const enquiryMatch = body.match(/Enquiry For:\s*([^\r\n]+)/i);
 
@@ -146,7 +146,7 @@ const parseRealEstateIndia = (body, data) => {
  */
 const parseMagicBricks = (body, data) => {
     const nameMatch = body.match(/Name:\s*([^\r\n]+)/i);
-    const mobileMatch = body.match(/Contact No:\s*([0-9\+\-\s]+)/i) || body.match(/Mobile:\s*([0-9\+\-\s]+)/i);
+    const mobileMatch = body.match(/Contact No:\s*([0-9+-\s]+)/i) || body.match(/Mobile:\s*([0-9+-\s]+)/i);
     const emailMatch = body.match(/Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
     const interestMatch = body.match(/Interested in:\s*([^\r\n]+)/i);
 
@@ -163,7 +163,7 @@ const parseMagicBricks = (body, data) => {
  */
 const parseHousing = (body, data) => {
     const nameMatch = body.match(/User Name:\s*([^\r\n]+)/i) || body.match(/Name:\s*([^\r\n]+)/i);
-    const mobileMatch = body.match(/Phone:\s*([0-9\+\-\s]+)/i);
+    const mobileMatch = body.match(/Phone:\s*([0-9+-\s]+)/i);
     const emailMatch = body.match(/User Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
     const listingMatch = body.match(/Property Detail:\s*([^\r\n]+)/i);
 
@@ -180,7 +180,7 @@ const parseHousing = (body, data) => {
  */
 const parseSquareYards = (body, data) => {
     const nameMatch = body.match(/Name:\s*([^\r\n]+)/i);
-    const mobileMatch = body.match(/Phone:\s*([0-9\+\-\s]+)/i) || body.match(/Mobile:\s*([0-9\+\-\s]+)/i);
+    const mobileMatch = body.match(/Phone:\s*([0-9+-\s]+)/i) || body.match(/Mobile:\s*([0-9+-\s]+)/i);
     const emailMatch = body.match(/Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
     const projectMatch = body.match(/Project:\s*([^\r\n]+)/i);
 
@@ -197,7 +197,7 @@ const parseSquareYards = (body, data) => {
  */
 const parseCommonFloor = (body, data) => {
     const nameMatch = body.match(/Customer Name:\s*([^\r\n]+)/i);
-    const mobileMatch = body.match(/Mobile:\s*([0-9\+\-\s]+)/i);
+    const mobileMatch = body.match(/Mobile:\s*([0-9+-\s]+)/i);
     const emailMatch = body.match(/Email:\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
     const listingMatch = body.match(/Enquired For:\s*([^\r\n]+)/i);
 

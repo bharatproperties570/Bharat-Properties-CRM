@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
 const CreateRoleModal = ({ isOpen, onClose, onSave }) => {
@@ -36,7 +36,7 @@ const CreateRoleModal = ({ isOpen, onClose, onSave }) => {
     ];
 
     // Modules based on department
-    const getModulesForDepartment = (dept) => {
+    const getModulesForDepartment = useCallback((dept) => {
         const commonModules = ['contacts', 'companies', 'activities', 'reports'];
 
         const departmentModules = {
@@ -47,7 +47,7 @@ const CreateRoleModal = ({ isOpen, onClose, onSave }) => {
         };
 
         return departmentModules[dept] || commonModules;
-    };
+    }, []);
 
     // Initialize module access when department changes
     useEffect(() => {
@@ -65,23 +65,23 @@ const CreateRoleModal = ({ isOpen, onClose, onSave }) => {
 
             setFormData(prev => ({ ...prev, moduleAccess }));
         }
-    }, [formData.department, isOpen]);
+    }, [formData.department, formData.moduleAccess, isOpen, getModulesForDepartment]);
 
-    // Fetch role templates
-    useEffect(() => {
-        if (isOpen) {
-            fetchRoleTemplates();
-        }
-    }, [isOpen, formData.department]);
-
-    const fetchRoleTemplates = async () => {
+    const fetchRoleTemplates = useCallback(async () => {
         try {
             const response = await axios.get(`/api/roles/templates?department=${formData.department}`);
             setRoleTemplates(response.data.data || []);
         } catch (error) {
             console.error('Failed to fetch role templates:', error);
         }
-    };
+    }, [formData.department]);
+
+    // Fetch role templates
+    useEffect(() => {
+        if (isOpen) {
+            fetchRoleTemplates();
+        }
+    }, [isOpen, formData.department, fetchRoleTemplates]);
 
     const applyTemplate = (templateId) => {
         const template = roleTemplates.find(t => t._id === templateId);

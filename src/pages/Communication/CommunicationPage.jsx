@@ -1,13 +1,16 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import CommunicationFilterPanel from './components/CommunicationFilterPanel';
 import { applyCommunicationFilters } from '../../utils/communicationFilterLogic';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 import { activitiesAPI, emailAPI } from '../../utils/api';
 import ComposeEmailModal from './components/ComposeEmailModal';
 import ViewEmailModal from './components/ViewEmailModal';
+import AIStatusPanel from './components/AIStatusPanel';
+import AIConversationsTab from './components/AIConversationsTab';
+import AICallPanel from './components/AICallPanel';
 
 function CommunicationPage() {
-    const [activeTab, setActiveTab] = useState('Calls');
+    const [activeTab, setActiveTab] = useState('AI Conversations');
     const [activeSubTab, setActiveSubTab] = useState('Matched');
     const [selectedIds, setSelectedIds] = useState([]);
 
@@ -15,7 +18,6 @@ function CommunicationPage() {
     const [isFilterOpen, setIsFilterOpen] = useState(false);
     const [filters, setFilters] = useState({});
     const [liveEmails, setLiveEmails] = useState([]);
-    const [isInboxLoading, setIsInboxLoading] = useState(false);
     const [isComposeModalOpen, setIsComposeModalOpen] = useState(false);
     const [selectedEmail, setSelectedEmail] = useState(null);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
@@ -41,12 +43,10 @@ function CommunicationPage() {
     const [recordsPerPage, setRecordsPerPage] = useState(25);
 
     const [activities, setActivities] = useState([]);
-    const [isLoading, setIsLoading] = useState(true);
 
     // Fetch activities from backend
     useEffect(() => {
         const fetchActivities = async () => {
-            setIsLoading(true);
             try {
                 const response = await activitiesAPI.getAll();
                 if (response && response.success) {
@@ -87,15 +87,13 @@ function CommunicationPage() {
                 }
             } catch (error) {
                 console.error('Error fetching activities:', error);
-            } finally {
-                setIsLoading(false);
             }
         };
         fetchActivities();
     }, []);
 
     // Help to map emails consistency
-    const mapEmails = (emails) => {
+    const mapEmails = useCallback((emails) => {
         return emails.map(email => ({
             id: email.id || email.uid,
             participant: email.fromName || email.from,
@@ -115,12 +113,11 @@ function CommunicationPage() {
             isLive: true,
             isMatched: !!email.associated
         }));
-    };
+    }, []);
 
     // Fetch live emails
-    const fetchInbox = async (shouldAppend = false, token = null) => {
+    const fetchInbox = useCallback(async (shouldAppend = false, token = null) => {
         if (shouldAppend) setIsMoreLoading(true);
-        else setIsInboxLoading(true);
 
         try {
             const response = await emailAPI.getInbox({ pageToken: token, limit: 25 });
@@ -136,17 +133,16 @@ function CommunicationPage() {
         } catch (error) {
             console.error('Error fetching inbox:', error);
         } finally {
-            setIsInboxLoading(false);
             setIsMoreLoading(false);
         }
-    };
+    }, [mapEmails]);
 
     // Fetch live emails when Email tab is active
     useEffect(() => {
         if (activeTab === 'Email' && liveEmails.length === 0) {
             fetchInbox();
         }
-    }, [activeTab]);
+    }, [activeTab, liveEmails.length, fetchInbox]);
 
     const handleLoadMore = () => {
         if (nextPageToken) {
@@ -311,10 +307,10 @@ function CommunicationPage() {
                 {/* Page Header */}
                 <div className="page-header" style={{ position: 'sticky', top: 0, zIndex: 100, background: '#fff', borderBottom: '1px solid #eef2f5', padding: '1rem 1.5rem' }}>
                     <div className="page-title-group">
-                        <i className="fas fa-comments" style={{ color: '#68737d' }}></i>
+                        <i className="fas fa-brain" style={{ color: '#0ea5e9' }}></i>
                         <div>
-                            <span className="working-list-label">Communication</span>
-                            <h1>Communication Center</h1>
+                            <span className="working-list-label">Communication & Automation</span>
+                            <h1>AI Command Center</h1>
                         </div>
                     </div>
                     <div className="header-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -374,10 +370,15 @@ function CommunicationPage() {
                 </div>
 
                 <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0 }}>
-                    {/* Main Tabs: Email, Calls, Text Messages */}
+                    {/* Top Status Dashboard */}
+                    <div style={{ padding: '20px 2rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        <AIStatusPanel activeBots={3} conversationsHandled={142} leadsGenerated={28} />
+                    </div>
+
+                    {/* Main Tabs: AI Conversations, Calls, Text Messages, etc */}
                     <div style={{ padding: '15px 2rem', background: '#fff', borderBottom: '1px solid #e2e8f0' }}>
                         <div style={{ display: 'flex', gap: '30px', borderBottom: '2px solid #e2e8f0' }}>
-                            {['Email', 'Calls', 'Messaging'].map(tab => (
+                            {['AI Conversations', 'Live AI Calling', 'Email', 'Calls', 'Messaging'].map(tab => (
                                 <button
                                     key={tab}
                                     onClick={() => { setActiveTab(tab); setSelectedIds([]); }}
@@ -390,17 +391,27 @@ function CommunicationPage() {
                                         color: activeTab === tab ? '#0891b2' : '#64748b',
                                         borderBottom: activeTab === tab ? '3px solid #0891b2' : '3px solid transparent',
                                         cursor: 'pointer',
-                                        marginBottom: '-2px'
+                                        marginBottom: '-2px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px'
                                     }}
                                 >
+                                    {tab.includes('AI') && <i className="fas fa-sparkles" style={{ color: '#0ea5e9', fontSize: '0.8rem' }}></i>}
                                     {tab}
                                 </button>
                             ))}
                         </div>
                     </div>
 
-                    {/* Sub Tabs / Action Panel */}
-                    <div style={{ padding: '0 2rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '30px', minHeight: '65px' }}>
+                    {/* Sub Tabs / Action Panel or AI Panels */}
+                    {activeTab === 'AI Conversations' ? (
+                        <AIConversationsTab />
+                    ) : activeTab === 'Live AI Calling' ? (
+                        <AICallPanel />
+                    ) : (
+                        <>
+                            <div style={{ padding: '0 2rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '30px', minHeight: '65px' }}>
                         {selectedIds.length > 0 ? (
                             <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', flex: 1 }}>
                                 <input
@@ -698,6 +709,8 @@ function CommunicationPage() {
                             )}
                         </div>
                     </div>
+                        </>
+                    )}
                 </div>
 
                 <CommunicationFilterPanel

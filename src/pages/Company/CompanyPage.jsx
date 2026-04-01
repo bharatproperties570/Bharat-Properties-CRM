@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getInitials } from '../../utils/helpers';
 import { renderValue } from '../../utils/renderUtils';
-import { useUserContext } from '../../context/UserContext';
 import CompanyFilterPanel from './components/CompanyFilterPanel';
 import AssignContactModal from '../../components/AssignContactModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
@@ -9,7 +8,6 @@ import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
 
 function CompanyPage({ onEdit, onNavigate }) {
-    const { teams, users } = useUserContext();
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);

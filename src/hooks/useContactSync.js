@@ -3,7 +3,7 @@
  * Use this in ContactsView to automatically sync contacts
  */
 
-import { useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
 import contactSyncManager from '../services/contactSyncManager';
 
 export const useContactSync = () => {

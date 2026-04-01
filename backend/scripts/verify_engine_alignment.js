@@ -9,7 +9,7 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 import Lead from '../models/Lead.js';
-import Deal from '../models/Deal.js';
+
 import Activity from '../models/Activity.js';
 import { getLeadScores } from '../controllers/stage.controller.js';
 

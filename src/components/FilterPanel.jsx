@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+
 
 function FilterPanel({ isOpen, onClose, filters, setFilters, onApply, onClearAll }) {
     const handleFilterChange = (category, value) => {
@@ -16,7 +16,7 @@ function FilterPanel({ isOpen, onClose, filters, setFilters, onApply, onClearAll
 
     const getActiveFilterCount = () => {
         let count = 0;
-        Object.entries(filters).forEach(([key, value]) => {
+        Object.values(filters).forEach((value) => {
             if (Array.isArray(value)) {
                 count += value.length;
             } else if (value) {

@@ -1,4 +1,3 @@
-import React from 'react';
 import { useCall } from '../context/CallContext';
 
 /**
@@ -56,7 +55,7 @@ const CallHistoryTimeline = ({ mobile, maxItems = 5 }) => {
                 Call History
             </h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {contactCalls.map((call, idx) => (
+                {contactCalls.map((call) => (
                     <div
                         key={call.id}
                         style={{

@@ -1,8 +1,9 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { api } from '../utils/api';
 
 const ContactConfigContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useContactConfig = () => {
     const context = useContext(ContactConfigContext);
     if (!context) {
@@ -18,7 +19,90 @@ export const ContactConfigProvider = ({ children }) => {
     const [documentConfig, setDocumentConfig] = useState({});
     const [loading, setLoading] = useState(true);
 
-    const fetchLookups = async () => {
+    const buildHierarchy = useCallback((flatList, rootType) => {
+        const rootItems = flatList.filter(item => item.lookup_type === rootType && !item.parent_lookup_value);
+        const hierarchy = {};
+
+        // Recursive function to find children
+        const findChildren = (parentValue) => {
+            const children = flatList.filter(item => item.lookup_type === rootType && item.parent_lookup_value === parentValue);
+            if (children.length === 0) return null;
+
+            return children.map(child => {
+                const subChildren = findChildren(child.lookup_value);
+                const node = {
+                    name: child.lookup_value,
+                    id: child._id,
+                    lookup_type: child.lookup_type,
+                    parent_lookup_value: child.parent_lookup_value
+                };
+
+                if (subChildren) {
+                    node.subCategories = subChildren;
+                }
+                return node;
+            });
+        };
+
+        rootItems.forEach(item => {
+            const children = findChildren(item.lookup_value);
+            hierarchy[item.lookup_value] = {
+                id: item._id, // Capture ID for root items
+                lookup_type: item.lookup_type,
+                parent_lookup_value: item.parent_lookup_value,
+                subCategories: children || []
+            };
+        });
+
+        return hierarchy;
+    }, []);
+
+    const buildDocHierarchy = useCallback((flatList) => {
+        // Supporting both versions (hyphenated and non-hyphenated) to ensure data is found
+        const categories = flatList.filter(item =>
+            item.lookup_type === 'Document-Category' || item.lookup_type === 'DocumentCategory'
+        );
+        const hierarchy = {};
+
+        categories.forEach(cat => {
+            const types = flatList.filter(item =>
+                (item.lookup_type === 'Document-Type' || item.lookup_type === 'DocumentType') &&
+                (item.parent_lookup_id === cat._id || item.parent_lookup_id?._id === cat._id ||
+                    item.parent_lookup_value === cat.lookup_value)
+            );
+
+            // If we already have this category name, merge subCategories
+            if (hierarchy[cat.lookup_value]) {
+                const existingSubNames = new Set(hierarchy[cat.lookup_value].subCategories.map(s => s.name));
+                types.forEach(t => {
+                    if (!existingSubNames.has(t.lookup_value)) {
+                        hierarchy[cat.lookup_value].subCategories.push({
+                            id: t._id,
+                            name: t.lookup_value
+                        });
+                    }
+                });
+            } else {
+                hierarchy[cat.lookup_value] = {
+                    id: cat._id,
+                    name: cat.lookup_value,
+                    subCategories: types.map(t => ({
+                        id: t._id,
+                        name: t.lookup_value
+                    }))
+                };
+            }
+        });
+
+        return hierarchy;
+    }, []);
+
+    const fetchLookups = useCallback(async () => {
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+            setLoading(false);
+            return;
+        }
         try {
             setLoading(true);
 
@@ -64,89 +148,11 @@ export const ContactConfigProvider = ({ children }) => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [buildHierarchy, buildDocHierarchy]);
 
     useEffect(() => {
         fetchLookups();
-    }, []);
-
-    const buildHierarchy = (flatList, rootType) => {
-        const rootItems = flatList.filter(item => item.lookup_type === rootType && !item.parent_lookup_value);
-        const hierarchy = {};
-
-        // Recursive function to find children
-        const findChildren = (parentValue) => {
-            const children = flatList.filter(item => item.lookup_type === rootType && item.parent_lookup_value === parentValue);
-            if (children.length === 0) return null;
-
-            return children.map(child => {
-                const subChildren = findChildren(child.lookup_value);
-                const node = {
-                    name: child.lookup_value,
-                    id: child._id,
-                    lookup_type: child.lookup_type,
-                    parent_lookup_value: child.parent_lookup_value
-                };
-
-                if (subChildren) {
-                    node.subCategories = subChildren;
-                }
-                return node;
-            });
-        };
-
-        rootItems.forEach(item => {
-            const children = findChildren(item.lookup_value);
-            hierarchy[item.lookup_value] = {
-                id: item._id, // Capture ID for root items
-                lookup_type: item.lookup_type,
-                parent_lookup_value: item.parent_lookup_value,
-                subCategories: children || []
-            };
-        });
-
-        return hierarchy;
-    };
-
-    const buildDocHierarchy = (flatList) => {
-        // Supporting both versions (hyphenated and non-hyphenated) to ensure data is found
-        const categories = flatList.filter(item =>
-            item.lookup_type === 'Document-Category' || item.lookup_type === 'DocumentCategory'
-        );
-        const hierarchy = {};
-
-        categories.forEach(cat => {
-            const types = flatList.filter(item =>
-                (item.lookup_type === 'Document-Type' || item.lookup_type === 'DocumentType') &&
-                (item.parent_lookup_id === cat._id || item.parent_lookup_id?._id === cat._id ||
-                    item.parent_lookup_value === cat.lookup_value)
-            );
-
-            // If we already have this category name, merge subCategories
-            if (hierarchy[cat.lookup_value]) {
-                const existingSubNames = new Set(hierarchy[cat.lookup_value].subCategories.map(s => s.name));
-                types.forEach(t => {
-                    if (!existingSubNames.has(t.lookup_value)) {
-                        hierarchy[cat.lookup_value].subCategories.push({
-                            id: t._id,
-                            name: t.lookup_value
-                        });
-                    }
-                });
-            } else {
-                hierarchy[cat.lookup_value] = {
-                    id: cat._id,
-                    name: cat.lookup_value,
-                    subCategories: types.map(t => ({
-                        id: t._id,
-                        name: t.lookup_value
-                    }))
-                };
-            }
-        });
-
-        return hierarchy;
-    };
+    }, [fetchLookups]);
 
 
     const addLookup = async (type, value, parentValue) => {

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { X, Calculator, CircleDollarSign, Percent, FileText, User, ChevronDown, CheckCircle2, Mail, MessageSquare, PhoneCall, MessageCircle, Smartphone } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { X, Calculator, FileText, User, CheckCircle2, Mail, MessageSquare, MessageCircle, Smartphone } from 'lucide-react';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 import { formatIndianCurrency, formatFullIndianAmount, numberToIndianWords } from '../utils/numberToWords';
@@ -10,11 +10,11 @@ import autoTable from 'jspdf-autotable';
 import smsService from '../services/smsService';
 
 const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
-    const { dealMasterFields } = usePropertyConfig();
+    usePropertyConfig();
     const [loading, setLoading] = useState(false);
     const [collectorRates, setCollectorRates] = useState([]);
     const [globalConfigs, setGlobalConfigs] = useState([]);
-    const [loadingSettings, setLoadingSettings] = useState(false);
+    const [ , setLoadingSettings] = useState(false);
     const [leads, setLeads] = useState([]);
     const [leadSearch, setLeadSearch] = useState('');
     const [isSearchingLeads, setIsSearchingLeads] = useState(false);

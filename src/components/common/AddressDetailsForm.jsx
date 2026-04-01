@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { api } from "../../utils/api";
 
 // Helper dropdown styles (UNCHANGED)
@@ -34,15 +34,14 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
   const [cities, setCities] = useState([]);
   const [locations, setLocations] = useState([]);
   const [postOffices, setPostOffices] = useState([]);
-  const [pincodes, setPincodes] = useState([]);
   const [tehsils, setTehsils] = useState([]);
 
-  const handleAddressChange = (updates) => {
+  const handleAddressChange = useCallback((updates) => {
     onChange({ ...address, ...updates });
-  };
+  }, [address, onChange]);
 
   // Generic Fetch Function
-  const fetchLookup = async (lookup_type, parent_lookup_id = null) => {
+  const fetchLookup = useCallback(async (lookup_type, parent_lookup_id = null) => {
     try {
       const res = await api.get("/lookups", {
         params: {
@@ -57,11 +56,10 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
         return res.data.data;
       }
       return [];
-    } catch (error) {
-      console.error("Fetch Error:", error);
+    } catch (_) {
       return [];
     }
-  };
+  }, []);
 
   // Load Countries on mount
   useEffect(() => {
@@ -70,7 +68,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
       setCountries(data);
     };
     loadCountries();
-  }, []);
+  }, [fetchLookup]);
 
   // Country → State
   useEffect(() => {
@@ -84,7 +82,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
       setStates(data);
     };
     loadStates();
-  }, [address.country]);
+  }, [address.country, fetchLookup]);
 
   // State → City
   useEffect(() => {
@@ -98,7 +96,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
       setCities(data);
     };
     loadCities();
-  }, [address.state]);
+  }, [address.state, fetchLookup]);
 
   // City → Location
   useEffect(() => {
@@ -112,7 +110,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
       setLocations(data);
     };
     loadLocations();
-  }, [address.city]);
+  }, [address.city, fetchLookup]);
 
   // City → Tehsil (Parallel to Location)
   useEffect(() => {
@@ -126,7 +124,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
       setTehsils(data);
     };
     loadTehsils();
-  }, [address.city]);
+  }, [address.city, fetchLookup]);
 
   // Location / Tehsil (Same Level)
   useEffect(() => {
@@ -140,7 +138,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
       setPostOffices(data);
     };
     loadPO();
-  }, [address.location]);
+  }, [address.location, fetchLookup]);
 
   // Post Office → Pin Code (auto-fill only)
   useEffect(() => {
@@ -158,7 +156,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
     };
 
     loadPin();
-  }, [address.postOffice]);
+  }, [address.postOffice, fetchLookup, handleAddressChange]);
 
 
   return (

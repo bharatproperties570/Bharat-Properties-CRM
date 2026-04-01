@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useActivities } from '../context/ActivityContext';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
@@ -81,7 +81,7 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
 
     // Listen for browser back/forward interactions for Modals (specifically Project)
     useEffect(() => {
-        const handlePopState = (event) => {
+        const handlePopState = () => {
             const path = window.location.pathname;
             if (path === '/projects/new') {
                 setShowAddProjectModal(true);

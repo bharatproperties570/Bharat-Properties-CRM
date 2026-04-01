@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { api, lookupsAPI } from '../../../utils/api';
 import toast from 'react-hot-toast';
 import CreateGlobalConfigModal from '../../../components/CreateGlobalConfigModal';
@@ -29,7 +29,7 @@ const DealSettingsPage = () => {
     const [viewMode, setViewMode] = useState('list');
 
     // --- State ---
-    const [loading, setLoading] = useState(true);
+
     const [saving, setSaving] = useState(false);
     const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
@@ -106,7 +106,6 @@ const DealSettingsPage = () => {
 
     // --- Fetch Data ---
     const fetchData = useCallback(async () => {
-        setLoading(true);
         try {
             // 1. Fetch Collector Rates
             const rateParams = new URLSearchParams({
@@ -141,9 +140,9 @@ const DealSettingsPage = () => {
                     configName: registrationFilters.configName
                 }
             });
-            if (globalRes.data?.status === "success") {
-                const result = globalRes.data.data;
-                setRegistrationCharges(result.docs || []);
+            if (globalRes.data?.status === "success" || globalRes.data?.success) {
+                const result = globalRes.data.data || globalRes.data;
+                setRegistrationCharges(Array.isArray(result.docs) ? result.docs : (Array.isArray(result) ? result : []));
                 setRegistrationPagination(prev => ({
                     ...prev,
                     totalDocs: result.totalDocs || 0,
@@ -159,8 +158,6 @@ const DealSettingsPage = () => {
             console.error("DealSettingsPage Error:", error);
             console.error("Error Details:", error.response || error.message);
             toast.error("Failed to load settings: " + (error.response?.data?.message || error.message));
-        } finally {
-            setLoading(false);
         }
     }, [collectorPagination.page, collectorPagination.limit, collectorSearch, collectorFilters, registrationPagination.page, registrationPagination.limit, registrationSearch, registrationFilters]);
 
@@ -257,28 +254,6 @@ const DealSettingsPage = () => {
     };
 
     // --- Handlers ---
-    const handleConfigChange = (field, value) => {
-        setConfig(prev => ({ ...prev, [field]: value }));
-    };
-
-    const handleSlabChange = (index, field, value) => {
-        const newSlabs = [...config.registrationSlabs];
-        newSlabs[index] = { ...newSlabs[index], [field]: value };
-        setConfig(prev => ({ ...prev, registrationSlabs: newSlabs }));
-    };
-
-    const addSlab = () => {
-        setConfig(prev => ({
-            ...prev,
-            registrationSlabs: [...prev.registrationSlabs, { min: 0, max: 0, amount: 0 }]
-        }));
-    };
-
-    const removeSlab = (index) => {
-        const newSlabs = config.registrationSlabs.filter((_, i) => i !== index);
-        setConfig(prev => ({ ...prev, registrationSlabs: newSlabs }));
-    };
-
     const handleRateChange = (field, value) => {
         setRateForm(prev => {
             const updated = { ...prev, [field]: value };
@@ -529,13 +504,7 @@ const DealSettingsPage = () => {
     };
 
     // --- Styles ---
-    const sectionStyle = {
-        background: '#fff',
-        padding: '24px',
-        borderRadius: '12px',
-        border: '1px solid #e2e8f0',
-        marginBottom: '24px'
-    };
+
 
     const labelStyle = {
         display: 'block',
@@ -1043,25 +1012,30 @@ const DealSettingsPage = () => {
                             <thead>
                                 <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                                     <th style={tableHeaderStyle}>Config Name</th>
+                                    <th style={tableHeaderStyle}>Target State</th>
                                     <th style={tableHeaderStyle}>Stamp Duty (M/F/J)</th>
                                     <th style={tableHeaderStyle}>Regis. Fee</th>
                                     <th style={tableHeaderStyle}>Legal Fees</th>
-                                    <th style={tableHeaderStyle}>Last Updated</th>
                                     <th style={{ ...tableHeaderStyle, textAlign: 'right' }}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {registrationCharges.length === 0 ? (
+                                {(!registrationCharges || registrationCharges.length === 0) ? (
                                     <tr>
-                                        <td colSpan="6" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                                        <td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
                                             No configuration found. Add one to get started.
                                         </td>
                                     </tr>
                                 ) : (
-                                    registrationCharges.map(charge => (
+                                    (registrationCharges || []).map(charge => (
                                         <tr key={charge._id} style={{ transition: 'background 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                                             <td style={tableCellStyle}>
                                                 <div style={{ fontWeight: 600, color: '#1e293b' }}>{charge.key.replace('govt_charges_', '')}</div>
+                                            </td>
+                                            <td style={tableCellStyle}>
+                                                <div style={{ padding: '4px 8px', background: charge.value?.state ? '#eff6ff' : '#f8fafc', color: charge.value?.state ? '#2563eb' : '#64748b', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, display: 'inline-block' }}>
+                                                    {charge.value?.state ? 'Region Specific' : 'Global (All)'}
+                                                </div>
                                             </td>
                                             <td style={tableCellStyle}>
                                                 <div style={{ color: '#475569' }}>
@@ -1076,11 +1050,8 @@ const DealSettingsPage = () => {
                                             <td style={tableCellStyle}>
                                                 <div style={{ color: '#475569' }}>₹{charge.value?.legalFees?.toLocaleString()}</div>
                                             </td>
-                                            <td style={tableCellStyle}>
-                                                <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{new Date(charge.updatedAt).toLocaleDateString()}</div>
-                                            </td>
                                             <td style={{ ...tableCellStyle, textAlign: 'right' }}>
-                                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                                                     <button
                                                         onClick={() => {
                                                             setConfig(charge.value);
@@ -1433,7 +1404,7 @@ const DealSettingsPage = () => {
                                                 onChange={e => handleRateChange('configName', e.target.value)}
                                             >
                                                 <option value="">Select Config</option>
-                                                {registrationCharges.map(charge => (
+                                                {(registrationCharges || []).map(charge => (
                                                     <option key={charge._id} value={charge.value.configName}>
                                                         {charge.value.configName}
                                                     </option>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { api, lookupsAPI } from '../../../utils/api';
 import toast from 'react-hot-toast';
 import CreateGlobalConfigModal from '../../../components/CreateGlobalConfigModal';
@@ -29,7 +29,7 @@ const DealSettingsPage = () => {
     const [viewMode, setViewMode] = useState('list');
 
     // --- State ---
-    const [loading, setLoading] = useState(true);
+
     const [saving, setSaving] = useState(false);
     const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
@@ -87,7 +87,6 @@ const DealSettingsPage = () => {
 
     // --- Fetch Data ---
     const fetchData = useCallback(async () => {
-        setLoading(true);
         try {
             // 1. Fetch Global Configs
             const configParams = new URLSearchParams({
@@ -138,10 +137,8 @@ const DealSettingsPage = () => {
             console.error("DealSettingsPage Error:", error);
             console.error("Error Details:", error.response || error.message);
             toast.error("Failed to load settings: " + (error.response?.data?.message || error.message));
-        } finally {
-            setLoading(false);
         }
-    }, []);
+    }, [collectorPagination.limit, collectorPagination.page, collectorSearch, config.key, globalPagination.limit, globalPagination.page, globalSearch]);
 
     // Initial Load & States
     useEffect(() => {
@@ -210,28 +207,7 @@ const DealSettingsPage = () => {
         } catch (e) { console.error(e); }
     };
 
-    // --- Handlers ---
-    const handleConfigChange = (field, value) => {
-        setConfig(prev => ({ ...prev, [field]: value }));
-    };
 
-    const handleSlabChange = (index, field, value) => {
-        const newSlabs = [...config.registrationSlabs];
-        newSlabs[index] = { ...newSlabs[index], [field]: value };
-        setConfig(prev => ({ ...prev, registrationSlabs: newSlabs }));
-    };
-
-    const addSlab = () => {
-        setConfig(prev => ({
-            ...prev,
-            registrationSlabs: [...prev.registrationSlabs, { min: 0, max: 0, amount: 0 }]
-        }));
-    };
-
-    const removeSlab = (index) => {
-        const newSlabs = config.registrationSlabs.filter((_, i) => i !== index);
-        setConfig(prev => ({ ...prev, registrationSlabs: newSlabs }));
-    };
 
     const handleRateChange = (field, value) => {
         setRateForm(prev => {
@@ -472,13 +448,7 @@ const DealSettingsPage = () => {
     };
 
     // --- Styles ---
-    const sectionStyle = {
-        background: '#fff',
-        padding: '24px',
-        borderRadius: '12px',
-        border: '1px solid #e2e8f0',
-        marginBottom: '24px'
-    };
+
 
     const labelStyle = {
         display: 'block',
@@ -764,11 +734,10 @@ const DealSettingsPage = () => {
                                             <td style={{ ...tableCellStyle, textAlign: 'right' }}>
                                                 <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                                                     <button
-                                                        onClick={() => {
-                                                            const { coveredAreaPriceSqYds, coveredAreaPriceSqFt, ...restConfig } = cfg.value;
-                                                            setConfig(restConfig);
-                                                            setIsConfigModalOpen(true);
-                                                        }}
+                                                    onClick={() => {
+                                                        setConfig(cfg.value);
+                                                        setIsConfigModalOpen(true);
+                                                    }}
                                                         style={{ background: '#f1f5f9', color: '#475569', border: 'none', width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                                                         title="Edit Config"
                                                     >

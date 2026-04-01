@@ -14,7 +14,7 @@ const intakeSchema = new mongoose.Schema({
     status: {
         type: String,
         required: true,
-        enum: ['Raw Received', 'Processed', 'Lead Created', 'Deal Linked', 'Archived'],
+        enum: ['Raw Received', 'Processed', 'Lead Created', 'Deal Linked', 'Archived', 'Needs Review', 'Ready for Review'],
         default: 'Raw Received'
     },
     receivedAt: {
@@ -24,6 +24,11 @@ const intakeSchema = new mongoose.Schema({
     campaignName: {
         type: String,
         default: ''
+    },
+    category: {
+        type: String,
+        enum: ['new', 'repeat1x', 'repeat2x', 'repeat3x', 'repeat3plus'],
+        default: 'new'
     },
     meta: {
         fileName: String,
@@ -38,6 +43,8 @@ const intakeSchema = new mongoose.Schema({
 }, {
     timestamps: true
 });
+
+intakeSchema.index({ receivedAt: -1 });
 
 const Intake = mongoose.model('Intake', intakeSchema);
 

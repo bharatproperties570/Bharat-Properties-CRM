@@ -1,8 +1,7 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import Contact from './models/Contact.js';
-import Lead from './models/Lead.js';
-import Lookup from './models/Lookup.js';
+
 
 dotenv.config();
 

@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback } from 'react';
 import { executeAction } from '../utils/automatedActionsEngine';
 import { useFieldRules } from './FieldRulesContext';
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const AutomatedActionsContext = createContext();
 
 export const AutomatedActionsProvider = ({ children }) => {
@@ -40,7 +41,7 @@ export const AutomatedActionsProvider = ({ children }) => {
     /**
      * Invoke an automated action (Typically called by Triggers)
      */
-    const invokeAction = useCallback(async (actionId, entity, context = {}) => {
+    const invokeAction = useCallback(async (actionId, entity) => {
         const action = actions.find(a => a.id === actionId);
 
         if (!action) {
@@ -85,7 +86,7 @@ export const AutomatedActionsProvider = ({ children }) => {
         setAuditLogs(prev => [result, ...prev].slice(0, 500)); // Last 500 entries
 
         return result;
-    }, [actions]);
+    }, [actions, validate]);
 
     const addAction = useCallback((newAction) => {
         setActions(prev => [...prev, { ...newAction, id: `aa_${Date.now()}` }]);
@@ -115,6 +116,7 @@ export const AutomatedActionsProvider = ({ children }) => {
     );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAutomatedActions = () => {
     const context = useContext(AutomatedActionsContext);
     if (!context) throw new Error('useAutomatedActions must be used within an AutomatedActionsProvider');

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 
 const FeedbackTemplatePage = () => {

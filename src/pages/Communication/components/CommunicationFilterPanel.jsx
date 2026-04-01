@@ -1,4 +1,3 @@
-import React from 'react';
 import { COMMUNICATION_TYPES, PLATFORMS, OUTCOMES, TIME_FRAMES } from '../../../utils/communicationFilterLogic';
 
 const CommunicationFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset }) => {

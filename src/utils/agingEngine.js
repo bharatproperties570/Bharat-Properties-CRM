@@ -133,7 +133,7 @@ export const computeOwnerResponseRate = (activityGapDays = 0, avgResponseDays = 
  * @param {Object} activityMasterFields - config from PropertyConfigContext
  * @returns {number} 0–100 activity score
  */
-export const computeActivityScore = (activities = [], activityMasterFields = {}) => {
+export const computeActivityScore = (activities = []) => {
     if (!Array.isArray(activities) || activities.length === 0) return 0;
 
     // Positive outcome keyword signals

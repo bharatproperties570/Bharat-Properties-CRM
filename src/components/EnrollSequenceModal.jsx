@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useSequences } from '../context/SequenceContext';
 
 const EnrollSequenceModal = ({ isOpen, onClose, entityId, entityName }) => {

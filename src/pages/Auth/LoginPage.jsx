@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useUserContext } from '../../context/UserContext';
 import toast from 'react-hot-toast';
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';

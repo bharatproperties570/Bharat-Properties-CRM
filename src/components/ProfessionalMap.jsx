@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { MAP_CENTER } from '../utils/mapUtils';
 
 const ProfessionalMap = ({
@@ -120,6 +120,7 @@ const ProfessionalMap = ({
             // Cleanup markers
             markersRef.current.forEach(marker => marker.setMap(null));
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
@@ -177,7 +178,7 @@ const ProfessionalMap = ({
             googleMapRef.current.setCenter(center);
             googleMapRef.current.setZoom(zoom);
         }
-    }, [items, center, zoom]);
+    }, [items, center, zoom, onMarkerClick]);
 
     return <div ref={mapRef} style={style} className="professional-map-container" />;
 };

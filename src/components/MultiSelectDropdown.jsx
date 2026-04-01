@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disabled }) => {
     const [isOpen, setIsOpen] = useState(false);

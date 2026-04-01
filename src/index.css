@@ -731,16 +731,23 @@ body {
     border-top: 1px solid var(--border-color);
 }
 
-.list-item,
-.list-header {
+.list-item.inventory-list-grid,
+.list-header.inventory-list-grid {
     display: grid;
-    grid-template-columns: 40px 250px 200px 180px 100px 100px 180px 100px 120px;
+    grid-template-columns: 40px minmax(160px, 1.1fr) minmax(300px, 1.3fr) minmax(160px, 0.7fr) minmax(150px, 0.8fr) minmax(140px, 0.8fr) 280px minmax(150px, 1fr);
     align-items: center;
-    gap: 20px;
+    gap: 1.8rem;
+}
+
+.inventory-list-grid > *:nth-child(4),
+.inventory-list-grid > *:nth-child(5),
+.inventory-list-grid > *:nth-child(6),
+.inventory-list-grid > *:nth-child(7) {
+    padding-left: 2.5rem; /* Shift Orientation, Owner, Associate, and Status columns right */
 }
 
 .list-item {
-    padding: 12px 1.5rem;
+    padding: 12px 1.5rem 12px 0.75rem;
     border-bottom: 1px solid #f0f2f5;
     transition: all 0.2s;
     background: #fff;
@@ -1416,15 +1423,20 @@ body {
 .lead-list-grid {
     display: grid;
     /* Grid: Check | Profile | Match | Req+Budget | Loc | Status+Source | Interaction | Assignment */
-    /* Check(40px) Profile(2fr) Match(0.8fr) Req(1.5fr) Loc(2.5fr) Status(1.2fr) Interaction(1.8fr) Assignment(1fr) */
-    grid-template-columns: 40px 2fr 0.8fr 1.5fr 2.5fr 1.2fr 1.8fr 1fr;
+    grid-template-columns: 40px 2.2fr 0.7fr 1.6fr 2.8fr 1.2fr 0.9fr 1.5fr;
     gap: 12px;
-    align-items: center;
+    align-items: start;
     padding: 12px 20px;
     border-bottom: 1px solid #f1f5f9;
     width: 100%;
-    /* eliminated min-width to prevent scroll */
 }
+/* Center checkbox in its column */
+.lead-list-grid > div:first-child {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+    /* duplicate .lead-list-grid block removed */
 
 .lead-list-grid:hover {
     background-color: #f8fafc;
@@ -2787,8 +2799,8 @@ body {
 /* Inventory Module Optimized Grid (Split Version) */
 .inventory-list-grid {
     display: grid;
-    grid-template-columns: 40px minmax(140px, 1fr) minmax(180px, 1.2fr) minmax(140px, 1fr) minmax(200px, 1.4fr) minmax(200px, 1.4fr) 100px minmax(140px, 1fr);
-    gap: 1.2rem;
+    grid-template-columns: 40px minmax(160px, 1.1fr) minmax(220px, 1.3fr) minmax(140px, 0.7fr) minmax(150px, 0.8fr) minmax(140px, 0.8fr) 280px minmax(150px, 1fr);
+    gap: 1.8rem;
     width: 100%;
 }
 
@@ -3181,4 +3193,31 @@ body {
 .sync-icon-static {
     color: #4285F4;
     font-size: 0.9rem;
+}
+/* Map Sidebar & Cards */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+.map-property-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    border-color: var(--primary-color) !important;
+}
+
+.map-property-card:active {
+    transform: translateY(0);
 }

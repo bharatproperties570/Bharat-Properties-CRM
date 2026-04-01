@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { api } from "../../utils/api";
 import toast from 'react-hot-toast';
 import { formatIndianCurrency } from '../../utils/numberToWords';
@@ -6,7 +6,7 @@ import { renderValue } from '../../utils/renderUtils';
 import { getInitials } from '../../utils/helpers';
 import Chart from 'react-apexcharts';
 
-const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddActivity, onAddProject, onAddInventory, onAddDeal, onAddContact }) => {
+const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddProject, onAddInventory, onAddDeal, onAddContact }) => {
     const [company, setCompany] = useState(null);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('activity');
@@ -22,6 +22,53 @@ const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddActivity, onAdd
         totalDeals: 0,
         closedRevenue: 0
     });
+
+    const fetchAssociatedData = useCallback(async (companyData) => {
+        try {
+            // 1. Fetch Projects (where this company is the developer)
+            const projRes = await api.get(`projects?developerId=${companyId}`);
+            const projects = projRes.data?.data || [];
+            setProjectsData(projects);
+            // 2. Fetch Deals (where company is CP or linked via project)
+            // For now, let's fetch deals related to these projects
+            let deals = [];
+            if (projects.length > 0) {
+                const projectIds = projects.map(p => p._id).join(',');
+                const dealsRes = await api.get(`deals?projectIds=${projectIds}`);
+                deals = dealsRes.data?.records || [];
+            }
+            setDealsData(deals);
+            // 3. Fetch Inventory for these projects
+            let inventory = [];
+            if (projects.length > 0) {
+                const projectIds = projects.map(p => p._id).join(',');
+                const invRes = await api.get(`inventory?projectIds=${projectIds}`);
+                inventory = invRes.data?.data || [];
+            }
+            setInventoryData(inventory);
+            // 4. Fetch Contacts (Mock for now, or fetch if API exists)
+            // Assuming contacts are linked via companyId field in contact model
+            // const contactRes = await api.get(`contacts?companyId=${companyId}`);
+            // setContactsData(contactRes.data?.data || []);
+            setContactsData(companyData.employees || []); // Using employees as contacts for now
+            // 5. Fetch Documents (Real data from company object)
+            setDocumentsData(companyData.documents || []);
+            // 6. Relationship Intelligence & Commission
+            // (These are already in companyData)
+            // Calculate Stats
+            const closedRevenue = deals
+                .filter(d => d.stage === 'Closed')
+                .reduce((acc, d) => acc + (d.price || 0), 0);
+            setStats({
+                totalProjects: projects.length,
+                totalInventory: inventory.length,
+                totalDeals: deals.length,
+                closedRevenue
+            });
+        } catch (err) {
+            console.error("Error fetching associated company data:", err);
+        }
+    }, [companyId]);
 
     const fetchCompanyDetails = useCallback(async () => {
         setLoading(true);
@@ -42,62 +89,8 @@ const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddActivity, onAdd
         } finally {
             setLoading(false);
         }
-    }, [companyId]);
+    }, [companyId, fetchAssociatedData]);
 
-    const fetchAssociatedData = async (companyData) => {
-        try {
-            // 1. Fetch Projects (where this company is the developer)
-            const projRes = await api.get(`projects?developerId=${companyId}`);
-            const projects = projRes.data?.data || [];
-            setProjectsData(projects);
-
-            // 2. Fetch Deals (where company is CP or linked via project)
-            // For now, let's fetch deals related to these projects
-            let deals = [];
-            if (projects.length > 0) {
-                const projectIds = projects.map(p => p._id).join(',');
-                const dealsRes = await api.get(`deals?projectIds=${projectIds}`);
-                deals = dealsRes.data?.records || [];
-            }
-            setDealsData(deals);
-
-            // 3. Fetch Inventory for these projects
-            let inventory = [];
-            if (projects.length > 0) {
-                const projectIds = projects.map(p => p._id).join(',');
-                const invRes = await api.get(`inventory?projectIds=${projectIds}`);
-                inventory = invRes.data?.data || [];
-            }
-            setInventoryData(inventory);
-
-            // 4. Fetch Contacts (Mock for now, or fetch if API exists)
-            // Assuming contacts are linked via companyId field in contact model
-            // const contactRes = await api.get(`contacts?companyId=${companyId}`);
-            // setContactsData(contactRes.data?.data || []);
-            setContactsData(companyData.employees || []); // Using employees as contacts for now
-
-            // 5. Fetch Documents (Real data from company object)
-            setDocumentsData(companyData.documents || []);
-
-            // 6. Relationship Intelligence & Commission
-            // (These are already in companyData)
-
-            // Calculate Stats
-            const closedRevenue = deals
-                .filter(d => d.stage === 'Closed')
-                .reduce((acc, d) => acc + (d.price || 0), 0);
-
-            setStats({
-                totalProjects: projects.length,
-                totalInventory: inventory.length,
-                totalDeals: deals.length,
-                closedRevenue
-            });
-
-        } catch (err) {
-            console.error("Error fetching associated company data:", err);
-        }
-    };
 
     useEffect(() => {
         fetchCompanyDetails();

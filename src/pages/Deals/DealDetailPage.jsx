@@ -1,245 +1,95 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronRight, Home, Building2, User, FileText, Calendar, Wallet, CheckCircle, Clock, Search, Filter, Plus, Phone, Mail, MoreVertical, Edit, Trash2, X, AlertCircle, FileCheck, DollarSign, Percent, Calculator, Printer, Settings } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import Swal from 'sweetalert2';
-import { api, lookupsAPI, dealsAPI, contactsAPI, usersAPI, enrichmentAPI, activitiesAPI } from '../../utils/api';
+import { api, activitiesAPI } from '../../utils/api';
 import toast from 'react-hot-toast';
-import { formatIndianCurrency, numberToIndianWords } from '../../utils/numberToWords';
-import { renderValue } from '../../utils/renderUtils';
 import AddOfferModal from '../../components/AddOfferModal';
-import { STAGE_PIPELINE, getStageProbability } from '../../utils/stageEngine';
-import { computeAging, computeDealDeath, detectCommissionLeakage, computeDealHealth, computeOwnerResponseRate, DEFAULT_AGING_RULES, DEFAULT_FORECAST_CONFIG, DEFAULT_HEALTH_CONFIG } from '../../utils/agingEngine';
-import { computeDealStageFromLeads } from '../../utils/syncEngine';
+import AddOwnerModal from '../../components/AddOwnerModal';
 import UnifiedActivitySection from '../../components/Activities/UnifiedActivitySection';
-import SingleDealLifecycle from '../../components/SingleDealLifecycle';
-import CallModal from '../../components/CallModal';
-import SendMessageModal from '../../components/SendMessageModal';
-import ManageTagsModal from '../../components/ManageTagsModal';
-import ProfessionalMap from '../../components/ProfessionalMap';
-import DocumentUploadModal from '../../components/DocumentUploadModal';
-import AddBookingModal from '../../components/AddBookingModal';
-import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
+import { useCall } from '../../context/CallContext';
+import { useUserContext } from '../../context/UserContext';
+
 import AddNoteModal from '../../components/AddNoteModal';
 import UploadModal from '../../components/UploadModal';
-import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
 import AddQuoteModal from '../../components/AddQuoteModal';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
+import { renderValue } from '../../utils/renderUtils';
+import { getInitials, fixDriveUrl, getYoutubeId } from '../../utils/helpers';
 
-// ---------------- STYLED COMPONENTS & SHARED STYLES ----------------
-const cardStyle = {
-    background: '#fff',
-    borderRadius: '20px',
-    border: '1px solid #e2e8f0',
-    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05)',
-    marginBottom: '24px',
-    overflow: 'hidden',
-    transition: 'transform 0.2s ease, box-shadow 0.2s ease'
-};
+// Inventory Components
+import InventorySpecsPanel from '../Inventory/components/InventorySpecsPanel';
+import LocationDetailsCard from '../Inventory/components/LocationDetailsCard';
+import BuiltupDetailsCard from '../Inventory/components/BuiltupDetailsCard';
+import PropertyOwnerSection from '../../components/Shared/PropertyOwnerSection';
+import MediaVaultSection from '../../components/Shared/MediaVaultSection';
 
-const sectionHeaderStyle = {
-    padding: '20px 24px',
-    borderBottom: '1px solid #f1f5f9',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    background: 'linear-gradient(to right, #fff, #f8fafc)'
-};
-
-const sectionTitleStyle = {
-    fontSize: '0.95rem',
-    fontWeight: 900,
-    color: '#0f172a',
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-    margin: 0,
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px'
-};
-
-const thStyle = { padding: '14px 20px', fontSize: '0.65rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' };
-const tdStyle = { padding: '16px 20px', fontSize: '0.85rem', color: '#1e293b' };
-
-const TableContainer = ({ children }) => (
-    <div style={{ width: '100%', overflowX: 'auto' }}>
-        {children}
-    </div>
-);
-
+// Hooks & Components
+import { useDealFinancials } from '../../hooks/useDealFinancials';
+import { useDealIntelligence } from '../../hooks/useDealIntelligence';
+import DealDetailHeader from '../../components/DealDetail/DealDetailHeader';
+import DealLifecycle from '../../components/DealDetail/DealLifecycle';
+import DealTechnicalSpecs from '../../components/DealDetail/DealTechnicalSpecs';
+import DealGeography from '../../components/DealDetail/DealGeography';
+import DealBuiltupDetails from '../../components/DealDetail/DealBuiltupDetails';
+import DealFinancialSection from '../../components/DealDetail/DealFinancialSection';
+// Shared Components
+import MatchedLeadsCard from '../../components/MatchedLeadsCard';
+import DealAnalysis from '../../components/DealDetail/DealAnalysis';
+import LandedCostSheet from '../../components/DealDetail/DealCostSheet';
+import { MediaViewerModal } from '../../components/DealDetail/DealCommon';
 
 const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
-    const { propertyConfig, getLookupValue, lookups } = usePropertyConfig();
+    const { user } = useUserContext();
+    const { getLookupValue } = usePropertyConfig();
     const [deal, setDeal] = useState(null);
+    const [inventory, setInventory] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('activity');
     const [matchingLeads, setMatchingLeads] = useState([]);
     const [allLeads, setAllLeads] = useState([]);
     const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
-    const [valuationData, setValuationData] = useState(null);
-    const [valuationLoading, setValuationLoading] = useState(false);
-    const [valuationError, setValuationError] = useState(null);
+    
+    // Custom Hooks
+    const { financials } = useDealFinancials(deal);
+
     const [activities, setActivities] = useState([]);
-    const [loadingActivities, setLoadingActivities] = useState(false);
     const [liveScoreData, setLiveScoreData] = useState({ score: 0, color: '#94a3b8', label: 'Warm' });
     const [showMoreMenu, setShowMoreMenu] = useState(false);
-    const [isCallModalOpen, setIsCallModalOpen] = useState(false);
-    const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
-    const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+    const { startCall } = useCall();
+    const [isMailOpen, setIsMailOpen] = useState(false);
+    const [isMessageOpen, setIsMessageOpen] = useState(false);
     const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
     const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-    const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
     const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
     const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
+    const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
+    const [isActivityOpen, setIsActivityOpen] = useState(false);
+    const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false);
     const [isMarkingLost, setIsMarkingLost] = useState(false);
+
+    const [activityInitialData, setActivityInitialData] = useState(null);
+    const [selectedContactsForMail, setSelectedContactsForMail] = useState([]);
+    const [selectedContactsForMessage, setSelectedContactsForMessage] = useState([]);
+    const [mailSubject, setMailSubject] = useState('');
+    const [mailBody, setMailBody] = useState('');
+    const [mailAttachments, setMailAttachments] = useState([]);
+
     const [mediaViewer, setMediaViewer] = useState({ isOpen: false, data: null });
 
-    // State for calculator inputs
-    const [govtCharges, setGovtCharges] = useState({
-        collectorRate: '',
-        unitArea: '',
-        unitType: 'Sq Ft', // Added to handle conversion
-        roadMultiplier: 0, // Added
-        floorMultiplier: 0, // Added
-        stampDutyPercent: 7,
-        registrationPercent: 1,
-        miscCharges: 0,
-        legalCharges: 15000,
-        brokeragePercent: 1,
-        useCollectorRate: true,
-        buyerGender: 'male'
-    });
+    const currentStage = deal?.stage || 'Open';
+    const stageAlerts = useDealIntelligence(deal, currentStage);
 
-    // Store config for gender switching logic
-    const [govtChargesConfig, setGovtChargesConfig] = useState(null);
-
-    // Fetch dynamic settings for Government Charges
+    // Sync liveScoreData with intelligence health
     useEffect(() => {
-        const fetchConfig = async () => {
-            try {
-                const response = await api.get('system-settings/govt_charges_config');
-                if (response.data && (response.data.success || response.data.status === 'success') && response.data.data) {
-                    const settings = response.data.data.value;
-                    setGovtChargesConfig(settings);
-
-                    let initialStampDuty = settings.stampDutyMale || 7;
-                    if (govtCharges.buyerGender === 'female') initialStampDuty = settings.stampDutyFemale || 5;
-                    else if (govtCharges.buyerGender === 'joint') initialStampDuty = settings.stampDutyJoint || 6;
-
-                    setGovtCharges(prev => ({
-                        ...prev,
-                        stampDutyPercent: initialStampDuty,
-                        registrationPercent: settings.registrationPercent || 1,
-                        legalCharges: settings.legalFees || 15000,
-                        brokeragePercent: settings.brokeragePercent || 1,
-                        useCollectorRate: settings.useCollectorRateDefault !== undefined ? settings.useCollectorRateDefault : true
-                    }));
-                }
-            } catch (error) {
-                console.error("Failed to fetch govt charges settings:", error);
-            }
-        };
-        fetchConfig();
-    }, []);
-
-    // Update stamp duty when gender changes using fetched config
-    useEffect(() => {
-        if (govtChargesConfig && govtCharges.buyerGender) {
-            let rate = 7;
-            if (govtCharges.buyerGender === 'female') rate = govtChargesConfig.stampDutyFemale || 5;
-            else if (govtCharges.buyerGender === 'joint') rate = govtChargesConfig.stampDutyJoint || 6;
-            else rate = govtChargesConfig.stampDutyMale || 7;
-
-            setGovtCharges(prev => ({ ...prev, stampDutyPercent: rate }));
+        if (stageAlerts.health) {
+            setLiveScoreData({
+                score: stageAlerts.health.score,
+                color: stageAlerts.health.color,
+                label: stageAlerts.health.label
+            });
         }
-    }, [govtCharges.buyerGender, govtChargesConfig]);
+    }, [stageAlerts.health]);
 
-    // Effect to populate defaults from Deal/Inventory
-    useEffect(() => {
-        if (deal && deal.inventoryId && !govtCharges.unitArea) {
-            setGovtCharges(prev => ({
-                ...prev,
-                unitArea: deal.inventoryId.superArea || deal.inventoryId.area || 0,
-                // In a real app, we'd fetch collector rate based on location here
-            }));
-        }
-    }, [deal]);
-
-    // 🚀 Backend Valuation Logic Integration
-    useEffect(() => {
-        if (!deal?._id) return;
-
-        const timer = setTimeout(async () => {
-            setValuationLoading(true);
-            try {
-                const response = await api.post('/valuation/calculate', {
-                    dealId: deal._id,
-                    buyerGender: govtCharges.buyerGender,
-                    customMarketPrice: parseFloat(deal.price) || 0
-                });
-                console.log("Valuation Response:", response.data);
-                if (response.data.status === 'success') {
-                    setValuationData(response.data.data);
-                    setValuationError(null);
-                }
-            } catch (error) {
-                console.error("Valuation calculation failed:", error);
-                setValuationData(null);
-                setValuationError(error.response?.data?.message || "Valuation calculation failed");
-            } finally {
-                setValuationLoading(false);
-            }
-        }, 500); // Debounce
-
-        return () => clearTimeout(timer);
-    }, [deal?._id, deal?.price, govtCharges.buyerGender]);
-
-    // 🧮 Calculation Logic (Enhanced with Backend Data)
-    const financials = useMemo(() => {
-        if (!deal) return {};
-
-        // Use backend valuation data if available, otherwise fallback to local basic calculation
-        if (valuationData) {
-            return {
-                dealValue: valuationData.marketPrice,
-                collectorValue: valuationData.collectorValue,
-                effectiveRate: valuationData.breakdown.baseRate,
-                applicableValue: valuationData.stampDutyBase,
-                effectiveStampDutyPercent: (valuationData.stampDutyAmount / valuationData.stampDutyBase) * 100,
-                stampDutyAmount: valuationData.stampDutyAmount,
-                registrationAmount: valuationData.registrationAmount,
-                brokerageAmount: (deal.price || 0) * (govtCharges.brokeragePercent / 100),
-                totalGovtCharges: valuationData.totalCharges,
-                grandTotal: (deal.price || 0) + valuationData.totalCharges + ((deal.price || 0) * (govtCharges.brokeragePercent / 100)),
-                valuationData // Store full object for UI
-            };
-        }
-
-        // Fallback (for offline or initial load)
-        const dealValue = deal.price || 0;
-        const baseRate = parseFloat(govtCharges.collectorRate) || 0;
-        const roadMult = parseFloat(govtCharges.roadMultiplier) || 0;
-        const floorMult = parseFloat(govtCharges.floorMultiplier) || 0;
-        const effectiveRate = baseRate * (1 + (roadMult / 100) + (floorMult / 100));
-        const collectorValue = (effectiveRate * govtCharges.unitArea) || 0;
-        const applicableValue = govtCharges.useCollectorRate ? Math.max(dealValue, collectorValue) : dealValue;
-        const stampDutyAmount = applicableValue * (govtCharges.stampDutyPercent / 100);
-        const registrationAmount = applicableValue * (govtCharges.registrationPercent / 100);
-        const brokerageAmount = dealValue * (govtCharges.brokeragePercent / 100);
-        const totalGovtCharges = stampDutyAmount + registrationAmount + govtCharges.miscCharges + (parseFloat(govtCharges.legalCharges) || 0);
-
-        return {
-            dealValue,
-            collectorValue,
-            effectiveRate,
-            applicableValue,
-            stampDutyAmount,
-            registrationAmount,
-            brokerageAmount,
-            totalGovtCharges,
-            grandTotal: dealValue + totalGovtCharges + brokerageAmount
-        };
-    }, [deal, govtCharges, valuationData]);
-
+    // Handlers
     const handleAddOffer = async (newOffer) => {
         try {
             const offerData = {
@@ -274,15 +124,24 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const fetchDealDetails = useCallback(async () => {
         setLoading(true);
         try {
-            const response = await api.get(`deals/${dealId}`);
-            if (response.data && response.data.success) {
-                setDeal(response.data.deal);
+            const res = await api.get(`deals/${dealId}`);
+            if (res.data && (res.data.success || res.data.status === 'success')) {
+                const dealData = res.data.data;
+                setDeal(dealData);
+
+                // Fetch Inventory if available
+                const invId = dealData.inventoryId?._id || (typeof dealData.inventoryId === 'string' ? dealData.inventoryId : null);
+                if (invId) {
+                    api.get(`inventory/${invId}`)
+                        .then(invRes => { if (invRes.data?.success) setInventory(invRes.data.data); })
+                        .catch(err => console.error("Error fetching inventory for sidebar:", err));
+                }
             } else {
-                toast.error("Failed to load deal details");
+                toast.error('Failed to load deal details');
             }
         } catch (error) {
-            console.error("Error fetching deal:", error);
-            toast.error("Error loading deal");
+            console.error("Error fetching deal details:", error);
+            toast.error('Error loading deal details');
         } finally {
             setLoading(false);
         }
@@ -294,7 +153,6 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         let shareLocation = deal.websiteMetadata?.shareLocation || false;
 
         if (newStatus) {
-            // Step 1: Unit Number Prompt
             const unitResult = await Swal.fire({
                 title: 'Unit Number Privacy',
                 text: "Do you want to share the Unit Number publicly on the website?",
@@ -305,15 +163,12 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 denyButtonColor: '#64748b',
                 confirmButtonText: 'Yes, Share Unit No',
                 denyButtonText: 'No, Keep Confidential',
-                cancelButtonText: 'Cancel Toggle',
-                background: '#fff',
-                borderRadius: '16px'
+                cancelButtonText: 'Cancel Toggle'
             });
 
             if (unitResult.isDismissed && !unitResult.isDenied) return;
             shareUnitNumber = unitResult.isConfirmed;
 
-            // Step 2: Location Privacy Prompt
             const locationResult = await Swal.fire({
                 title: 'Location Privacy',
                 text: "Do you want to share the exact House/Plot Number and Street publicly?",
@@ -324,9 +179,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 denyButtonColor: '#64748b',
                 confirmButtonText: 'Yes, Share Location',
                 denyButtonText: 'No, Keep Confidential',
-                cancelButtonText: 'Cancel Toggle',
-                background: '#fff',
-                borderRadius: '16px'
+                cancelButtonText: 'Cancel Toggle'
             });
 
             if (locationResult.isDismissed && !locationResult.isDenied) return;
@@ -352,8 +205,6 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                     websiteMetadata: payload.websiteMetadata
                 }));
                 toast.success(newStatus ? 'Listing published to Website!' : 'Listing removed from Website');
-            } else {
-                toast.error('Failed to update publication status');
             }
         } catch (error) {
             console.error("Error toggling publication:", error);
@@ -362,13 +213,11 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     };
 
     const handleMarkAsLost = async (reasons = null) => {
-        // If clicking from the main header button without reasons, just toggle the sidebar
         if (!reasons && !isMarkingLost) {
             setIsMarkingLost(true);
             return;
         }
 
-        // If 'reasons' is provided (from the sidebar), proceed with confirmation
         const result = await Swal.fire({
             title: 'Confirm Deal Loss?',
             text: "This will move the deal to 'Closed Lost' stage and record the reasons.",
@@ -376,9 +225,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
             showCancelButton: true,
             confirmButtonColor: '#ef4444',
             cancelButtonColor: '#64748b',
-            confirmButtonText: 'Yes, mark as lost',
-            background: '#fff',
-            borderRadius: '16px'
+            confirmButtonText: 'Yes, mark as lost'
         });
 
         if (result.isConfirmed) {
@@ -396,14 +243,11 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 if (res.data && (res.data.success || res.data.status === 'success')) {
                     toast.success('Deal marked as LOST');
                     setIsMarkingLost(false);
-                    fetchDealDetails(); // Refresh data
-                } else {
-                    toast.error(res.data?.message || res.data?.error || 'Failed to update deal status');
+                    fetchDealDetails();
                 }
             } catch (error) {
                 console.error("Error marking deal as lost:", error);
-                const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Error updating status';
-                toast.error(errorMsg);
+                toast.error('Error updating status');
             }
         }
     };
@@ -424,7 +268,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 }
             }
         } catch (err) {
-            console.error("Error fetching live score for deal:", err);
+            console.error("Error fetching live score:", err);
         }
     }, [dealId]);
 
@@ -432,7 +276,12 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         try {
             const response = await api.get(`inventory/match?inventoryId=${inventoryId}`);
             if (response.data && response.data.success) {
-                setMatchingLeads(response.data.data || []);
+                const mapped = (response.data.data || []).map(l => ({
+                    ...l,
+                    name: l.name || (l.contactDetails ? `${l.contactDetails.name || ''} ${l.contactDetails.surname || ''}`.trim() : 'Unknown'),
+                    mobile: l.mobile || l.phone || (l.contactDetails?.phones?.[0]?.number) || ''
+                }));
+                setMatchingLeads(mapped);
             }
         } catch (error) {
             console.error("Error fetching matching leads:", error);
@@ -441,254 +290,47 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
 
     const fetchAllLeads = useCallback(async () => {
         try {
-            const response = await api.get('leads', { params: { limit: 200 } });
+            const response = await api.get('leads', { params: { limit: 1000 } });
             if (response.data && response.data.success) {
-                const mappedLeads = (response.data.records || []).map(l => ({
-                    _id: l._id,
-                    name: l.firstName ? `${l.salutation || ""} ${l.firstName} ${l.lastName || ""}`.trim() : (l.name || "Unknown"),
-                    phone: l.mobile || (l.contactDetails?.phones?.[0]?.number) || ""
+                const mapped = (response.data.records || response.data.data || []).map(l => ({
+                    ...l,
+                    name: l.name || (l.contactDetails ? `${l.contactDetails.name || ''} ${l.contactDetails.surname || ''}`.trim() : 'Unknown'),
+                    mobile: l.mobile || l.phone || (l.contactDetails?.phones?.[0]?.number) || ''
                 }));
-                setAllLeads(mappedLeads);
+                setAllLeads(mapped);
             }
         } catch (error) {
             console.error("Error fetching all leads:", error);
         }
     }, []);
 
-    const fetchActivities = useCallback(async () => {
-        if (!dealId) return;
-        setLoadingActivities(true);
-        try {
-            const res = await activitiesAPI.getUnified('deal', dealId);
-            if (res && res.success) {
-                setActivities(res.data || []);
-            }
-        } catch (error) {
-            console.error("Error fetching activities for lifecycle:", error);
-        } finally {
-            setLoadingActivities(false);
-        }
-    }, [dealId]);
 
-    useEffect(() => {
-        fetchActivities();
-    }, [fetchActivities]);
-
-    // Audit logs are now handled by UnifiedActivitySection
-
+    // Effects
     useEffect(() => {
         fetchDealDetails();
         fetchLiveScore();
-    }, [fetchDealDetails, fetchLiveScore]);
-
-    useEffect(() => {
-        if (deal?.inventoryId?._id || deal?.inventoryId) {
-            fetchMatchingLeads(deal.inventoryId?._id || deal.inventoryId);
-        }
         fetchAllLeads();
-    }, [deal, fetchMatchingLeads, fetchAllLeads]);
+    }, [fetchDealDetails, fetchLiveScore, fetchAllLeads]);
 
-    // Phase 5: Inventory Sync Logic
     useEffect(() => {
-        if (deal && (deal.stage === 'Booked' || deal.stage === 'Closed')) {
-            const syncInventory = async () => {
-                const targetStatus = deal.stage === 'Booked' ? 'Blocked' : 'Sold Out';
-                console.log(`[SYNC] Triggering Inventory status change to ${targetStatus} for unit ${deal.unitNo}`);
-                // In a real system, we'd call an API here. For now, we simulate the 'bridge'.
-                // api.patch(`inventory/${deal.inventoryId}`, { status: targetStatus });
-            };
-            syncInventory();
+        const invId = deal?.inventoryId?._id || (typeof deal?.inventoryId === 'string' ? deal.inventoryId : null);
+        if (invId) {
+            fetchMatchingLeads(invId);
         }
-    }, [deal?.stage]);
+    }, [deal, fetchMatchingLeads]);
 
-    // ─── HOOKS must ALL be above early returns (React rules of hooks) ──────────
-    // currentStage: safe default when deal is null (useMemo guard handles null)
-    const currentStage = deal?.stage || 'Open';
-
-    // Stage Engine: Deal Death + Commission Leakage + Deal Health (v3)
-    const stageAlerts = useMemo(() => {
-        if (!deal) return { dealDeath: null, leakage: null, stageInfo: null, health: null };
-
-        // Aging
-        const aging = computeAging(
-            deal.createdAt || Date.now(),
-            deal.stageChangedAt || deal.createdAt,
-            deal.lastActivityAt
-        );
-
-        // Deal Death Detection
-        const lastOfferDate = deal.negotiationRounds?.length > 0
-            ? deal.negotiationRounds[deal.negotiationRounds.length - 1].date
-            : null;
-        const dealDeath = computeDealDeath(currentStage, aging.stageDays, lastOfferDate, aging.activityGapDays);
-
-        // Commission leakage
-        const commissionRate = DEFAULT_FORECAST_CONFIG.commissionRate.value;
-        const commission = (deal.price || 0) * (commissionRate / 100);
-        const leakageThreshold = DEFAULT_FORECAST_CONFIG.commissionLeakageThreshold.value;
-        const stageHealth = getStageProbability(currentStage);
-        const leakage = detectCommissionLeakage(stageHealth, commission, leakageThreshold);
-
-        // ━━ Deal Health Score v3: activity-driven ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // Real ownerResponseRate from activity gap (Bug 3 fix)
-        const ownerResponseRate = computeOwnerResponseRate(aging.activityGapDays);
-        // Activities on this deal (if populated by API)
-        const dealActivities = Array.isArray(deal.activities) ? deal.activities : [];
-        // leadScore: use deal.leadScore if API provides it, else estimate from stage probability
-        const leadScore = deal.leadScore || stageHealth;
-        const health = computeDealHealth(
-            leadScore,
-            currentStage,
-            [],               // riskFlags (computed separately via computeRiskFlags if needed)
-            DEFAULT_HEALTH_CONFIG,
-            ownerResponseRate,
-            dealActivities    // ← activity-driven score (outcome quality + recency)
-        );
-
-        // STAGE_PIPELINE info
-        const STAGE_MAP = {
-            'Open': 'New', 'Quote': 'Opportunity', 'Negotiation': 'Negotiation',
-            'Booked': 'Booked', 'Closed': 'Closed Won', 'Closed Won': 'Closed Won',
-            'Closed Lost': 'Closed Lost', 'Stalled': 'Stalled'
+    const stageStyle = useMemo(() => {
+        const stageColors = {
+            'Open': { bg: '#e0f2fe', text: '#0369a1', dot: '#0ea5e9' },
+            'Quote': { bg: '#fff7ed', text: '#9a3412', dot: '#f97316' },
+            'Negotiation': { bg: '#f5f3ff', text: '#5b21b6', dot: '#8b5cf6' },
+            'Booked': { bg: '#ecfdf5', text: '#065f46', dot: '#10b981' },
+            'Closed': { bg: '#f0fdf4', text: '#166534', dot: '#22c55e' },
+            'Closed Lost': { bg: '#fef2f2', text: '#991b1b', dot: '#ef4444' },
+            'Stalled': { bg: '#fafaf9', text: '#57534e', dot: '#78716c' },
         };
-        const mapped = STAGE_MAP[currentStage] || currentStage;
-        const stageInfo = STAGE_PIPELINE.find(s => s.label === mapped) || STAGE_PIPELINE[0];
-
-        return { dealDeath, leakage, stageInfo, aging, health, ownerResponseRate };
-    }, [deal, currentStage]);
-
-    // ─── Early returns AFTER all hooks ──────────────────────────────────────
-    const getInitials = (name) => {
-        if (!name) return '??';
-        return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-    };
-
-    const getStrictLookupValue = useCallback((type, id) => {
-        if (!id) return null;
-
-        const allLookups = lookups || {};
-
-        if (typeof id === 'object') {
-            const val = id.lookup_value || id.name || id.label || id.value || id;
-            if (id.lookup_type && id.lookup_type.replace(/\s+/g, '') !== type.replace(/\s+/g, '')) {
-                return null;
-            }
-            return typeof val === 'object' ? val.lookup_value || val.name : val;
-        }
-
-        const normalizedType = type ? type.replace(/\s+/g, '') : type;
-        if (allLookups[normalizedType]) {
-            const found = allLookups[normalizedType].find(l =>
-                l._id === id ||
-                l.id === id ||
-                (typeof id === 'string' && l.lookup_value === id)
-            );
-            if (found) return found.lookup_value;
-        }
-
-        if (typeof id === 'string' && !id.match(/^[0-9a-fA-F]{24}$/)) {
-            return id;
-        }
-
-        return null;
-    }, [propertyConfig]);
-
-    // UNIT SPECIFICATIONS - Aligned with InventoryDetailPage
-    const renderUnitSpecifications = () => {
-        const specs = [
-            { label: 'Inventory ID', value: deal.inventoryId?.inventoryId },
-            { label: 'Unit Number', value: deal.unitNo },
-            { label: 'Unit Type', value: deal.unitType },
-            { label: 'Size Label', value: getStrictLookupValue('Size', deal.sizeConfig || deal.inventoryId?.sizeConfig) || deal.sizeLabel },
-            { label: 'Block / Phase', value: deal.block },
-            { label: 'Floor Level', value: getLookupValue('FloorLevel', deal.inventoryId?.floorNo) || deal.floorNo },
-            { label: 'Accommodation', value: getLookupValue('Accommodation', deal.inventoryId?.accommodation) },
-            { label: 'Total Area', value: deal.area ? `${deal.area} ${getLookupValue('AreaUnit', deal.areaUnit) || deal.areaUnit || 'Sq.Ft'}` : null },
-            { label: 'Dimensions', value: deal.inventoryId?.width && deal.inventoryId?.length ? `${deal.inventoryId.width} x ${deal.inventoryId.length}` : null },
-            { label: 'Facing', value: getLookupValue('Facing', deal.inventoryId?.facing) },
-            { label: 'Primary Road', value: getLookupValue('RoadWidth', deal.inventoryId?.roadWidth) },
-        ].filter(s => s.value);
-
-        return (
-            <div style={cardStyle}>
-                <div style={sectionHeaderStyle}>
-                    <h3 style={sectionTitleStyle}>
-                        <div style={{ width: '32px', height: '32px', background: '#fef3c7', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
-                            <i className="fas fa-microchip text-amber-500" style={{ fontSize: '0.9rem' }}></i>
-                        </div>
-                        Technical Specifications
-                    </h3>
-                </div>
-                <div style={{ padding: '24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'x-32px y-16px' }}>
-                    {specs.map((spec, i) => (
-                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #f1f5f9' }}>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{spec.label}</span>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b' }}>{spec.value}</span>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        );
-    };
-
-    // LOCATION DETAILS - Aligned with InventoryDetailPage
-    const renderLocationDetails = () => {
-        const inventory = deal?.inventoryId || {};
-        const address = inventory.address || {};
-        
-        const locations = [
-            { label: 'Project / Site', value: deal.projectName },
-            { label: 'Sector / Locality', value: deal.location },
-            { label: 'Tehsil', value: getLookupValue('Tehsil', address.tehsil) || address.tehsil },
-            { label: 'City', value: getLookupValue('City', address.city) || address.city },
-            { label: 'State', value: getLookupValue('State', address.state) || address.state },
-            { label: 'Google Maps', value: inventory.mapUrl ? 'LINK AVAILABLE' : null, isLink: true },
-        ].filter(l => l.value);
-
-        return (
-            <div style={cardStyle}>
-                <div style={sectionHeaderStyle}>
-                    <h3 style={sectionTitleStyle}>
-                        <div style={{ width: '32px', height: '32px', background: '#dcfce7', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
-                            <i className="fas fa-map-marked-alt text-emerald-500" style={{ fontSize: '0.9rem' }}></i>
-                        </div>
-                        Geography & Connectivity
-                    </h3>
-                </div>
-                <div style={{ padding: '24px', display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '32px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'x-24px y-12px', alignContent: 'start' }}>
-                        {locations.map((loc, i) => (
-                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
-                                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{loc.label}</span>
-                                {loc.isLink ? (
-                                    <a href={inventory.mapUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.7rem', fontWeight: 900, color: '#4f46e5', textDecoration: 'none' }}>
-                                        VIEW MAP <i className="fas fa-external-link-alt ml-1"></i>
-                                    </a>
-                                ) : (
-                                    <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#1e293b' }}>{loc.value}</span>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                    <div style={{ background: '#f8fafc', borderRadius: '16px', height: '220px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-                        {(() => {
-                            const lat = inventory.latitude || address.lat;
-                            const lng = inventory.longitude || address.lng;
-                            if (lat && lng) {
-                                return <ProfessionalMap items={[{ ...inventory, lat, lng }]} center={{ lat: parseFloat(lat), lng: parseFloat(lng) }} zoom={15} />;
-                            }
-                            return (
-                                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', background: '#f8fafc' }}>
-                                    <i className="fas fa-map-marked-alt" style={{ fontSize: '2rem', marginBottom: '12px', opacity: 0.3 }}></i>
-                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase' }}>Map Data Syncing...</span>
-                                </div>
-                            );
-                        })()}
-                    </div>
-                </div>
-            </div>
-        );
-    };
+        return stageColors[currentStage] || stageColors['Open'];
+    }, [currentStage]);
 
     if (loading) return (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f8fafc' }}>
@@ -698,2125 +340,392 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     );
     if (!deal) return <div className="error-state">Deal not found</div>;
 
-    // Legacy stageColors — plain objects, safe after hooks
-    const stageColors = {
-        'Open': { bg: '#e0f2fe', text: '#0369a1', dot: '#0ea5e9' },
-        'Quote': { bg: '#fff7ed', text: '#9a3412', dot: '#f97316' },
-        'Negotiation': { bg: '#f5f3ff', text: '#5b21b6', dot: '#8b5cf6' },
-        'Booked': { bg: '#ecfdf5', text: '#065f46', dot: '#10b981' },
-        'Closed': { bg: '#f0fdf4', text: '#166534', dot: '#22c55e' },
-        'Cancelled': { bg: '#fef2f2', text: '#991b1b', dot: '#ef4444' },
-        'Stalled': { bg: '#fafaf9', text: '#57534e', dot: '#78716c' },
-    };
-    const stageStyle = stageColors[currentStage] || stageColors['Open'];
-
     return (
         <div className="deal-detail-page" style={{ background: '#f1f5f9', minHeight: '100vh', paddingBottom: '60px', fontFamily: '"Inter", sans-serif', color: '#1e293b' }}>
-            {/* 🛡️ PROFESSIONAL TRANSACTION COMMAND CENTER HEADER */}
-            <header style={{
-                position: 'sticky', top: 0, zIndex: 1000,
-                background: 'rgba(255, 255, 255, 0.85)', borderBottom: '1px solid rgba(226, 232, 240, 0.8)',
-                padding: '16px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                boxShadow: '0 4px 20px rgba(0,0,0,0.03)', backdropFilter: 'blur(20px)'
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '28px' }}>
-                    <button onClick={onBack} style={{
-                        background: '#fff', border: '1px solid #e2e8f0',
-                        borderRadius: '14px', width: '44px', height: '44px',
-                        cursor: 'pointer', color: '#475569', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
-                    }} className="hover:border-indigo-400 hover:text-indigo-600 hover:shadow-md">
-                        <i className="fas fa-chevron-left" style={{ fontSize: '1.1rem' }}></i>
-                    </button>
+            <DealDetailHeader 
+                deal={deal} 
+                liveScoreData={liveScoreData} 
+                stageAlerts={stageAlerts}
+                onBack={onBack}
+                handleTogglePublish={handleTogglePublish}
+                setIsMarkingLost={setIsMarkingLost}
+                isMarkingLost={isMarkingLost}
+                setIsCallModalOpen={(val) => {
+                    if (val) startCall(deal.contactId, { entityId: dealId, entityType: 'Deal' });
+                }}
+                setIsMessageOpen={setIsMessageOpen}
+                setIsMailOpen={setIsMailOpen}
+                setShowMoreMenu={setShowMoreMenu}
+                showMoreMenu={showMoreMenu}
+                onAddActivity={onAddActivity}
+                setIsBookingModalOpen={setIsBookingModalOpen}
+                setIsTagsModalOpen={setIsTagsModalOpen}
+                setIsUploadModalOpen={setIsUploadModalOpen}
+                setIsDocumentModalOpen={setIsDocumentModalOpen}
+                setIsNoteModalOpen={setIsNoteModalOpen}
+                setIsQuoteModalOpen={setIsQuoteModalOpen}
+                fetchDealDetails={fetchDealDetails}
+                getLookupValue={getLookupValue}
+                onNavigate={onNavigate}
+            />
 
-                    {/* Deal Score Indicator - Premium Styling */}
-                    <div className={`score-indicator ${liveScoreData.score >= 80 ? 'super-hot' : liveScoreData.score >= 55 ? 'hot' : liveScoreData.score >= 30 ? 'warm' : 'cold'}`}
-                        style={{
-                            background: `linear-gradient(135deg, ${liveScoreData.color}, ${liveScoreData.color}dd)`,
-                            width: '52px', height: '52px', borderRadius: '16px',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: '1.1rem', fontWeight: 900, color: '#fff',
-                            boxShadow: `0 8px 16px ${liveScoreData.color}44`,
-                            border: '2px solid #fff',
-                            transform: 'rotate(-5deg)'
-                        }}
-                        title={`Live Deal Intelligence Score: ${liveScoreData.score}% (${liveScoreData.label})`}
-                    >
-                        {liveScoreData.score || '0'}
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-                            <span style={{ 
-                                fontSize: '0.65rem', 
-                                fontWeight: 900, 
-                                color: '#fff', 
-                                background: liveScoreData.color,
-                                padding: '2px 8px',
-                                borderRadius: '4px',
-                                textTransform: 'uppercase', 
-                                letterSpacing: '0.08em' 
-                            }}>{liveScoreData.label}</span>
-                            
-                            <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0f172a', margin: 0, letterSpacing: '-0.03em', display: 'flex', alignItems: 'baseline', gap: '10px' }}>
-                                {renderValue(deal.unitNo)}
-                                <span style={{ fontSize: '1rem', fontWeight: 600, color: '#64748b' }}>
-                                    {renderValue(deal.unitType) || 'Unit'}
-                                </span>
-                            </h1>
-                        {/* Status elements and alerts follow in the same flex row */}
-                            {/* Stage Badge moved to pipeline */}
+            <DealLifecycle 
+                deal={deal} 
+                activities={activities} 
+                stageStyle={stageStyle} 
+                stageAlerts={stageAlerts}
+            />
 
-                            {/* Deal Death Alert */}
-                            {stageAlerts.dealDeath?.stalled && (
-                                <span style={{
-                                    backgroundColor: stageAlerts.dealDeath.severity === 'critical' ? '#fef2f2' : '#fffbeb',
-                                    color: stageAlerts.dealDeath.severity === 'critical' ? '#991b1b' : '#92400e',
-                                    padding: '4px 10px', borderRadius: '6px', fontSize: '0.65rem', fontWeight: 800,
-                                    display: 'flex', alignItems: 'center', gap: '5px',
-                                    border: `1px solid ${stageAlerts.dealDeath.severity === 'critical' ? '#fecaca' : '#fde68a'}`
-                                }}>
-                                    <i className={`fas ${stageAlerts.dealDeath.severity === 'critical' ? 'fa-skull' : 'fa-pause-circle'}`} />
-                                    {stageAlerts.dealDeath.severity === 'critical' ? 'STALLED — DEAD DEAL' : 'STALLING'}
-                                </span>
-                            )}
+            <div style={{ maxWidth: '1600px', margin: '12px auto', padding: '0 24px', display: 'flex', gap: '16px' }}>
+                {/* LEFT COLUMN */}
+                <div style={{ flex: '1.5', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                    <DealFinancialSection 
+                        deal={deal} 
+                        financials={financials} 
+                        setIsOfferModalOpen={setIsOfferModalOpen} 
+                    />
 
-                            {/* Commission Leakage Alert */}
-                            {stageAlerts.leakage?.leakage && (
-                                <span style={{
-                                    backgroundColor: stageAlerts.leakage.severity === 'critical' ? '#fef2f2' : '#fffbeb',
-                                    color: stageAlerts.leakage.severity === 'critical' ? '#991b1b' : '#92400e',
-                                    padding: '4px 10px', borderRadius: '6px', fontSize: '0.65rem', fontWeight: 800,
-                                    display: 'flex', alignItems: 'center', gap: '5px',
-                                    border: `1px solid ${stageAlerts.leakage.severity === 'critical' ? '#fecaca' : '#fde68a'}`
-                                }}>
-                                    <i className="fas fa-exclamation-circle" />
-                                    COMMISSION RISK: {formatIndianCurrency((deal.price || 0) * 0.02)}
-                                </span>
-                            )}
+                    {inventory ? (
+                        <>
+                            <InventorySpecsPanel 
+                                inventory={inventory} 
+                                getLookupValue={getLookupValue}
+                                isInventoryActive={inventory.status === 'Active' || (typeof inventory.status === 'object' && inventory.status.lookup_value === 'Active')}
+                                onFeedback={() => {}} // Placeholder or handle if needed
+                                hideConsole={true}
+                            />
 
-                            {/* Deal Health Badge: show ONLY qualitative label, not a competing numeric score */}
-                            {stageAlerts.health && (
-                                <span
-                                    title={`Health Details — Score: ${stageAlerts.health.score}% | Activity Score: ${stageAlerts.health.activityScore}/25 | Owner: ${stageAlerts.health.ownerRisk.label} (${stageAlerts.health.ownerRisk.rate}%)`}
-                                    style={{
-                                        display: 'inline-flex', alignItems: 'center', gap: '5px',
-                                        background: stageAlerts.health.color + '18',
-                                        color: stageAlerts.health.color,
-                                        border: `1px solid ${stageAlerts.health.color}40`,
-                                        borderRadius: '6px', padding: '4px 10px',
-                                        fontSize: '0.65rem', fontWeight: 800, cursor: 'help'
-                                    }}
-                                >
-                                    <i className={`fas ${stageAlerts.health.icon}`} style={{ fontSize: '0.6rem' }} />
-                                    {stageAlerts.health.label}
-                                </span>
-                            )}
+                            <BuiltupDetailsCard 
+                                inventory={inventory} 
+                                getLookupValue={getLookupValue} 
+                            />
 
-                            {deal.negotiation_window && (
-                                <span style={{
-                                    backgroundColor: '#fef3c7', color: '#92400e',
-                                    padding: '4px 12px', borderRadius: '6px',
-                                    fontSize: '0.7rem', fontWeight: 900,
-                                    display: 'flex', alignItems: 'center', gap: '6px',
-                                    textTransform: 'uppercase', letterSpacing: '0.05em', border: '1px solid #fcd34d',
-                                    boxShadow: '0 2px 4px rgba(251, 191, 36, 0.2)'
-                                }}>
-                                    <i className="fas fa-bolt" style={{ color: '#f59e0b' }}></i> High Margin
-                                </span>
-                            )}
+                            <LocationDetailsCard 
+                                inventory={inventory} 
+                                getLookupValue={getLookupValue} 
+                            />
+                        </>
+                    ) : (
+                        <>
+                            <DealTechnicalSpecs 
+                                deal={deal} 
+                                getLookupValue={getLookupValue}
+                                getStrictLookupValue={(field, val) => getLookupValue(field, val)}
+                            />
 
-                            {/* Website Publication Toggle */}
-                            <button
-                                onClick={handleTogglePublish}
-                                style={{
-                                    backgroundColor: deal.isPublished ? '#eff6ff' : '#f8fafc',
-                                    color: deal.isPublished ? '#2563eb' : '#64748b',
-                                    padding: '4px 12px', borderRadius: '6px',
-                                    fontSize: '0.7rem', fontWeight: 800,
-                                    display: 'flex', alignItems: 'center', gap: '6px',
-                                    textTransform: 'uppercase', letterSpacing: '0.05em',
-                                    border: `1px solid ${deal.isPublished ? '#3b82f644' : '#e2e8f0'}`,
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s'
-                                }}
-                                className="hover:shadow-sm"
-                            >
-                                <i className={`fas fa-globe ${deal.isPublished ? 'text-blue-500' : 'text-slate-400'}`}></i>
-                                {deal.isPublished ? 'Published' : 'Draft'}
-                            </button>
-                        </div>
-                        <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, margin: 0 }}>
-                            {renderValue(deal.projectName)} • {renderValue(deal.block)}
-                            <span className="mx-2 opacity-30">|</span>
-                            <i className="fas fa-calendar-alt mr-1 opacity-50"></i> Created on {new Date(deal.createdAt || deal.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                            <span className="mx-2 opacity-30">|</span>
-                            Source: <span style={{ color: '#1e293b', fontWeight: 700 }}>{getLookupValue('Source', deal.source) || deal.source || 'Walk-in'}</span>
-                        </p>
-                    </div>
-                </div>
+                            <DealGeography 
+                                deal={deal} 
+                                getLookupValue={getLookupValue} 
+                            />
 
-                {/* Action Buttons Group */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: 'auto', marginRight: '20px' }}>
-                    {/* Mark as Lost Button (Visible only for non-terminal stages) */}
-                    {deal.stage !== 'Closed Won' && deal.stage !== 'Closed Lost' && deal.stage !== 'Cancelled' && (
-                        <button
-                            onClick={() => setIsMarkingLost(!isMarkingLost)}
-                            style={{
-                                background: isMarkingLost ? '#ef4444' : '#fef2f2',
-                                color: isMarkingLost ? '#fff' : '#ef4444',
-                                border: `1px solid ${isMarkingLost ? '#ef4444' : '#fee2e2'}`,
-                                padding: '8px 14px',
-                                borderRadius: '10px',
-                                fontSize: '0.75rem',
-                                fontWeight: 800,
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                boxShadow: isMarkingLost ? '0 4px 12px rgba(239, 68, 68, 0.2)' : 'none'
-                            }}
-                            className="hover:scale-105 transition-all"
-                        >
-                            <i className={`fas ${isMarkingLost ? 'fa-times' : 'fa-handshake-slash'}`}></i>
-                            {isMarkingLost ? 'Cancel Loss' : 'Mark as Lost'}
-                        </button>
+                            <DealBuiltupDetails 
+                                deal={deal} 
+                                getLookupValue={getLookupValue} 
+                            />
+                        </>
                     )}
 
-                    {/* Communication Actions */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                            onClick={() => setIsCallModalOpen(true)}
-                            style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 12px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-                            className="hover:bg-slate-50 transition-all"
-                        >
-                            <i className="fas fa-phone-alt" style={{ color: '#10b981' }}></i> Call
-                        </button>
-                        <button
-                            onClick={() => setIsMessageModalOpen(true)}
-                            style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 12px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-                            className="hover:bg-slate-50 transition-all"
-                        >
-                            <i className="fas fa-comment-dots" style={{ color: '#3b82f6' }}></i> SMS
-                        </button>
-                        <button
-                            onClick={() => setIsEmailModalOpen(true)}
-                            style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '8px 12px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-                            className="hover:bg-slate-50 transition-all"
-                        >
-                            <i className="fas fa-envelope" style={{ color: '#f59e0b' }}></i> Email
-                        </button>
-                    </div>
-
-                    {/* Three-Dot More Menu */}
-                    <div style={{ position: 'relative' }}>
-                        <button
-                            onClick={() => setShowMoreMenu(!showMoreMenu)}
-                            style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}
-                            className="hover:bg-slate-50 transition-all"
-                        >
-                            <i className="fas fa-ellipsis-v"></i>
-                        </button>
-
-                        {showMoreMenu && (
-                            <div style={{
-                                position: 'absolute', top: '100%', right: 0, marginTop: '8px',
-                                background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px',
-                                boxShadow: '0 10px 25px rgba(0,0,0,0.1)', zIndex: 1000, minWidth: '200px',
-                                padding: '8px 0', overflow: 'hidden'
-                            }}>
-                                <button
-                                    onClick={() => { onAddActivity([{ type: 'Deal', id: deal._id, name: deal.dealId || 'Deal', model: 'Deal' }], { deal }); setShowMoreMenu(false); }}
-                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
-                                    className="hover:bg-slate-50"
-                                >
-                                    <i className="fas fa-calendar-plus" style={{ color: '#ec4899', width: '16px' }}></i> Create Activity
-                                </button>
-                                <button
-                                    onClick={() => { toast.success("Generating Invoice..."); setShowMoreMenu(false); }}
-                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
-                                    className="hover:bg-slate-50"
-                                >
-                                    <i className="fas fa-file-invoice-dollar" style={{ color: '#2563eb', width: '16px' }}></i> Invoice
-                                </button>
-                                <button
-                                    onClick={() => { setIsBookingModalOpen(true); setShowMoreMenu(false); }}
-                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
-                                    className="hover:bg-slate-50"
-                                >
-                                    <i className="fas fa-book-medical" style={{ color: '#10b981', width: '16px' }}></i> Create Booking
-                                </button>
-                                <button
-                                    onClick={() => { setIsTagsModalOpen(true); setShowMoreMenu(false); }}
-                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
-                                    className="hover:bg-slate-50"
-                                >
-                                    <i className="fas fa-tags" style={{ color: '#8b5cf6', width: '16px' }}></i> Manage Tags
-                                </button>
-                                <button
-                                    onClick={() => { setIsUploadModalOpen(true); setShowMoreMenu(false); }}
-                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
-                                    className="hover:bg-slate-50"
-                                >
-                                    <i className="fas fa-cloud-upload-alt" style={{ color: '#f59e0b', width: '16px' }}></i> Upload
-                                </button>
-                                <button
-                                    onClick={() => { setIsDocumentModalOpen(true); setShowMoreMenu(false); }}
-                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
-                                    className="hover:bg-slate-50"
-                                >
-                                    <i className="fas fa-file-alt" style={{ color: '#64748b', width: '16px' }}></i> Document
-                                </button>
-                                <button
-                                    onClick={() => { setIsNoteModalOpen(true); setShowMoreMenu(false); }}
-                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
-                                    className="hover:bg-slate-50"
-                                >
-                                    <i className="fas fa-sticky-note" style={{ color: '#facc15', width: '16px' }}></i> Note
-                                </button>
-                                <div style={{ height: '1px', background: '#e2e8f0', margin: '4px 0' }}></div>
-                                <button
-                                    onClick={() => {
-                                        setShowMoreMenu(false);
-                                        setIsQuoteModalOpen(true);
-                                    }}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '10px',
-                                        width: '100%',
-                                        padding: '10px 16px',
-                                        background: 'transparent',
-                                        border: 'none',
-                                        color: '#475569',
-                                        fontSize: '0.8rem',
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                        textAlign: 'left'
-                                    }}
-                                    className="hover:bg-slate-50 transition-colors"
-                                >
-                                    <Calculator size={14} className="text-blue-500" /> Quotation
-                                </button>
-                                <button
-                                    onClick={async () => {
-                                        setShowMoreMenu(false);
-                                        try {
-                                            const res = await enrichmentAPI.runDeal(dealId);
-                                            if (res.success) {
-                                                toast.success('Deal Intelligence Enriched!');
-                                                fetchDealDetails();
-                                            }
-                                        } catch (e) {
-                                            toast.error('Enrichment failed');
-                                        }
-                                    }}
-                                    style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 700, color: '#16a34a', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
-                                    className="hover:bg-green-50"
-                                >
-                                    <i className="fas fa-magic" style={{ width: '16px' }}></i> Enrichment Intelligence
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-
-                {/* Refined Assignment Plate - Matching Lead Detail Style */}
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    padding: '4px 12px',
-                    background: '#f8fafc',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px'
-                }}>
-                    {/* Name Stack */}
-                    <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap' }}>
-                            {deal.assignedTo?.name || deal.partyStructure?.internalRM?.name || 'Unassigned'}
-                        </span>
-                        <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>
-                            {deal.team?.name || getLookupValue('Team', deal.assignedTo?.team) || 'Standard Team'}
-                        </span>
-                    </div>
-
-                    {/* Divider */}
-                    <div style={{ width: '1px', height: '18px', background: '#cbd5e1' }}></div>
-
-                    {/* Visibility Icon */}
-                    <div title={`Visibility: ${deal.visibleTo || 'Everyone'}`} style={{ display: 'flex', alignItems: 'center' }}>
+                    {/* Activities Timeline Section in Main Column */}
+                    <div style={{ marginTop: '24px' }}>
                         {(() => {
-                            const v = (deal.visibleTo || 'Everyone').toLowerCase();
-                            if (v === 'private') return <i className="fas fa-lock" style={{ color: '#ef4444', fontSize: '0.85rem' }}></i>;
-                            if (v === 'team') return <i className="fas fa-users" style={{ color: '#3b82f6', fontSize: '0.85rem' }}></i>;
-                            return <i className="fas fa-globe" style={{ color: '#10b981', fontSize: '0.85rem' }}></i>;
+                            const relatedEntities = [
+                                { type: 'Deal', id: dealId }
+                            ];
+                            if (deal.contactId?._id || deal.contactId) {
+                                relatedEntities.push({ type: 'Contact', id: deal.contactId?._id || deal.contactId });
+                            }
+                            if (inventory) {
+                                relatedEntities.push({ type: 'Inventory', id: inventory._id || inventory.id });
+                                if (inventory.owners && Array.isArray(inventory.owners)) {
+                                    inventory.owners.forEach(o => { if (o._id || o.id) relatedEntities.push({ type: 'Contact', id: o._id || o.id }); });
+                                }
+                                if (inventory.associates && Array.isArray(inventory.associates)) {
+                                    inventory.associates.forEach(a => {
+                                        const cId = a.contact?._id || a.contact?.id || a.id;
+                                        if (cId) relatedEntities.push({ type: 'Contact', id: cId });
+                                    });
+                                }
+                            }
+
+                            return (
+                                <div className="glass-card" style={{ padding: 0, overflow: 'hidden' }}>
+                                    <UnifiedActivitySection 
+                                        entityId={dealId} 
+                                        entityType="Deal" 
+                                        entityData={deal}
+                                        onActivitySaved={fetchDealDetails}
+                                        hideComposer={true}
+                                        relatedEntities={relatedEntities}
+                                    />
+                                </div>
+                            );
                         })()}
                     </div>
                 </div>
-            </header>
 
-            {/* STAGE LIFECYCLE TRACKER */}
-            <div className="no-scrollbar" style={{
-                width: '100%',
-                padding: '0.75rem 2rem 0.25rem 2rem',
-                borderBottom: '1px solid #e2e8f0',
-                background: '#fff',
-                zIndex: 40
-            }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '0.8rem', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <i className="fas fa-route" style={{ color: '#4f46e5' }}></i> Deal Stage Pipeline
-                    </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>
-                            CURRENT STATUS: <span style={{ color: '#4f46e5', fontWeight: 900 }}>{String(deal.stage || 'Open').toUpperCase()}</span>
-                        </span>
-                        {/* Stage Badge with probability */}
-                        <span style={{
-                            backgroundColor: stageStyle.bg, color: stageStyle.text,
-                            padding: '4px 10px', borderRadius: '6px',
-                            fontSize: '0.65rem', fontWeight: 800,
-                            display: 'flex', alignItems: 'center', gap: '6px',
-                            textTransform: 'uppercase', letterSpacing: '0.05em', border: `1px solid ${stageStyle.dot}33`
-                        }}>
-                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: stageStyle.dot }}></span>
-                            {currentStage}
-                            <span style={{ opacity: 0.6, fontSize: '0.6rem' }}>
-                                {getStageProbability(stageAlerts.stageInfo?.label || currentStage)}% win
-                            </span>
-                        </span>
-                    </div>
-                </div>
-                <SingleDealLifecycle
-                    deal={deal}
-                    activities={activities}
-                />
-            </div>
-
-            {/* 2️⃣ MAIN CONTENT SPLIT */}
-            <div style={{ maxWidth: '1600px', margin: '12px auto', padding: '0 24px', display: 'flex', gap: '16px' }}>
-
-                {/* LEFT MAIN TRANSACTION SECTION - Flexible Width */}
-                <div style={{ flex: '1.5', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-
-                    {/* 💰 PREMIUM PRICING & FINANCIAL COMMAND */}
-                    <div style={cardStyle} >
-                        <div style={{ ...sectionHeaderStyle, background: 'linear-gradient(135deg, #1e1b4b, #312e81)', borderBottom: 'none' }}>
-                            <h3 style={{ ...sectionTitleStyle, color: '#fff' }}>
-                                <div style={{ width: '36px', height: '36px', background: 'rgba(255,255,255,0.1)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
-                                    <i className="fas fa-vault text-amber-400" style={{ fontSize: '1rem' }}></i>
-                                </div>
-                                Pricing & Negotiation Strategy
-                            </h3>
-                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#fff', background: 'rgba(255,255,255,0.1)', padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                                    VALUATION: {deal.pricingMode?.toUpperCase() || 'MARKET'}
-                                </span>
-                            </div>
-                        </div>
-                        <div style={{ padding: '28px', background: '#fff' }}>
-                            {/* High Level Price Matrix - Premium Styling */}
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '32px' }}>
-                                <PriceCard label="Target Price" value={deal.price} subValue={numberToIndianWords(deal.price)} theme="indigo" />
-                                <PriceCard label="Current Quote" value={deal.quotePrice || 0} subValue={numberToIndianWords(deal.quotePrice || 0)} theme="blue" />
-                                <PriceCard
-                                    label="Deal Spread"
-                                    value={(deal.quotePrice || 0) - deal.price}
-                                    theme={(deal.quotePrice || 0) >= deal.price ? 'green' : 'red'}
-                                    isDiff
-                                />
-                                <PriceCard label="Negotiability" value={deal.pricingNature?.negotiable ? 'FLEXIBLE' : 'FIXED'} theme="orange" isStatus />
-                            </div>
-
-                            {/* 🤝 ENHANCED OFFER HISTORY */}
-                            <div style={{ ...cardStyle, boxShadow: 'none', border: '1px solid #f1f5f9', background: '#f8fafc' }}>
-                                <div style={{ ...sectionHeaderStyle, background: 'transparent', padding: '16px 20px' }}>
-                                    <h3 style={{ ...sectionTitleStyle, fontSize: '0.85rem' }}>
-                                        <i className="fas fa-comments-dollar text-indigo-600 mr-2"></i> Transaction History
-                                    </h3>
-                                    <button
-                                        onClick={() => setIsOfferModalOpen(true)}
-                                        style={{
-                                            background: '#4f46e5', color: '#fff', border: 'none',
-                                            padding: '8px 18px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800,
-                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
-                                            boxShadow: '0 4px 12px rgba(79, 70, 229, 0.2)'
-                                        }} className="hover:bg-indigo-700 transition-all">
-                                        <i className="fas fa-plus"></i> NEW OFFER
-                                    </button>
-                                </div>
-                                <div style={{ padding: '0' }}>
-                                    {(deal.negotiationRounds || []).length > 0 ? (
-                                        <TableContainer>
-                                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                                <thead>
-                                                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                                                        <th style={thStyle}>Date</th>
-                                                        <th style={thStyle}>Offer By</th>
-                                                        <th style={thStyle}>Amount</th>
-                                                        <th style={thStyle}>Counter</th>
-                                                        <th style={thStyle}>Status</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {deal.negotiationRounds.map((round, idx) => (
-                                                        <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                                            <td style={tdStyle}>{new Date(round.date || Date.now()).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
-                                                            <td style={tdStyle}>
-                                                                <span style={{ fontWeight: 600, color: '#475569' }}>{round.offerBy || 'Buyer'}</span>
-                                                                {round.notes && <div style={{ fontSize: '0.65rem', color: '#94a3b8', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{round.notes}</div>}
-                                                            </td>
-                                                            <td style={tdStyle}>
-                                                                <span style={{ fontWeight: 800, color: '#1e293b' }}>{formatIndianCurrency(round.buyerOffer)}</span>
-                                                            </td>
-                                                            <td style={tdStyle}>
-                                                                <span style={{ fontWeight: 800, color: '#64748b' }}>{formatIndianCurrency(round.ownerCounter)}</span>
-                                                            </td>
-                                                            <td style={tdStyle}>
-                                                                <span style={{
-                                                                    fontSize: '0.65rem', fontWeight: 800, padding: '4px 10px', borderRadius: '20px',
-                                                                    background: '#f0fdf4', color: '#166534', border: '1px solid #dcfce7', textTransform: 'uppercase'
-                                                                }}>
-                                                                    {round.status || 'Active'}
-                                                                </span>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </TableContainer>
-                                    ) : (
-                                        <div style={{ padding: '40px', textAlign: 'center' }}>
-                                            <div style={{ width: '48px', height: '48px', background: '#f1f5f9', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-                                                <i className="fas fa-inbox text-slate-400" style={{ fontSize: '1.2rem' }}></i>
-                                            </div>
-                                            <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', margin: '0 0 4px 0' }}>No Offers Yet</p>
-                                            <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>Start the negotiation by adding the first offer.</p>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                        </div>
-                    </div>
-
-                    {/* UNIT SPECIFICATIONS */}
-                    {renderUnitSpecifications()}
-
-                    {/* LOCATION DETAILS */}
-                    {renderLocationDetails()}
-
-                    {/* BUILTUP DETAILS - Aligned with InventoryDetailPage */}
-                    <div style={cardStyle} >
-                        <div style={sectionHeaderStyle}>
-                            <h3 style={sectionTitleStyle}>
-                                <div style={{ width: '32px', height: '32px', background: '#f3e8ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
-                                    <i className="fas fa-layer-group text-purple-500" style={{ fontSize: '0.9rem' }}></i>
-                                </div>
-                                Built-up & Furnishing
-                            </h3>
-                        </div>
-                        <div style={{ padding: '24px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '16px' }}>
-                            <DetailField label="Built-up Type" value={getLookupValue('BuiltupType', deal.inventoryId?.builtupType)} />
-                            <DetailField label="Possession" value={getLookupValue('PossessionStatus', deal.inventoryId?.possessionStatus)} />
-                            <DetailField label="Construction Age" value={getLookupValue('AgeOfConstruction', deal.inventoryId?.ageOfConstruction)} />
-                            <DetailField label="Furnish Status" value={getLookupValue('FurnishType', deal.inventoryId?.furnishType)} />
-                            <div style={{ gridColumn: 'span 4' }}>
-                                <DetailField label="Furnished Items" value={deal.inventoryId?.furnishedItems?.join(', ') || 'N/A'} />
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* 🔟 Tabs Section (Without Documents) */}
-                    <div style={{ marginTop: '8px' }}>
-                        <div style={{ display: 'flex', gap: '8px', borderBottom: '2px solid #e2e8f0', marginBottom: '24px', padding: '0 4px' }}>
-                            <TabItem id="activity" label="Activity Timeline" active={activeTab === 'activity'} onClick={setActiveTab} />
-                            <TabItem id="negotiation" label="Negotiation Tracker" active={activeTab === 'negotiation'} onClick={setActiveTab} />
-                            <TabItem id="financials" label="Financial Breakdown" active={activeTab === 'financials'} onClick={setActiveTab} />
-                            <TabItem id="costsheet" label="Cost Sheet" active={activeTab === 'costsheet'} onClick={setActiveTab} />
-                            <TabItem id="commission" label="Commission" active={activeTab === 'commission'} onClick={setActiveTab} />
-                        </div>
-                        <div style={{ minHeight: '300px' }}>
-                            {activeTab === 'activity' && (
-                                <UnifiedActivitySection
-                                    entityId={dealId}
-                                    entityType="Deal"
-                                    entityData={deal}
-                                    onActivitySaved={fetchDealDetails}
-                                    hideComposer={true}
-                                />
-                            )}
-
-                            {activeTab === 'negotiation' && <NegotiationTracker rounds={deal.negotiationRounds} />}
-                            {activeTab === 'financials' && <FinancialBreakdown details={deal.financialDetails} type={deal.intent?.lookup_value} />}
-                            {activeTab === 'costsheet' && <CostSheet financials={financials} deal={deal} />}
-                            {activeTab === 'commission' && <CommissionDetails commission={deal.commission} />}
-                        </div>
-                    </div>
-
-                </div>
-
-
-
-                {/* 🛡️ MISSION CONTROL SIDEBAR (Flexible) */}
-                <div style={{ flex: '1', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
-                    {/* 🔴 DEAL LOSS ANALYSIS (Conditional) */}
-                    {
-                        (isMarkingLost || deal.stage === 'Closed Lost') && (
-                            <div style={{
-                                background: '#fff',
-                                borderRadius: '16px',
-                                border: '1px solid #fee2e2',
-                                boxShadow: '0 8px 32px rgba(239, 68, 68, 0.08)',
-                                overflow: 'hidden',
-                                marginBottom: '16px',
-                                animation: 'slideInRight 0.3s ease'
-                            }}>
-                                <div style={{
-                                    padding: '14px 20px',
-                                    background: '#fef2f2',
-                                    borderBottom: '1px solid #fee2e2',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center'
-                                }}>
-                                    <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <i className="fas fa-exclamation-triangle"></i> Loss Analysis
-                                    </span>
-                                    <span style={{ background: '#ef4444', color: '#fff', fontSize: '0.65rem', fontWeight: 900, padding: '2px 8px', borderRadius: '4px' }}>LOST</span>
-                                </div>
-
-                                <div style={{ padding: '20px' }}>
-                                    {deal.stage === 'Closed Lost' ? (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Selected Reasons</div>
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                                {(deal.closingDetails?.lossReasons || ['Price Issue']).map((r, i) => (
-                                                    <span key={i} style={{ padding: '4px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, color: '#475569' }}>
-                                                        {r}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                            {deal.closingDetails?.remarks && (
-                                                <div style={{ marginTop: '8px' }}>
-                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Closure Remarks</div>
-                                                    <p style={{ fontSize: '0.8rem', color: '#1e293b', background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', margin: 0 }}>
-                                                        {deal.closingDetails.remarks}
-                                                    </p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ) : (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                                            <div>
-                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', marginBottom: '10px' }}>Primary Reasons (Select)</div>
-                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                                                    {['Price Mismatch', 'Location Issue', 'Lost to Competitor', 'Budget Constraints', 'Regulatory Issues', 'Delayed Decision'].map((reason) => (
-                                                        <button
-                                                            key={reason}
-                                                            onClick={() => {
-                                                                const current = deal.closingDetails?.lossReasons || [];
-                                                                const next = current.includes(reason) ? current.filter(r => r !== reason) : [...current, reason];
-                                                                setDeal(prev => ({
-                                                                    ...prev,
-                                                                    closingDetails: { ...prev.closingDetails, lossReasons: next }
-                                                                }));
-                                                            }}
-                                                            style={{
-                                                                padding: '8px',
-                                                                background: (deal.closingDetails?.lossReasons || []).includes(reason) ? '#ef4444' : '#fff',
-                                                                border: `1px solid ${(deal.closingDetails?.lossReasons || []).includes(reason) ? '#ef4444' : '#e2e8f0'}`,
-                                                                color: (deal.closingDetails?.lossReasons || []).includes(reason) ? '#fff' : '#475569',
-                                                                borderRadius: '8px',
-                                                                fontSize: '0.7rem',
-                                                                fontWeight: 700,
-                                                                cursor: 'pointer',
-                                                                transition: 'all 0.2s'
-                                                            }}
-                                                        >
-                                                            {reason}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-
-                                            <div>
-                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', marginBottom: '8px' }}>Manual Remarks</div>
-                                                <textarea
-                                                    placeholder="Add detailed reason for loss..."
-                                                    value={deal.closingDetails?.remarks || ''}
-                                                    onChange={(e) => setDeal(prev => ({
-                                                        ...prev,
-                                                        closingDetails: { ...prev.closingDetails, remarks: e.target.value }
-                                                    }))}
-                                                    style={{
-                                                        width: '100%',
-                                                        padding: '12px',
-                                                        borderRadius: '12px',
-                                                        border: '1px solid #e2e8f0',
-                                                        fontSize: '0.8rem',
-                                                        minHeight: '80px',
-                                                        outline: 'none',
-                                                        resize: 'none'
-                                                    }}
-                                                />
-                                            </div>
-
-                                            <button
-                                                onClick={() => handleMarkAsLost({ primaryReasons: deal.closingDetails?.lossReasons, remarks: deal.closingDetails?.remarks })}
-                                                style={{
-                                                    padding: '12px',
-                                                    background: '#ef4444',
-                                                    color: '#fff',
-                                                    border: 'none',
-                                                    borderRadius: '12px',
-                                                    fontSize: '0.8rem',
-                                                    fontWeight: 800,
-                                                    cursor: 'pointer',
-                                                    boxShadow: '0 4px 12px rgba(239, 68, 68, 0.2)'
-                                                }}
-                                            >
-                                                CONFIRM DEAL LOSS
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )
-                    }
-
-                    {/* 🎯 MATCHED LEADS - TOP PRIORITY */}
-                    <div style={cardStyle}>
-                        <div style={{ ...sectionHeaderStyle, background: '#f0fdf4', borderBottom: '1px solid #dcfce7' }}>
-                            <h3 style={sectionTitleStyle}>
-                                <div style={{ width: '32px', height: '32px', background: '#ffffff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
-                                    <i className="fas fa-bullseye text-emerald-600" style={{ fontSize: '0.9rem' }}></i>
-                                </div>
-                                <span style={{ color: '#166534' }}>Top Matched Leads</span>
-                            </h3>
-                            <button
-                                onClick={() => onNavigate('inventory-matching', deal.inventoryId?._id || deal.inventoryId)}
-                                className="text-btn"
-                                style={{ fontSize: '0.7rem', fontWeight: 800, color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.05em', cursor: 'pointer', background: 'none', border: 'none' }}
-                            >
-                                Match Centre →
-                            </button>
-                        </div>
-                        <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            {matchingLeads && matchingLeads.length > 0 ? matchingLeads.slice(0, 3).map((lead, idx) => (
-                                <div key={idx} style={{
-                                    padding: '16px', background: '#fff', borderRadius: '12px', border: '1px solid #f0fdf4',
-                                    boxShadow: '0 4px 6px -2px rgba(0, 0, 0, 0.02)', transition: 'all 0.2s',
-                                    cursor: 'pointer', position: 'relative', overflow: 'hidden'
-                                }} className="hover:shadow-md hover:border-emerald-200 group" onClick={() => onNavigate('lead-detail', lead._id)}>
-                                    <div style={{ position: 'absolute', top: 0, left: 0, width: '4px', height: '100%', background: lead.score >= 80 ? '#10b981' : lead.score >= 50 ? '#f59e0b' : '#64748b' }}></div>
-
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px', paddingLeft: '8px' }}>
-                                        <div>
-                                            <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e293b', margin: '0 0 2px 0' }}>{lead.name}</h4>
-                                            <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                <i className="fas fa-phone-alt" style={{ fontSize: '0.6rem', opacity: 0.7 }}></i> {lead.mobile || lead.phone || lead.contactDetails?.phones?.[0]?.number || 'No Phone'}
-                                            </p>
-                                        </div>
-                                        <div style={{ textAlign: 'right' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end' }}>
-                                                <span style={{
-                                                    fontSize: '1rem', fontWeight: 900, color: lead.score >= 80 ? '#059669' : '#d97706',
-                                                    display: 'block', lineHeight: 1
-                                                }}>{lead.score || 0}%</span>
-                                                <i className="fas fa-certificate" style={{ fontSize: '0.6rem', color: lead.score >= 80 ? '#10b981' : '#f59e0b' }}></i>
-                                            </div>
-                                            <span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Match</span>
-                                        </div>
-                                    </div>
-
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingLeft: '8px', paddingTop: '8px', borderTop: '1px dashed #f1f5f9' }}>
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                            <span style={{
-                                                fontSize: '0.65rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px',
-                                                background: '#f1f5f9', color: '#475569', textTransform: 'uppercase'
-                                            }}>
-                                                {lead.category || 'Lead'}
-                                            </span>
-                                            <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                <i className="far fa-calendar-alt"></i> {Math.floor((new Date() - new Date(lead.createdAt || Date.now())) / (1000 * 60 * 60 * 24))}d old
-                                            </span>
-                                            <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>
-                                                Budget: {formatIndianCurrency(lead.budget || lead.maxBudget || lead.minBudget || 0)}
-                                            </span>
-                                        </div>
-                                        <div style={{
-                                            background: '#ecfdf5', color: '#059669', borderRadius: '50%',
-                                            width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            fontSize: '0.7rem'
-                                        }}>
-                                            <i className="fas fa-arrow-right"></i>
-                                        </div>
-                                    </div>
-                                </div>
-                            )) : (
-                                <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
-                                    <i className="fas fa-search-location" style={{ fontSize: '2rem', marginBottom: '12px', opacity: 0.3 }}></i>
-                                    <p style={{ fontSize: '0.8rem', fontWeight: 700, margin: 0 }}>No Perfect Matches</p>
-                                    <p style={{ fontSize: '0.7rem', margin: '4px 0 0 0' }}>Try adjusting match criteria in centre</p>
-                                    <button
-                                        onClick={() => onNavigate('inventory-matching', deal.inventoryId?._id || deal.inventoryId)}
-                                        style={{ marginTop: '12px', fontSize: '0.75rem', fontWeight: 800, color: '#2563eb', background: '#eff6ff', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer' }}
-                                    >
-                                        Go to Match Centre
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* CONTACT INFORMATION */}
-                    {/* 🛡️ MISSION CONTROL SIDEBAR */}
-                    <div style={{ flex: '1', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-
-                        {/* 🎯 TOP MATCHED LEADS - High Priority Logic */}
-                        <div style={{ ...cardStyle, border: '1px solid #dcfce7', background: '#fff' }}>
-                            <div style={{ ...sectionHeaderStyle, background: 'linear-gradient(135deg, #065f46, #064e3b)', borderBottom: 'none' }}>
-                                <h3 style={{ ...sectionTitleStyle, color: '#fff' }}>
-                                    <div style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
-                                        <i className="fas fa-bullseye text-emerald-400" style={{ fontSize: '0.9rem' }}></i>
-                                    </div>
-                                    Priority Deal Matching
-                                </h3>
-                                <button
-                                    onClick={() => onNavigate('inventory-matching', deal.inventoryId?._id || deal.inventoryId)}
-                                    style={{ fontSize: '0.65rem', fontWeight: 900, color: '#34d399', background: 'none', border: 'none', cursor: 'pointer', textTransform: 'uppercase' }}
-                                >
-                                    CENTRE →
-                                </button>
-                            </div>
-                            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                {matchingLeads && matchingLeads.length > 0 ? matchingLeads.slice(0, 3).map((lead, idx) => (
-                                    <div key={idx} style={{
-                                        padding: '14px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0',
-                                        cursor: 'pointer', transition: 'all 0.2s'
-                                    }} className="hover:border-emerald-400 group" onClick={() => onNavigate('lead-detail', lead._id)}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <div>
-                                                <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a', margin: '0 0 2px 0' }}>{lead.name}</h4>
-                                                <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>{formatIndianCurrency(lead.budget || 0)} Budget</p>
-                                            </div>
-                                            <div style={{ textAlign: 'right' }}>
-                                                <span style={{ fontSize: '1rem', fontWeight: 900, color: '#059669' }}>{lead.score || 0}%</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )) : (
-                                    <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8', fontSize: '0.75rem' }}>No direct matches found.</div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* 👥 TRANSACTION STAKEHOLDERS */}
-                        <div style={cardStyle}>
-                            <div style={sectionHeaderStyle}>
-                                <h3 style={sectionTitleStyle}>
-                                    <i className="fas fa-user-tie text-indigo-600"></i> Key Stakeholders
-                                </h3>
-                            </div>
-                            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                {deal.inventoryId?.owners?.length > 0 && (
-                                    <div>
-                                        <label style={{ fontSize: '0.6rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: '10px' }}>Primary Owners</label>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                            {deal.inventoryId.owners.map((owner, idx) => (
-                                                <div key={idx} style={{ padding: '12px', background: 'linear-gradient(to right, #f0fdf4, #fff)', borderRadius: '14px', border: '1px solid #dcfce7', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                    <div style={{ width: '36px', height: '36px', background: '#10b981', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: '0.8rem' }}>
-                                                        {getInitials(owner.name)}
-                                                    </div>
-                                                    <div style={{ flex: 1 }}>
-                                                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#064e3b' }}>{owner.name}</div>
-                                                        <div style={{ fontSize: '0.7rem', color: '#059669', fontWeight: 600 }}>{owner.phones?.[0]?.number || 'NO PHONE'}</div>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                <div>
-                                    <label style={{ fontSize: '0.6rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: '10px' }}>Deal Internal Team</label>
-                                    <div style={{ padding: '12px', background: 'linear-gradient(to right, #f5f3ff, #fff)', borderRadius: '14px', border: '1px solid #ddd6fe', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                        <div style={{ width: '36px', height: '36px', background: '#4f46e5', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: '0.8rem' }}>
-                                            {getInitials(deal.assignedTo?.name || 'U')}
-                                        </div>
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#312e81' }}>{deal.assignedTo?.name || 'Unassigned'}</div>
-                                            <div style={{ fontSize: '0.7rem', color: '#4f46e5', fontWeight: 600 }}>RM / Deal Custodian</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* PROPERTY DOCUMENTS */}
-                    <div style={cardStyle}>
-                        <div style={{ ...sectionHeaderStyle, borderBottom: '1px solid rgba(226, 232, 240, 0.5)' }}>
-                            <h3 style={sectionTitleStyle}>
-                                <i className="fas fa-file-alt text-orange-500 mr-2"></i> Property Documents
-                            </h3>
-                            <button
-                                style={{ color: '#2563eb', fontWeight: 600, fontSize: '0.75rem', background: 'none', border: 'none', cursor: 'pointer' }}
-                                onClick={() => setIsDocumentModalOpen(true)}
-                            >
-                                Manage
-                            </button>
-                        </div>
-                        <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            {(deal.documents || deal.inventoryId?.inventoryDocuments || []).length > 0 ? (
-                                (deal.documents || deal.inventoryId?.inventoryDocuments).map((doc, idx) => (
-                                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px', background: '#fff', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
-                                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#fff7ed', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                            <i className="fas fa-file-pdf" style={{ color: '#f97316', fontSize: '0.9rem' }}></i>
-                                        </div>
-                                        <div style={{ flex: 1, overflow: 'hidden' }}>
-                                            <p style={{ fontSize: '0.65rem', color: '#64748b', margin: '0 0 2px 0', fontWeight: 600, textTransform: 'uppercase' }}>
-                                                {doc.documentType || 'Other'}
-                                            </p>
-                                            <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                {doc.name || doc.documentName}
-                                            </p>
-                                        </div>
-                                        <button
-                                            style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', cursor: 'pointer', padding: '6px', borderRadius: '6px' }}
-                                            onClick={() => window.open(doc.url || doc.fileUrl, '_blank')}
-                                        >
-                                            <i className="fas fa-external-link-alt" style={{ fontSize: '0.75rem' }}></i>
-                                        </button>
-                                    </div>
-                                ))
-                            ) : (
-                                <div style={{ textAlign: 'center', padding: '20px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
-                                    <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0 }}>No documents attached</p>
-                                    <button
-                                        style={{ fontSize: '0.75rem', color: '#2563eb', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', marginTop: '4px' }}
-                                        onClick={() => setIsDocumentModalOpen(true)}
-                                    >
-                                        + Add Documents
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* GALLERY & VIDEOS */}
-                    <div style={cardStyle}>
-                        <div style={{ ...sectionHeaderStyle, borderBottom: '1px solid rgba(226, 232, 240, 0.5)' }}>
-                            <h3 style={sectionTitleStyle}>
-                                <i className="fas fa-images text-blue-500 mr-2"></i> Gallery & Videos
-                            </h3>
-                            <button
-                                style={{ color: '#2563eb', fontWeight: 600, fontSize: '0.75rem', background: '#eff6ff', border: 'none', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer' }}
-                                onClick={() => setIsUploadModalOpen(true)}
-                            >
-                                + Add
-                            </button>
-                        </div>
-                        <div style={{ padding: '20px' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '10px' }}>
-                                {[...(deal.inventoryId?.inventoryImages || []), ...(deal.inventoryId?.projectImages || [])].map((img, idx) => (
-                                    <div
-                                        key={`img-${idx}`}
-                                        className="group"
-                                        style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', border: '1px solid #f1f5f9', height: '90px', background: '#f8fafc', cursor: 'pointer', transition: 'all 0.3s ease' }}
-                                        onClick={() => setMediaViewer({ isOpen: true, data: { ...img, type: 'image' } })}
-                                        onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 12px -3px rgba(0, 0, 0, 0.1)'; }}
-                                        onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}
-                                    >
-                                        {img.url || img.previewUrl || img.path ? (
-                                            <img src={img.url || img.previewUrl || img.path} alt={img.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                        ) : (
-                                            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                <i className="fas fa-image" style={{ color: '#cbd5e1', fontSize: '1rem' }}></i>
-                                            </div>
-                                        )}
-                                        <div style={{
-                                            position: 'absolute', bottom: 0, left: 0, right: 0,
-                                            background: 'linear-gradient(transparent, rgba(0,0,0,0.8))',
-                                            padding: '4px', fontSize: '0.6rem', color: '#fff', fontWeight: 600
-                                        }}>
-                                            <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                {img.title || img.category || 'Untitled'}
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-
-                                {[...(deal.inventoryId?.inventoryVideos || []), ...(deal.inventoryId?.projectVideos || [])].map((vid, idx) => {
-                                    const ytId = vid.url?.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/)?.[1];
-                                    const ytThumb = vid.type === 'YouTube' ? `https://img.youtube.com/vi/${ytId}/mqdefault.jpg` : null;
-                                    return (
-                                        <div
-                                            key={`vid-${idx}`}
-                                            style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', border: '1px solid #1e293b', height: '90px', background: '#0f172a', cursor: 'pointer', transition: 'all 0.3s ease' }}
-                                            onClick={() => setMediaViewer({ isOpen: true, data: { ...vid, type: 'video', ytId } })}
-                                            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 12px -3px rgba(0, 0, 0, 0.2)'; }}
-                                            onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; }}
-                                        >
-                                            {ytThumb ? (
-                                                <img src={ytThumb} alt={vid.title} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.6 }} />
-                                            ) : (
-                                                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                    <i className="fas fa-video" style={{ color: '#475569', fontSize: '1rem' }}></i>
-                                                </div>
-                                            )}
-                                            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                <div style={{
-                                                    width: '24px', height: '24px', borderRadius: '50%',
-                                                    background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(4px)',
-                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                    border: '1px solid rgba(255,255,255,0.3)', color: '#fff'
-                                                }}>
-                                                    <i className="fas fa-play" style={{ fontSize: '0.6rem', marginLeft: '2px' }}></i>
-                                                </div>
-                                            </div>
-                                            <div style={{
-                                                position: 'absolute', bottom: 0, left: 0, right: 0,
-                                                background: 'linear-gradient(transparent, rgba(0,0,0,0.9))',
-                                                padding: '4px', fontSize: '0.6rem', color: '#fff', fontWeight: 600
-                                            }}>
-                                                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                    {vid.title || 'Untitled Video'}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-
-                            {(!deal.inventoryId?.inventoryImages?.length && !deal.inventoryId?.projectImages?.length && !deal.inventoryId?.inventoryVideos?.length && !deal.inventoryId?.projectVideos?.length) && (
-                                <div style={{ textAlign: 'center', padding: '20px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
-                                    <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0 }}>No media files available</p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-
-
-
-                    {/* 🏗️ STAKEHOLDER ARCHITECTURE (Removed) */}
-
-                    {/* 🛡️ TRANSACTION INTELLIGENCE & COMPLIANCE (Removed) */}
-
-                    {/* ❤️ OPERATIONAL HEALTH */}
-                    <div style={cardStyle}>
-                        <div style={sectionHeaderStyle}>
-                            <h3 style={sectionTitleStyle}>
-                                <i className="fas fa-heartbeat text-rose-500 mr-2"></i> Operational Health
-                            </h3>
-                        </div>
-                        <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            <HealthRow label="Deal Age" value={`${Math.floor((new Date() - new Date(deal.createdAt || Date.now())) / (1000 * 60 * 60 * 24))} Days`} />
-                            <HealthRow label="Interaction Count" value={deal.activities?.length || 0} />
-                            <HealthRow label="Last Activity" value="2 Days Ago" />
-                            <HealthRow label="Next Action" value="Follow-up Call" />
-                            <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
-                                <p style={{ fontSize: '0.7rem', color: '#64748b', fontStyle: 'italic', display: 'flex', alignItems: 'center' }}>
-                                    <i className="fas fa-exclamation-circle text-amber-500 mr-2"></i> Requires follow-up in 24h
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* 🏛️ GOVERNMENT CHARGES & REGISTRATION BREAKDOWN */}
-                    <GovernmentChargesCard
-                        deal={deal}
-                        charges={govtCharges}
-                        setCharges={setGovtCharges}
-                        financials={financials}
-                        loading={valuationLoading}
-                        error={valuationError}
+                {/* RIGHT COLUMN */}
+                <div className="no-scrollbar" style={{ flex: '1', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px', padding: '24px', background: '#fff', borderLeft: '1px solid #e2e8f0' }}>
+                    <DealAnalysis 
+                        deal={deal} 
+                        isMarkingLost={isMarkingLost} 
+                        handleMarkAsLost={handleMarkAsLost}
+                        setDeal={setDeal}
                     />
 
+                    <LandedCostSheet financials={financials} deal={deal} />
+
+                    <MatchedLeadsCard 
+                        matchingLeads={matchingLeads} 
+                        onNavigate={onNavigate} 
+                        entityId={dealId}
+                        entityType="deal"
+                    />
+
+                    <PropertyOwnerSection 
+                        inventory={inventory || { _id: null, owners: [], associates: [] }} 
+                        onOwnerClick={() => setIsOwnerModalOpen(true)}
+                    />
+
+                    <MediaVaultSection 
+                        inventory={inventory}
+                        onMediaClick={() => {
+                            if (!inventory?._id) {
+                                toast.error('Please link an inventory to manage media archive.');
+                                return;
+                            }
+                            setIsUploadModalOpen(true);
+                        }}
+                        onMediaView={(m) => setMediaViewer({ isOpen: true, data: m })}
+                        onUploadClick={() => {
+                            if (!inventory?._id) {
+                                toast.error('Please link an inventory to upload media.');
+                                return;
+                            }
+                            setIsUploadModalOpen(true);
+                        }}
+                        onDocumentClick={() => {
+                            if (!inventory?._id) {
+                                toast.error('Please link an inventory to manage documents.');
+                                return;
+                            }
+                            setIsDocumentModalOpen(true);
+                        }}
+                    />
+                    {/* Chain of Title */}
+                    <div className="glass-card">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+                            <div style={{ width: '36px', height: '36px', background: 'rgba(100, 116, 139, 0.1)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fas fa-history" style={{ color: '#64748b', fontSize: '0.9rem' }}></i>
+                            </div>
+                            <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 900, color: '#0f172a' }}>Chain of Title History</h3>
+                        </div>
+                        <div style={{ paddingLeft: '14px', borderLeft: '2px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            {inventory ? (
+                                (inventory.ownerHistory || []).length > 0 ? (
+                                    (inventory.ownerHistory || []).reverse().slice(0, 5).map((item, idx) => (
+                                        <div key={idx} style={{ position: 'relative' }}>
+                                            <div style={{ position: 'absolute', left: '-20px', top: '4px', width: '10px', height: '10px', background: '#10b981', borderRadius: '50%', border: '2px solid #fff' }}></div>
+                                            <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#1e293b' }}>{renderValue(item.contactName)}</p>
+                                            <p style={{ margin: 0, fontSize: '0.65rem', color: '#64748b' }}>{new Date(item.date).toLocaleDateString()}</p>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>No history recorded yet.</p>
+                                )
+                            ) : (
+                                <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>No inventory linked to this deal.</p>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Lifecycle */}
+                    <div className="glass-card">
+                        <h3 style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Inventory Lifecycle</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                            <LifecycleMetric label="Created" value={inventory?.createdAt ? new Date(inventory.createdAt).toLocaleDateString() : '-'} icon="calendar-plus" color="#10b981" />
+                            <LifecycleMetric label="Updated" value={inventory?.updatedAt ? new Date(inventory.updatedAt).toLocaleDateString() : '-'} icon="edit" color="#3b82f6" />
+                        </div>
+                    </div>
                 </div>
             </div>
 
             {/* MODALS */}
-            <AddOfferModal
-                isOpen={isOfferModalOpen}
-                onClose={() => setIsOfferModalOpen(false)}
-                onSave={handleAddOffer}
-                leads={(() => {
-                    const combined = [...matchingLeads];
-                    allLeads.forEach(al => {
-                        if (!combined.find(ml => ml._id === al._id)) {
-                            combined.push(al);
+            {isOfferModalOpen && (
+                <AddOfferModal
+                    isOpen={isOfferModalOpen}
+                    onClose={() => setIsOfferModalOpen(false)}
+                    onSave={handleAddOffer}
+                    leads={matchingLeads.length > 0 ? matchingLeads : allLeads}
+                    deal={deal}
+                />
+            )}
+
+            {isMessageOpen && (
+                <SendMessageModal
+                    isOpen={isMessageOpen}
+                    onClose={() => setIsMessageOpen(false)}
+                    entityType="Deal"
+                    entityId={dealId}
+                    phoneNumber={deal.contactDetails?.phones?.[0]?.number}
+                    onActivitySaved={fetchDealDetails}
+                />
+            )}
+
+            {isMailOpen && (
+                <ComposeEmailModal
+                    isOpen={isMailOpen}
+                    onClose={() => setIsMailOpen(false)}
+                    recipientEmail={deal.contactDetails?.emails?.[0]?.address}
+                    entityType="Deal"
+                    entityId={dealId}
+                    onActivitySaved={fetchDealDetails}
+                />
+            )}
+
+            {isTagsModalOpen && (
+                <ManageTagsModal
+                    isOpen={isTagsModalOpen}
+                    onClose={() => setIsTagsModalOpen(false)}
+                    entityType="Deal"
+                    entityId={dealId}
+                    initialTags={deal.tags}
+                    onSaved={fetchDealDetails}
+                />
+            )}
+
+            {isBookingModalOpen && (
+                <AddBookingModal
+                    isOpen={isBookingModalOpen}
+                    onClose={() => setIsBookingModalOpen(false)}
+                    deal={deal}
+                    onSaved={fetchDealDetails}
+                />
+            )}
+
+            {isUploadModalOpen && (
+                <UploadModal
+                    isOpen={isUploadModalOpen}
+                    onClose={() => setIsUploadModalOpen(false)}
+                    entityType="Inventory"
+                    entityId={inventory?._id || inventory?.id}
+                    onUploaded={fetchDealDetails}
+                />
+            )}
+
+            {isNoteModalOpen && (
+                <AddNoteModal
+                    isOpen={isNoteModalOpen}
+                    onClose={() => setIsNoteModalOpen(false)}
+                    entityType="Deal"
+                    entityId={dealId}
+                    onSaved={fetchDealDetails}
+                />
+            )}
+
+            {isQuoteModalOpen && (
+                <AddQuoteModal
+                    isOpen={isQuoteModalOpen}
+                    onClose={() => setIsQuoteModalOpen(false)}
+                    deal={deal}
+                    onSaved={fetchDealDetails}
+                />
+            )}
+
+            {isDocumentModalOpen && (
+                <AddInventoryDocumentModal
+                    isOpen={isDocumentModalOpen}
+                    onClose={() => setIsDocumentModalOpen(false)}
+                    inventoryId={deal.inventoryId?._id || deal.inventoryId}
+                    onSaved={fetchDealDetails}
+                />
+            )}
+
+            <MediaViewerModal 
+                isOpen={mediaViewer.isOpen} 
+                onClose={() => setMediaViewer({ isOpen: false, data: null })} 
+                data={mediaViewer.data} 
+            />
+
+            <AddOwnerModal 
+                isOpen={isOwnerModalOpen}
+                onClose={() => setIsOwnerModalOpen(false)}
+                currentOwners={inventory ? [
+                    ...(inventory.owners || []).map(o => ({ id: o._id, name: o.name, mobile: o.phones?.[0]?.number || o.mobile, role: 'Property Owner' })),
+                    ...(inventory.associates || []).map(a => ({ id: a.contact?._id, name: a.contact?.name || a.name, mobile: a.contact?.phones?.[0]?.number || a.mobile, role: 'Associate', relationship: a.relationship }))
+                ] : []}
+                onSave={async (newOwners) => {
+                    if (!inventory || !inventory._id) {
+                        toast.error("Please link an inventory to this deal first to manage owner group.");
+                        return;
+                    }
+                    const inventoryId = inventory._id || inventory.id;
+                    const currentOwnersIds = (inventory.owners || []).map(o => o._id || o.id);
+                    const currentAssociatesIds = (inventory.associates || []).map(a => a.contact?._id || a.contact?.id || a.id);
+                    const allCurrentIds = [...currentOwnersIds, ...currentAssociatesIds];
+
+                    const historyEntries = [];
+                    
+                    // Track additions
+                    newOwners.forEach(no => {
+                        if (!allCurrentIds.includes(no.id)) {
+                            historyEntries.push({
+                                contactName: no.name,
+                                contactMobile: no.mobile,
+                                contactId: no.id,
+                                role: no.role,
+                                author: user?._id || null,
+                                source: no.source || 'Update data',
+                                date: no.date || new Date().toISOString(),
+                                type: 'Added'
+                            });
                         }
                     });
-                    return combined;
-                })()}
-            />
 
-            <CallModal
-                isOpen={isCallModalOpen}
-                onClose={() => setIsCallModalOpen(false)}
-                contact={deal?.associatedContact || { name: deal?.owner?.name, phone: deal?.owner?.phone }}
-            />
-
-            <SendMessageModal
-                isOpen={isMessageModalOpen}
-                onClose={() => setIsMessageModalOpen(false)}
-                contact={deal?.associatedContact || { name: deal?.owner?.name, phone: deal?.owner?.phone }}
-            />
-
-            <ComposeEmailModal
-                isOpen={isEmailModalOpen}
-                onClose={() => setIsEmailModalOpen(false)}
-                contact={deal?.associatedContact || { name: deal?.owner?.name, email: deal?.owner?.email }}
-            />
-
-            <ManageTagsModal
-                isOpen={isTagsModalOpen}
-                onClose={() => setIsTagsModalOpen(false)}
-                entityId={dealId}
-                entityType="Deal"
-                currentTags={deal?.tags || []}
-                onTagsUpdated={fetchDealDetails}
-            />
-
-            <UploadModal
-                isOpen={isUploadModalOpen}
-                onClose={() => setIsUploadModalOpen(false)}
-                type="property"
-                project={deal?.inventoryId}
-                onSave={async (formData) => {
-                    try {
-                        const response = await api.put(`inventory/${deal?.inventoryId?._id || deal?.inventoryId}`, {
-                            projectImages: formData.projectImages,
-                            projectVideos: formData.projectVideos,
-                            projectDocuments: formData.projectDocuments
-                        });
-                        if (response.data && response.data.success) {
-                            toast.success("Media updated successfully");
-                            fetchDealDetails();
+                    // Track removals
+                    const newOwnersIds = newOwners.map(no => no.id);
+                    [...(inventory.owners || []), ...(inventory.associates || [])].forEach(old => {
+                        const oldId = old._id || old.id || (old.contact?._id || old.contact?.id);
+                        if (oldId && !newOwnersIds.includes(oldId)) {
+                            historyEntries.push({
+                                contactName: old.name || old.contact?.name || 'Unknown',
+                                contactMobile: old.mobile || old.contact?.mobile || (old.contact?.phones?.[0]?.number) || '',
+                                contactId: oldId,
+                                role: old.role || (old.contact ? 'Associate' : 'Property Owner'),
+                                author: user?._id || null,
+                                source: 'Removed from current profile',
+                                date: new Date().toISOString(),
+                                type: 'Removed'
+                            });
                         }
-                    } catch (error) {
-                        console.error("Error saving media:", error);
-                        toast.error("Failed to save media");
+                    });
+
+                    const updates = {
+                        owners: newOwners.filter(o => o.role === 'Property Owner').map(o => o.id),
+                        associates: newOwners.filter(o => o.role === 'Associate').map(o => ({ contact: o.id, relationship: o.relationship })),
+                        ownerHistory: [...(inventory.ownerHistory || []), ...historyEntries]
+                    };
+
+                    const res = await api.put(`inventory/${inventoryId}`, updates);
+                    if (res.data?.success) {
+                        toast.success("Contacts updated");
+                        fetchDealDetails();
+                        setIsOwnerModalOpen(false);
                     }
                 }}
             />
-
-            <AddInventoryDocumentModal
-                isOpen={isDocumentModalOpen}
-                onClose={() => setIsDocumentModalOpen(false)}
-                project={deal?.inventoryId}
-                onSave={async (newDocs) => {
-                    try {
-                        const response = await api.put(`inventory/${deal?.inventoryId?._id || deal?.inventoryId}`, {
-                            inventoryDocuments: newDocs
-                        });
-                        if (response.data && response.data.success) {
-                            toast.success("Documents updated successfully");
-                            fetchDealDetails();
-                        }
-                    } catch (error) {
-                        console.error("Error saving documents:", error);
-                        toast.error("Failed to save documents");
-                    }
-                }}
-            />
-
-            <MediaViewerModal
-                isOpen={mediaViewer.isOpen}
-                onClose={() => setMediaViewer({ isOpen: false, data: null })}
-                data={mediaViewer.data}
-            />
-
-            <AddNoteModal
-                isOpen={isNoteModalOpen}
-                onClose={() => setIsNoteModalOpen(false)}
-                entityId={dealId}
-                entityType="Deal"
-                onNoteAdded={fetchDealDetails}
-            />
-
-            <AddBookingModal
-                isOpen={isBookingModalOpen}
-                onClose={() => setIsBookingModalOpen(false)}
-                dealId={dealId}
-                dealData={deal}
-                onSave={fetchDealDetails}
-            />
-
-            <AddQuoteModal
-                isOpen={isQuoteModalOpen}
-                onClose={() => setIsQuoteModalOpen(false)}
-                deal={deal}
-                onSave={fetchDealDetails}
-            />
-
         </div>
     );
 };
 
-// --- SUB COMPONENTS ---
 
-const DetailItem = ({ label, value, boldValue, color }) => (
-    <div>
-        <p style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', margin: '0 0 2px 0' }}>{label}</p>
-        <p style={{
-            fontSize: '0.85rem', fontWeight: boldValue ? 800 : 600,
-            color: color || '#1e293b', margin: 0
-        }}>{renderValue(value)}</p>
+const LifecycleMetric = ({ label, value, icon, color }) => (
+    <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <i className={`fas fa-${icon}`} style={{ fontSize: '0.6rem', color: color }}></i>
+            <span style={{ fontSize: '0.5rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>{label}</span>
+        </div>
+        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b' }}>{value}</div>
     </div>
 );
-
-const DetailField = ({ label, value }) => {
-    const renderValueInternal = (val) => {
-        if (val === null || val === undefined) return '-';
-        if (typeof val === 'object') {
-            return val.lookup_value || val.name || val.label || val.value || '-';
-        }
-        return val;
-    };
-
-    return (
-        <div>
-            <p style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '4px', fontWeight: 500 }}>{label}</p>
-            <p style={{ fontSize: '0.9rem', color: '#0f172a', fontWeight: 600, margin: 0 }}>
-                {renderValueInternal(value)}
-            </p>
-        </div>
-    );
-};
-
-const SidebarStat = ({ label, value }) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500 }}>{label}</span>
-        <span style={{ fontSize: '0.8rem', color: '#1e293b', fontWeight: 700 }}>{renderValue(value)}</span>
-    </div>
-);
-
-const PriceCard = ({ label, value, subValue, theme, isDiff, isStatus }) => {
-    const themes = {
-        gray: { bg: '#f8fafc', text: '#64748b', val: '#0f172a', border: '#e2e8f0' },
-        blue: { bg: 'linear-gradient(135deg, #eff6ff, #dbeafe)', text: '#2563eb', val: '#1e40af', border: '#bfdbfe' },
-        indigo: { bg: 'linear-gradient(135deg, #f5f3ff, #ede9fe)', text: '#4f46e5', val: '#3730a3', border: '#ddd6fe' },
-        green: { bg: 'linear-gradient(135deg, #f0fdf4, #dcfce7)', text: '#15803d', val: '#166534', border: '#bbf7d0' },
-        red: { bg: 'linear-gradient(135deg, #fef2f2, #fee2e2)', text: '#dc2626', val: '#991b1b', border: '#fecaca' },
-        orange: { bg: 'linear-gradient(135deg, #fff7ed, #ffedd5)', text: '#ea580c', val: '#c2410c', border: '#fed7aa' }
-    };
-    const t = themes[theme] || themes.gray;
-
-    return (
-        <div style={{ 
-            background: t.bg, 
-            padding: '20px', 
-            borderRadius: '16px', 
-            border: `1px solid ${t.border}`,
-            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px'
-        }}>
-            <p style={{ fontSize: '0.65rem', color: t.text, fontWeight: 900, textTransform: 'uppercase', margin: 0, letterSpacing: '0.1em' }}>{label}</p>
-            <p style={{ fontSize: isStatus ? '1.1rem' : '1.4rem', fontWeight: 900, color: t.val, margin: 0, letterSpacing: '-0.02em' }}>
-                {isStatus ? value : (isDiff && value > 0 ? '+' : '') + formatIndianCurrency(value)}
-            </p>
-            {subValue && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: t.text, opacity: 0.5 }}></div>
-                    <p style={{ fontSize: '0.65rem', color: t.text, fontWeight: 700, margin: 0, opacity: 0.8 }}>{subValue}</p>
-                </div>
-            )}
-        </div>
-    );
-};
-
-const PartyBlock = ({ role, name, phone, color, isLast }) => {
-    const colors = {
-        amber: { bg: '#fffbeb', text: '#92400e', icon: '#f59e0b' },
-        blue: { bg: '#eff6ff', text: '#1e40af', icon: '#3b82f6' },
-        rose: { bg: '#fff1f2', text: '#9f1239', icon: '#f43f5e' },
-        slate: { bg: '#f8fafc', text: '#334155', icon: '#64748b' }
-    };
-    const c = colors[color] || colors.slate;
-
-    return (
-        <div style={{
-            background: c.bg, padding: '14px', borderRadius: '12px',
-            border: `1px solid ${c.icon}22`, transition: 'all 0.2s'
-        }} className="hover:shadow-sm">
-            <p style={{ fontSize: '0.6rem', color: c.text, fontWeight: 900, textTransform: 'uppercase', margin: '0 0 8px 0', letterSpacing: '0.05em' }}>{role}</p>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                    <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', margin: '0 0 2px 0' }}>{name || 'Not Assigned'}</p>
-                    <p style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', margin: 0 }}>{phone || '--'}</p>
-                </div>
-                {name && (
-                    <button
-                        title="Send Deal Summary"
-                        style={{ background: '#22c55e', color: '#fff', border: 'none', width: '24px', height: '24px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                    >
-                        <i className="fab fa-whatsapp"></i>
-                    </button>
-                )}
-            </div>
-        </div>
-    );
-};
-
-const ComplianceItem = ({ label, status }) => (
-    <div style={{
-        padding: '12px', borderRadius: '12px', border: '1px solid #f1f5f9',
-        display: 'flex', alignItems: 'center', gap: '10px', background: status === 'done' ? '#f0fdf4' : '#fff'
-    }}>
-        <div style={{
-            width: '18px', height: '18px', borderRadius: '50%', background: status === 'done' ? '#10b981' : '#fff',
-            border: status === 'done' ? 'none' : '2px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '0.55rem', color: '#fff'
-        }}>
-            {status === 'done' && <i className="fas fa-check"></i>}
-        </div>
-        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: status === 'done' ? '#166534' : '#64748b' }}>{label}</span>
-    </div>
-);
-
-const TabItem = ({ id, label, active, onClick }) => (
-    <button
-        onClick={() => onClick(id)}
-        style={{
-            padding: '14px 24px', background: 'transparent', border: 'none',
-            borderBottom: active ? '3px solid #4f46e5' : '3px solid transparent',
-            color: active ? '#4f46e5' : '#64748b', fontSize: '0.85rem',
-            fontWeight: active ? 900 : 600, cursor: 'pointer', transition: 'all 0.3s',
-            whiteSpace: 'nowrap',
-            letterSpacing: '0.02em'
-        }}
-    >
-        {label}
-    </button>
-);
-
-const HorizontalStepper = ({ currentStage }) => {
-    const stages = ['Open', 'Quote', 'Negotiation', 'Booked', 'Closed'];
-    const currentIndex = stages.indexOf(currentStage);
-
-    return (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', padding: '0 4px' }}>
-            {/* Background Line */}
-            <div style={{ position: 'absolute', top: '12px', left: '12px', right: '12px', height: '2px', background: '#e2e8f0', zIndex: 0 }}></div>
-
-            {stages.map((stage, idx) => {
-                const isCompleted = idx < currentIndex;
-                const isCurrent = idx === currentIndex;
-
-                return (
-                    <div key={stage} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 1, flex: 1 }}>
-                        <div style={{
-                            width: '24px', height: '24px', borderRadius: '50%',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: isCompleted ? '#10b981' : isCurrent ? '#3b82f6' : '#fff',
-                            border: isCurrent ? '2px solid #3b82f6' : '2px solid #e2e8f0',
-                            color: (isCompleted || isCurrent) ? '#fff' : '#cbd5e1',
-                            fontSize: '0.65rem', marginBottom: '8px', boxShadow: isCurrent ? '0 0 0 4px rgba(59, 130, 246, 0.1)' : 'none',
-                            transition: 'all 0.3s ease'
-                        }}>
-                            {isCompleted ? <i className="fas fa-check"></i> : idx + 1}
-                        </div>
-                        <span style={{
-                            fontSize: '0.55rem', fontWeight: (isCurrent || isCompleted) ? 800 : 700,
-                            color: isCurrent ? '#2563eb' : isCompleted ? '#64748b' : '#94a3b8',
-                            textTransform: 'uppercase', letterSpacing: '0.02em', textAlign: 'center', width: '40px', lineHeight: 1.1
-                        }}>
-                            {stage}
-                        </span>
-                    </div>
-                );
-            })}
-        </div>
-    );
-};
-
-const HealthRow = ({ label, value }) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700 }}>{label}</span>
-        <span style={{ fontSize: '0.8rem', color: '#1e293b', fontWeight: 900 }}>{value}</span>
-    </div>
-);
-
-// --- TAB MODULES ---
-// --- TAB MODULES ---
-// Unified activity handles timeline
-
-const NegotiationTracker = ({ rounds }) => (
-    <div className="space-y-6">
-        <div className="flex justify-between items-center mb-4">
-            <h4 className="text-[0.7rem] font-black text-slate-400 uppercase tracking-widest">Active Negotiations</h4>
-            <div className="text-[0.65rem] font-black text-slate-900 bg-white border border-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-emerald-500"></div> LIVE ROUND
-            </div>
-        </div>
-        {(rounds || [{ round: 1 }]).map((round, idx) => (
-            <div key={idx} className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-                <div className="flex items-center gap-4 mb-8">
-                    <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-sm shadow-lg">
-                        R{round.round || idx + 1}
-                    </div>
-                    <div>
-                        <h4 className="text-[0.8rem] font-black text-slate-900 uppercase tracking-tight">Strategy Round {round.round || idx + 1}</h4>
-                        <p className="text-[0.65rem] text-slate-400 font-bold uppercase">{new Date().toLocaleDateString('en-IN', { month: 'long', day: '2-digit' })} • PRIMARY OFFER</p>
-                    </div>
-                </div>
-                <div className="grid grid-cols-4 gap-10">
-                    <div className="flex flex-col gap-2">
-                        <span className="text-[0.6rem] text-slate-500 font-black uppercase tracking-wider">Buyer Intent</span>
-                        <span className="text-xl font-black text-rose-600 tracking-tight">{formatIndianCurrency(round.buyerOffer || 4500000)}</span>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                        <span className="text-[0.6rem] text-slate-500 font-black uppercase tracking-wider">Owner Base</span>
-                        <span className="text-xl font-black text-indigo-600 tracking-tight">{formatIndianCurrency(round.ownerCounter || 4800000)}</span>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                        <span className="text-[0.6rem] text-slate-500 font-black uppercase tracking-wider">Discount Spread</span>
-                        <span className="text-xl font-black text-slate-400 tracking-tight">-{formatIndianCurrency(round.adjustment || 50000)}</span>
-                    </div>
-                    <div className="flex flex-col gap-2 bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100">
-                        <span className="text-[0.6rem] text-emerald-700 font-black uppercase tracking-wider">Fulfillment Price</span>
-                        <span className="text-2xl font-black text-emerald-600 tracking-tight">{formatIndianCurrency(round.final || 4750000)}</span>
-                    </div>
-                </div>
-            </div>
-        ))}
-    </div>
-);
-
-const FinancialBreakdown = ({ details, type }) => (
-    <div className="grid grid-cols-2 gap-16">
-        <div className="space-y-8">
-            <h4 className="text-[0.7rem] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-3">Milestone Progression</h4>
-            <div className="space-y-4">
-                <PaymentRow label="Token Commitment" amount={details?.token?.amount || 500000} date={details?.token?.date} status="COLLECTED" color="emerald" />
-                <PaymentRow label="Agreement Closure" amount={details?.agreement?.amount || 1500000} date={details?.agreement?.date} status="UPCOMING" color="amber" />
-                <PaymentRow label="Registry Execution" amount={details?.registry?.amount || 1000000} date={details?.registry?.date} status="LOCKED" color="slate" />
-                <PaymentRow label="Final Fulfillmet" amount={details?.finalPayment?.amount || 2500000} date={details?.finalPayment?.date} status="LOCKED" color="slate" />
-            </div>
-        </div>
-        <div className="bg-slate-50 p-10 rounded-[40px] border border-slate-100">
-            <h4 className="text-[0.7rem] font-black text-slate-400 uppercase tracking-widest mb-10">Transactional Terms</h4>
-            {type === 'SELL' ? (
-                <div className="space-y-8">
-                    <TermItem label="Registry Protocol" value="Stamp Duty & Legal Transfer" />
-                    <TermItem label="Administrative Fee" value="1% of Consideration" />
-                    <TermItem label="Possession Timeline" value="Post-Registry Effective" />
-                </div>
-            ) : (
-                <div className="space-y-8">
-                    <TermItem label="Security Deposit" value={formatIndianCurrency(details?.securityDeposit || 500000)} />
-                    <TermItem label="Monthly Periodic Rent" value={formatIndianCurrency(details?.monthlyRent || 150000)} />
-                    <TermItem label="Lock-in Commitment" value={`${details?.lockInMonths || 12} Months`} />
-                    <TermItem label="Rent Escalation Policy" value={`${details?.escalationPercent || 5}% Annual`} />
-                </div>
-            )}
-        </div>
-    </div>
-);
-
-const DocumentSection = ({ docs }) => (
-    <div className="grid grid-cols-4 gap-6">
-        {(docs || []).length > 0 ? docs.map((doc, idx) => (
-            <div key={idx} className="bg-white border-2 border-slate-100 p-5 rounded-2xl hover:border-indigo-400 hover:shadow-lg transition-all cursor-pointer group">
-                <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600 mb-4 group-hover:scale-110 transition-transform">
-                    <i className="fas fa-file-pdf text-xl"></i>
-                </div>
-                <h5 className="text-[0.75rem] font-extrabold text-slate-800 truncate mb-1">{doc.name}</h5>
-                <p className="text-[0.6rem] text-slate-500 font-bold uppercase tracking-wider mb-4">{doc.type || 'Document'}</p>
-                <button className="w-full py-2 bg-slate-50 text-indigo-600 text-[0.65rem] font-black rounded-lg group-hover:bg-indigo-600 group-hover:text-white transition-all">
-                    VIEW DOCUMENT
-                </button>
-            </div>
-        )) : (
-            <div className="col-span-4 text-center py-20 bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
-                <i className="fas fa-cloud-upload-alt text-4xl text-slate-300 mb-4"></i>
-                <p className="text-sm font-bold text-slate-400 uppercase tracking-[0.2em]">No Documents Uploaded</p>
-                <button className="mt-6 px-6 py-2.5 bg-indigo-600 text-white text-xs font-black rounded-xl shadow-lg shadow-indigo-100">
-                    Upload Transaction Docs
-                </button>
-            </div>
-        )}
-    </div>
-);
-
-const CommissionDetails = ({ commission }) => (
-    <div className="grid grid-cols-3 gap-12">
-        <div className="col-span-1 space-y-8">
-            <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-2">Direct Revenue</h4>
-            <div className="space-y-6">
-                <CommissionField label="Brokerage Percentage" value={`${commission?.brokeragePercent || 2}%`} color="indigo" />
-                <CommissionField label="Expected Total" value={formatIndianCurrency(commission?.expectedAmount || 0)} color="emerald" bold />
-                <CommissionField label="Actual Realized" value={formatIndianCurrency(commission?.actualAmount || 0)} color="slate" />
-            </div>
-        </div>
-        <div className="col-span-2 bg-slate-50 p-8 rounded-3xl border border-slate-200">
-            <div className="flex justify-between items-center mb-10">
-                <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest">Internal Distribution Split</h4>
-                <span className="px-3 py-1.5 bg-[#1e293b] text-white text-[0.6rem] font-black rounded-lg uppercase tracking-widest">ADMIN ONLY EDIT</span>
-            </div>
-            <div className="grid grid-cols-2 gap-x-12 gap-y-10">
-                <SplitMeter label="Listing Associate (Share)" value={commission?.internalSplit?.listingRM || 10} suffix="%" color="#6366f1" />
-                <SplitMeter label="Closing Associate (Share)" value={commission?.internalSplit?.closingRM || 15} suffix="%" color="#10b981" />
-                <SplitMeter label="Company Retainer" value={commission?.internalSplit?.company || 75} suffix="%" color="#1e293b" />
-                <SplitMeter label="Channel Partner Share" value={commission?.channelPartnerShare || 0} prefix="₹" color="#ef4444" />
-            </div>
-        </div>
-    </div>
-);
-
-const PaymentRow = ({ label, amount, date, status, color }) => {
-    const colors = {
-        emerald: 'bg-emerald-100 text-emerald-700',
-        amber: 'bg-amber-100 text-amber-700',
-        slate: 'bg-slate-100 text-slate-400'
-    };
-    const c = colors[color] || colors.slate;
-
-    return (
-        <div className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-xl hover:border-indigo-200 transition-all">
-            <div className="flex flex-col">
-                <span className="text-sm font-bold text-slate-800">{label}</span>
-                <span className="text-[0.65rem] text-slate-400 font-semibold">{date ? new Date(date).toLocaleDateString() : 'Date TBD'}</span>
-            </div>
-            <div className="flex items-center gap-6">
-                <span className="text-base font-black text-slate-800">{formatIndianCurrency(amount)}</span>
-                <span className={`px-3 py-1 rounded-lg text-[0.6rem] font-black tracking-widest ${c}`}>
-                    {status}
-                </span>
-            </div>
-        </div>
-    );
-};
-
-const TermItem = ({ label, value }) => (
-    <div className="flex justify-between items-center border-b border-indigo-100/50 pb-3">
-        <span className="text-[0.7rem] font-bold text-indigo-800/60 uppercase">{label}</span>
-        <span className="text-[0.85rem] font-black text-indigo-900">{value}</span>
-    </div>
-);
-
-const CommissionField = ({ label, value, color, bold }) => {
-    const textClasses = bold ? 'text-lg font-black' : 'text-sm font-bold';
-    const colorClasses = {
-        indigo: 'text-indigo-600',
-        emerald: 'text-emerald-600',
-        slate: 'text-slate-800'
-    };
-    const c = colorClasses[color] || colorClasses.slate;
-
-    return (
-        <div className="flex flex-col border-l-3 border-slate-100 pl-4 py-1">
-            <span className="text-[0.65rem] text-slate-400 font-bold uppercase tracking-wider mb-1">{label}</span>
-            <span className={`${textClasses} ${c}`}>{value}</span>
-        </div>
-    );
-};
-
-const SplitMeter = ({ label, value, suffix = '', prefix = '', color }) => (
-    <div>
-        <div className="flex justify-between items-center mb-3">
-            <span className="text-[0.65rem] text-slate-500 font-bold uppercase tracking-tight">{label}</span>
-            <span className="text-sm font-black" style={{ color }}>{prefix}{value}{suffix}</span>
-        </div>
-        <div className="h-2 w-full bg-white rounded-full overflow-hidden border border-slate-200">
-            <div
-                className="h-full rounded-full transition-all duration-1000"
-                style={{ width: `${suffix === '%' ? value : 100}%`, backgroundColor: color }}
-            ></div>
-        </div>
-    </div>
-);
-
-// ---------------- GOVERNMENT CHARGES CARD ----------------
-const GovernmentChargesCard = ({
-    deal,
-    charges,
-    setCharges,
-    financials,
-    loading,
-    error
-}) => {
-    // We receive calculated financials from parent
-    const [selectedRate, setSelectedRate] = useState(null);
-    const [collectorRates, setCollectorRates] = useState([]);
-    const [loadingRates, setLoadingRates] = useState(false);
-    const [showRateSelector, setShowRateSelector] = useState(false);
-
-    // Fetch Rates on mount or when deal changes
-    useEffect(() => {
-        if (!deal) return;
-
-        const fetchRates = async () => {
-            setLoadingRates(true);
-            try {
-                // Construct search query based on deal properties
-                const params = new URLSearchParams({
-                    category: deal.category || '',
-                    subCategory: deal.subCategory || '',
-                    search: deal.projectId?.address?.city || deal.location || ''
-                });
-
-                const res = await api.get(`/collector-rates?${params.toString()}`);
-                if (res.data.status === 'success') {
-                    const fetchedRates = res.data.data.docs || [];
-                    setCollectorRates(fetchedRates);
-
-                    // Auto-select the best match if none selected
-                    if (fetchedRates.length > 0 && !selectedRate) {
-                        // Look for an exact category/subcategory match first
-                        const exactMatch = fetchedRates.find(r =>
-                            r.category === deal.category &&
-                            r.subCategory === deal.subCategory
-                        ) || fetchedRates[0];
-
-                        handleRateSelect(exactMatch);
-                    }
-                }
-            } catch (e) {
-                console.error("Failed to fetch matching collector rates:", e);
-            }
-            finally { setLoadingRates(false); }
-        };
-        fetchRates();
-    }, [deal?.inventoryId, deal?.category, deal?.subCategory, deal?.projectId]);
-
-    // Handle Rate Selection
-    const handleRateSelect = (rate) => {
-        if (!rate) return;
-        setSelectedRate(rate);
-        setShowRateSelector(false);
-
-        // Map inventory attributes to multipliers
-        const inventory = deal?.inventoryId || {};
-        const roadWidth = inventory.roadWidth || '';
-        const floor = inventory.floor || '';
-
-        // Find matching multipliers by type or name
-        const matchingRoad = rate.roadMultipliers?.find(m =>
-            roadWidth.toLowerCase().includes(m.roadType.toLowerCase()) ||
-            m.roadType.toLowerCase().includes(roadWidth.toLowerCase())
-        );
-
-        const matchingFloor = rate.floorMultipliers?.find(m =>
-            floor.toString().toLowerCase() === m.floorType.toLowerCase() ||
-            m.floorType.toLowerCase().includes(floor.toString().toLowerCase())
-        );
-
-        const roadMult = matchingRoad ? matchingRoad.multiplier : 0;
-        const floorMult = matchingFloor ? matchingFloor.multiplier : 0;
-
-        // Auto-select correct Area based on Rate Type
-        // If it's Land Area, we usually take plot size
-        // If it's Built-up, we take builtUpArea
-        let area = inventory.size || 0;
-        if (rate.rateApplyOn === 'Built-up Area') {
-            area = inventory.builtUpArea || 0;
-        }
-
-        // Update parent state
-        setCharges(prev => ({
-            ...prev,
-            collectorRate: rate.rate,
-            unitType: rate.rateUnit,
-            unitArea: area,
-            roadMultiplier: roadMult,
-            floorMultiplier: floorMult
-        }));
-
-        if (roadMult > 0 || floorMult > 0) {
-            toast.success(`Applied ${roadMult > 0 ? 'Road' : ''}${roadMult > 0 && floorMult > 0 ? ' & ' : ''}${floorMult > 0 ? 'Floor' : ''} multipliers automatically!`);
-        }
-    };
-
-    const handleClearRate = () => {
-        setSelectedRate(null);
-        setCharges(prev => ({
-            ...prev,
-            collectorRate: 0
-        }));
-    };
-
-    const formatCurrency = (val) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(val || 0);
-
-    const handleChange = (field, value) => {
-        setCharges(prev => ({ ...prev, [field]: value }));
-    };
-
-    return (
-        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '24px' }}>
-            {/* Header */}
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fafbfc' }}>
-                <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 800, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    <i className="fas fa-university text-slate-400"></i> Government Charges
-                </h3>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                    <select
-                        value={charges.buyerGender}
-                        onChange={(e) => setCharges({ ...charges, buyerGender: e.target.value })}
-                        style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}
-                    >
-                        <option value="male">Male Buyer</option>
-                        <option value="female">Female Buyer</option>
-                        <option value="joint">Joint</option>
-                    </select>
-                </div>
-            </div>
-
-            {/* Professional Financial Insights (Closing Estimates) - Relocated here */}
-            <div style={{ padding: '20px 20px 0 20px' }}>
-                <div style={{ background: '#f8fafc', borderRadius: '16px', padding: '20px', border: '1px solid #f1f5f9' }}>
-                    <h4 style={{ fontSize: '0.65rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <i className="fas fa-calculator text-blue-400"></i> Closing Estimates & Compliance
-                    </h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>GST Liability (18%)</span>
-                                <span style={{ fontSize: '0.85rem', color: '#1e293b', fontWeight: 800 }}>{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(deal.price * 0.18)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>TDS Deduction (1%)</span>
-                                <span style={{ fontSize: '0.85rem', color: '#ef4444', fontWeight: 800 }}>-{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(deal.price * 0.01)}</span>
-                            </div>
-                        </div>
-                        <div style={{ width: '1px', background: '#e2e8f0' }}></div>
-                        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                            <p style={{ fontSize: '0.6rem', color: '#10b981', fontWeight: 800, textTransform: 'uppercase', marginBottom: '4px' }}>Net Fulfillment Value</p>
-                            <p style={{ fontSize: '1.25rem', fontWeight: 900, color: '#10b981', margin: 0 }}>{new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(deal.price * 1.17)}</p>
-                            <p style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600, marginTop: '4px' }}>Includes GST - TDS</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* 📊 Backend Valuation Breakdown */}
-            {loading && (
-                <div style={{ padding: '0 20px 20px 20px', color: '#64748b', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <i className="fas fa-spinner fa-spin"></i> Calculating accurate valuation...
-                </div>
-            )}
-
-            {error && (
-                <div style={{ padding: '0 20px 20px 20px' }}>
-                    <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px', padding: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <i className="fas fa-exclamation-circle text-red-500"></i>
-                        <span style={{ fontSize: '0.8rem', color: '#b91c1c' }}>{error}</span>
-                    </div>
-                </div>
-            )}
-
-            {financials.valuationData && (
-                <div style={{ padding: '0 20px 20px 20px' }}>
-                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                            <i className="fas fa-calculator text-green-600"></i>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#166534' }}>Valuation Breakdown</span>
-                        </div>
-
-                        <div style={{ display: 'grid', gap: '8px', fontSize: '0.8rem', color: '#166534' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span>Formula:</span>
-                                <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{financials.valuationData.breakdown?.formula}</span>
-                            </div>
-                            {financials.valuationData.breakdown?.multipliers?.map((m, i) => (
-                                <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span>{m.type} Multiplier ({m.name}):</span>
-                                    <span style={{ fontWeight: 600 }}>+{m.percent}%</span>
-                                </div>
-                            ))}
-                            <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #86efac', display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-                                <span>Collector Value:</span>
-                                <span>{formatIndianCurrency(financials.valuationData.collectorValue)}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            <div style={{ padding: '20px' }}>
-
-                {/* Connector/Collector Rate Toggle */}
-                <div style={{ marginBottom: '20px', padding: '16px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <div style={{ width: '32px', height: '32px', background: '#e0e7ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4338ca' }}>
-                                <i className="fas fa-gavel"></i>
-                            </div>
-                            <div>
-                                <span style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>Collector Rate Check</span>
-                                <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Compare Deal Value vs Circle Rate</span>
-                            </div>
-                        </div>
-                        <div
-                            onClick={() => setCharges({ ...charges, useCollectorRate: !charges.useCollectorRate })}
-                            style={{
-                                width: '44px', height: '24px', background: charges.useCollectorRate ? '#4338ca' : '#cbd5e1',
-                                borderRadius: '12px', position: 'relative', cursor: 'pointer', transition: 'all 0.2s'
-                            }}
-                        >
-                            <div style={{
-                                width: '20px', height: '20px', background: '#fff', borderRadius: '50%',
-                                position: 'absolute', top: '2px', left: charges.useCollectorRate ? '22px' : '2px',
-                                transition: 'all 0.2s', boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
-                            }}></div>
-                        </div>
-                    </div>
-
-                    {charges.useCollectorRate && (
-                        <div style={{ animation: 'fadeIn 0.3s ease' }}>
-                            {!selectedRate ? (
-                                <button
-                                    onClick={() => setShowRateSelector(true)}
-                                    style={{
-                                        width: '100%', padding: '10px', border: '1px dashed #6366f1', borderRadius: '8px',
-                                        background: '#eef2ff', color: '#4338ca', fontSize: '0.85rem', fontWeight: 700,
-                                        cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
-                                    }}
-                                >
-                                    <i className="fas fa-plus-circle"></i> Select Applicable Circle Rate
-                                </button>
-                            ) : (
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', padding: '12px', borderRadius: '8px', border: '1px solid #e0e7ff', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                        <div style={{ padding: '8px', background: '#eff6ff', borderRadius: '8px', color: '#2563eb' }}>
-                                            <i className="fas fa-check-double"></i>
-                                        </div>
-                                        <div>
-                                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                {selectedRate.category} - {selectedRate.subCategory}
-                                                <span style={{ fontSize: '0.65rem', background: '#dcfce7', color: '#166534', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase' }}>Auto Linked</span>
-                                            </div>
-                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                                {selectedRate.location?.lookup_value && `${selectedRate.location.lookup_value}, `}
-                                                {selectedRate.district?.lookup_value} • {selectedRate.rateApplyOn}
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                        <div>
-                                            <span style={{ display: 'block', fontSize: '1rem', fontWeight: 800, color: '#2563eb' }}>₹{selectedRate.rate?.toLocaleString()}</span>
-                                            <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>per {selectedRate.rateUnit}</span>
-                                        </div>
-                                        <button onClick={handleClearRate} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '1rem' }}>
-                                            <i className="fas fa-times-circle"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Rate Selector Dropdown */}
-                            {showRateSelector && (
-                                <div style={{ marginTop: '12px', maxHeight: '300px', overflowY: 'auto', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', zIndex: 10 }}>
-                                    {loadingRates ? <div style={{ padding: '12px', textAlign: 'center', fontSize: '0.8rem', color: '#64748b' }}>Loading rates...</div> :
-                                        collectorRates.length > 0 ? collectorRates.map(rate => {
-                                            const isMatch = rate.category === (deal.inventoryId?.category || deal.category);
-                                            return (
-                                                <div
-                                                    key={rate._id}
-                                                    onClick={() => handleRateSelect(rate)}
-                                                    style={{
-                                                        padding: '12px 16px',
-                                                        borderBottom: '1px solid #f1f5f9',
-                                                        cursor: 'pointer',
-                                                        fontSize: '0.85rem',
-                                                        color: '#334155',
-                                                        background: isMatch ? '#f0fdf4' : 'transparent',
-                                                        position: 'relative'
-                                                    }}
-                                                    className="hover:bg-slate-50"
-                                                >
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                                        <div>
-                                                            <div style={{ fontWeight: 700 }}>
-                                                                {rate.district?.lookup_value} {rate.location?.lookup_value && `• ${rate.location.lookup_value}`}
-                                                            </div>
-                                                            <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '2px' }}>
-                                                                {rate.category} / {rate.subCategory} • Basis: {rate.rateApplyOn}
-                                                            </div>
-                                                            {isMatch && (
-                                                                <div style={{ fontSize: '0.65rem', color: '#059669', fontWeight: 800, marginTop: '2px' }}>
-                                                                    <i className="fas fa-check-circle"></i> CATEGORY MATCH
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                        <div style={{ textAlign: 'right' }}>
-                                                            <div style={{ fontWeight: 800, color: '#2563eb', fontSize: '1rem' }}>₹{rate.rate}</div>
-                                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>per {rate.rateUnit}</div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        }) : <div style={{ padding: '12px', textAlign: 'center', fontSize: '0.8rem', color: '#64748b' }}>No rates found. Add in settings.</div>
-                                    }
-                                </div>
-                            )}
-
-                            {/* Manual Override Option */}
-                            <div style={{ marginTop: '12px', padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1' }}>
-                                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Manual Rate / Unit Area</label>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                                    <input
-                                        type="number"
-                                        placeholder="Rate"
-                                        value={charges.collectorRate || ''}
-                                        onChange={(e) => handleChange('collectorRate', parseFloat(e.target.value) || 0)}
-                                        style={{ padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0', width: '100%' }}
-                                    />
-                                    <input
-                                        type="number"
-                                        placeholder="Area"
-                                        value={charges.unitArea || ''}
-                                        onChange={(e) => handleChange('unitArea', parseFloat(e.target.value) || 0)}
-                                        style={{ padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0', width: '100%' }}
-                                    />
-                                </div>
-                            </div>
-
-                            <div style={{ marginTop: '12px', padding: '8px 12px', background: '#fff', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Effective Rate Base</span>
-                                    <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#2563eb' }}>
-                                        ₹{financials.effectiveRate?.toFixed(2)} / {charges.unitType}
-                                    </span>
-                                </div>
-                                {financials.effectiveRate !== parseFloat(charges.collectorRate) && (
-                                    <div style={{ fontSize: '0.65rem', color: '#059669', display: 'flex', gap: '8px', borderTop: '1px dashed #e2e8f0', paddingTop: '4px' }}>
-                                        <span>Base: ₹{charges.collectorRate}</span>
-                                        {financials.roadMult > 0 && <span>• Road: +{financials.roadMult}%</span>}
-                                        {financials.floorMult > 0 && <span>• Floor: +{financials.floorMult}%</span>}
-                                    </div>
-                                )}
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', borderTop: '1px solid #f1f5f9', paddingTop: '8px' }}>
-                                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Total Collector Value</span>
-                                    <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>{formatCurrency(financials.collectorValue)}</span>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                {/* Calculation Rows */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                            <span style={{ fontSize: '0.9rem', color: '#475569', display: 'block' }}>Stamp Duty</span>
-                            <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{charges.stampDutyPercent}% ({charges.buyerGender}) on {formatCurrency(financials.applicableValue)}</span>
-                        </div>
-                        <span style={{ fontSize: '1rem', fontWeight: 600, color: '#334155' }}>
-                            {formatCurrency(financials.stampDutyAmount)}
-                        </span>
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                            <span style={{ fontSize: '0.9rem', color: '#475569', display: 'block' }}>Registration Fee</span>
-                            <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Slab/Percent-based</span>
-                        </div>
-                        <span style={{ fontSize: '1rem', fontWeight: 600, color: '#334155' }}>
-                            {formatCurrency(financials.registrationAmount)}
-                        </span>
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.9rem', color: '#475569' }}>Legal & Misc</span>
-                        <span style={{ fontSize: '1rem', fontWeight: 600, color: '#334155' }}>
-                            {formatCurrency(charges.legalCharges + charges.miscCharges)}
-                        </span>
-                    </div>
-
-                    <div style={{ height: '1px', background: '#cbd5e1', margin: '4px 0' }}></div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>Total Govt Charges</span>
-                        <span style={{ fontSize: '1.25rem', fontWeight: 900, color: '#2563eb' }}>
-                            {formatCurrency(financials.totalGovtCharges)}
-                        </span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// 📄 Cost Sheet Component (Printable)
-const CostSheet = ({ financials, deal }) => (
-    <div style={{ background: '#fff', borderRadius: '16px', overflow: 'hidden', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-        <div style={{ background: '#1e293b', color: '#fff', padding: '24px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0 }}>Cost Sheet</h2>
-                <p style={{ opacity: 0.8, fontSize: '0.85rem', marginTop: '4px' }}>Property Purchase Breakdown</p>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>{deal.inventoryId?.unitNo}</div>
-                <div style={{ fontSize: '0.8rem', opacity: 0.8 }}>{deal.projectName}</div>
-            </div>
-        </div>
-
-        <div style={{ padding: '32px' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                    <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
-                        <th style={{ textAlign: 'left', padding: '12px 0', color: '#64748b', fontSize: '0.8rem', textTransform: 'uppercase' }}>Description</th>
-                        <th style={{ textAlign: 'right', padding: '12px 0', color: '#64748b', fontSize: '0.8rem', textTransform: 'uppercase' }}>Amount (₹)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr><td colSpan="2" style={{ padding: '8px 0' }}></td></tr>
-                    <CostRow label="A. Basic Sale Consideration" value={financials.dealValue} bold />
-                    <tr><td colSpan="2" style={{ borderBottom: '1px dashed #e2e8f0', padding: '8px 0' }}></td></tr>
-
-                    <CostRow label="B. Government Charges" value={financials.totalGovtCharges} bold />
-                    <CostRow label="- Stamp Duty" value={financials.stampDutyAmount} indent />
-                    <CostRow label="- Registration Fees" value={financials.registrationAmount} indent />
-                    <CostRow label="- Legal & Documentation" value={financials.totalGovtCharges - financials.stampDutyAmount - financials.registrationAmount} indent />
-                    <tr><td colSpan="2" style={{ borderBottom: '1px dashed #e2e8f0', padding: '8px 0' }}></td></tr>
-
-                    <CostRow label="C. Brokerage / Service Fee" value={financials.brokerageAmount} bold />
-                    <tr><td colSpan="2" style={{ borderBottom: '2px solid #e2e8f0', padding: '16px 0' }}></td></tr>
-
-                    <tr style={{ fontSize: '1.25rem' }}>
-                        <td style={{ padding: '16px 0', fontWeight: 800, color: '#0f172a' }}>Total Landed Cost (A+B+C)</td>
-                        <td style={{ padding: '16px 0', fontWeight: 900, color: '#2563eb', textAlign: 'right' }}>{formatIndianCurrency(financials.grandTotal)}</td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <div style={{ marginTop: '40px', padding: '24px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#334155', marginBottom: '12px' }}>Payment Schedule</h4>
-                <p style={{ fontSize: '0.85rem', color: '#64748b', fontStyle: 'italic' }}>As per agreed payment plan.</p>
-            </div>
-        </div>
-
-        <div style={{ background: '#f1f5f9', padding: '16px 32px', textAlign: 'center', fontSize: '0.75rem', color: '#94a3b8' }}>
-            Generated by Bharat Properties CRM on {new Date().toLocaleDateString()}
-        </div>
-    </div>
-);
-
-const InputGroup = ({ label, value, onChange, readOnly, highlight, color = '#1e293b', placeholder, tooltip }) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            {label}
-            {tooltip && <i className="fas fa-info-circle" title={tooltip} style={{ cursor: 'help', opacity: 0.6 }}></i>}
-        </label>
-        <div style={{ position: 'relative' }}>
-            {onChange ? (
-                <input
-                    type="number"
-                    value={value || ''}
-                    onChange={e => onChange(e.target.value)}
-                    placeholder={placeholder}
-                    style={{
-                        width: '100%', padding: '10px 12px', borderRadius: '8px',
-                        border: '1px solid #e2e8f0', fontSize: '0.9rem', fontWeight: 600, color: '#334155',
-                        outline: 'none', transition: 'all 0.2s'
-                    }}
-                />
-            ) : (
-                <div style={{
-                    padding: '10px 12px', borderRadius: '8px', background: highlight ? '#fdf4ff' : '#f1f5f9',
-                    border: highlight ? '1px solid #e879f9' : '1px solid #e2e8f0',
-                    color: color, fontWeight: 800, fontSize: '0.95rem'
-                }}>
-                    {typeof value === 'number' ? formatIndianCurrency(value) : value}
-                </div>
-            )}
-        </div>
-    </div>
-);
-
-const CostRow = ({ label, value, bold, indent }) => (
-    <tr>
-        <td style={{
-            padding: '8px 0',
-            paddingLeft: indent ? '24px' : '0',
-            fontWeight: bold ? 700 : 500,
-            color: bold ? '#334155' : '#64748b',
-            fontSize: indent ? '0.85rem' : '0.9rem'
-        }}>
-            {label}
-        </td>
-        <td style={{
-            textAlign: 'right', padding: '8px 0',
-            fontWeight: bold ? 800 : 600,
-            color: bold ? '#1e293b' : '#64748b'
-        }}>
-            {formatIndianCurrency(value)}
-        </td>
-    </tr>
-);
-
-const MediaViewerModal = ({ isOpen, onClose, data }) => {
-    if (!isOpen || !data) return null;
-
-    return (
-        <div style={{
-            position: 'fixed', inset: 0, zIndex: 10000,
-            background: 'rgba(0,0,0,0.95)', display: 'flex',
-            flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            padding: '40px', backdropFilter: 'blur(10px)'
-        }}>
-            <button
-                onClick={onClose}
-                style={{
-                    position: 'absolute', top: '20px', right: '20px',
-                    background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
-                    color: '#fff', width: '40px', height: '40px', borderRadius: '50%',
-                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '1.2rem', transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
-            >
-                <i className="fas fa-times"></i>
-            </button>
-
-            <div style={{ maxWidth: '90%', maxHeight: '80%', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {data.type === 'image' ? (
-                    <img
-                        src={data.url || data.previewUrl || data.path}
-                        alt={data.title}
-                        style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: '12px', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}
-                    />
-                ) : (
-                    <div style={{ width: '100%', aspectRatio: '16/9', maxWidth: '1000px', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
-                        {data.ytId ? (
-                            <iframe
-                                width="100%"
-                                height="100%"
-                                src={`https://www.youtube.com/embed/${data.ytId}?autoplay=1`}
-                                title={data.title}
-                                frameBorder="0"
-                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                allowFullScreen
-                            ></iframe>
-                        ) : (
-                            <video
-                                src={data.url}
-                                controls
-                                autoPlay
-                                style={{ width: '100%', height: '100%' }}
-                            ></video>
-                        )}
-                    </div>
-                )}
-            </div>
-
-            <div style={{ marginTop: '24px', textAlign: 'center' }}>
-                <h4 style={{ color: '#fff', fontSize: '1.1rem', fontWeight: 800, margin: '0 0 8px 0' }}>{data.title || data.category || 'Media File'}</h4>
-                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', fontWeight: 600 }}>{data.type === 'video' ? 'Video File' : 'Image File'}</p>
-            </div>
-        </div>
-    );
-};
 
 export default DealDetailPage;

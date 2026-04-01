@@ -2,7 +2,7 @@ import Lookup from "../models/Lookup.js";
 
 export const getLookups = async (req, res) => {
     try {
-        const { lookup_type, parent_lookup_id, page = 1, limit = 1000 } = req.query;
+        const { lookup_type, parent_lookup_id } = req.query;
 
         const query = {};
         if (lookup_type) query.lookup_type = { $regex: new RegExp(`^${lookup_type}$`, 'i') };
@@ -48,19 +48,19 @@ export const addLookup = async (req, res) => {
  * @access  Private
  */
 export const importLookups = async (req, res) => {
-    try {
-        const { data, lookup_type } = req.body;
-        if (!data || !Array.isArray(data)) {
-            return res.status(400).json({ success: false, error: "Invalid data provided" });
-        }
-
-        const type = lookup_type || 'generic';
-
         const results = {
             successCount: 0,
             errorCount: 0,
             errors: []
         };
+
+        try {
+            const { data, lookup_type } = req.body;
+            if (!data || !Array.isArray(data)) {
+                return res.status(400).json({ success: false, error: "Invalid data provided" });
+            }
+
+            const type = lookup_type || 'generic';
 
         const lookupsToCreate = [];
 

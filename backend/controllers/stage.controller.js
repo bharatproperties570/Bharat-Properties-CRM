@@ -10,8 +10,7 @@
 import Lead from '../models/Lead.js';
 import Deal from "../models/Deal.js";
 import Activity from "../models/Activity.js";
-import Contact from "../models/Contact.js";
-import { DEAL_STAGE_PRIORITY, DEFAULT_SYNC_RULES, computeDealStageFromLeads } from "../../src/utils/syncEngine.js";
+import Lookup from '../models/Lookup.js';
 import AuditLog from '../models/AuditLog.js';
 import mongoose from 'mongoose';
 
@@ -680,16 +679,8 @@ export const getLeadScores = async (req, res) => {
         }).lean();
 
         const activityConfig = settings.find(s => s.key === 'activityMasterFields')?.value || {};
-        const multipliersConfig = settings.find(s => s.key === 'stageMultipliers')?.value || {};
-        const scoreBands = settings.find(s => s.key === 'scoreBands')?.value || {};
 
-        // Helper to get multiplier safely (default 1.0)
-        const getMultiplier = (stage) => {
-            if (!stage) return 1.0;
-            const key = (typeof stage === 'string' ? stage : (stage.lookup_value || 'New')).toLowerCase();
-            const foundKey = Object.keys(multipliersConfig).find(k => k.toLowerCase() === key);
-            return foundKey ? (multipliersConfig[foundKey]?.value || 1.0) : 1.0;
-        };
+        const scoreBands = settings.find(s => s.key === 'scoreBands')?.value || {};
 
         // Fallback weights if multipliers are missing (scaled to 100)
         const STAGE_WEIGHTS = {
@@ -757,7 +748,6 @@ export const getLeadScores = async (req, res) => {
             // Now: baseScore = enrichment ML score + 30% of stage progression weight
             const intentScore = lead.intent_index || 0;
             const stageName = lead.stage?.lookup_value || lead.stage || 'New';
-            const multiplier = getMultiplier(stageName);
             const stageProgressionWeight = STAGE_WEIGHTS[stageName] || 10;
             // Combine: ML enrichment score (primary) + stage position as a 30% additive boost
             const stageBoost = Math.round(stageProgressionWeight * 0.30);

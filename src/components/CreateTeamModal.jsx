@@ -1,7 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useUserContext } from '../context/UserContext';
-import { getInitials } from '../utils/helpers';
-import Toast from './Toast';
 
 const CreateTeamModal = ({ isOpen, onClose, onSave, team, isEdit }) => {
     const { users, addTeam, updateTeam } = useUserContext();
@@ -115,7 +113,9 @@ const CreateTeamModal = ({ isOpen, onClose, onSave, team, isEdit }) => {
 
     const departments = [
         { id: 'inventory', name: 'Inventory' },
-        { id: 'accounts', name: 'Accounts' }
+        { id: 'accounts', name: 'Accounts' },
+        { id: 'sales', name: 'Sales' },
+        { id: 'marketing', name: 'Marketing' }
     ];
 
     return (

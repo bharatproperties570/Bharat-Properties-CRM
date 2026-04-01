@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useUserContext } from '../context/UserContext';
 import { getInitials } from '../utils/helpers';
 import { renderValue } from '../utils/renderUtils';

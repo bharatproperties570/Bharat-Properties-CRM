@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTriggers } from '../context/TriggersContext';
 import smsService from '../services/smsService';
 
@@ -14,7 +14,6 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [] }) =
 
     // RCS Specifics
     const [rcsTitle, setRcsTitle] = useState('');
-    const [rcsMedia, setRcsMedia] = useState(null);
     const [rcsActions, setRcsActions] = useState([]);
 
     // Reference / Context (New Feature)
@@ -57,7 +56,6 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [] }) =
             setMessageBody('');
             setTemplateId('');
             setRcsTitle('');
-            setRcsMedia(null);
             setRcsActions([]);
             setShowSchedule(false);
             setScheduleDate('');

@@ -17,9 +17,12 @@ const connectDB = async (retryCount = 5) => {
     for (let i = 0; i < retryCount; i++) {
         try {
             const conn = await mongoose.connect(config.mongoUri, {
-                autoIndex: false, // Prevent startup hang during index building
-                connectTimeoutMS: 10000,
-                socketTimeoutMS: 45000,
+                autoIndex: false, 
+                connectTimeoutMS: 30000, // Emergency increase for slow DNS/Network
+                socketTimeoutMS: 60000, 
+                serverSelectionTimeoutMS: 30000, // Extra time for Atlas SRV resolution
+                family: 4, 
+                maxPoolSize: 10
             });
             console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
             return; // Success

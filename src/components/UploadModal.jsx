@@ -1,12 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { usePropertyConfig } from '../context/PropertyConfigContext';
+import { useState, useEffect } from 'react';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 
 // Helper: Get YouTube Thumbnail
 const getYouTubeThumbnail = (url) => {
     if (!url) return null;
-    const regExp = /^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const regExp = /^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
     const match = url.match(regExp);
     if (match && match[2].length === 11) {
         return `https://img.youtube.com/vi/${match[2]}/mqdefault.jpg`;
@@ -14,15 +13,8 @@ const getYouTubeThumbnail = (url) => {
     return null;
 };
 
-const UploadModal = ({ isOpen, onClose, onSave, project = null, type = 'project' }) => {
-    const { projectMasterFields } = usePropertyConfig();
-    const projectMasterFieldsSafe = projectMasterFields || {};
-    const [currentTime, setCurrentTime] = useState(new Date());
+const UploadModal = ({ isOpen, onClose, onSave, project = null, type = 'project', entityId = null, entityType = null, onSuccess = null }) => {
 
-    useEffect(() => {
-        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-        return () => clearInterval(timer);
-    }, []);
 
     const [formData, setFormData] = useState({
         projectDocuments: [],
@@ -34,8 +26,8 @@ const UploadModal = ({ isOpen, onClose, onSave, project = null, type = 'project'
         if (isOpen && project) {
             setFormData({
                 projectDocuments: project.projectDocuments || [{ documentName: '', approvalAuthority: '', registrationNo: '', date: '', file: null }],
-                projectImages: project.projectImages || [{ title: '', category: 'Main', file: null }],
-                projectVideos: project.projectVideos || [{ title: '', type: 'YouTube', url: '', file: null }]
+                projectImages: project.projectImages || project.inventoryImages || [{ title: '', category: 'Main', file: null }],
+                projectVideos: project.projectVideos || project.inventoryVideos || [{ title: '', type: 'YouTube', url: '', file: null }]
             });
         } else {
             // Default initial state
@@ -88,24 +80,50 @@ const UploadModal = ({ isOpen, onClose, onSave, project = null, type = 'project'
             }));
 
             const finalData = {
-                images: updatedImages.map(img => ({
-                    title: img.title,
-                    category: img.category,
+                images: updatedImages.filter(img => img.url).map(img => ({
+                    title: img.title || 'Untitled',
+                    category: img.category || 'Main',
                     url: img.url
                 })),
-                videos: updatedVideos.map(vid => ({
-                    title: vid.title,
+                videos: updatedVideos.filter(vid => vid.url).map(vid => ({
+                    title: vid.title || 'Untitled',
                     type: vid.type,
                     url: vid.url
                 }))
             };
 
-            onSave(finalData);
+            // Bridge logic for Inventory vs Project
+            if (onSave) {
+                // Original route (ProjectsPage)
+                onSave(finalData);
+            } else if ((entityType === 'Inventory' || entityType === 'Property') && entityId) {
+                // Direct update for Inventory (InventoryPage/Detail)
+                const currentRes = await api.get(`inventory/${entityId}`);
+                const currentInv = currentRes.data.data;
+                
+                // Use a Map to de-duplicate by URL to prevent doubling up
+                const imageMap = new Map();
+                (currentInv.inventoryImages || []).forEach(img => { if (img.url) imageMap.set(img.url, img); });
+                finalData.images.forEach(img => { if (img.url) imageMap.set(img.url, img); });
+                
+                const videoMap = new Map();
+                (currentInv.inventoryVideos || []).forEach(vid => { if (vid.url) videoMap.set(vid.url, vid); });
+                finalData.videos.forEach(vid => { if (vid.url) videoMap.set(vid.url, vid); });
+
+                const payload = {
+                    inventoryImages: Array.from(imageMap.values()),
+                    inventoryVideos: Array.from(videoMap.values())
+                };
+
+                await api.put(`inventory/${entityId}`, payload);
+                if (onSuccess) onSuccess();
+            }
+
             toast.success('Media uploaded successfully!', { id: toastId });
             onClose();
         } catch (error) {
             console.error("Upload error:", error);
-            toast.error(error.response?.data?.error || "Failed to upload media", { id: toastId });
+            toast.error(error.response?.data?.error || error.message || "Failed to upload media", { id: toastId });
         }
     };
 
@@ -175,8 +193,14 @@ const UploadModal = ({ isOpen, onClose, onSave, project = null, type = 'project'
                             {formData.projectImages.map((img, index) => (
                                 <div key={index} style={{ display: 'grid', gridTemplateColumns: '80px 2fr 1.5fr minmax(120px, 1fr) 40px', gap: '16px', marginBottom: '16px', alignItems: 'end' }}>
                                     <div style={{ width: '80px', height: '60px', background: '#f1f5f9', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                        {img.previewUrl ? (
-                                            <img src={img.previewUrl} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        {img.previewUrl || img.url ? (
+                                            <img 
+                                                src={img.previewUrl || fixDriveUrl(img.url)} 
+                                                alt="Preview" 
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'pointer' }} 
+                                                onClick={() => window.open(img.previewUrl || fixDriveUrl(img.url), '_blank')}
+                                                title="Click to view full image"
+                                            />
                                         ) : (
                                             <i className="fas fa-image" style={{ color: '#cbd5e1', fontSize: '1.2rem' }}></i>
                                         )}
@@ -293,7 +317,13 @@ const UploadModal = ({ isOpen, onClose, onSave, project = null, type = 'project'
                                 <div key={index} style={{ display: 'grid', gridTemplateColumns: '80px 1.5fr 1fr 2fr 40px', gap: '16px', marginBottom: '16px', alignItems: 'end' }}>
                                     <div style={{ width: '80px', height: '60px', background: '#f1f5f9', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                         {vid.type === 'YouTube' && getYouTubeThumbnail(vid.url) ? (
-                                            <img src={getYouTubeThumbnail(vid.url)} alt="Thumbnail" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            <img 
+                                                src={getYouTubeThumbnail(vid.url)} 
+                                                alt="Thumbnail" 
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'pointer' }} 
+                                                onClick={() => window.open(vid.url, '_blank')}
+                                                title="Click to watch on YouTube"
+                                            />
                                         ) : vid.file ? (
                                             <div style={{ fontSize: '0.6rem', color: '#64748b', textAlign: 'center' }}>Video File</div>
                                         ) : (

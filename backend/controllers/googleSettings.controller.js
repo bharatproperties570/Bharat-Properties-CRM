@@ -1,6 +1,6 @@
 import { google } from 'googleapis';
 import SystemSetting from '../models/SystemSetting.js';
-import { getOAuth2Client } from '../utils/googleAuth.js';
+
 
 /**
  * Unified Google Integration Controller
@@ -23,7 +23,10 @@ export const getGoogleAuthUrl = async (req, res) => {
             'https://mail.google.com/',
             'https://www.googleapis.com/auth/contacts',
             'https://www.googleapis.com/auth/calendar',
-            'https://www.googleapis.com/auth/drive'
+            'https://www.googleapis.com/auth/drive',
+            'https://www.googleapis.com/auth/youtube.upload',
+            'https://www.googleapis.com/auth/youtube.readonly',
+            'https://www.googleapis.com/auth/business.manage'
         ];
 
         const url = oauth2Client.generateAuthUrl({
@@ -99,13 +102,23 @@ export const getGoogleStatus = async (req, res) => {
             return res.json({ success: true, connected: false });
         }
 
+        const scopes = config.value.scopes || '';
+        
         res.json({ 
             success: true, 
             connected: true, 
             email: config.value.email,
             name: config.value.name,
             picture: config.value.picture,
-            connectedAt: config.value.connectedAt
+            connectedAt: config.value.connectedAt,
+            services: {
+                gmail: scopes.includes('mail.google.com'),
+                calendar: scopes.includes('calendar'),
+                drive: scopes.includes('drive'),
+                contacts: scopes.includes('contacts'),
+                youtube: scopes.includes('youtube.upload'),
+                business: scopes.includes('business.manage')
+            }
         });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

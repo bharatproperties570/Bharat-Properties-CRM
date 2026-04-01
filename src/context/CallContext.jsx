@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState } from 'react';
 import toast from 'react-hot-toast';
 
 const CallContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useCall = () => useContext(CallContext);
 
 export const CallProvider = ({ children }) => {

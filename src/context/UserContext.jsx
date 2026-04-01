@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { usersAPI, rolesAPI, teamsAPI, authAPI } from '../utils/api';
 
 const UserContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useUserContext = () => {
     const context = useContext(UserContext);
     if (!context) {
@@ -22,6 +23,10 @@ export const UserProvider = ({ children }) => {
 
     // Fetch initial data
     const fetchAllData = useCallback(async () => {
+        if (!token) {
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         try {
             const usersRes = await usersAPI.getAll();

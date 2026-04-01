@@ -1,4 +1,7 @@
 import SystemSetting from "../models/SystemSetting.js";
+import geminiService from "../services/GeminiService.js";
+import openaiService from "../services/OpenAIService.js";
+import claudeService from "../services/ClaudeService.js";
 
 // Mock storage for when DB is unavailable
 let mockSettingsStore = {};
@@ -11,7 +14,7 @@ export const getSystemSettings = async (req, res) => {
     try {
         if (isMockMode) {
             console.log("⚠️ Serving System Settings from MOCK STORE");
-            return res.json({ status: "success", data: Object.values(mockSettingsStore) });
+            return res.json({ success: true, status: "success", data: Object.values(mockSettingsStore) });
         }
 
         const { category, isPublic, page = 1, limit = 100, search, configName } = req.query;
@@ -40,6 +43,7 @@ export const getSystemSettings = async (req, res) => {
             .lean();
 
         res.json({
+            success: true,
             status: "success",
             data: {
                 docs: settings,
@@ -50,7 +54,7 @@ export const getSystemSettings = async (req, res) => {
             }
         });
     } catch (error) {
-        res.status(500).json({ status: "error", message: error.message });
+        res.status(500).json({ success: false, status: "error", message: error.message });
     }
 };
 
@@ -59,10 +63,10 @@ export const getSystemSettingByKey = async (req, res) => {
     try {
         const { key } = req.params;
         const setting = await SystemSetting.findOne({ key }).lean();
-        if (!setting) return res.status(404).json({ status: "error", message: "Setting not found" });
-        res.json({ status: "success", data: setting });
+        if (!setting) return res.status(404).json({ success: false, status: "error", message: "Setting not found" });
+        res.json({ success: true, status: "success", data: setting });
     } catch (error) {
-        res.status(500).json({ status: "error", message: error.message });
+        res.status(500).json({ success: false, status: "error", message: error.message });
     }
 };
 
@@ -105,9 +109,38 @@ export const upsertSystemSetting = async (req, res) => {
             { new: true, upsert: true, setDefaultsOnInsert: true }
         );
 
-        res.json({ status: "success", data: setting });
+        res.json({ success: true, status: "success", data: setting });
     } catch (error) {
         console.error("Upsert Setting Error:", error);
+        res.status(500).json({ success: false, status: "error", message: error.message });
+    }
+};
+
+// Test AI Provider Connection
+export const testAiConnection = async (req, res) => {
+    try {
+        const { type, config } = req.body;
+        console.log(`[SystemSetting] Testing AI Connection for: ${type}`);
+
+        if (type === 'gemini') {
+            const result = await geminiService.testConnection(config);
+            return res.json(result);
+        }
+
+        if (type === 'openai') {
+            const result = await openaiService.testConnection(config);
+            return res.json(result);
+        }
+
+        if (type === 'claude') {
+            const result = await claudeService.testConnection(config);
+            return res.json(result);
+        }
+
+        // Add cases for openai, claude here in future phases
+        res.status(400).json({ success: false, error: `Testing for ${type} is not yet implemented.` });
+    } catch (error) {
+        console.error("Test AI Connection Error:", error);
         res.status(500).json({ status: "error", message: error.message });
     }
 };
@@ -117,8 +150,8 @@ export const deleteSystemSetting = async (req, res) => {
     try {
         const { key } = req.params;
         await SystemSetting.findOneAndDelete({ key });
-        res.json({ status: "success", message: "Setting deleted" });
+        res.json({ success: true, status: "success", message: "Setting deleted" });
     } catch (error) {
-        res.status(500).json({ status: "error", message: error.message });
+        res.status(500).json({ success: false, status: "error", message: error.message });
     }
 };

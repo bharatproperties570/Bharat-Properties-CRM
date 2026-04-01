@@ -28,7 +28,7 @@ import distributionRoutes from "./modules/rules/distribution.routes.js";
 import systemRoutes from "./modules/systemSettings/system.routes.js";
 import parsingRoutes from "./modules/parsing/parsingRule.routes.js";
 import intakeRoutes from "./modules/intake/intake.routes.js";
-import smsRoutes from "./modules/sms/sms.routes.js";
+
 import enrichmentRoutes from "./modules/prospectingEnrichment/enrichment.routes.js";
 import activityCompletionRoutes from "./modules/activity/activityCompletion.routes.js";
 import stageTransitionRoutes from "./modules/rules/stageTransition.routes.js";
@@ -114,7 +114,7 @@ app.use("/intake", intakeRoutes);
 app.use("/enrichment", enrichmentRoutes);
 app.use("/activities", activityCompletionRoutes);   // Activity completion pipeline (stage + scoring)
 app.use("/rules/stage-transitions", stageTransitionRoutes); // Stage transition rules CRUD
-// app.use("/sms-gateway", smsRoutes); (Managed in backend/app.js)
+
 
 // Error Handling Middleware (must be last)
 app.use(errorHandler);

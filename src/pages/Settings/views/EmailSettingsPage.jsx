@@ -1,11 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { emailTemplates } from '../../../constants/templates';
 import { systemSettingsAPI, emailAPI } from '../../../utils/api';
 import Toast from '../../../components/Toast';
 
 // --- Sub-Components (Moved outside to prevent re-renders) ---
 
-const VisibilityDropdown = ({ type, value, onChange }) => {
+const VisibilityDropdown = ({ value, onChange }) => {
     const [isOpen, setIsOpen] = useState(false);
     const options = [
         'Not visible to users',
@@ -371,7 +371,7 @@ const EmailSettingsPage = () => {
             try {
                 // Try unified Google integration first
                 const unifiedRes = await systemSettingsAPI.getByKey('google_integration');
-                if (unifiedRes && unifiedRes.success && unifiedRes.data && unifiedRes.data.value && unifiedRes.data.value.connected) {
+                if (unifiedRes && unifiedRes.data && unifiedRes.data.value && unifiedRes.data.value.connected) {
                     const value = unifiedRes.data.value;
                     setConnectedEmail(value.email || '');
                     setEmailConfig(prev => ({ ...prev, email: value.email, useOAuth: true, provider: 'Google' }));
@@ -406,13 +406,13 @@ const EmailSettingsPage = () => {
                 try {
                     // Check unified first
                     const unifiedRes = await systemSettingsAPI.getByKey('google_integration');
-                    if (unifiedRes && unifiedRes.success && unifiedRes.data && unifiedRes.data.value && unifiedRes.data.value.connected) {
+                    if (unifiedRes && unifiedRes.data && unifiedRes.data.value && unifiedRes.data.value.connected) {
                         setConnectedEmail(unifiedRes.data.value.email || '');
                         return;
                     }
 
                     const response = await systemSettingsAPI.getByKey('email_config');
-                    if (response && response.success && response.data) {
+                    if (response && response.data) {
                         setConnectedEmail(response.data.value?.email || response.data.email || '');
                     }
                 } catch (error) {
@@ -516,8 +516,6 @@ const EmailSettingsPage = () => {
 
     const [innerTab, setInnerTab] = useState('templates');
     const [blockInnerTab, setBlockInnerTab] = useState('individual');
-    const [filterTags, setFilterTags] = useState(['Welcome']);
-    const [allTags, setAllTags] = useState(['Welcome', 'Leads', 'Follow-up', 'Onboarding']);
     const [editingTemplate, setEditingTemplate] = useState(null);
 
     const [templates, setTemplates] = useState(emailTemplates);
@@ -528,11 +526,9 @@ const EmailSettingsPage = () => {
     });
 
     const [isSwitchModalOpen, setIsSwitchModalOpen] = useState(false);
-    const [pendingSignatureType, setPendingSignatureType] = useState(null);
 
     const handleSignatureTypeChange = (type) => {
         if (signatureType === 'html' && type === 'simple') {
-            setPendingSignatureType(type);
             setIsSwitchModalOpen(true);
         } else {
             setSignatureType(type);

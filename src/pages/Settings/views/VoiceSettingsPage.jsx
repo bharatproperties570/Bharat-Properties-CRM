@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 // --- Sub-Components (Defined Outside) ---
 
@@ -17,7 +17,7 @@ const ScriptModal = ({ isOpen, onClose, onSave, editingScript }) => {
         if (isOpen && editorRef.current) {
             editorRef.current.innerHTML = scriptData.content || '<div><br></div>';
         }
-    }, [isOpen]);
+    }, [isOpen, scriptData.content]);
 
     if (!isOpen) return null;
 
@@ -79,7 +79,7 @@ const VoiceSettingsPage = () => {
     ]);
     const [isScriptModalOpen, setIsScriptModalOpen] = useState(false);
     const [editingScript, setEditingScript] = useState(null);
-    const [templateType, setTemplateType] = useState('sms');
+
 
     const tabs = [
         { id: 'connection', label: 'Connection' },
@@ -113,39 +113,115 @@ const VoiceSettingsPage = () => {
         </div>
     );
 
+    const [exotelConfig, setExotelConfig] = useState({
+        sid: '',
+        apiKey: '',
+        apiToken: '',
+        callerId: '',
+        connected: false
+    });
+
+    useEffect(() => {
+        const fetchConfig = async () => {
+            try {
+                const res = await fetch('/api/system-settings/voice_exotel_config');
+                const data = await res.json();
+                if (data.status === 'success' && data.data) {
+                    setExotelConfig({ ...data.data.value, connected: true });
+                }
+            } catch (err) {
+                console.error('Fetch config error:', err);
+            }
+        };
+        fetchConfig();
+    }, []);
+
+    const saveExotelConfig = async () => {
+        try {
+            const res = await fetch('/api/system-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    key: 'voice_exotel_config',
+                    category: 'voice',
+                    value: exotelConfig,
+                    description: 'Exotel Voice API Credentials'
+                })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                setExotelConfig(p => ({ ...p, connected: true }));
+                alert('Exotel connected successfully!');
+            }
+        } catch (err) {
+            console.error('Save error:', err);
+        }
+    };
+
     const renderConnection = () => (
-        <div style={{ display: 'flex', gap: '24px' }}>
-            {/* Twilio Activation Card */}
-            <div style={{ flex: 1, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '32px', textAlign: 'center' }}>
-                <div style={{ width: '64px', height: '64px', background: '#f8fafc', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px auto' }}>
-                    <i className="fas fa-mobile-alt" style={{ fontSize: '1.5rem', color: 'var(--primary-color)' }}></i>
+        <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+            {/* Exotel Connect Card */}
+            <div style={{ flex: '1 1 400px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '32px', position: 'relative' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+                    <div style={{ width: '48px', height: '48px', background: '#fff1f2', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <i className="fas fa-phone-alt" style={{ color: '#e11d48' }}></i>
+                    </div>
+                    <div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Exotel Cloud Telephony</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Status: {exotelConfig.connected ? <span style={{ color: '#10b981', fontWeight: 700 }}>● Connected</span> : 'Not Configured'}</div>
+                    </div>
                 </div>
-                <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '8px' }}>Powered by Twilio</div>
-                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', marginBottom: '20px' }}>Enter your phone number to activate your account:</div>
-                <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                    <input type="text" value={phoneToActivate} onChange={e => setPhoneToActivate(e.target.value)} style={{ padding: '10px 16px', border: '1px solid #e2e8f0', borderRadius: '6px', width: '200px' }} />
-                    <button className="btn-primary" style={{ padding: '10px 24px' }}>Send code</button>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div>
+                        <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px' }}>Exotel SID</label>
+                        <input type="text" value={exotelConfig.sid} onChange={e => setExotelConfig({...exotelConfig, sid: e.target.value})} placeholder="e.g. bharatproperties1" style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                        <div style={{ flex: 1 }}>
+                            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px' }}>API Key</label>
+                            <input type="password" value={exotelConfig.apiKey} onChange={e => setExotelConfig({...exotelConfig, apiKey: e.target.value})} style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px' }}>API Token</label>
+                            <input type="password" value={exotelConfig.apiToken} onChange={e => setExotelConfig({...exotelConfig, apiToken: e.target.value})} style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }} />
+                        </div>
+                    </div>
+                    <div>
+                        <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px' }}>Caller ID (Exotel Virtual Number)</label>
+                        <input type="text" value={exotelConfig.callerId} onChange={e => setExotelConfig({...exotelConfig, callerId: e.target.value})} placeholder="080..." style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px' }} />
+                    </div>
+                    <button className="btn-primary" onClick={saveExotelConfig} style={{ background: '#0f172a', padding: '12px', marginTop: '8px' }}>
+                        {exotelConfig.connected ? 'Save Changes' : 'Connect Exotel'}
+                    </button>
+                    <div style={{ textAlign: 'center', fontSize: '0.75rem', color: '#94a3b8' }}>Calls and recordings will be automatically synced.</div>
                 </div>
-                <div style={{ marginTop: '16px', fontSize: '0.85rem', color: 'var(--primary-color)', cursor: 'pointer', fontWeight: 600 }}>Activate Telephony Services</div>
             </div>
 
-            {/* General Card */}
-            <div style={{ flex: 1, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '32px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ width: '64px', height: '64px', background: '#f8fafc', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px' }}>
-                    <i className="fas fa-phone-volume" style={{ fontSize: '1.5rem', color: 'var(--primary-color)' }}></i>
+            {/* General Settings Card */}
+            <div style={{ flex: '1 1 300px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                        <i className="fas fa-cog" style={{ color: '#64748b' }}></i>
+                        <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>Call Behavior</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <label style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '0.85rem', cursor: 'pointer' }}>
+                            <input type="checkbox" defaultChecked /> Auto-record all outbound calls
+                        </label>
+                        <label style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '0.85rem', cursor: 'pointer' }}>
+                            <input type="checkbox" defaultChecked /> Enable Call-to-Connect for Leads
+                        </label>
+                        <label style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '0.85rem', cursor: 'pointer' }}>
+                            <input type="checkbox" /> Mask agent mobile numbers
+                        </label>
+                    </div>
                 </div>
-                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b' }}>Make and receive calls</div>
-            </div>
 
-            {/* Provider Card (TATA Tele) */}
-            <div style={{ flex: 1, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '32px', textAlign: 'center', position: 'relative' }}>
-                <i className="fas fa-times" style={{ position: 'absolute', top: '16px', right: '16px', color: '#ef4444', cursor: 'pointer' }}></i>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '24px' }}>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#1e293b' }}>TATA Tele</div>
-                    <div style={{ background: '#f97316', color: '#fff', fontSize: '0.65rem', padding: '2px 4px', borderRadius: '4px', fontWeight: 800 }}>DO BIG</div>
+                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '12px' }}>Need help with Exotel?</div>
+                    <button className="btn-outline" style={{ fontSize: '0.8rem', width: '100%' }}>View API Documentation</button>
                 </div>
-                <button className="btn-primary" style={{ background: '#0f172a', padding: '10px 32px' }}>Connect</button>
-                <div style={{ marginTop: '16px', fontSize: '0.85rem', color: '#64748b' }}>(For Call logs and calls) <i className="far fa-question-circle" style={{ marginLeft: '4px' }}></i></div>
             </div>
         </div>
     );

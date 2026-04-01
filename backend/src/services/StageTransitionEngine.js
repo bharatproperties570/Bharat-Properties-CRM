@@ -27,7 +27,7 @@
 
 import Lead from '../../models/Lead.js';
 import Lookup from '../../models/Lookup.js';
-import Activity from '../../models/Activity.js';
+
 import SystemSetting from '../modules/systemSettings/system.model.js';
 import AuditLog from '../../models/AuditLog.js';
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useTriggers } from '../../../context/TriggersContext';
 import CreateTriggerModal from '../../../components/CreateTriggerModal';
 
@@ -93,7 +93,7 @@ const TriggersSettingsPage = () => {
     };
 
     const [activeTab, setActiveTab] = useState('list'); // list, logs
-    const { executionLogs, getExecutionLogs } = useTriggers();
+    const { executionLogs } = useTriggers();
 
     return (
         <div style={{ padding: '24px' }}>

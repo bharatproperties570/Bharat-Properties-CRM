@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import Toast from '../../../components/Toast';
 
@@ -22,10 +22,7 @@ const ScoringSettingsPage = () => {
     const [selectedActivity, setSelectedActivity] = useState(null);
     const [selectedPurpose, setSelectedPurpose] = useState(null);
 
-    const showToast = (message, type = 'success') => {
-        setNotification({ show: true, message, type });
-        setTimeout(() => setNotification({ ...notification, show: false }), 3000);
-    };
+
 
     // --- Handlers ---
     const handleAttributeChange = (key, value) => {

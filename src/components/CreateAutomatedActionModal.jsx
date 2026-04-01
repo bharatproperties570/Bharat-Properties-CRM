@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAutomatedActions } from '../context/AutomatedActionsContext';
 
 const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {

@@ -3,18 +3,9 @@ import Deal from "../models/Deal.js";
 import Lookup from "../models/Lookup.js";
 import Contact from "../models/Contact.js";
 import Inventory from "../models/Inventory.js";
-import mongoose from "mongoose";
 
-// Helper to resolve lookup (Find or Create)
-const resolveLookup = async (type, value) => {
-    if (!value) return null;
-    if (mongoose.Types.ObjectId.isValid(value)) return value;
-    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${value}$`, 'i') } });
-    if (!lookup) {
-        lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
-    }
-    return lookup._id;
-};
+
+
 
 // ─── Builder Operations ──────────────────────────────────────────────────────
 
@@ -81,10 +72,10 @@ export const getFormBySlug = async (req, res, next) => {
     }
 };
 
-export const submitDealForm = async (req, res, next) => {
+export const submitDealForm = async (req, res) => {
     try {
         const { slug } = req.params;
-        const { formData, sourceMeta } = req.body;
+        const { formData } = req.body;
 
         const form = await DealForm.findOne({ slug, isActive: true });
         if (!form) return res.status(404).json({ success: false, message: "Form not found" });

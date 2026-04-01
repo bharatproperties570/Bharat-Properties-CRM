@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useTriggers } from '../context/TriggersContext';
 
 const CallModal = ({ isOpen, onClose, contact, context, onCallEnd }) => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useFieldRules } from '../context/FieldRulesContext';
 import { useTriggers } from '../context/TriggersContext';
 import { useUserContext } from '../context/UserContext';
@@ -131,12 +131,20 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         return val;
     };
 
+    const initialInheritanceRef = useRef(false);
+
+    useEffect(() => {
+        if (!isOpen) {
+            initialInheritanceRef.current = false;
+        }
+    }, [isOpen]);
+
+    const normalizeId = (val) => (val && typeof val === 'object') ? (val._id || val.id) : val;
+
     useEffect(() => {
         if (deal && isOpen) {
-            const normalizeId = (val) => (val && typeof val === 'object') ? (val._id || val.id) : val;
-
             // Handle nested price objects from inventory
-            const getPriceValue = (priceObj, intent) => {
+            const getPriceValue = (priceObj) => {
                 if (!priceObj) return '';
                 if (typeof priceObj === 'object') {
                     return priceObj.value || priceObj.total || '';
@@ -148,32 +156,244 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
             const inventoryPrice = intent === 'Rent' ? deal.rentPrice : (intent === 'Lease' ? deal.leasePrice : deal.price || deal.sellPrice);
             const initialPrice = getPriceValue(inventoryPrice);
 
-            setFormData(prev => ({
-                ...prev,
-                ...deal,
-                price: initialPrice || deal.price || prev.price,
-                intent: intent,
-                owner: typeof deal.owner === 'object' ? { ...prev.owner, ...deal.owner } : (deal.owner ? { ...prev.owner, _id: deal.owner } : prev.owner),
-                associatedContact: typeof deal.associatedContact === 'object' ? { ...prev.associatedContact, ...deal.associatedContact } : (deal.associatedContact ? { ...prev.associatedContact, _id: deal.associatedContact } : prev.associatedContact),
-                assignedTo: normalizeId(deal.assignedTo) || prev.assignedTo,
-                team: normalizeId(deal.team) || prev.team,
-                category: getLookupValue('Category', deal.category),
-                subCategory: getLookupValue('SubCategory', deal.subCategory),
-                propertyType: getLookupValue('PropertyType', deal.propertyType),
-                status: deal.status || 'Open',
-                isOwnerSelected: !!deal.owner,
-                isAssociateSelected: !!deal.associatedContact
-            }));
+            setFormData(prev => {
+                const newOwner = typeof deal.owner === 'object' ? { ...prev.owner, ...deal.owner } : (deal.owner ? { ...prev.owner, _id: deal.owner } : prev.owner);
+                const newAssociate = typeof deal.associatedContact === 'object' ? { ...prev.associatedContact, ...deal.associatedContact } : (deal.associatedContact ? { ...prev.associatedContact, _id: deal.associatedContact } : prev.associatedContact);
+                
+                return {
+                    ...prev,
+                    ...deal,
+                    price: initialPrice || deal.price || prev.price,
+                    intent: intent,
+                    owner: newOwner,
+                    associatedContact: newAssociate,
+                    assignedTo: normalizeId(deal.assignedTo) || prev.assignedTo,
+                    team: normalizeId(deal.team) || prev.team,
+                    category: getLookupValue('Category', deal.category),
+                    subCategory: getLookupValue('SubCategory', deal.subCategory),
+                    propertyType: getLookupValue('PropertyType', deal.propertyType),
+                    status: deal.status || 'Open',
+                    isOwnerSelected: !!newOwner._id || !!newOwner.name,
+                    isAssociateSelected: !!newAssociate._id || !!newAssociate.name
+                };
+            });
 
             // If we have unit data but not inventoryId, it's likely a direct inventory-to-deal transition
             // We should give handleUnitChange a chance to run once units are loaded
         }
-    }, [deal, isOpen]);
+    }, [deal, isOpen, getLookupValue]);
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
         return () => clearInterval(timer);
     }, []);
+
+    const handleInputChange = (field, value) => {
+        setFormData(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleNestedInputChange = (parent, field, value) => {
+        setFormData(prev => ({
+            ...prev,
+            [parent]: { ...prev[parent], [field]: value }
+        }));
+    };
+
+    const handleProjectChange = useCallback((projectName) => {
+        const project = projects.find(p => p.name === projectName);
+        const availableBlocks = project ? (project.blocks || []).map(b => typeof b === 'string' ? b : b.name) : [];
+        const defaultBlock = availableBlocks.length === 1 ? availableBlocks[0] : '';
+
+        let assignedTo = formData.assignedTo;
+        let team = formData.team;
+
+        const result = executeDistribution('deals', { ...formData, projectName, block: defaultBlock });
+        if (result && result.success) {
+            assignedTo = result.assignedTo;
+            team = result.team || team;
+            toast.success(`Deal automatically assigned to ${result.assignedTo}`);
+        }
+
+        setFormData(prev => ({
+            ...prev,
+            projectName,
+            block: defaultBlock,
+            unitNo: '', // Reset unit when project changes
+            propertyType: '', // Reset unit-dependent fields
+            size: '',
+            owner: { name: '', phone: '', email: '' },
+            associatedContact: { name: '', phone: '', email: '' },
+            assignedTo,
+            team
+        }));
+    }, [projects, formData, executeDistribution]);
+
+    const handleUnitChange = useCallback((unitNo) => {
+        const unit = units.find(i =>
+            (i.unitNo === unitNo || i.unitNumber === unitNo)
+        );
+
+        if (unit) {
+            setFormData(prev => {
+                const newSize = unit.size || prev.size;
+
+                // Recalculate prices if size changes and we have rates/totals
+                let updates = {
+                    unitNo,
+                    inventoryId: unit._id,
+                    propertyType: unit.type || unit.category || prev.propertyType,
+                    category: unit.category || '',
+                    subCategory: unit.subCategory || '',
+                    size: newSize,
+                    sizeUnit: unit.sizeUnit || prev.sizeUnit,
+
+                    // Detailed Data Inheritance
+                    unitSpecification: {
+                        facing: unit.facing,
+                        direction: unit.direction,
+                        orientation: unit.orientation,
+                        roadWidth: unit.roadWidth,
+                        builtupType: unit.builtupType,
+                        ownership: unit.ownership,
+                        length: unit.length,
+                        width: unit.width,
+                        sizeLabel: unit.sizeLabel,
+                        totalSaleableArea: unit.totalSaleableArea,
+                        builtUpArea: unit.builtUpArea,
+                        carpetArea: unit.carpetArea
+                    },
+                    locationDetails: unit.address || {},
+                    builtupDetails: unit.builtupDetails || [],
+                    furnishing: {
+                        furnishType: unit.furnishType,
+                        furnishedItems: unit.furnishedItems,
+                        possessionStatus: unit.possessionStatus,
+                        constructionAge: unit.constructionAge || unit.ageOfConstruction
+                    },
+                    documents: unit.inventoryDocuments || [],
+
+                    owner: {
+                        _id: unit.owners?.[0]?._id || null,
+                        name: unit.owners?.[0]?.name || unit.ownerName || '',
+                        phone: unit.owners?.[0]?.phones?.[0]?.number || unit.owners?.[0]?.phone || unit.ownerPhone || '',
+                        email: unit.owners?.[0]?.emails?.[0]?.address || unit.owners?.[0]?.email || unit.ownerEmail || ''
+                    },
+                    associatedContact: {
+                        _id: unit.associates?.[0]?.contact?._id || unit.associates?.[0]?._id || null,
+                        name: unit.associates?.[0]?.contact?.name || unit.associates?.[0]?.name || unit.associatedContact || '',
+                        phone: unit.associates?.[0]?.contact?.phones?.[0]?.number || unit.associates?.[0]?.mobile || unit.associatedPhone || '',
+                        email: unit.associates?.[0]?.contact?.emails?.[0]?.address || unit.associates?.[0]?.email || unit.associatedEmail || ''
+                    },
+                    isOwnerSelected: (unit.owners?.[0]?._id || unit.ownerName) ? true : false,
+                    isAssociateSelected: (unit.associates?.[0]?.contact?._id || unit.associates?.[0]?.name) ? true : false
+                };
+
+                // Trigger Recalculation logic if size changed
+                if (newSize && newSize !== prev.size) {
+                    const sizeVal = parseFloat(newSize.toString().replace(/[^0-9.]/g, '') || '0');
+                    if (sizeVal > 0) {
+                        // Recalculate based on current Pricing Mode
+                        if (prev.pricingMode === 'Rate') {
+                            if (prev.ratePrice) {
+                                const total = Math.round(sizeVal * parseFloat(prev.ratePrice || 0));
+                                updates.price = total.toString();
+                                updates.priceInWords = numberToIndianWords(total);
+                            }
+                            if (prev.quoteRatePrice) {
+                                const totalQuote = Math.round(sizeVal * parseFloat(prev.quoteRatePrice || 0));
+                                updates.quotePrice = totalQuote.toString();
+                                updates.quotePriceInWords = numberToIndianWords(totalQuote);
+                            }
+                        } else {
+                            // If Mode is Total, Update Rates based on new Size?
+                            // Usually if Size changes but Total Price is fixed, Rate changes.
+                            if (prev.price) {
+                                const rate = Math.round(parseFloat(prev.price) / sizeVal);
+                                updates.ratePrice = rate.toString();
+                            }
+                            if (prev.quotePrice) {
+                                const rateQuote = Math.round(parseFloat(prev.quotePrice) / sizeVal);
+                                updates.quoteRatePrice = rateQuote.toString();
+                            }
+                        }
+                    }
+                }
+
+                return { ...prev, ...updates };
+            });
+            toast.success(`Inherited details for Unit ${unitNo}`);
+        } else {
+            // Safe fallback if handleInputChange is available
+            setFormData(prev => ({ ...prev, unitNo }));
+        }
+    }, [units]);
+
+    // Pricing Logic Helpers
+    const calculatePriceValues = (type, value, currentSize, mode) => {
+        const sizeVal = parseFloat(currentSize ? currentSize.toString().replace(/[^0-9.]/g, '') : '0');
+        const numValue = parseFloat(value || '0');
+
+        let updates = {};
+
+        if (mode === 'Rate') {
+            // User entered RATE
+            updates[type === 'expected' ? 'ratePrice' : 'quoteRatePrice'] = value;
+
+            if (!isNaN(sizeVal) && sizeVal > 0 && !isNaN(numValue)) {
+                const total = Math.round(sizeVal * numValue);
+                updates[type === 'expected' ? 'price' : 'quotePrice'] = total.toString();
+                updates[type === 'expected' ? 'priceInWords' : 'quotePriceInWords'] = numberToIndianWords(total);
+            } else {
+                updates[type === 'expected' ? 'price' : 'quotePrice'] = '';
+                updates[type === 'expected' ? 'priceInWords' : 'quotePriceInWords'] = '';
+            }
+        } else {
+            // User entered TOTAL
+            updates[type === 'expected' ? 'price' : 'quotePrice'] = value;
+            updates[type === 'expected' ? 'priceInWords' : 'quotePriceInWords'] = numberToIndianWords(value);
+
+            if (!isNaN(sizeVal) && sizeVal > 0 && !isNaN(numValue)) {
+                const rate = Math.round(numValue / sizeVal);
+                updates[type === 'expected' ? 'ratePrice' : 'quoteRatePrice'] = rate.toString();
+            } else {
+                updates[type === 'expected' ? 'ratePrice' : 'quoteRatePrice'] = '';
+            }
+        }
+        return updates;
+    };
+
+    const handlePriceChange = useCallback((field, value) => {
+        setFormData(prev => {
+            try {
+                // Determine context
+                const isQuote = field === 'quotePrice' || field === 'quoteRatePrice';
+                const type = isQuote ? 'quote' : 'expected';
+
+                // Calculate new values
+                const updates = calculatePriceValues(
+                    type,
+                    value,
+                    prev.size,
+                    prev.pricingMode
+                );
+
+                return { ...prev, ...updates };
+            } catch (error) {
+                console.error("Error in handlePriceChange:", error);
+                return prev;
+            }
+        });
+    }, []);
+
+    const handlePricingNatureChange = (type) => {
+        setFormData(prev => ({
+            ...prev,
+            pricingNature: {
+                negotiable: type === 'negotiable' ? !prev.pricingNature.negotiable : false,
+                fixed: type === 'fixed' ? !prev.pricingNature.fixed : false
+            }
+        }));
+    };
 
     // Fetch Projects on Mount
     useEffect(() => {
@@ -236,14 +456,6 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 if (response.data && response.data.success) {
                     const fetchedUnits = response.data.records || response.data.data || [];
                     setUnits(fetchedUnits);
-
-                    // AUTO-TRIGGER: If unitNo is set (from deal prop) but no inheritance has happened yet
-                    if (formData.unitNo && (deal || restrictToProperties)) {
-                        const unit = fetchedUnits.find(u => (u.unitNo === formData.unitNo || u.unitNumber === formData.unitNo));
-                        if (unit && !formData.inventoryId) {
-                            handleUnitChange(formData.unitNo);
-                        }
-                    }
                 }
             } catch (error) {
                 console.error("Error fetching units:", error);
@@ -251,214 +463,22 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 setIsLoadingUnits(false);
             }
         };
-        if (isOpen) fetchUnits();
+        if (isOpen && formData.projectName) fetchUnits();
     }, [formData.projectName, formData.block, isOpen, restrictToProperties]);
 
-    const handleInputChange = (field, value) => {
-        setFormData(prev => ({ ...prev, [field]: value }));
-    };
-
-    const handleNestedInputChange = (parent, field, value) => {
-        setFormData(prev => ({
-            ...prev,
-            [parent]: { ...prev[parent], [field]: value }
-        }));
-    };
-
-    const handleProjectChange = (projectName) => {
-        const project = projects.find(p => p.name === projectName);
-        const availableBlocks = project ? (project.blocks || []).map(b => typeof b === 'string' ? b : b.name) : [];
-        const defaultBlock = availableBlocks.length === 1 ? availableBlocks[0] : '';
-
-        let assignedTo = formData.assignedTo;
-        let team = formData.team;
-
-        const result = executeDistribution('deals', { ...formData, projectName, block: defaultBlock });
-        if (result && result.success) {
-            assignedTo = result.assignedTo;
-            team = result.team || team;
-            toast.success(`Deal automatically assigned to ${result.assignedTo}`);
-        }
-
-        setFormData(prev => ({
-            ...prev,
-            projectName,
-            block: defaultBlock,
-            unitNo: '', // Reset unit when project changes
-            propertyType: '', // Reset unit-dependent fields
-            size: '',
-            owner: { name: '', phone: '', email: '' },
-            associatedContact: { name: '', phone: '', email: '' },
-            assignedTo,
-            team
-        }));
-    };
-
-    const handleUnitChange = (unitNo) => {
-        const unit = units.find(i =>
-            (i.unitNo === unitNo || i.unitNumber === unitNo)
-        );
-
-        if (unit) {
-            setFormData(prev => {
-                const newSize = unit.size || prev.size;
-
-                // Recalculate prices if size changes and we have rates/totals
-                let updates = {
-                    unitNo,
-                    inventoryId: unit._id,
-                    propertyType: unit.type || unit.category || prev.propertyType,
-                    category: unit.category || '',
-                    subCategory: unit.subCategory || '',
-                    size: newSize,
-                    sizeUnit: unit.sizeUnit || prev.sizeUnit,
-
-                    // Detailed Data Inheritance
-                    unitSpecification: {
-                        facing: unit.facing,
-                        direction: unit.direction,
-                        orientation: unit.orientation,
-                        roadWidth: unit.roadWidth,
-                        builtupType: unit.builtupType,
-                        ownership: unit.ownership,
-                        length: unit.length,
-                        width: unit.width,
-                        sizeLabel: unit.sizeLabel,
-                        totalSaleableArea: unit.totalSaleableArea,
-                        builtUpArea: unit.builtUpArea,
-                        carpetArea: unit.carpetArea
-                    },
-                    locationDetails: unit.address || {},
-                    builtupDetails: unit.builtupDetails || [],
-                    furnishing: {
-                        furnishType: unit.furnishType,
-                        furnishedItems: unit.furnishedItems,
-                        possessionStatus: unit.possessionStatus,
-                        constructionAge: unit.constructionAge || unit.ageOfConstruction
-                    },
-                    documents: unit.inventoryDocuments || [],
-
-                    owner: {
-                        _id: unit.owners?.[0]?._id || null,
-                        name: unit.owners?.[0]?.name || unit.ownerName || '',
-                        phone: unit.owners?.[0]?.phone || unit.ownerPhone || '',
-                        email: unit.owners?.[0]?.email || unit.ownerEmail || ''
-                    },
-                    associatedContact: {
-                        _id: unit.associates?.[0]?._id || null,
-                        name: unit.associates?.[0]?.name || unit.associatedContact || '',
-                        phone: unit.associates?.[0]?.phone || unit.associatedPhone || '',
-                        email: unit.associates?.[0]?.email || unit.associatedEmail || ''
-                    },
-                    isOwnerSelected: unit.owners?.[0]?._id ? true : false,
-                    isAssociateSelected: unit.associates?.[0]?._id ? true : false
-                };
-
-                // Trigger Recalculation logic if size changed
-                if (newSize && newSize !== prev.size) {
-                    const sizeVal = parseFloat(newSize.toString().replace(/[^0-9.]/g, '') || '0');
-                    if (sizeVal > 0) {
-                        // Recalculate based on current Pricing Mode
-                        if (prev.pricingMode === 'Rate') {
-                            if (prev.ratePrice) {
-                                const total = Math.round(sizeVal * parseFloat(prev.ratePrice || 0));
-                                updates.price = total.toString();
-                                updates.priceInWords = numberToIndianWords(total);
-                            }
-                            if (prev.quoteRatePrice) {
-                                const totalQuote = Math.round(sizeVal * parseFloat(prev.quoteRatePrice || 0));
-                                updates.quotePrice = totalQuote.toString();
-                                updates.quotePriceInWords = numberToIndianWords(totalQuote);
-                            }
-                        } else {
-                            // If Mode is Total, Update Rates based on new Size?
-                            // Usually if Size changes but Total Price is fixed, Rate changes.
-                            if (prev.price) {
-                                const rate = Math.round(parseFloat(prev.price) / sizeVal);
-                                updates.ratePrice = rate.toString();
-                            }
-                            if (prev.quotePrice) {
-                                const rateQuote = Math.round(parseFloat(prev.quotePrice) / sizeVal);
-                                updates.quoteRatePrice = rateQuote.toString();
-                            }
-                        }
-                    }
-                }
-
-                return { ...prev, ...updates };
-            });
-            toast.success(`Inherited details for Unit ${unitNo}`);
-        } else {
-            handleInputChange('unitNo', unitNo);
-        }
-    };
-
-    // Pricing Logic Handlers
-    const calculatePriceValues = (type, value, currentSize, mode) => {
-        const sizeVal = parseFloat(currentSize ? currentSize.toString().replace(/[^0-9.]/g, '') : '0');
-        const numValue = parseFloat(value || '0');
-
-        let updates = {};
-
-        if (mode === 'Rate') {
-            // User entered RATE
-            updates[type === 'expected' ? 'ratePrice' : 'quoteRatePrice'] = value;
-
-            if (!isNaN(sizeVal) && sizeVal > 0 && !isNaN(numValue)) {
-                const total = Math.round(sizeVal * numValue);
-                updates[type === 'expected' ? 'price' : 'quotePrice'] = total.toString();
-                updates[type === 'expected' ? 'priceInWords' : 'quotePriceInWords'] = numberToIndianWords(total);
-            } else {
-                updates[type === 'expected' ? 'price' : 'quotePrice'] = '';
-                updates[type === 'expected' ? 'priceInWords' : 'quotePriceInWords'] = '';
-            }
-        } else {
-            // User entered TOTAL
-            updates[type === 'expected' ? 'price' : 'quotePrice'] = value;
-            updates[type === 'expected' ? 'priceInWords' : 'quotePriceInWords'] = numberToIndianWords(value);
-
-            if (!isNaN(sizeVal) && sizeVal > 0 && !isNaN(numValue)) {
-                const rate = Math.round(numValue / sizeVal);
-                updates[type === 'expected' ? 'ratePrice' : 'quoteRatePrice'] = rate.toString();
-            } else {
-                updates[type === 'expected' ? 'ratePrice' : 'quoteRatePrice'] = '';
+    // NEW EVENT: Auto-trigger inheritance when units load
+    useEffect(() => {
+        if (isOpen && formData.unitNo && units.length > 0 && !initialInheritanceRef.current) {
+            const unit = units.find(u => (u.unitNo === formData.unitNo || u.unitNumber === formData.unitNo));
+            // Trigger inheritance IF we have a matching unit AND we are in "New Deal from Template" mode
+            if (unit && !deal?._id) {
+                initialInheritanceRef.current = true;
+                handleUnitChange(formData.unitNo);
             }
         }
-        return updates;
-    };
+    }, [units, formData.unitNo, isOpen, handleUnitChange, deal?._id]);
 
-    const handlePriceChange = (field, value) => {
-        setFormData(prev => {
-            try {
-                // Determine context
-                const isQuote = field === 'quotePrice' || field === 'quoteRatePrice';
-                const type = isQuote ? 'quote' : 'expected';
 
-                // Calculate new values
-                const updates = calculatePriceValues(
-                    type,
-                    value,
-                    prev.size,
-                    prev.pricingMode
-                );
-
-                return { ...prev, ...updates };
-            } catch (error) {
-                console.error("Error in handlePriceChange:", error);
-                return prev;
-            }
-        });
-    };
-
-    const handlePricingNatureChange = (type) => {
-        setFormData(prev => ({
-            ...prev,
-            pricingNature: {
-                negotiable: type === 'negotiable' ? !prev.pricingNature.negotiable : false,
-                fixed: type === 'fixed' ? !prev.pricingNature.fixed : false
-            }
-        }));
-    };
 
     const handleSave = async () => {
         setIsSaving(true);
@@ -481,6 +501,8 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 subCategory: getLookupId('SubCategory', formData.subCategory),
                 propertyType: getLookupId('PropertyType', formData.propertyType),
                 source: getLookupId('Source', formData.source),
+                team: formData.team || null,
+                assignedTo: formData.assignedTo || null,
                 status: formData.status,
                 // Ensure inherited data is saved
                 unitSpecification: formData.unitSpecification,
@@ -498,12 +520,13 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
 
             if (formData.isOwnerSelected && formData.owner?._id) {
                 transformedData.owner = formData.owner._id;
-            } else if (!formData.isOwnerSelected) {
+            } else {
                 transformedData.owner = null;
             }
+            
             if (formData.isAssociateSelected && formData.associatedContact?._id) {
                 transformedData.associatedContact = formData.associatedContact._id;
-            } else if (!formData.isAssociateSelected) {
+            } else {
                 transformedData.associatedContact = null;
             }
 

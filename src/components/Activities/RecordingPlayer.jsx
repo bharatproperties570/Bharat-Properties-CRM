@@ -1,10 +1,9 @@
-import React, { useState, useRef } from 'react';
-import { Play, Pause, Volume2, Download, ExternalLink, Clock } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Play, Pause, ExternalLink } from 'lucide-react';
 
 const RecordingPlayer = ({ url, duration }) => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
-    const [isMuted, setIsMuted] = useState(false);
     const audioRef = useRef(null);
 
     const togglePlay = () => {

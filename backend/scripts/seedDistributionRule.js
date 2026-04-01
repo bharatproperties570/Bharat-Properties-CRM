@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import DistributionRule from '../models/DistributionRule.js';
-import User from '../models/User.js';
+
 
 dotenv.config();
 

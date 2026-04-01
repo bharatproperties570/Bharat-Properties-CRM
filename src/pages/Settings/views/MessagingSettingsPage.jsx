@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { whatsappTemplates, smsTemplates, rcsTemplates } from '../../../constants/templates';
 import Swal from 'sweetalert2';
 import { toast } from 'react-hot-toast';

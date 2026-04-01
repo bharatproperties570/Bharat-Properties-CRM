@@ -52,7 +52,7 @@ async function globalClean() {
                         }
                     } else {
                         if (val === "" || val === null || val === undefined) {
-                            if (doc.hasOwnProperty(field)) unsets[field] = "";
+                            if (Object.prototype.hasOwnProperty.call(doc, field)) unsets[field] = "";
                         } else if (!mongoose.Types.ObjectId.isValid(val)) {
                             // Only unset if it was supposed to be a ref but is for sure not an ID
                             unsets[field] = "";

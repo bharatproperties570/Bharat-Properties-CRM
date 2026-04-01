@@ -2,12 +2,12 @@ import Inventory from "../models/Inventory.js";
 import Lead from "../models/Lead.js";
 import Lookup from "../models/Lookup.js";
 import User from "../models/User.js";
-import SystemSetting from "../models/SystemSetting.js";
+
 import Contact from "../models/Contact.js";
 import Team from "../models/Team.js";
 import { paginate } from "../utils/pagination.js";
 import mongoose from "mongoose";
-import Deal from "../models/Deal.js";
+
 import DuplicationRule from "../models/DuplicationRule.js";
 import { syncDocumentsToContact } from "../utils/sync.js";
 
@@ -43,7 +43,9 @@ const populateFields = [
     { path: "address.state" },
     { path: "address.locality" },
     { path: "address.area" },
-    { path: "address.location" }
+    { path: "address.location" },
+    { path: "address.country" },
+    { path: "address.postOffice" }
 ];
 
 export const getInventory = async (req, res) => {

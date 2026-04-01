@@ -182,7 +182,8 @@ UserSchema.virtual('teamMembers', {
 
 // ========== Methods ==========
 // Check if user has specific permission
-UserSchema.methods.hasPermission = function (module, action) {
+// eslint-disable-next-line no-unused-vars
+UserSchema.methods.hasPermission = function (_module, _action) {
     // This will be implemented in the permission service
     // For now, return true for backward compatibility
     return true;

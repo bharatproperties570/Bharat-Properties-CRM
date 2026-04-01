@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { useContactConfig } from '../../../context/ContactConfigContext';

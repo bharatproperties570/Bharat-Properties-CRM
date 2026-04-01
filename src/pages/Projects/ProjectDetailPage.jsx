@@ -1,23 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from "../../utils/api";
 import toast from 'react-hot-toast';
 import { formatIndianCurrency } from '../../utils/numberToWords';
 import { renderValue } from '../../utils/renderUtils';
 import Chart from 'react-apexcharts';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
+import { fixDriveUrl, getYoutubeId } from '../../utils/helpers';
 
-const fixDriveUrl = (url) => {
-    if (!url) return url;
-    if (url.includes('drive.google.com')) {
-        const fileIdMatch = url.match(/\/file\/d\/([^\/]+)/) || url.match(/[?&]id=([^&]+)/);
-        if (fileIdMatch && fileIdMatch[1]) {
-            return `https://drive.google.com/uc?export=view&id=${fileIdMatch[1]}`;
-        }
-    }
-    return url;
-};
-
-const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity, onEditProject }) => {
+const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => {
     const { getLookupValue } = usePropertyConfig();
     const [project, setProject] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -25,6 +15,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity, onEdi
     const [inventoryData, setInventoryData] = useState([]);
     const [dealsData, setDealsData] = useState([]);
     const [blocksData, setBlocksData] = useState([]);
+    const [mediaViewer, setMediaViewer] = useState({ isOpen: false, data: null });
 
     const fetchProjectDetails = useCallback(async () => {
         setLoading(true);
@@ -429,7 +420,11 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity, onEdi
                             {project.projectImages && project.projectImages.length > 0 ? (
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '16px' }}>
                                     {project.projectImages.map((img, idx) => (
-                                        <div key={idx} style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                                        <div 
+                                            key={idx} 
+                                            style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', border: '1px solid #e2e8f0', cursor: 'pointer' }}
+                                            onClick={() => setMediaViewer({ isOpen: true, data: { ...img, type: 'image' } })}
+                                        >
                                             <img 
                                                 src={fixDriveUrl(img.url || img.path) || 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80'} 
                                                 alt={img.title || 'Project Media'} 
@@ -456,9 +451,13 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity, onEdi
                                     <h4 style={{ fontSize: '0.8rem', fontWeight: 800, color: '#475569', marginBottom: '12px', textTransform: 'uppercase' }}>Videos</h4>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
                                         {project.projectVideos.filter(v => v.url).map((vid, idx) => (
-                                            <a key={idx} href={vid.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', padding: '8px 16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 700, color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <div 
+                                                key={idx} 
+                                                onClick={() => setMediaViewer({ isOpen: true, data: { ...vid, type: 'video' } })}
+                                                style={{ cursor: 'pointer', textDecoration: 'none', padding: '8px 16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 700, color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px' }}
+                                            >
                                                 <i className="fab fa-youtube"></i> {vid.title || 'Project Video'}
-                                            </a>
+                                            </div>
                                         ))}
                                     </div>
                                 </div>
@@ -621,6 +620,12 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onAddActivity, onEdi
 
                 </div>
             </div>
+            {mediaViewer.isOpen && (
+                <MediaViewerModal 
+                    data={mediaViewer.data}
+                    onClose={() => setMediaViewer({ isOpen: false, data: null })}
+                />
+            )}
         </div>
     );
 };
@@ -761,5 +766,62 @@ const HealthRow = ({ label, value }) => (
         <span style={{ fontSize: '0.75rem', color: '#1e293b', fontWeight: 900 }}>{value}</span>
     </div>
 );
+
+const MediaViewerModal = ({ data, onClose }) => {
+    const embedUrl = useMemo(() => {
+        if (!data || !data.url) return null;
+        const ytId = data.ytId || getYoutubeId(data.url);
+        if (ytId) return `https://www.youtube.com/embed/${ytId}?autoplay=1`;
+        if (data.url.includes('drive.google.com')) {
+            return data.url.replace('/view', '/preview').replace('/edit', '/preview');
+        }
+        return fixDriveUrl(data.url);
+    }, [data]);
+
+    if (!data) return null;
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(10px)' }}>
+            <button onClick={onClose} style={{ position: 'absolute', top: '20px', right: '20px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', width: '40px', height: '40px', borderRadius: '50%', cursor: 'pointer', zIndex: 10001 }}>
+                <i className="fas fa-times"></i>
+            </button>
+            <div style={{ maxWidth: '90%', maxHeight: '80%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div style={{ borderRadius: '16px', overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {data.type === 'image' ? (
+                        <img 
+                            src={fixDriveUrl(data.url || data.path)} 
+                            alt="media" 
+                            style={{ maxWidth: '100%', maxHeight: '75vh', objectFit: 'contain' }} 
+                        />
+                    ) : (
+                        <div style={{ width: 'min(90vw, 1000px)', aspectRatio: '16/9' }}>
+                            <iframe 
+                                width="100%" 
+                                height="100%" 
+                                src={embedUrl} 
+                                frameBorder="0" 
+                                allowFullScreen 
+                                allow="autoplay; encrypted-media"
+                                style={{ border: 'none' }}
+                            ></iframe>
+                        </div>
+                    )}
+                </div>
+                
+                <div style={{ marginTop: '24px', textAlign: 'center', color: '#fff' }}>
+                    <h3 style={{ margin: '0 0 4px 0', fontSize: '1.2rem', fontWeight: 900, letterSpacing: '-0.02em' }}>
+                        {data.title || (data.type === 'video' ? 'Project Video' : 'Project Image')}
+                    </h3>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', opacity: 0.8 }}>
+                        <i className={`fas fa-${data.type === 'video' ? 'video' : 'camera'}`} style={{ fontSize: '0.7rem' }}></i>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                            {data.category || 'Project Media'}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 export default ProjectDetailPage;

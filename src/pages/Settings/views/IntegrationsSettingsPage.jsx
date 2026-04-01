@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import contactSyncManager from '../../../services/contactSyncManager';
-import { googleSettingsAPI } from '../../../utils/api';
+import { useState, useEffect } from 'react';
+import { googleSettingsAPI, systemSettingsAPI, marketingAPI } from '../../../utils/api';
 import { toast } from 'react-hot-toast';
 
 import smsService from '../../../services/smsService';
+import contactSyncManager from '../../../services/contactSyncManager';
 
 const ConnectionModal = ({ type, onClose, onConnect }) => {
     const [smsProvider, setSmsProvider] = useState('Twilio');
@@ -30,15 +30,28 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
     const [isSaving, setIsSaving] = useState(false);
     const [lastKnownStatus, setLastKnownStatus] = useState('Not Connected');
 
-    // Phase 1: Enterprise Features
-    const [activeTab, setActiveTab] = useState('config'); // config
 
-    // Load existing config if available (mocked for now, will integrate in main component)
+    // Load existing config if available
     useEffect(() => {
         if (type === 'twilio') {
             loadConfig();
+        } else if (['openai', 'gemini', 'claude', 'knowlarity', 'gupshup', 'linkedin'].includes(type)) {
+            loadAiConfig();
         }
     }, [type]);
+
+    const loadAiConfig = async () => {
+        try {
+            const configKey = `ai_${type}_config`;
+            const res = await systemSettingsAPI.getByKey(configKey);
+            if (res && res.data && res.data.value) {
+                setConfig(prev => ({ ...prev, ...res.data.value }));
+                setLastKnownStatus('Connected');
+            }
+        } catch (err) {
+            console.error(`Failed to load ${type} config`, err);
+        }
+    };
 
     const loadConfig = async () => {
         try {
@@ -59,21 +72,26 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
         setIsSaving(true);
         setTestResult(null);
         try {
-            await smsService.updateConfig(smsProvider, config);
-            await smsService.activateProvider(smsProvider);
-
-            // Proactive Validation: Test the connection after saving
-            console.log('Validating gateway connection...');
-            const phone = config.testPhone || ''; // Use a saved test phone or none
-            const testRes = await smsService.testConnection(smsProvider, '+919876543210', 'Validation Test', config);
-
-            if (testRes.success) {
+            if (['openai', 'gemini', 'claude', 'knowlarity', 'gupshup', 'linkedin'].includes(type)) {
+                const configKey = type === 'linkedin' ? 'linkedin_integration' : `ai_${type}_config`;
+                await systemSettingsAPI.upsert(configKey, { value: config });
                 setLastKnownStatus('Connected');
-                setTestResult({ success: true, message: 'Configuration saved and gateway connected!' });
-                onConnect();
+                setTestResult({ success: true, message: `${type.toUpperCase()} configuration saved successfully!` });
+                if (type === 'linkedin' && onConnect) onConnect();
             } else {
-                setLastKnownStatus('Error');
-                setTestResult({ success: false, message: 'Saved successfully, but connection test failed: ' + testRes.error });
+                await smsService.updateConfig(smsProvider, config);
+                await smsService.activateProvider(smsProvider);
+
+                const testRes = await smsService.testConnection(smsProvider, '+919876543210', 'Validation Test', config);
+
+                if (testRes.success) {
+                    setLastKnownStatus('Connected');
+                    setTestResult({ success: true, message: 'Configuration saved and gateway connected!' });
+                    onConnect();
+                } else {
+                    setLastKnownStatus('Error');
+                    setTestResult({ success: false, message: 'Saved successfully, but connection test failed: ' + testRes.error });
+                }
             }
         } catch (err) {
             setLastKnownStatus('Error');
@@ -84,18 +102,31 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
     };
 
     const handleTest = async () => {
-        const phone = prompt('Enter phone number to send test SMS (with country code):', '+91');
-        if (!phone) return;
+        if (!config.apiKey && !config.sid && !config.token) {
+            setTestResult({ success: false, message: 'Please enter credentials first' });
+            return;
+        }
 
         setTesting(true);
         setTestResult(null);
         try {
-            const res = await smsService.testConnection(smsProvider, phone, 'Test message from Bharat CRM', config);
+            let res;
+            if (['openai', 'gemini', 'claude'].includes(type)) {
+                res = await systemSettingsAPI.testAi(type, config);
+            } else {
+                const phone = prompt('Enter phone number to send test SMS (with country code):', '+91');
+                if (!phone) {
+                    setTesting(false);
+                    return;
+                }
+                res = await smsService.testConnection(smsProvider, phone, 'Test message from Bharat CRM', config);
+            }
+
             if (res.success) {
-                setTestResult({ success: true, message: 'SMS sent successfully! Please check your phone.' });
+                setTestResult({ success: true, message: res.message || 'Test successful!' });
                 setLastKnownStatus('Connected');
             } else {
-                setTestResult({ success: false, message: res.error || 'Failed to send SMS' });
+                setTestResult({ success: false, message: res.error || 'Test failed' });
                 setLastKnownStatus('Error');
             }
         } catch (err) {
@@ -185,6 +216,45 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
             case 'messenger': return { title: 'Facebook Messenger', icon: 'fab fa-facebook-messenger', color: '#006AFF', steps: ['Go to Meta for Developers Console.', 'Create or select your Facebook App.', 'Add the Messenger product to your app.', 'Link your Facebook Page and generate an Access Token.'], showWebhook: true };
             case 'google_calendar': return { title: 'Google Calendar API', icon: 'fab fa-google', color: '#4285F4', steps: ['Go to Google Cloud Console and create a project.', 'Enable the "Google Calendar API" for your project.', 'Configure OAuth Credentials.', 'Copy Client ID and Secret.'] };
             case 'apple_calendar': return { title: 'iCloud Calendar (CalDAV)', icon: 'fab fa-apple', color: '#000000', steps: ['Log in to appleid.apple.com', 'Create App-Specific Password.', 'Copy the 16-character code.'], showWebhook: false };
+            case 'openai':
+                return {
+                    title: 'OpenAI (ChatGPT) Setup',
+                    icon: 'fas fa-robot',
+                    color: '#74aa9c',
+                    steps: [
+                        'Go to platform.openai.com',
+                        'Navigate to API Keys section.',
+                        'Create a new secret key.',
+                        'Ensure you have sufficient credits in your billing.'
+                    ],
+                    showWebhook: false
+                };
+            case 'gemini':
+                return {
+                    title: 'Google Gemini AI Setup',
+                    icon: 'fab fa-google',
+                    color: '#4285f4',
+                    steps: [
+                        'Go to Google AI Studio (aistudio.google.com)',
+                        'Click on "Get API key".',
+                        'Create or select a Google Cloud project.',
+                        'Copy the API Key.'
+                    ],
+                    showWebhook: false
+                };
+            case 'claude':
+                return {
+                    title: 'Anthropic (Claude) Setup',
+                    icon: 'fas fa-brain',
+                    color: '#d97757',
+                    steps: [
+                        'Go to console.anthropic.com',
+                        'Navigate to Settings > API Keys.',
+                        'Generate a new API Key.',
+                        'Choose your preferred Claude 3 model.'
+                    ],
+                    showWebhook: false
+                };
             case 'webhook': return { title: 'Inbound Webhook', icon: 'fas fa-code', color: '#1e293b', steps: ['Define external API endpoint.', 'Generate API Secret Key.', 'Map incoming data fields.'], showWebhook: true };
             default: return {};
         }
@@ -254,7 +324,7 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
 
 
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', paddingRight: '4px' }}>
-                        {type === 'twilio' && activeTab === 'config' && (
+                        {type === 'twilio' && (
                             <div style={{ marginBottom: '24px' }}>
                                 <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '10px' }}>Select SMS Provider</label>
                                 <div style={{ display: 'flex', gap: '10px' }}>
@@ -282,7 +352,7 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                             </div>
                         )}
 
-                        {type === 'twilio' && activeTab === 'config' && smsProvider === 'Twilio' && (
+                        {type === 'twilio' && smsProvider === 'Twilio' && (
                             <>
                                 <div className="card-input-group">
                                     <label>Account SID</label>
@@ -295,6 +365,14 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                                 <div className="card-input-group">
                                     <label>Verified Twilio Number</label>
                                     <input type="text" placeholder="+1 234 567 8900" value={config.from} onChange={e => setConfig({ ...config, from: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Messaging Service SID (Optional)</label>
+                                    <input type="text" placeholder="MGxxxxxxxxxxxxxxxx" value={config.messagingSid} onChange={e => setConfig({ ...config, messagingSid: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Voice URL (For Webhooks)</label>
+                                    <input type="text" placeholder="https://..." value={config.voiceUrl} onChange={e => setConfig({ ...config, voiceUrl: e.target.value })} />
                                 </div>
                             </>
                         )}
@@ -368,18 +446,130 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                             </>
                         )}
 
-                        <div style={{ padding: '16px', background: '#eff6ff', borderRadius: '12px', border: '1px solid #bfdbfe', display: 'flex', gap: '12px', alignItems: 'center' }}>
-                            <i className="fas fa-info-circle" style={{ color: '#3b82f6' }}></i>
-                            <div style={{ fontSize: '0.8rem', color: '#1e40af', lineHeight: '1.4' }}>
-                                <strong>Note:</strong> SMS Templates and Delivery Logs have been moved to <strong>Settings &gt; Messaging</strong> for a more centralized experience.
+                        {type === 'openai' && (
+                            <>
+                                <div className="card-input-group">
+                                    <label>OpenAI API Key</label>
+                                    <input type="password" placeholder="sk-..." value={config.apiKey} onChange={e => setConfig({ ...config, apiKey: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Preferred Model</label>
+                                    <select value={config.model || 'gpt-4o'} onChange={e => setConfig({ ...config, model: e.target.value })} style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+                                        <option value="gpt-4o">GPT-4o (Most Powerful)</option>
+                                        <option value="gpt-4o-mini">GPT-4o Mini (Fastest)</option>
+                                        <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Legacy)</option>
+                                    </select>
+                                </div>
+                            </>
+                        )}
+
+                        {type === 'knowlarity' && (
+                            <>
+                                <div className="card-input-group">
+                                    <label>Knowlarity API Key</label>
+                                    <input type="password" placeholder="...-....-..." value={config.apiKey} onChange={e => setConfig({ ...config, apiKey: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>SR Number (Your Virtual Number)</label>
+                                    <input type="text" placeholder="e.g. +911234567890" value={config.srNumber} onChange={e => setConfig({ ...config, srNumber: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Application ID (Optional)</label>
+                                    <input type="text" value={config.appId} onChange={e => setConfig({ ...config, appId: e.target.value })} />
+                                </div>
+                            </>
+                        )}
+
+                        {type === 'gupshup' && (
+                            <>
+                                <div className="card-input-group">
+                                    <label>Gupshup API Key</label>
+                                    <input type="password" value={config.apiKey} onChange={e => setConfig({ ...config, apiKey: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>App Name</label>
+                                    <input type="text" placeholder="MyCRMApp" value={config.appName} onChange={e => setConfig({ ...config, appName: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Source Number</label>
+                                    <input type="text" placeholder="+91..." value={config.sourceNumber} onChange={e => setConfig({ ...config, sourceNumber: e.target.value })} />
+                                </div>
+                            </>
+                        )}
+
+                        {type === 'gemini' && (
+                            <>
+                                <div className="card-input-group">
+                                    <label>Google Gemini API Key</label>
+                                    <input type="password" placeholder="AIza..." value={config.apiKey} onChange={e => setConfig({ ...config, apiKey: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Preferred Model</label>
+                                    <select value={config.model || 'gemini-1.5-pro'} onChange={e => setConfig({ ...config, model: e.target.value })} style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+                                        <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                                        <option value="gemini-1.5-pro-latest">Gemini 1.5 Pro (Latest)</option>
+                                        <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                                        <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash (Latest)</option>
+                                        <option value="gemini-pro">Gemini 1.0 Pro</option>
+                                    </select>
+                                </div>
+                            </>
+                        )}
+
+                        {type === 'claude' && (
+                            <>
+                                <div className="card-input-group">
+                                    <label>Anthropic Claude API Key</label>
+                                    <input type="password" placeholder="xkeys-..." value={config.apiKey} onChange={e => setConfig({ ...config, apiKey: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Preferred Model</label>
+                                    <select value={config.model || 'claude-3-5-sonnet-20240620'} onChange={e => setConfig({ ...config, model: e.target.value })} style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+                                        <option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet (Intelligent & Fast)</option>
+                                        <option value="claude-3-opus-20240229">Claude 3 Opus (Most Powerful)</option>
+                                        <option value="claude-3-haiku-20240307">Claude 3 Haiku (Extremely Fast)</option>
+                                    </select>
+                                </div>
+                            </>
+                        )}
+
+                        {!['openai', 'gemini', 'claude'].includes(type) && (
+                            <div style={{ padding: '16px', background: '#eff6ff', borderRadius: '12px', border: '1px solid #bfdbfe', display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                <i className="fas fa-info-circle" style={{ color: '#3b82f6' }}></i>
+                                <div style={{ fontSize: '0.8rem', color: '#1e40af', lineHeight: '1.4' }}>
+                                    <strong>Note:</strong> SMS Templates and Delivery Logs have been moved to <strong>Settings &gt; Messaging</strong> for a more centralized experience.
+                                </div>
                             </div>
-                        </div>
+                        )}
 
                         {/* Legacy forms kept simple */}
                         {type === 'whatsapp' && (
                             <>
                                 <div className="card-input-group"><label>Access Token</label><input type="password" value={config.apiKey} onChange={e => setConfig({ ...config, apiKey: e.target.value })} /></div>
                                 <div className="card-input-group"><label>Business Account ID</label><input type="text" value={config.businessId} onChange={e => setConfig({ ...config, businessId: e.target.value })} /></div>
+                            </>
+                        )}
+                        {type === 'linkedin' && (
+                            <>
+                                <div className="card-input-group">
+                                    <label>Client ID</label>
+                                    <input type="text" placeholder="LinkedIn App Client ID" value={config.clientId || ''} onChange={e => setConfig({ ...config, clientId: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Client Secret</label>
+                                    <input type="password" placeholder="LinkedIn App Client Secret" value={config.clientSecret || ''} onChange={e => setConfig({ ...config, clientSecret: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Redirect URI</label>
+                                    <input type="text" placeholder="https://your-crm.com/api/marketings/linkedin/callback" value={config.redirectUri || ''} onChange={e => setConfig({ ...config, redirectUri: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Organization ID</label>
+                                    <input type="text" placeholder="e.g. 42752175" value={config.orgId || '42752175'} onChange={e => setConfig({ ...config, orgId: e.target.value })} />
+                                </div>
+                                <div style={{ fontSize: '0.75rem', color: '#64748b', background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', marginTop: '10px' }}>
+                                    <i className="fas fa-info-circle" style={{ color: '#0077b5' }}></i> Step 1: Save Client ID/Secret. Step 2: Click Connect to authorize.
+                                </div>
                             </>
                         )}
                         {/* ... telegram, calendar etc omitted from snippet for brevity but follow same pattern ... */}
@@ -398,16 +588,40 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                         input:checked + .slider:before { transform: translateX(22px); }
                     `}</style>
 
-                    {activeTab === 'config' && (
+                        {type === 'linkedin' && (
+                            <div style={{ marginTop: '20px', borderTop: '1px solid #e2e8f0', paddingTop: '20px' }}>
+                                <button
+                                    onClick={async () => {
+                                        try {
+                                            const res = await marketingAPI.getLinkedInAuthUrl();
+                                            if (res.success && res.url) {
+                                                window.location.href = res.url;
+                                            } else {
+                                                toast.error('Failed to get LinkedIn Auth URL');
+                                            }
+                                        } catch (err) {
+                                            toast.error('Connection Error: ' + err.message);
+                                        }
+                                    }}
+                                    style={{ width: '100%', padding: '14px', borderRadius: '12px', border: 'none', background: '#0077b5', color: '#fff', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '15px' }}
+                                >
+                                    <i className="fab fa-linkedin"></i> Connect LinkedIn via OAuth
+                                </button>
+                                <p style={{ fontSize: '0.75rem', color: '#64748b', textAlign: 'center' }}>
+                                    Authorize the CRM to post on your company page.
+                                </p>
+                            </div>
+                        )}
+
                         <div style={{ marginTop: 'auto', paddingTop: '30px', display: 'flex', gap: '16px' }}>
-                            {type === 'twilio' && (
+                            {['twilio', 'openai', 'gemini', 'claude'].includes(type) && (
                                 <button
                                     onClick={handleTest}
                                     disabled={testing}
                                     style={{ flex: 1, padding: '14px', borderRadius: '12px', border: '2px solid #e2e8f0', background: '#fff', color: '#1e293b', fontWeight: 800, cursor: 'pointer', transition: '0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                                 >
                                     {testing ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-flask"></i>}
-                                    Test SMS
+                                    {type === 'twilio' ? 'Test SMS' : 'Test AI'}
                                 </button>
                             )}
                             <button
@@ -416,10 +630,9 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                                 style={{ flex: 2, padding: '14px', borderRadius: '12px', border: 'none', background: 'var(--primary-color)', color: '#fff', fontWeight: 800, cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', transition: '0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                             >
                                 {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check-circle"></i>}
-                                Save & Validate Gateway
+                                {type === 'linkedin' ? 'Save Configuration' : 'Save & Validate Gateway'}
                             </button>
                         </div>
-                    )}
                 </div>
             </div>
         </div>
@@ -429,17 +642,25 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
 const IntegrationsSettingsPage = () => {
     const [activeModal, setActiveModal] = useState(null);
     const [connections, setConnections] = useState({
-        twilio: { status: 'disconnected', label: 'SMS Gateway', icon: 'fas fa-sms', color: '#F22F46' },
+        openai: { status: 'disconnected', label: 'ChatGPT (OpenAI)', icon: 'fas fa-robot', color: '#74aa9c' },
+        gemini: { status: 'disconnected', label: 'Google Gemini', icon: 'fab fa-google', color: '#4285f4' },
+        claude: { status: 'disconnected', label: 'Claude (Anthropic)', icon: 'fas fa-brain', color: '#d97757' },
+        twilio: { status: 'disconnected', label: 'Twilio (Voice & SMS)', icon: 'fas fa-sms', color: '#F22F46' },
+        knowlarity: { status: 'disconnected', label: 'Knowlarity (Voice)', icon: 'fas fa-phone-volume', color: '#f37021' },
+        gupshup: { status: 'disconnected', label: 'Gupshup (Omnichannel)', icon: 'fas fa-comment-dots', color: '#00aed9' },
         whatsapp: { status: 'connected', label: 'WhatsApp Meta', icon: 'fab fa-whatsapp', color: '#25D366' },
         telegram: { status: 'disconnected', label: 'Telegram Bot', icon: 'fab fa-telegram', color: '#0088cc' },
         rcs: { status: 'disconnected', label: 'Google RCS', icon: 'fas fa-comment-dots', color: '#4285F4' },
         messenger: { status: 'disconnected', label: 'FB Messenger', icon: 'fab fa-facebook-messenger', color: '#006AFF' },
+        linkedin: { status: 'disconnected', label: 'LinkedIn Business', icon: 'fab fa-linkedin', color: '#0077b5' },
         google_calendar: { status: 'disconnected', label: 'Google Calendar (Legacy)', icon: 'fab fa-google', color: '#4285F4' },
         apple_calendar: { status: 'disconnected', label: 'iCloud Calendar', icon: 'fab fa-apple', color: '#94a3b8' }
     });
 
     const [isConnecting, setIsConnecting] = useState(false);
     const [googleStatus, setGoogleStatus] = useState({ connected: false, email: '' });
+
+
 
     const handleConnect = () => {
         // Refresh SMS status if the active modal was twilio (renamed conceptually to sms)
@@ -460,12 +681,7 @@ const IntegrationsSettingsPage = () => {
         google: { enabled: false, connected: false },
         apple: { enabled: false, connected: false }
     });
-    const [showGoogleConfig, setShowGoogleConfig] = useState(false);
     const [showAppleConfig, setShowAppleConfig] = useState(false);
-    const [googleCredentials, setGoogleCredentials] = useState({
-        clientId: '',
-        apiKey: ''
-    });
     const [appleCredentials, setAppleCredentials] = useState({
         username: '',
         appPassword: ''
@@ -506,9 +722,28 @@ const IntegrationsSettingsPage = () => {
         }
     };
 
+    const loadIntegrationStatus = async () => {
+        try {
+            const providers = ['openai', 'gemini', 'claude', 'knowlarity', 'gupshup'];
+            const newConnections = { ...connections };
+            
+            for (const p of providers) {
+                const configKey = `ai_${p}_config`;
+                const res = await systemSettingsAPI.getByKey(configKey);
+                if (res && res.data && res.data.value && (res.data.value.apiKey || res.data.value.token || res.data.value.sid)) {
+                    newConnections[p] = { ...newConnections[p], status: 'connected' };
+                }
+            }
+            setConnections(newConnections);
+        } catch (err) {
+            console.error('Failed to load integration status', err);
+        }
+    };
     // Load sync status and SMS status on mount
     useEffect(() => {
+        
         loadSmsStatus();
+        loadIntegrationStatus();
         fetchGoogleStatus();
         const status = contactSyncManager.getSyncStatus();
         setSyncConfig({
@@ -608,6 +843,8 @@ const IntegrationsSettingsPage = () => {
 
             <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
                 <div style={{ maxWidth: '1000px' }}>
+
+
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px' }}>
                         {Object.entries(connections).map(([key, item]) => (
                             <div key={key} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '24px', transition: 'all 0.3s ease', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', position: 'relative' }}>
@@ -621,7 +858,12 @@ const IntegrationsSettingsPage = () => {
                                 </div>
                                 <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>{item.label}</h3>
                                 <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '8px', lineHeight: '1.6' }}>
-                                    {key === 'twilio' && 'Send and receive high-volume SMS across 200+ countries.'}
+                                    {key === 'openai' && 'Leverage GPT-4o for high-fidelity content generation and reasoning.'}
+                                    {key === 'gemini' && 'Deep context window analysis and multimodal capabilities by Google.'}
+                                    {key === 'claude' && 'Safe, steerable, and highly intelligent models for complex workflows.'}
+                                    {key === 'twilio' && 'Send and receive high-volume SMS and trigger automated voice calls via Twilio.'}
+                                    {key === 'knowlarity' && 'Indian cloud telephony leader for automated outbound calls and IVR flows.'}
+                                    {key === 'gupshup' && 'Premier omnichannel marketing for WhatsApp Business, SMS, and RCS in India.'}
                                     {key === 'whatsapp' && 'Connect Meta Business API for verified messaging.'}
                                     {key === 'telegram' && 'Manage customer engagement via Telegram bots.'}
                                     {key === 'rcs' && 'The next generation of business messaging with rich media.'}
@@ -713,9 +955,9 @@ const IntegrationsSettingsPage = () => {
                                         </div>
                                     </div>
 
-                                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Google Suite Integration</h3>
+                                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Google Business Suite</h3>
                                     <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '8px', lineHeight: '1.6' }}>
-                                        Unified connection for Contacts, Calendar, Gmail, and Drive.
+                                        Professional connection for Google Business Profile, YouTube, Contacts, and Gmail.
                                     </p>
 
                                     {googleStatus.connected ? (
@@ -725,11 +967,17 @@ const IntegrationsSettingsPage = () => {
                                                 <div style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 700 }}>{googleStatus.email}</div>
                                             </div>
                                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                                                <div style={{ background: '#f0fdf4', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: '#166534' }}>
-                                                    <i className="fas fa-check-circle"></i> Gmail & Contacts
+                                                <div style={{ background: googleStatus.services?.gmail ? '#f0fdf4' : '#f8fafc', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.7rem', color: googleStatus.services?.gmail ? '#166534' : '#64748b' }}>
+                                                    <i className={googleStatus.services?.gmail ? "fas fa-check-circle" : "fas fa-times-circle"}></i> Gmail & CRM
                                                 </div>
-                                                <div style={{ background: '#f0fdf4', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: '#166534' }}>
-                                                    <i className="fas fa-check-circle"></i> Calendar & Drive
+                                                <div style={{ background: googleStatus.services?.youtube ? '#fefce8' : '#f8fafc', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.7rem', color: googleStatus.services?.youtube ? '#854d0e' : '#64748b' }}>
+                                                    <i className={googleStatus.services?.youtube ? "fab fa-youtube" : "fas fa-times-circle"}></i> YouTube {googleStatus.services?.youtube ? 'OK' : ''}
+                                                </div>
+                                                <div style={{ background: googleStatus.services?.business ? '#ecfdf5' : '#f8fafc', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.7rem', color: googleStatus.services?.business ? '#065f46' : '#64748b' }}>
+                                                    <i className={googleStatus.services?.business ? "fas fa-store" : "fas fa-times-circle"}></i> G-Business {googleStatus.services?.business ? 'OK' : ''}
+                                                </div>
+                                                <div style={{ background: '#f8fafc', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.7rem', color: '#64748b' }}>
+                                                    <i className="fas fa-sync-alt"></i> Contacts Sync
                                                 </div>
                                             </div>
                                             <button 

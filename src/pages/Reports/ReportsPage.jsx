@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Chart from 'react-apexcharts';
 import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
@@ -27,18 +27,9 @@ const ReportsPage = () => {
         }
     };
 
-    if (loading) {
-        return (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc', color: '#64748b' }}>
-                <div style={{ width: '40px', height: '40px', border: '4px solid #f3f3f3', borderTop: '4px solid #0ea5e9', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '16px' }}></div>
-                <p style={{ fontWeight: 600 }}>Synthesizing Business Analytics...</p>
-                <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
-            </div>
-        );
-    }
 
     // Mapping live stats to expected reportsData structure
-    const reportsData = {
+    const reportsData = useMemo(() => ({
         smartActions: [
             { title: 'Project Health Alert', desc: `Inventory health is at ${stats?.inventoryHealth?.healthScore || 0}%`, priority: 'high', impact: 'Medium' },
             { title: 'Sales Performance', desc: `${stats?.performance?.salesPerformance?.length || 0} agents active this period`, priority: 'normal', impact: 'High' }
@@ -79,7 +70,7 @@ const ReportsPage = () => {
         voice: {
             bar: {
                 categories: stats?.performance?.salesPerformance?.map(p => p.agent) || [],
-                series: [{ name: 'Calls', data: stats?.performance?.salesPerformance?.map(p => p.count) || [] }]
+                series: [{ name: 'Calls', data: stats?.performance?.salesPerformance?.map(p => p.agent) ? stats?.performance?.salesPerformance?.map(p => p.count) : [] }]
             },
             gauge: 75
         },
@@ -104,7 +95,18 @@ const ReportsPage = () => {
                 series: [{ name: 'Value', data: stats?.performance?.salesPerformance?.map(p => p.totalValue) || [] }]
             }
         }
-    };
+    }), [stats]);
+
+    if (loading) {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc', color: '#64748b' }}>
+                <div style={{ width: '40px', height: '40px', border: '4px solid #f3f3f3', borderTop: '4px solid #0ea5e9', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '16px' }}></div>
+                <p style={{ fontWeight: 600 }}>Synthesizing Business Analytics...</p>
+                <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+            </div>
+        );
+    }
+
 
     const sections = [
         { id: 'insights', label: 'Strategic Insights', icon: 'fa-brain' },
@@ -119,77 +121,11 @@ const ReportsPage = () => {
         { id: 'sales', label: 'Sales Performance', icon: 'fa-award' },
     ];
 
-    const renderHeader = () => (
-        <div className="page-header" style={{ padding: '20px 2rem', background: '#fff', borderBottom: '1px solid #eef2f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div className="page-title-group" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                <div style={{ background: 'var(--primary-color)', color: '#fff', width: '48px', height: '48px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', boxShadow: '0 4px 12px rgba(8, 145, 178, 0.2)' }}>
-                    <i className="fas fa-chart-line"></i>
-                </div>
-                <div>
-                    <span className="working-list-label" style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>High-Resolution Analytics</span>
-                    <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Bharat Properties Intelligence Hub</h1>
-                </div>
-            </div>
-            <div style={{ display: 'flex', gap: '12px' }}>
-                <div style={{ marginRight: '15px', padding: '5px 15px', background: '#f8fafc', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', color: '#64748b', border: '1px solid #e2e8f0' }}>
-                    <span style={{ width: '8px', height: '8px', background: '#10b981', borderRadius: '50%' }}></span>
-                    Live Data Refreshed
-                </div>
-                <button className="btn-outline" style={{ borderRadius: '8px', fontWeight: 600 }}>
-                    <i className="fas fa-file-pdf" style={{ marginRight: '8px' }}></i> Export PDF
-                </button>
-                <button className="btn-outline" style={{ borderRadius: '8px', fontWeight: 600 }}>
-                    <i className="fas fa-file-excel" style={{ marginRight: '8px' }}></i> Export Excel
-                </button>
-            </div>
-        </div>
-    );
-
-    const renderTabs = () => (
-        <div className="report-tabs" style={{
-            display: 'flex',
-            gap: '8px',
-            padding: '12px 2rem',
-            background: '#fff',
-            borderBottom: '1px solid #eef2f5',
-            overflowX: 'auto',
-            whiteSpace: 'nowrap',
-            position: 'sticky',
-            top: 0,
-            zIndex: 10
-        }}>
-            {sections.map(section => (
-                <button
-                    key={section.id}
-                    onClick={() => setActiveTab(section.id)}
-                    style={{
-                        padding: '10px 18px',
-                        border: 'none',
-                        background: activeTab === section.id ? '#f0f9ff' : 'transparent',
-                        borderRadius: '10px',
-                        fontSize: '0.85rem',
-                        fontWeight: activeTab === section.id ? 700 : 500,
-                        color: activeTab === section.id ? 'var(--primary-color)' : '#64748b',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        transition: 'all 0.2s',
-                        borderBottom: activeTab === section.id ? '2px solid var(--primary-color)' : '2px solid transparent'
-                    }}
-                >
-                    <i className={`fas ${section.icon}`} style={{ fontSize: '1rem' }}></i>
-                    {section.label}
-                </button>
-            ))}
-        </div>
-    );
-
     return (
         <section id="reportsView" className="view-section active" style={{ background: '#f8fafc', minHeight: '100vh' }}>
             <div className="view-scroll-wrapper">
-                {renderHeader()}
-                {renderTabs()}
+                <HeaderSection />
+                <TabsSection activeTab={activeTab} onTabChange={setActiveTab} sections={sections} />
                 <div className="report-content" style={{ padding: '24px 2rem' }}>
                     <div className="report-container">
                         <StrategicInsightsSection active={activeTab === 'insights'} data={reportsData} />
@@ -210,8 +146,82 @@ const ReportsPage = () => {
     );
 };
 
+const HeaderSection = React.memo(function HeaderSection() {
+    return (
+    <div className="page-header" style={{ padding: '20px 2rem', background: '#fff', borderBottom: '1px solid #eef2f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="page-title-group" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+            <div style={{ background: 'var(--primary-color)', color: '#fff', width: '48px', height: '48px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', boxShadow: '0 4px 12px rgba(8, 145, 178, 0.2)' }}>
+                <i className="fas fa-chart-line"></i>
+            </div>
+            <div>
+                <span className="working-list-label" style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>High-Resolution Analytics</span>
+                <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Bharat Properties Intelligence Hub</h1>
+            </div>
+        </div>
+        <div style={{ display: 'flex', gap: '12px' }}>
+            <div style={{ marginRight: '15px', padding: '5px 15px', background: '#f8fafc', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', color: '#64748b', border: '1px solid #e2e8f0' }}>
+                <span style={{ width: '8px', height: '8px', background: '#10b981', borderRadius: '50%' }}></span>
+                Live Data Refreshed
+            </div>
+            <button className="btn-outline" style={{ borderRadius: '8px', fontWeight: 600 }}>
+                <i className="fas fa-file-pdf" style={{ marginRight: '8px' }}></i> Export PDF
+            </button>
+            <button className="btn-outline" style={{ borderRadius: '8px', fontWeight: 600 }}>
+                <i className="fas fa-file-excel" style={{ marginRight: '8px' }}></i> Export Excel
+            </button>
+        </div>
+    </div>
+    );
+});
+HeaderSection.displayName = 'HeaderSection';
+
+
+const TabsSection = React.memo(function TabsSection({ activeTab, onTabChange, sections }) {
+    return (
+    <div className="report-tabs" style={{
+        display: 'flex',
+        gap: '8px',
+        padding: '12px 2rem',
+        background: '#fff',
+        borderBottom: '1px solid #eef2f5',
+        overflowX: 'auto',
+        whiteSpace: 'nowrap',
+        position: 'sticky',
+        top: 0,
+        zIndex: 10
+    }}>
+        {sections.map(section => (
+            <button
+                key={section.id}
+                onClick={() => onTabChange(section.id)}
+                style={{
+                    padding: '10px 18px',
+                    border: 'none',
+                    background: activeTab === section.id ? '#f0f9ff' : 'transparent',
+                    borderRadius: '10px',
+                    fontSize: '0.85rem',
+                    fontWeight: activeTab === section.id ? 700 : 500,
+                    color: activeTab === section.id ? 'var(--primary-color)' : '#64748b',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'all 0.2s',
+                    borderBottom: activeTab === section.id ? '2px solid var(--primary-color)' : '2px solid transparent'
+                }}
+            >
+                <i className={`fas ${section.icon}`} style={{ fontSize: '1rem' }}></i>
+                {section.label}
+            </button>
+        ))}
+    </div>
+    );
+});
+TabsSection.displayName = 'TabsSection';
+
+
 // Strategic Insights Section
-const StrategicInsightsSection = ({ active, data }) => {
+const StrategicInsightsSection = React.memo(function StrategicInsightsSection({ active, data }) {
     if (!active) return null;
     return (
         <div className="report-grid animate-in">
@@ -252,10 +262,12 @@ const StrategicInsightsSection = ({ active, data }) => {
             </div>
         </div>
     );
-};
+});
+StrategicInsightsSection.displayName = 'StrategicInsightsSection';
+
 
 // Executive Matrix Section
-const ExecutiveMatrixSection = ({ active, data }) => {
+const ExecutiveMatrixSection = React.memo(function ExecutiveMatrixSection({ active, data }) {
     if (!active) return null;
     return (
         <div className="report-grid animate-in">
@@ -300,10 +312,12 @@ const ExecutiveMatrixSection = ({ active, data }) => {
             </div>
         </div>
     );
-};
+});
+ExecutiveMatrixSection.displayName = 'ExecutiveMatrixSection';
+
 
 // Market Hotspots Section
-const MarketHotspotsSection = ({ active, data }) => {
+const MarketHotspotsSection = React.memo(function MarketHotspotsSection({ active, data }) {
     if (!active) return null;
     return (
         <div className="report-grid animate-in">
@@ -339,10 +353,12 @@ const MarketHotspotsSection = ({ active, data }) => {
             </div>
         </div>
     );
-};
+});
+MarketHotspotsSection.displayName = 'MarketHotspotsSection';
+
 
 // Debt Dynamics Section
-const DebtDynamicsSection = ({ active, data }) => {
+const DebtDynamicsSection = React.memo(function DebtDynamicsSection({ active, data }) {
     if (!active) return null;
     return (
         <div className="report-grid animate-in">
@@ -378,10 +394,12 @@ const DebtDynamicsSection = ({ active, data }) => {
             </div>
         </div>
     );
-};
+});
+DebtDynamicsSection.displayName = 'DebtDynamicsSection';
+
 
 // Activity Section
-const ActivitySection = ({ active, data }) => {
+const ActivitySection = React.memo(function ActivitySection({ active, data }) {
     if (!active) return null;
     return (
         <div className="report-grid animate-in">
@@ -427,10 +445,12 @@ const ActivitySection = ({ active, data }) => {
             </div>
         </div>
     );
-};
+});
+ActivitySection.displayName = 'ActivitySection';
+
 
 // Lead Stage Section
-const LeadStageSection = ({ active, data }) => {
+const LeadStageSection = React.memo(function LeadStageSection({ active, data }) {
     if (!active) return null;
     return (
         <div className="report-grid animate-in">
@@ -480,10 +500,12 @@ const LeadStageSection = ({ active, data }) => {
             </div>
         </div>
     );
-};
+});
+LeadStageSection.displayName = 'LeadStageSection';
+
 
 // Voice Section
-const VoiceSection = ({ active, data }) => {
+const VoiceSection = React.memo(function VoiceSection({ active, data }) {
     if (!active) return null;
     return (
         <div className="report-grid animate-in">
@@ -525,10 +547,12 @@ const VoiceSection = ({ active, data }) => {
             </div>
         </div>
     );
-};
+});
+VoiceSection.displayName = 'VoiceSection';
+
 
 // Marketing Section
-const MarketingSection = ({ active, data }) => {
+const MarketingSection = React.memo(function MarketingSection({ active, data }) {
     if (!active) return null;
     return (
         <div className="report-grid animate-in">
@@ -575,10 +599,12 @@ const MarketingSection = ({ active, data }) => {
             </div>
         </div>
     );
-};
+});
+MarketingSection.displayName = 'MarketingSection';
+
 
 // Funnel Section
-const FunnelSection = ({ active, data }) => {
+const FunnelSection = React.memo(function FunnelSection({ active, data }) {
     if (!active) return null;
     return (
         <div className="report-grid animate-in">
@@ -607,10 +633,12 @@ const FunnelSection = ({ active, data }) => {
             </div>
         </div>
     );
-};
+});
+FunnelSection.displayName = 'FunnelSection';
+
 
 // Sales Section
-const SalesSection = ({ active, data }) => {
+const SalesSection = React.memo(function SalesSection({ active, data }) {
     if (!active) return null;
     return (
         <div className="report-grid animate-in">
@@ -645,6 +673,8 @@ const SalesSection = ({ active, data }) => {
             </div>
         </div>
     );
-};
+});
+SalesSection.displayName = 'SalesSection';
+
 
 export default ReportsPage;

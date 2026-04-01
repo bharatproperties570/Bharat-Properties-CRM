@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import AddressDetailsForm from './common/AddressDetailsForm';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useUserContext } from '../context/UserContext';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 // Mock data removed
-const contactData = [];
+
 
 const COUNTRY_CODES = [
     { name: 'India', dial_code: '+91', code: 'IN' },
@@ -90,8 +90,19 @@ const ADDRESS_LABELS = {
     siteOffice: 'Site Office'
 };
 
+const INITIAL_ADDRESS = {
+    branchName: '', hNo: '', street: '', city: null, state: null, tehsil: null, postOffice: null, pinCode: '', area: '', location: null, country: ''
+};
+
+// Helper to extract ID from potentially populated field
+const getId = (field) => {
+    if (!field) return '';
+    if (typeof field === 'object') return field._id || '';
+    return field;
+};
+
 function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
-    const { leadMasterFields, companyMasterFields } = usePropertyConfig();
+    const { companyMasterFields } = usePropertyConfig();
     const { users, teams } = useUserContext();
     const isEdit = !!initialData;
     const [currentTab, setCurrentTab] = useState('basic');
@@ -119,9 +130,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
     const [selectedContactToLink, setSelectedContactToLink] = useState(null);
     const [linkData, setLinkData] = useState({ designation: '', category: '', subCategory: '' });
 
-    const initialAddress = {
-        branchName: '', hNo: '', street: '', city: null, state: null, tehsil: null, postOffice: null, pinCode: '', area: '', location: null, country: ''
-    };
+
 
     const [formData, setFormData] = useState({
         name: '',
@@ -138,11 +147,11 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
         owner: '',
         visibleTo: 'Everyone',
         addresses: {
-            registeredOffice: { ...initialAddress },
-            branchOffice: [{ ...initialAddress }],
-            corporateOffice: { ...initialAddress },
-            headOffice: { ...initialAddress },
-            siteOffice: [{ ...initialAddress }]
+            registeredOffice: { ...INITIAL_ADDRESS },
+            branchOffice: [{ ...INITIAL_ADDRESS }],
+            corporateOffice: { ...INITIAL_ADDRESS },
+            headOffice: { ...INITIAL_ADDRESS },
+            siteOffice: [{ ...INITIAL_ADDRESS }]
         },
         employees: []
     });
@@ -181,17 +190,12 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
         if (isOpen) loadLookups();
     }, [isOpen]);
 
-    // Helper to extract ID from potentially populated field
-    const getId = (field) => {
-        if (!field) return '';
-        if (typeof field === 'object') return field._id || '';
-        return field;
-    };
 
-    const mapAddress = (addr) => {
-        if (!addr) return { ...initialAddress };
+
+    const mapAddress = useCallback((addr) => {
+        if (!addr) return { ...INITIAL_ADDRESS };
         // If it's literally just an empty object or has no meaningful data, return default
-        if (Object.keys(addr).length === 0) return { ...initialAddress };
+        if (Object.keys(addr).length === 0) return { ...INITIAL_ADDRESS };
 
         return {
             branchName: addr.branchName || '',
@@ -207,7 +211,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
             country: getId(addr.country),
             _id: addr._id // Preserve _id if exists
         };
-    };
+    }, []);
 
     // Initialize form with initialData if editing
     useEffect(() => {
@@ -228,10 +232,10 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 visibleTo: initialData.visibleTo || 'Everyone',
                 addresses: {
                     registeredOffice: mapAddress(initialData.addresses?.registeredOffice || initialData.addresses?.['Registered Office']),
-                    branchOffice: (initialData.addresses?.branchOffice || initialData.addresses?.['Branch Office'])?.map(mapAddress) || [{ ...initialAddress }],
+                    branchOffice: (initialData.addresses?.branchOffice || initialData.addresses?.['Branch Office'])?.map(mapAddress) || [{ ...INITIAL_ADDRESS }],
                     corporateOffice: mapAddress(initialData.addresses?.corporateOffice || initialData.addresses?.['Corporate Office']),
                     headOffice: mapAddress(initialData.addresses?.headOffice || initialData.addresses?.['Head Office']),
-                    siteOffice: (initialData.addresses?.siteOffice || initialData.addresses?.['Site Office'])?.map(mapAddress) || [{ ...initialAddress }]
+                    siteOffice: (initialData.addresses?.siteOffice || initialData.addresses?.['Site Office'])?.map(mapAddress) || [{ ...INITIAL_ADDRESS }]
                 },
                 employees: initialData.employees || []
             });
@@ -252,16 +256,16 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                 owner: '',
                 visibleTo: 'Everyone',
                 addresses: {
-                    registeredOffice: { ...initialAddress },
-                    branchOffice: [{ ...initialAddress }],
-                    corporateOffice: { ...initialAddress },
-                    headOffice: { ...initialAddress },
-                    siteOffice: [{ ...initialAddress }]
+                    registeredOffice: { ...INITIAL_ADDRESS },
+                    branchOffice: [{ ...INITIAL_ADDRESS }],
+                    corporateOffice: { ...INITIAL_ADDRESS },
+                    headOffice: { ...INITIAL_ADDRESS },
+                    siteOffice: [{ ...INITIAL_ADDRESS }]
                 },
                 employees: []
             });
         }
-    }, [isOpen, initialData, isEdit]);
+    }, [isOpen, initialData, isEdit, mapAddress]);
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -379,7 +383,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
             ...prev,
             addresses: {
                 ...prev.addresses,
-                branchOffice: [...prev.addresses.branchOffice, { ...initialAddress }]
+                branchOffice: [...prev.addresses.branchOffice, { ...INITIAL_ADDRESS }]
             }
         }));
         setActiveBranchIndex(formData.addresses.branchOffice.length);
@@ -404,7 +408,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
             ...prev,
             addresses: {
                 ...prev.addresses,
-                siteOffice: [...prev.addresses.siteOffice, { ...initialAddress }]
+                siteOffice: [...prev.addresses.siteOffice, { ...INITIAL_ADDRESS }]
             }
         }));
         setActiveSiteIndex(formData.addresses.siteOffice.length);
@@ -769,10 +773,10 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
     const getActiveAddress = () => {
         const base = formData.addresses[currentAddressType];
         if (currentAddressType === 'branchOffice') {
-            return base[activeBranchIndex] || { ...initialAddress };
+            return base[activeBranchIndex] || { ...INITIAL_ADDRESS };
         }
         if (currentAddressType === 'siteOffice') {
-            return base[activeSiteIndex] || { ...initialAddress };
+            return base[activeSiteIndex] || { ...INITIAL_ADDRESS };
         }
         return base;
     };

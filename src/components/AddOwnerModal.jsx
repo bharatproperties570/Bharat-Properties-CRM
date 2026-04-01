@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { contactsAPI } from '../utils/api';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import toast from 'react-hot-toast';
@@ -27,7 +27,15 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
     const [filteredContacts, setFilteredContacts] = useState([]);
     const [isSearching, setIsSearching] = useState(false);
     const [selectedContact, setSelectedContact] = useState(null);
-    const [linkData, setLinkData] = useState({ role: 'Property Owner', relationship: '' });
+    const [linkData, setLinkData] = useState({ role: 'Property Owner', relationship: '', source: 'Update data' });
+
+    const sourceOptions = [
+        'Deal by us',
+        'Deal by competitor',
+        'Family transfer',
+        'Deal by yourself',
+        'Update data'
+    ];
     const { masterFields } = usePropertyConfig();
     const relations = masterFields?.relations || [];
     const searchRef = useRef(null);
@@ -96,14 +104,42 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
             mobile: selectedContact.phones?.[0]?.number || selectedContact.mobile || (selectedContact.contacts && selectedContact.contacts[0]?.number) || '',
             role: linkData.role,
             relationship: linkData.relationship,
+            source: linkData.source,
+            date: new Date().toISOString(),
             id: selectedContact._id || selectedContact.id || Date.now().toString()
         };
 
         const updatedOwners = [...owners, newOwner];
         setOwners(updatedOwners);
-        setLinkData({ role: 'Property Owner', relationship: '' });
+        setLinkData({ role: 'Property Owner', relationship: '', source: 'Update data' });
         setSelectedContact(null);
         toast.success('Owner/Associate Added');
+    };
+
+    // Handle Professional Owner Transfer
+    const handleTransferOwnership = () => {
+        if (!selectedContact) {
+            toast.error('Please select a contact to transfer ownership');
+            return;
+        }
+
+        const newOwner = {
+            name: selectedContact.name || `${selectedContact.firstName || ''} ${selectedContact.lastName || ''}`.trim() || 'Unknown',
+            mobile: selectedContact.phones?.[0]?.number || selectedContact.mobile || (selectedContact.contacts && selectedContact.contacts[0]?.number) || '',
+            role: 'Property Owner',
+            relationship: '',
+            source: linkData.source || 'Ownership Transfer',
+            date: new Date().toISOString(),
+            id: selectedContact._id || selectedContact.id || Date.now().toString()
+        };
+
+        // Keep associates, replace all previous property owners
+        const associates = owners.filter(o => o.role !== 'Property Owner');
+        setOwners([newOwner, ...associates]);
+        
+        setLinkData({ role: 'Property Owner', relationship: '', source: 'Update data' });
+        setSelectedContact(null);
+        toast.success('Ownership Transferred Successfully');
     };
 
     const handleSave = () => {
@@ -195,7 +231,7 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
 
                         {selectedContact && (
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '16px' }}>
-                                <div>
+                                <div style={{ gridColumn: linkData.role === 'Associate' ? 'span 2' : 'span 1' }}>
                                     <label style={labelStyle}>Assign Role</label>
                                     <select
                                         style={customSelectStyle}
@@ -206,8 +242,20 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
                                         <option value="Associate">Associate</option>
                                     </select>
                                 </div>
-                                {linkData.role === 'Associate' && (
+                                {linkData.role === 'Property Owner' && (
                                     <div>
+                                        <label style={labelStyle}>Source/Reason</label>
+                                        <select
+                                            style={customSelectStyle}
+                                            value={linkData.source}
+                                            onChange={(e) => setLinkData({ ...linkData, source: e.target.value })}
+                                        >
+                                            {sourceOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                        </select>
+                                    </div>
+                                )}
+                                {linkData.role === 'Associate' && (
+                                    <div style={{ gridColumn: 'span 2' }}>
                                         <label style={labelStyle}>Relationship</label>
                                         <select
                                             style={customSelectStyle}
@@ -224,7 +272,19 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
                             </div>
                         )}
 
-                        <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
+                        <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                            {linkData.role === 'Property Owner' && selectedContact && (
+                                <button
+                                    onClick={handleTransferOwnership}
+                                    style={{
+                                        ...buttonStyle.success,
+                                        display: 'flex', alignItems: 'center', gap: '8px'
+                                    }}
+                                >
+                                    <i className="fas fa-exchange-alt"></i>
+                                    Transfer Ownership
+                                </button>
+                            )}
                             <button
                                 onClick={handleLinkOwner}
                                 disabled={!selectedContact || (linkData.role === 'Associate' && !linkData.relationship)}
@@ -234,7 +294,7 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
                                     cursor: (!selectedContact || (linkData.role === 'Associate' && !linkData.relationship)) ? 'not-allowed' : 'pointer'
                                 }}
                             >
-                                Confirm & Add
+                                {linkData.role === 'Property Owner' ? 'Add Co-Owner' : 'Confirm & Add'}
                             </button>
                         </div>
                     </div>

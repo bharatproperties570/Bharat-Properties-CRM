@@ -1,174 +1,187 @@
+import mongoose from 'mongoose';
+import Deal from '../models/Deal.js';
 import CollectorRate from '../models/CollectorRate.js';
 import SystemSetting from '../models/SystemSetting.js';
-import Deal from '../models/Deal.js';
+import Lookup from '../models/Lookup.js';
+
+// --- Helpers for Senior Professional Logic ---
+
+const convertArea = (value, fromUnit, toUnit) => {
+    if (!value || fromUnit === toUnit) return value;
+    
+    // Base unit: Sq Ft
+    const toSqFt = {
+        'Sq Ft': 1,
+        'Sq.Ft.': 1,
+        'Sq Yard': 9,
+        'Sq.Yard': 9,
+        'Sq Meter': 10.7639,
+        'Acre': 43560,
+        'Kanal': 5445, // Standard Punjab/Haryana Kanal
+        'Marla': 272.25
+    };
+
+    const fromFactor = toSqFt[fromUnit] || 1;
+    const toFactor = toSqFt[toUnit] || 1;
+
+    const valInSqFt = value * fromFactor;
+    return valInSqFt / toFactor;
+};
+
+const resolveLookupValue = async (idOrValue) => {
+    if (!idOrValue) return '';
+    if (mongoose.Types.ObjectId.isValid(idOrValue)) {
+        const lookup = await Lookup.findById(idOrValue).lean();
+        return lookup ? lookup.lookup_value : '';
+    }
+    return String(idOrValue);
+};
 
 export const calculateValuation = async (req, res) => {
     try {
         const { dealId, buyerGender = 'male', customMarketPrice } = req.body;
 
-        const deal = await Deal.findById(dealId)
-            .populate('inventoryId')
-            .populate('projectId');
+        const deal = await Deal.findById(dealId).populate('inventoryId projectId').lean();
         if (!deal) return res.status(404).json({ status: "error", message: "Deal not found" });
 
         const inventory = deal.inventoryId;
-        if (!inventory) return res.status(404).json({ status: "error", message: "Inventory not found" });
+        if (!inventory) return res.status(404).json({ status: "error", message: "Inventory not linked to deal" });
 
-        // 1. Get Location Info (Strings from Deal/Inventory/Project)
-        // Note: In an ideal world we'd have IDs, but here we search by name
-        // 1. Get Location Info (Strings from Deal/Inventory/Project)
-        const projectAddress = (deal.projectId && typeof deal.projectId === 'object') ? deal.projectId.address : {};
+        // 1. Resolve Category/SubCategory names for matching
+        const categoryName = await resolveLookupValue(deal.category || inventory.category);
+        const subCategoryName = await resolveLookupValue(deal.subCategory || inventory.subCategory);
 
-        const stateStr = projectAddress?.state || inventory.address?.state;
-        const districtStr = inventory.city || projectAddress?.city;
-        const tehsilStr = projectAddress?.tehsil || inventory.address?.tehsil;
-        const locationStr = inventory.sector || projectAddress?.location || inventory.address?.location;
+        // 2. Resolve Location IDs
+        const stateId = inventory.address?.state;
+        const districtId = inventory.address?.district || inventory.address?.city;
+        const tehsilId = inventory.address?.tehsil;
+        const locationId = inventory.address?.location || inventory.address?.locality || inventory.address?.area;
 
-        console.log("Valuation Calc - Deal:", dealId);
-        console.log(`Location: ${stateStr}, ${districtStr}, ${tehsilStr}, ${locationStr}`);
-
-        // 2. Fetch Collector Rate with Priority Logic
-        const findCollectorRate = async (category, subCategory) => {
-            // Level 1: Exact Location
-            let query = { category, subCategory, status: 'Active' };
-            // Since we use Lookup refs, we match by lookup_value if available via populate OR just exact match strings
-            // However, our backend getAllCollectorRates uses refs. 
-            // For the Valuation Engine, we need to match strings. 
-            // We'll perform a search on populated fields.
-
-            const rates = await CollectorRate.find({ category, subCategory })
-                .populate('state district tehsil location', 'lookup_value')
-                .lean();
-
-            const matchRate = (r, s, d, t, l) => {
-                const sMatch = !s || r.state?.lookup_value?.toLowerCase() === s.toLowerCase();
-                const dMatch = !d || r.district?.lookup_value?.toLowerCase() === d.toLowerCase();
-                const tMatch = !t || r.tehsil?.lookup_value?.toLowerCase() === t.toLowerCase();
-                const lMatch = !l || r.location?.lookup_value?.toLowerCase() === l.toLowerCase();
-                return sMatch && dMatch && tMatch && lMatch;
-            };
-
-            // Rank Matches
-            let best = rates.find(r => matchRate(r, stateStr, districtStr, tehsilStr, locationStr));
-            if (!best) best = rates.find(r => matchRate(r, stateStr, districtStr, tehsilStr, null));
-            if (!best) best = rates.find(r => matchRate(r, stateStr, districtStr, null, null));
-
-            return best;
+        // 3. Find Matching Collector Rate
+        const query = {
+            state: stateId,
+            district: districtId,
+            category: categoryName,
+            subCategory: subCategoryName
         };
+        if (tehsilId) query.tehsil = tehsilId;
+        if (locationId) query.location = locationId;
 
-        const rate = await findCollectorRate(deal.category, deal.subCategory);
-
-        console.log("Found Rate:", rate ? rate._id : "None");
+        const rate = await CollectorRate.findOne(query).sort({ effectiveFrom: -1 }).lean();
 
         if (!rate) {
-            console.log("No rate found for:", deal.category, deal.subCategory);
-            return res.status(400).json({ status: "error", message: `No collector rate found for ${deal.category}/${deal.subCategory} in this location.` });
+            console.log("No rate found for query:", query);
+            return res.status(400).json({ status: "error", message: `No collector rate found for ${categoryName}/${subCategoryName} in this location.` });
         }
 
-        // 3. Calculation Logic
+        // 4. Calculate Collector Value with Unit Normalization
         let collectorValue = 0;
-        let breakdown = {
-            baseRate: rate.rate,
-            rateUnit: rate.rateUnit,
-            applyOn: rate.rateApplyOn,
-            multipliers: []
-        };
-
-        const plotArea = inventory.size || 0;
-        const builtUpArea = inventory.builtUpArea || 0;
+        const inventorySizeValue = inventory.size?.value || inventory.size || 0;
+        const inventorySizeUnit = inventory.size?.unit || inventory.sizeUnit || 'Sq Ft';
+        
+        // Normalize area to rate unit
+        const normalizedArea = convertArea(inventorySizeValue, inventorySizeUnit, rate.rateUnit);
 
         // Multipliers
-        const roadWidth = inventory.roadWidth || '';
-        const floor = inventory.floor || '';
+        let multiplierFactor = 1;
+        if (deal.roadType && rate.roadMultipliers) {
+            const rm = rate.roadMultipliers.find(m => m.roadType === deal.roadType);
+            if (rm) multiplierFactor += (rm.multiplier / 100);
+        }
+        if (deal.floor && rate.floorMultipliers) {
+            const fm = rate.floorMultipliers.find(m => m.floorType === deal.floor);
+            if (fm) multiplierFactor += (fm.multiplier / 100);
+        }
 
-        const matchingRoad = rate.roadMultipliers?.find(m =>
-            roadWidth.toLowerCase().includes(m.roadType.toLowerCase()) ||
-            m.roadType.toLowerCase().includes(roadWidth.toLowerCase())
-        );
-        const matchingFloor = rate.floorMultipliers?.find(m =>
-            floor.toString().toLowerCase() === m.floorType.toLowerCase() ||
-            m.floorType.toLowerCase().includes(floor.toString().toLowerCase())
-        );
-
-        const roadMultiplier = matchingRoad ? (matchingRoad.multiplier / 100) : 0;
-        const floorMultiplier = matchingFloor ? (matchingFloor.multiplier / 100) : 0;
-
-        if (matchingRoad) breakdown.multipliers.push({ type: 'Road', name: matchingRoad.roadType, percent: matchingRoad.multiplier });
-        if (matchingFloor) breakdown.multipliers.push({ type: 'Floor', name: matchingFloor.floorType, percent: matchingFloor.multiplier });
-
-        const multiplierFactor = 1 + roadMultiplier + floorMultiplier;
-
-        // Implementation of Case 1, 2, 3
         if (rate.rateApplyOn === 'Land Area') {
-            collectorValue = plotArea * rate.rate * multiplierFactor;
-            breakdown.formula = `${plotArea} (Area) x ${rate.rate} (Rate) x ${multiplierFactor} (Multipliers)`;
-        }
-        else if (rate.rateApplyOn === 'Built-up Area') {
-            collectorValue = builtUpArea * rate.rate * multiplierFactor;
-            breakdown.formula = `${builtUpArea} (Built-up) x ${rate.rate} (Rate) x ${multiplierFactor} (Multipliers)`;
-        }
-        else if (rate.rateApplyOn === 'Land + Built-up') {
-            // For Houses, we need Construction Rate
-            // We'll search for a rate with category 'Residential' and subCategory 'Construction' or similar
-            const constructionRateObj = await findCollectorRate('Residential', 'Construction') || { rate: 1200 }; // Fallback
-            const landValue = plotArea * rate.rate * (1 + roadMultiplier);
-            const constructionValue = builtUpArea * constructionRateObj.rate * (1 + floorMultiplier);
-            collectorValue = landValue + constructionValue;
-
-            breakdown.landValue = landValue;
-            breakdown.constructionValue = constructionValue;
-            breakdown.formula = `(${plotArea} x ${rate.rate} [Land]) + (${builtUpArea} x ${constructionRateObj.rate} [Construction])`;
-        }
-
-        // 4. Market vs Collector Comparison
-        const marketPrice = customMarketPrice || deal.price || 0;
-        const stampDutyBase = Math.max(marketPrice, collectorValue);
-
-        // 5. Get Global Config for Taxes
-        const configRef = await SystemSetting.findOne({ category: 'govt_charges_config' }).lean();
-        const config = configRef?.value || { stampDutyMale: 7, stampDutyFemale: 5, stampDutyJoint: 6, registrationPercent: 1, legalFees: 15000 };
-
-        let sdPercent = config.stampDutyMale;
-        if (buyerGender === 'female') sdPercent = config.stampDutyFemale;
-        else if (buyerGender === 'joint') sdPercent = config.stampDutyJoint;
-
-        const stampDutyAmount = stampDutyBase * (sdPercent / 100);
-
-        let registrationAmount = 0;
-        if (config.registrationMode === 'slab' && config.registrationSlabs?.length > 0) {
-            const slab = config.registrationSlabs.find(s =>
-                stampDutyBase >= s.min && (!s.max || stampDutyBase <= s.max)
-            );
-            if (slab) {
-                registrationAmount = slab.type === 'fixed' ? slab.value : (stampDutyBase * slab.value / 100);
-            }
+            collectorValue = normalizedArea * rate.rate * multiplierFactor;
+        } else if (rate.rateApplyOn === 'Built-up Area') {
+            const builtUpValue = inventory.builtUpArea?.value || 0;
+            const builtUpUnit = inventory.builtUpArea?.unit || 'Sq Ft';
+            const normalizedBuiltUp = convertArea(builtUpValue, builtUpUnit, rate.rateUnit);
+            collectorValue = normalizedBuiltUp * rate.rate * multiplierFactor;
         } else {
-            registrationAmount = stampDutyBase * (config.registrationPercent / 100);
+            // Mixed: Land + Built-up (simplified to Land area if no separate rates exist, or use construction rate)
+            collectorValue = normalizedArea * rate.rate * multiplierFactor;
+            if (rate.constructionRateSqFt && inventory.builtUpArea?.value) {
+                collectorValue += (inventory.builtUpArea.value * rate.constructionRateSqFt);
+            }
         }
 
-        const totalCharges = stampDutyAmount + registrationAmount + (config.legalFees || 0);
+        // 5. Registry Value Logic based on Transaction Type
+        const marketPrice = parseFloat(customMarketPrice || deal.price) || 0;
+        const transactionType = deal.transactionType || 'Full White';
+        const flexiblePercentage = (deal.flexiblePercentage !== undefined && deal.flexiblePercentage !== null) ? parseFloat(deal.flexiblePercentage) : 100;
+
+        let registryValue = marketPrice; // Default to Full White
+
+        if (transactionType === 'Collector Rate') {
+            registryValue = collectorValue;
+        } else if (transactionType === 'Flexible') {
+            registryValue = marketPrice * (flexiblePercentage / 100);
+        }
+
+        // Legal Safety: Registry should not be below Collector Rate
+        const stampDutyBase = Math.max(registryValue, collectorValue);
+
+        // 6. Get State-Specific Config for Taxes
+        let config = await SystemSetting.findOne({ 
+            category: 'govt_charges_config', 
+            'value.state': stateId 
+        }).lean();
+
+        // Fallback to global config if state-specific not found
+        if (!config) {
+            config = await SystemSetting.findOne({ category: 'govt_charges_config' }).lean();
+        }
+
+        const configValues = config?.value || {
+            stampDutyMale: 7, stampDutyFemale: 5, stampDutyJoint: 6,
+            registrationPercent: 1, legalFees: 15000
+        };
+
+        // 7. Final Calculations
+        let stampDutyPercent = configValues.stampDutyMale || 7;
+        if (buyerGender === 'female') stampDutyPercent = configValues.stampDutyFemale || 5;
+        else if (buyerGender === 'joint') stampDutyPercent = configValues.stampDutyJoint || 6;
+
+        const stampDutyAmount = (stampDutyBase * stampDutyPercent) / 100;
+        const registrationAmount = (stampDutyBase * (configValues.registrationPercent || 1)) / 100;
+        const totalCharges = stampDutyAmount + registrationAmount + (configValues.legalFees || 15000);
+
+        const breakdown = {
+            baseRate: rate.rate,
+            rateUnit: rate.rateUnit,
+            multiplierFactor,
+            collectorValue,
+            stampDutyBase,
+            stampDutyPercent,
+            registrationPercent: configValues.registrationPercent || 1,
+            legalFees: configValues.legalFees || 15000
+        };
 
         res.json({
             status: "success",
             data: {
-                collectorValue,
                 marketPrice,
+                collectorValue,
                 stampDutyBase,
                 stampDutyAmount,
                 registrationAmount,
-                legalFees: config.legalFees,
+                legalFees: configValues.legalFees || 15000,
                 totalCharges,
+                transactionType,
+                flexiblePercentage,
                 breakdown,
                 matchedRate: {
                     id: rate._id,
-                    category: rate.category,
-                    subCategory: rate.subCategory,
-                    location: rate.location?.lookup_value
+                    configName: rate.configName
                 }
             }
         });
 
     } catch (error) {
+        console.error("Valuation Error:", error);
         res.status(500).json({ status: "error", message: error.message });
     }
 };

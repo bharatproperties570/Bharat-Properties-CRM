@@ -2,18 +2,12 @@ import React, { useMemo, useState } from 'react';
 import {
     CheckCircle,
     Circle,
-    Clock,
-    Calendar,
     Users,
     Home,
     TrendingUp,
-    ChevronRight,
     AlertCircle,
-    ArrowRight,
     Phone,
     FileText,
-    DollarSign,
-    Shield,
     X,
     Activity as ActivityIcon
 } from 'lucide-react';

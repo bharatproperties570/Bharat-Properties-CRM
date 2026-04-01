@@ -404,7 +404,7 @@ export const updateContact = async (req, res, next) => {
     }
 };
 
-export const getContactUsage = async (req, res, next) => {
+export const getContactUsage = async (req, res) => {
     try {
         const { id } = req.params;
         const contact = await Contact.findById(id);

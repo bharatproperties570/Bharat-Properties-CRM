@@ -1,11 +1,10 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useParsing } from '../../../context/ParsingContext';
-import { usePropertyConfig } from '../../../context/PropertyConfigContext';
+
 import { parseDealContent } from '../../../utils/dealParser';
 
 const ParsingRulesPage = ({ isEmbedded = false }) => {
     const { cities, locations, types: parserTypes, addKeyword, removeKeyword } = useParsing();
-    const { propertyTypes } = usePropertyConfig(); // Assuming we might want to sync later, but for now independent
 
     const [newCity, setNewCity] = useState('');
     const [newLocation, setNewLocation] = useState('');

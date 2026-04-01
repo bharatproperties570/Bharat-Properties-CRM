@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Toast from '../../../components/Toast';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { generateCSV, downloadFile } from '../../../utils/dataManagementUtils';
@@ -23,9 +23,7 @@ const CustomizeProjectPage = () => {
         setNotification({ show: true, message, type });
     };
 
-    const handleSave = () => {
-        setNotification({ show: true, message: 'Project settings saved', type: 'success' });
-    };
+
 
     // --- CRUD for Project Master Fields ---
     const handleSaveNewItem = () => {

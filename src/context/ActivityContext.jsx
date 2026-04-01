@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { api, activitiesAPI } from '../utils/api';
+import { createContext, useContext, useState, useEffect } from 'react';
+import { activitiesAPI } from '../utils/api';
 
 const ActivityContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useActivities = () => {
     const context = useContext(ActivityContext);
     if (!context) {
@@ -115,7 +116,10 @@ export const ActivityProvider = ({ children }) => {
     };
 
     useEffect(() => {
-        fetchActivities();
+        const token = localStorage.getItem('authToken');
+        if (token) {
+            fetchActivities();
+        }
     }, []);
 
     return (

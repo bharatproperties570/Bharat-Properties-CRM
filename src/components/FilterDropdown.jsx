@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 function FilterDropdown({ isOpen, onClose, filters, setFilters, onApply, onClearAll, buttonRef }) {
     const dropdownRef = useRef(null);
@@ -48,7 +48,7 @@ function FilterDropdown({ isOpen, onClose, filters, setFilters, onApply, onClear
 
     const getActiveFilterCount = () => {
         let count = 0;
-        Object.entries(filters).forEach(([key, value]) => {
+        Object.values(filters).forEach((value) => {
             if (Array.isArray(value)) count += value.length;
             else if (value) count += 1;
         });

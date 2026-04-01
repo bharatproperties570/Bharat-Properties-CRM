@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../../../utils/api';
 import { toast } from 'react-hot-toast';
 import FeedbackFormBuilder from '../../../components/FeedbackFormBuilder/FeedbackFormBuilder';
@@ -7,7 +7,7 @@ const FeedbackSettingsPage = () => {
     const [view, setView] = useState('list');
     const [forms, setForms] = useState([]);
     const [selectedForm, setSelectedForm] = useState(null);
-    const [isLoading, setIsLoading] = useState(true);
+
 
     useEffect(() => {
         fetchForms();
@@ -15,13 +15,10 @@ const FeedbackSettingsPage = () => {
 
     const fetchForms = async () => {
         try {
-            setIsLoading(true);
             const response = await api.get('/feedback-forms');
             setForms(response.data.data);
         } catch (error) {
             toast.error('Failed to fetch feedback forms');
-        } finally {
-            setIsLoading(false);
         }
     };
 

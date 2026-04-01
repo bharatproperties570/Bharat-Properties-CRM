@@ -1,6 +1,6 @@
 import connectDB from "./config/db.js";
 import config from "./config/env.js";
-import mongoose from "mongoose";
+
 import fs from 'fs';
 import path from 'path';
 
@@ -9,12 +9,15 @@ import { cronQueue, googleSyncQueue } from "./queues/queueManager.js";
 import "./workers/enrichmentWorker.js";
 import "./workers/cronWorker.js";
 import "./workers/googleSyncWorker.js";
+import NurtureBot from "../services/NurtureBot.js";
 
 const logStartup = (msg) => {
     const logPath = path.join(process.cwd(), 'startup.log');
     try {
         fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${msg}\n`);
-    } catch (e) { }
+    } catch (e) {
+        // Silently ignore startup logging errors
+    }
 };
 
 process.on('uncaughtException', (err) => {
@@ -29,6 +32,16 @@ process.on('unhandledRejection', (reason, promise) => {
     if (process.env.NODE_ENV === 'production') {
         process.exit(1);
     }
+});
+
+// Prevent EPIPE errors from crashing the process when stdout/stderr pipes are broken
+process.stdout.on('error', (err) => {
+    if (err.code === 'EPIPE') return;
+    console.error('Stdout error:', err);
+});
+process.stderr.on('error', (err) => {
+    if (err.code === 'EPIPE') return;
+    console.error('Stderr error:', err);
 });
 
 /**
@@ -54,17 +67,36 @@ async function startServer() {
         try {
             cronQueue.add('dailyInactivityCheck', {}, {
                 repeat: { pattern: '0 2 * * *' }
-            }).catch(() => { });
+            }).catch(() => {
+                // Silently ignore queue addition errors
+            });
 
             cronQueue.add('followUpReminders', {}, {
                 repeat: { pattern: '0 * * * *' }
-            }).catch(() => { });
+            }).catch(() => {
+                // Silently ignore queue addition errors
+            });
             googleSyncQueue.add('processEmails', {}, {
                 repeat: { pattern: '*/15 * * * *' }
-            }).catch(() => { });
+            }).catch(() => {
+                // Silently ignore queue addition errors
+            });
         } catch (queueErr) {
             console.warn("⚠️  BullMQ/Redis not fully available locally.");
         }
+
+        // --- 🤖 UNIVERSAL CRON FALLBACK (NurtureBot) ---
+        // Runs every hour to advance leads through the Nurture Flow automatically.
+        const NURTURE_INTERVAL = 60 * 60 * 1000; // 1 Hour
+        setInterval(() => {
+            console.log(`[Autonomous Agent] Triggering NurtureBot cycle: ${new Date().toLocaleTimeString()}`);
+            NurtureBot.processPendingLeads().catch(err => 
+                console.error('[Autonomous Agent] NurtureBot cycle error:', err.message)
+            );
+        }, NURTURE_INTERVAL);
+
+        // Run immediately on startup
+        NurtureBot.processPendingLeads().catch(() => {});
 
     } catch (err) {
         console.error("❌ Critical Startup Error:", err);

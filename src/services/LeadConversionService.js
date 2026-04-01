@@ -1,5 +1,6 @@
 // Mock data removed
 import { calculateLeadScore } from '../utils/leadScoring';
+import { contactData } from '../data/mockData';
 
 /**
  * Service to handle Lead to Contact conversion logic

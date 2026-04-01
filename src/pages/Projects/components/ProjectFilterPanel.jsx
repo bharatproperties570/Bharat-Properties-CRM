@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { PROPERTY_CATEGORIES } from '../../../constants/propertyConstants';
@@ -177,7 +177,7 @@ const ProjectFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                 }
             });
         }
-    }, [isOpen, filters]);
+    }, [isOpen, filters, onFilterChange]);
 
     // Options Logic
     const selectedCategories = filters.category || [];

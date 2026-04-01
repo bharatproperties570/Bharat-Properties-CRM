@@ -23,6 +23,7 @@ enrichmentWorker.on('failed', (job, err) => {
     console.error(`[Enrichment Worker] Job ${job?.id} failed with error ${err.message}`);
 });
 
+// eslint-disable-next-line no-unused-vars
 enrichmentWorker.on('error', err => {
     // console.warn('⚠️ [Enrichment Worker] Redis Offline, suppressing crash...');
 });

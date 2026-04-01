@@ -30,7 +30,7 @@ export const ENFORCEMENT_MODES = {
  * @param {string} enforcementMode - 'off' | 'warn' | 'block'
  * @returns {{ valid: boolean, mode: string, warning: string|null, skippedStages: string[] }}
  */
-export const validateStageTransition = (fromStage, toStage, completedActivities = [], enforcementMode = ENFORCEMENT_MODES.WARN) => {
+export const validateStageTransition = (fromStage, toStage, enforcementMode = ENFORCEMENT_MODES.WARN) => {
     if (enforcementMode === ENFORCEMENT_MODES.OFF) {
         return { valid: true, mode: enforcementMode, warning: null, skippedStages: [] };
     }

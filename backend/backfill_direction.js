@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import Inventory from './models/Inventory.js';
-import Lookup from './models/Lookup.js'; // Added to register the schema
+
 
 dotenv.config({ path: './.env' });
 

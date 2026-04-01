@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useActivities } from '../context/ActivityContext';
 import { renderValue } from '../utils/renderUtils';
 
-const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
+const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialIntent }) => {
     const { masterFields } = usePropertyConfig();
     const { addActivity } = useActivities(); // Access Activities Context
     const [formData, setFormData] = useState({
@@ -48,11 +48,19 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
             tomorrow.setDate(tomorrow.getDate() + 1);
             const dateStr = tomorrow.toISOString().split('T')[0];
 
+            let initialResult = '', initialReason = '';
+            if (initialIntent) {
+                initialResult = 'Interested / Warm';
+                if (initialIntent === 'Sell') initialReason = 'For Sale';
+                else if (initialIntent === 'Rent') initialReason = 'For Rent';
+                else if (initialIntent === 'Lease') initialReason = 'For Lease';
+            }
+
             setFormData({
                 selectedOwner: initialOwner,
                 selectedOwnerRole: initialRole,
-                result: '',
-                reason: '',
+                result: initialResult,
+                reason: initialReason,
                 feedback: '',
                 nextActionType: 'Call',
                 nextActionDate: dateStr,
@@ -134,7 +142,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
             else if (activeTriggers.sms) setPreviewChannel('sms');
             else if (activeTriggers.email) setPreviewChannel('email');
         }
-    }, [formData.result, formData.reason, formData.selectedOwner, formData.nextActionDate, formData.nextActionTime, inventory?.unitNo, masterFields.responseTemplates, masterFields.feedbackRules, activeTriggers.whatsapp, activeTriggers.sms, activeTriggers.email]);
+    }, [formData.result, formData.reason, formData.selectedOwner, formData.nextActionDate, formData.nextActionTime, inventory, masterFields.responseTemplates, masterFields.feedbackRules, activeTriggers.whatsapp, activeTriggers.sms, activeTriggers.email]);
 
     // Smart Follow-up Automation (Rule-Based)
     useEffect(() => {
@@ -165,7 +173,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
         } else if (formData.result === 'Not Interested' || formData.result === 'Wrong Number / Invalid') {
             setScheduleFollowUp(false);
         }
-    }, [formData.result, formData.reason, masterFields.feedbackRules]);
+    }, [formData.result, formData.reason, inventory, masterFields.feedbackRules]);
 
     if (!isOpen || !inventory) return null;
 
@@ -255,7 +263,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
             onSave(formData);
 
             // 1. Log Automated Messages (Triggers)
-            const activeTriggersList = Object.entries(activeTriggers).filter(([_, isActive]) => isActive).map(([ch]) => ch.toUpperCase());
+            const activeTriggersList = Object.entries(activeTriggers).filter(([, isActive]) => isActive).map(([ch]) => ch.toUpperCase());
 
             Object.entries(activeTriggers).forEach(([channel, isActive]) => {
                 if (isActive && channelMessages[channel]) {
@@ -410,7 +418,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
                     <div style={{ padding: '16px 24px', flex: 1, overflowY: 'auto' }}>
                         <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '16px' }}>Interaction Timeline</div>
                         <div className="timeline">
-                            {history.map((item, idx) => (
+                            {history.map((item) => (
                                 <div key={item.id} style={{ position: 'relative', paddingLeft: '24px', paddingBottom: '24px' }}>
                                     <div style={{ position: 'absolute', left: '0', top: '4px', width: '12px', height: '12px', borderRadius: '50%', background: '#3b82f6', border: '2px solid #dbeafe', boxSizing: 'border-box' }}></div>
 
@@ -510,11 +518,14 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave }) => {
                                     {ownersList.map((o, idx) => <option key={idx} value={o.name}>{o.label}</option>)}
                                 </select>
                             </div>
-                            <div style={{ paddingBottom: '4px' }}>
+                             <div style={{ paddingBottom: '4px' }}>
                                 <label style={labelStyle}>Target status</label>
                                 {(() => {
                                     const rule = (masterFields.feedbackRules?.[formData.result]?.[formData.reason]) || {};
-                                    const isInactive = rule.inventoryStatus === 'InActive' && formData.markAsSold;
+                                    const isInactiveManual = formData.markAsSold;
+                                    const isInactiveResult = ['Not Interested', 'Wrong Number / Invalid'].includes(formData.result);
+                                    const isInactive = rule.inventoryStatus === 'InActive' || isInactiveManual || isInactiveResult;
+                                    
                                     const label = isInactive ? 'Inactive' : 'Active';
                                     const color = isInactive ? '#64748b' : '#10b981';
                                     return (

@@ -315,7 +315,7 @@ export const getListings = async (req, res) => {
 // 2. Fetch all published projects
 export const getProjects = async (req, res) => {
     try {
-        const { status, city: cityName, limit = 10 } = req.query;
+        const { status, city: cityName } = req.query;
         let query = { isPublished: true };
 
         // City Filtering: Search in address.city OR locationSearch

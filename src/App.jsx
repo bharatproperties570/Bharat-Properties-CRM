@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { Toaster } from 'react-hot-toast';
 import AppRouter from './router/AppRouter';
 import MainLayout from './layouts/MainLayout';
@@ -47,6 +47,7 @@ const AppContent = () => {
         if (path.startsWith('/inventory/')) return 'inventory-detail';
         if (path === '/contacts') return 'contacts';
         if (path === '/inventory') return 'inventory';
+        if (path === '/marketings') return 'marketings';
         if (path === '/leads') return 'leads';
         if (path.startsWith('/company/')) return 'company-detail';
         if (path === '/company') return 'company';
@@ -72,6 +73,7 @@ const AppContent = () => {
         if (path.startsWith('/settings/')) return 'settings';
         if (path.startsWith('/google-callback')) return 'google-callback';
         if (path === '/marketing') return 'marketing';
+        if (path === '/marketing-overview') return 'marketing-overview';
         if (path === '/activities') return 'activities';
         return 'dashboard';
     });
@@ -108,21 +110,25 @@ const AppContent = () => {
 
     // Custom Navigation Handler
     const handleNavigate = (view, contactId = null) => {
+        if (view === currentView && view === 'inventory') {
+            window.dispatchEvent(new CustomEvent('inventory-reset'));
+        }
         setCurrentView(view);
         setCurrentContactId(contactId);
 
         let url = '/';
         if (view === 'contacts') url = '/contacts';
         else if (view === 'inventory') url = '/inventory';
+        else if (view === 'marketings') url = '/marketings';
         else if (view === 'contact-detail' && contactId) url = `/contacts/${contactId}`;
         else if (view === 'inventory-detail' && contactId) url = `/inventory/${contactId}`;
         else if (view === 'deal-detail' && contactId) url = `/deals/${contactId}`;
         else if (view === 'deal-matching' && contactId) url = `/deals/match/${contactId}`;
         else if (view === 'lead-matching' && contactId) url = `/leads/match/${contactId}`;
         else if (view === 'project-detail' && contactId) url = `/projects/${contactId}`;
-        else if (view === 'project-detail' && contactId) url = `/projects/${contactId}`;
         else if (view === 'company-detail' && contactId) url = `/company/${contactId}`;
         else if (view === 'dashboard') url = '/';
+        else if (view === 'marketing-overview') url = '/marketing-overview';
         else url = `/${view}`;
 
         window.history.pushState({ view, contactId }, '', url);
@@ -172,6 +178,8 @@ const AppContent = () => {
                     setCurrentView('forgot-password');
                 } else if (path.startsWith('/reset-password/')) {
                     setCurrentView('reset-password');
+                } else if (path === '/marketing-overview') {
+                    setCurrentView('marketing-overview');
                 } else {
                     setCurrentView('dashboard');
                 }

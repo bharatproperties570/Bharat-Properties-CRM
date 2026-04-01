@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { evaluateSequenceTrigger, calculateStepExecutionTime } from '../utils/sequenceEngine';
 
 const SequenceContext = createContext();
@@ -161,4 +161,5 @@ export const SequenceProvider = ({ children }) => {
     );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useSequences = () => useContext(SequenceContext);

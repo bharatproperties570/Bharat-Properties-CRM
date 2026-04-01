@@ -4,7 +4,7 @@ import AuditLog from "../models/AuditLog.js";
 import Lead from "../models/Lead.js";
 import Deal from "../models/Deal.js";
 import { enrichmentQueue, googleSyncQueue } from "../src/queues/queueManager.js";
-import { updateLeadStage } from "./stage.controller.js";
+
 import StageTransitionEngine from "../src/services/StageTransitionEngine.js";
 import LeadScoringService from "../src/services/LeadScoringService.js";
 import { createNotification } from "./notification.controller.js";
@@ -139,7 +139,7 @@ const escapeRegExp = (string) => {
 };
 // @desc    Get activities for a specific entity
 // @route   GET /api/activities/entity/:entityType/:entityId
-export const getActivitiesByEntity = async (req, res, next) => {
+export const getActivitiesByEntity = async (req, res) => {
     try {
         const { entityType, entityId } = req.params;
         const escapedEntityType = escapeRegExp(entityType);

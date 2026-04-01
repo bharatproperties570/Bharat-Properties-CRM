@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { api, lookupsAPI } from '../../../utils/api';
 import toast from 'react-hot-toast';
 
@@ -27,7 +27,7 @@ const DealSettingsPage = () => {
     const [viewMode, setViewMode] = useState('list');
 
     // --- State ---
-    const [loading, setLoading] = useState(true);
+    const [, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
     // Global Config State

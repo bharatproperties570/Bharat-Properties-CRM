@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, memo, Fragment } from 'react';
 import { useActivities } from '../../context/ActivityContext';
 import CreateActivityModal from '../../components/CreateActivityModal';
 import ActivityOutcomeModal from '../../components/ActivityOutcomeModal';
@@ -6,10 +6,11 @@ import ActivityFilterPanel from './components/ActivityFilterPanel';
 import { applyActivityFilters } from '../../utils/activityFilterLogic';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 import { STAGE_PIPELINE } from '../../utils/stageEngine';
-// Note: Stage update logic is handled inside ActivityOutcomeModal via useStageEngine
+
+// ─── MEMOIZED SUB-COMPONENTS ──────────────────────────────────────────────────
 
 // Colored stage chip using STAGE_PIPELINE data
-const LeadStageChip = ({ stage }) => {
+const LeadStageChip = memo(function LeadStageChip({ stage }) {
     const info = STAGE_PIPELINE.find(s => s.label === stage) || STAGE_PIPELINE[0];
     if (!stage) return <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic' }}>--</span>;
     return (
@@ -24,14 +25,192 @@ const LeadStageChip = ({ stage }) => {
             {stage}
         </span>
     );
-};
+});
+LeadStageChip.displayName = 'LeadStageChip';
+
+
+const ActivityRow = memo(function ActivityRow({
+    activity,
+    isSelected,
+    toggleSelect,
+    selectedActivityId,
+    setSelectedActivity,
+    setIsOutcomeModalOpen
+}) {
+    const isRowSelected = selectedActivityId === activity._id;
+
+    return (
+        <div
+            onClick={() => setSelectedActivity(activity)}
+            style={{
+                padding: '18px 20px',
+                marginBottom: '8px',
+                borderRadius: '8px',
+                border: isRowSelected ? '2px solid #10b981' : '1px solid #e2e8f0',
+                background: isRowSelected ? '#f0fdf4' : '#fff',
+                display: 'grid',
+                gridTemplateColumns: '40px 200px 150px 300px 120px 300px 120px 120px 120px 100px',
+                gap: '1rem',
+                alignItems: 'center',
+                transition: 'all 0.2s',
+                cursor: 'pointer',
+                boxShadow: isRowSelected ? '0 4px 12px rgba(16, 185, 129, 0.1)' : '0 1px 2px rgba(0,0,0,0.04)',
+                minWidth: '1700px'
+            }}
+        >
+            {/* Checkbox */}
+            <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={(e) => {
+                    e.stopPropagation();
+                    toggleSelect(activity._id);
+                }}
+            />
+
+            {/* Details */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
+                <div className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{activity.relatedTo?.[0]?.name || 'Unknown Client'}</div>
+                <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600 }}>
+                    <i className="fas fa-phone" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>{activity.participants?.[0]?.mobile || '--'}
+                </div>
+                {activity.contactEmail && (
+                    <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                        <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>{activity.contactEmail}
+                    </div>
+                )}
+            </div>
+
+            {/* Scheduled Date */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <div style={{ fontSize: '0.8rem', color: '#0f172a', fontWeight: 700 }}>
+                    <i className="far fa-calendar" style={{ marginRight: '4px', color: '#6366f1' }}></i>
+                    {activity.dueDate ? new Date(activity.dueDate).toLocaleDateString() : '--'}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                    <i className="far fa-clock" style={{ marginRight: '4px' }}></i>
+                    {activity.dueTime || '--'}
+                </div>
+            </div>
+
+            {/* Agenda */}
+            <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.5, overflow: 'hidden' }}>
+                <div className="address-clamp" style={{ fontStyle: 'italic' }}>{activity.subject}</div>
+            </div>
+
+            {/* Activity Type */}
+            <div>
+                <span style={{
+                    fontSize: '0.7rem',
+                    padding: '5px 12px',
+                    borderRadius: '16px',
+                    fontWeight: 700,
+                    background: activity.type === 'Meeting' ? '#dbeafe' : activity.type === 'Call' ? '#fef3c7' : '#d1fae5',
+                    color: activity.type === 'Meeting' ? '#1e40af' : activity.type === 'Call' ? '#92400e' : '#065f46',
+                }}>
+                    {activity.type}
+                </span>
+            </div>
+
+            {/* Project / Feedback / Details */}
+            <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.5, overflow: 'hidden' }}>
+                {activity.details?.visitedProperties?.[0]?.project && (
+                    <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#0891b2', fontWeight: 600, marginBottom: '4px' }}>
+                        <i className="fas fa-building" style={{ marginRight: '4px' }}></i>{activity.details.visitedProperties[0].project}
+                    </div>
+                )}
+                {activity.description && (
+                    <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600, padding: '4px 8px', background: '#d1fae5', borderRadius: '4px', borderLeft: '3px solid #10b981', marginBottom: '4px' }}>
+                        <i className="fas fa-comment-dots" style={{ marginRight: '4px' }}></i>{activity.description}
+                    </div>
+                )}
+                {activity.details && Object.keys(activity.details).length > 0 && typeof activity.details === 'object' && !Array.isArray(activity.details) && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        {Object.entries(activity.details).filter(([k, v]) => v && typeof v === 'string' && k !== 'visitedProperties').slice(0, 2).map(([key, value], i) => (
+                            <span key={i} title={`${key}: ${value}`} className="text-ellipsis" style={{ maxWidth: '100%', fontSize: '0.65rem', background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                                <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{key}</span>: {value}
+                            </span>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Scheduled By */}
+            <div className="text-ellipsis" style={{ fontSize: '0.8rem', color: '#334155', fontWeight: 600 }}>
+                {activity.scheduledBy || activity.scheduled || '--'}
+            </div>
+
+            {/* Scheduled For */}
+            <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                {activity.details?.purpose || '--'}
+            </div>
+
+            {/* Stage / Status */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
+                {activity.relatedTo?.[0]?.stage && (
+                    <LeadStageChip stage={activity.relatedTo[0].stage} />
+                )}
+                <span style={{
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    padding: '3px 8px',
+                    borderRadius: '10px',
+                    background: activity.status?.toLowerCase() === 'completed'
+                        ? '#d1fae5'
+                        : activity.status?.toLowerCase() === 'overdue'
+                            ? '#fee2e2'
+                            : '#fffbeb',
+                    color: activity.status?.toLowerCase() === 'completed'
+                        ? '#065f46'
+                        : activity.status?.toLowerCase() === 'overdue'
+                            ? '#991b1b'
+                            : '#92400e',
+                    width: 'fit-content'
+                }}>
+                    {activity.status}
+                </span>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                {activity.status?.toLowerCase() !== 'completed' && (
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedActivity(activity);
+                            setIsOutcomeModalOpen(true);
+                        }}
+                        style={{
+                            padding: '6px 12px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            background: '#10b981',
+                            color: '#fff',
+                            fontSize: '0.7rem',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)'
+                        }}
+                        title="Log Outcome"
+                    >
+                        Complete
+                    </button>
+                )}
+            </div>
+        </div>
+    );
+});
+ActivityRow.displayName = 'ActivityRow';
+
+
+// ─── MAIN ACTIVITIES PAGE ───────────────────────────────────────────────────
 
 function ActivitiesPage() {
-    const { activities, loading, fetchActivities, addActivity } = useActivities();
+    const { activities, fetchActivities, addActivity } = useActivities();
 
     // UI State
-    const [viewMode, setViewMode] = useState('list'); // 'list' or 'calendar'
-    const [calendarView, setCalendarView] = useState('month'); // 'month', 'week', 'day'
+    const [viewMode, setViewMode] = useState('list'); 
+    const [calendarView, setCalendarView] = useState('month'); 
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedActivity, setSelectedActivity] = useState(null);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -47,19 +226,18 @@ function ActivitiesPage() {
     // Filter State
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
-
-    // Filter Handlers
-    const handleRemoveFilter = (key) => {
-        const newFilters = { ...filters };
-        delete newFilters[key];
-        setFilters(newFilters);
-    };
-
-    const handleClearAll = () => {
-        setFilters({});
-    };
-
     const [searchTerm, setSearchTerm] = useState('');
+
+    // Handlers
+    const handleRemoveFilter = useCallback((key) => {
+        setFilters(prev => {
+            const next = { ...prev };
+            delete next[key];
+            return next;
+        });
+    }, []);
+
+    const handleClearAll = useCallback(() => setFilters({}), []);
 
     const handleSaveActivity = async (backendData) => {
         try {
@@ -70,97 +248,85 @@ function ActivitiesPage() {
         }
     };
 
-    // "Complete" action: open outcome modal with correct activity pre-set
-    // ActivityOutcomeModal internally calls triggerStageUpdate(leadId, type, purpose, outcome)
-    // — all 4 params passed — Bug 2 fixed by routing through the modal.
     const handleOpenCompleteModal = useCallback((activity) => {
         setSelectedActivity(activity);
         setIsOutcomeModalOpen(true);
     }, []);
 
-    const toggleSelect = (id) => {
+    const toggleSelect = useCallback((id) => {
         setSelectedIds(prev =>
             prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
         );
-    };
+    }, []);
 
-    const toggleSelectAll = () => {
-        setSelectedIds(prev =>
-            prev.length === filteredActivities.length ? [] : filteredActivities.map(a => a._id)
-        );
-    };
-
-    // Filter Logic
     const filteredActivities = useMemo(() => {
         return applyActivityFilters(activities, filters, searchTerm);
     }, [activities, filters, searchTerm]);
 
-    // Helpers for Quick Filters (Pills)
-    const activeType = filters.activityType?.[0] || 'All'; // Simplified for UI pill checks
-    const activeStatus = filters.status?.[0] || 'All'; // Simplified for Tab checks
+    const toggleSelectAll = useCallback(() => {
+        setSelectedIds(prev =>
+            prev.length === filteredActivities.length ? [] : filteredActivities.map(a => a._id)
+        );
+    }, [filteredActivities]);
 
-    const setQuickTypeFilter = (type) => {
+    const activeType = filters.activityType?.[0] || 'All';
+
+    const setQuickTypeFilter = useCallback((type) => {
         if (type === 'All') {
-            const { activityType, ...rest } = filters;
-            setFilters(rest);
+            setFilters(prev => {
+                const rest = { ...prev };
+                delete rest.activityType;
+                return rest;
+            });
         } else {
             setFilters(prev => ({ ...prev, activityType: [type] }));
         }
-    };
+    }, []);
 
-    const setQuickStatusFilter = (statusTab) => {
-        // Map Tabs to Filters
-        let newFilters = { ...filters };
+    const setQuickStatusFilter = useCallback((statusTab) => {
+        setFilters(prev => {
+            let next = { ...prev };
+            delete next.dateRange;
+            delete next.status;
 
-        // Reset Date Range and Status first if switching tabs broadly
-        delete newFilters.dateRange;
-        delete newFilters.status;
+            if (statusTab === 'Today') {
+                const today = new Date().toISOString().split('T')[0];
+                next.dateRange = { start: today, end: today };
+            } else if (statusTab === 'Upcoming') {
+                const tomorrow = new Date();
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                const dateStr = tomorrow.toISOString().split('T')[0];
+                next.dateRange = { start: dateStr };
+                next.status = ['Pending', 'Upcoming'];
+            } else if (statusTab === 'Overdue') {
+                next.status = ['Overdue'];
+            } else if (statusTab === 'Completed') {
+                next.status = ['Completed'];
+            } else if (statusTab === 'Custom') {
+                setIsFilterPanelOpen(true);
+            }
+            return next;
+        });
+    }, []);
 
-        if (statusTab === 'Today') {
-            const today = new Date().toISOString().split('T')[0];
-            newFilters.dateRange = { start: today, end: today };
-        } else if (statusTab === 'Upcoming') {
-            const tomorrow = new Date();
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            const dateStr = tomorrow.toISOString().split('T')[0];
-            newFilters.dateRange = { start: dateStr };
-            newFilters.status = ['Pending', 'Upcoming']; // Ensure we don't see completed?
-        } else if (statusTab === 'Overdue') {
-            newFilters.status = ['Overdue'];
-        } else if (statusTab === 'Completed') {
-            newFilters.status = ['Completed'];
-        } else if (statusTab === 'Custom') {
-            // Keep existing date range if set, or open panel? 
-            // For now just set a marker or minimal range
-            setIsFilterPanelOpen(true);
-        }
-
-        setFilters(newFilters);
-    };
-
-    // Pagination Helpers
     const totalRecords = filteredActivities.length;
     const totalPages = Math.ceil(totalRecords / recordsPerPage);
-    const paginatedActivities = filteredActivities.slice(
-        (currentPage - 1) * recordsPerPage,
-        currentPage * recordsPerPage
-    );
+    const paginatedActivities = useMemo(() => {
+        return filteredActivities.slice(
+            (currentPage - 1) * recordsPerPage,
+            currentPage * recordsPerPage
+        );
+    }, [filteredActivities, currentPage, recordsPerPage]);
 
-    const goToNextPage = () => {
-        if (currentPage < totalPages) setCurrentPage(currentPage + 1);
-    };
-
-    const goToPreviousPage = () => {
-        if (currentPage > 1) setCurrentPage(currentPage - 1);
-    };
+    const goToNextPage = () => { if (currentPage < totalPages) setCurrentPage(currentPage + 1); };
+    const goToPreviousPage = () => { if (currentPage > 1) setCurrentPage(currentPage - 1); };
 
     const handleRecordsPerPageChange = (e) => {
         setRecordsPerPage(Number(e.target.value));
         setCurrentPage(1);
     };
 
-    // Helper to determine active tab based on filters
-    const getActiveTabRaw = () => {
+    const getActiveTabRaw = useCallback(() => {
         if (filters.status?.includes('Overdue')) return 'Overdue';
         if (filters.status?.includes('Completed')) return 'Completed';
         if (filters.dateRange) {
@@ -169,31 +335,29 @@ function ActivitiesPage() {
             if (filters.dateRange.start > today) return 'Upcoming';
             return 'Custom';
         }
-        return 'All'; // Default fallback, though "All" isn't a tab. 'Today' was default.
-    };
+        return 'All';
+    }, [filters]);
 
-    // Determine active tab for UI
     const currentTab = getActiveTabRaw() === 'All' ? 'Today' : getActiveTabRaw();
 
-    // Calendar logic
-    const getDaysInMonth = (date) => new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-    const getFirstDayOfMonth = (date) => new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+    const changeDate = useCallback((offset) => {
+        setCurrentDate(prev => {
+            const next = new Date(prev);
+            if (calendarView === 'month') {
+                next.setMonth(prev.getMonth() + offset);
+            } else if (calendarView === 'week') {
+                next.setDate(prev.getDate() + (offset * 7));
+            } else {
+                next.setDate(prev.getDate() + offset);
+            }
+            return next;
+        });
+    }, [calendarView]);
 
-    const changeDate = (offset) => {
-        const newDate = new Date(currentDate);
-        if (calendarView === 'month') {
-            newDate.setMonth(currentDate.getMonth() + offset);
-        } else if (calendarView === 'week') {
-            newDate.setDate(currentDate.getDate() + (offset * 7));
-        } else {
-            newDate.setDate(currentDate.getDate() + offset);
-        }
-        setCurrentDate(newDate);
-    };
-
-    const renderMiniCalendar = () => {
-        const daysInMonth = getDaysInMonth(currentDate);
-        const firstDay = getFirstDayOfMonth(currentDate);
+    // Calendar Renderers (Moved inside useMemo or left as stable functions if possible)
+    const miniCalendar = useMemo(() => {
+        const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+        const firstDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay();
         const days = [];
 
         for (let i = 0; i < firstDay; i++) {
@@ -204,13 +368,10 @@ function ActivitiesPage() {
             const isToday = new Date().toDateString() === new Date(currentDate.getFullYear(), currentDate.getMonth(), d).toDateString();
             days.push(
                 <div key={d} style={{
-                    padding: '4px',
-                    textAlign: 'center',
-                    fontSize: '0.75rem',
+                    padding: '4px', textAlign: 'center', fontSize: '0.75rem',
                     color: isToday ? '#fff' : '#475569',
                     background: isToday ? '#10b981' : 'transparent',
-                    borderRadius: '50%',
-                    fontWeight: isToday ? 800 : 400,
+                    borderRadius: '50%', fontWeight: isToday ? 800 : 400,
                     cursor: 'pointer'
                 }}>
                     {d}
@@ -237,23 +398,21 @@ function ActivitiesPage() {
                 </div>
             </div>
         );
-    };
+    }, [currentDate, changeDate]);
 
-    const renderCalendar = () => {
+    const mainCalendar = useMemo(() => {
         const monthName = currentDate.toLocaleString('default', { month: 'long' });
         const year = currentDate.getFullYear();
 
         const renderMonthPage = () => {
-            const daysInMonth = getDaysInMonth(currentDate);
-            const firstDay = getFirstDayOfMonth(currentDate);
+            const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
+            const firstDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay();
             const days = [];
 
-            // Previous month padding
             for (let i = 0; i < firstDay; i++) {
                 days.push(<div key={`prev-${i}`} className="calendar-day padding" style={{ minHeight: '130px', background: '#f8fafc', border: '1px solid #e2e8f0' }}></div>);
             }
 
-            // Current month days
             for (let d = 1; d <= daysInMonth; d++) {
                 const isToday = new Date().toDateString() === new Date(currentDate.getFullYear(), currentDate.getMonth(), d).toDateString();
                 const dateStr = `${year}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -263,30 +422,8 @@ function ActivitiesPage() {
                 });
 
                 days.push(
-                    <div key={d} className="calendar-day" style={{
-                        minHeight: '130px',
-                        background: '#fff',
-                        border: '1px solid #e2e8f0',
-                        padding: '10px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '6px',
-                        transition: 'all 0.2s',
-                        position: 'relative'
-                    }}>
-                        <div style={{
-                            fontWeight: 800,
-                            fontSize: '0.8rem',
-                            color: isToday ? '#fff' : '#475569',
-                            background: isToday ? '#10b981' : 'transparent',
-                            width: '24px',
-                            height: '24px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            borderRadius: '50%',
-                            marginBottom: '4px'
-                        }}>
+                    <div key={d} className="calendar-day" style={{ minHeight: '130px', background: '#fff', border: '1px solid #e2e8f0', padding: '10px', display: 'flex', flexDirection: 'column', gap: '6px', transition: 'all 0.2s', position: 'relative' }}>
+                        <div style={{ fontWeight: 800, fontSize: '0.8rem', color: isToday ? '#fff' : '#475569', background: isToday ? '#10b981' : 'transparent', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', marginBottom: '4px' }}>
                             {d}
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', overflowY: 'auto', flex: 1 }}>
@@ -295,19 +432,12 @@ function ActivitiesPage() {
                                     key={a._id}
                                     onClick={(e) => { e.stopPropagation(); setSelectedActivity(a); }}
                                     style={{
-                                        fontSize: '0.65rem',
-                                        padding: '3px 8px',
-                                        borderRadius: '4px',
+                                        fontSize: '0.65rem', padding: '3px 8px', borderRadius: '4px',
                                         background: a.type === 'Meeting' ? '#e1f5fe' : a.type === 'Call' ? '#fff9c4' : '#e8f5e9',
                                         color: a.type === 'Meeting' ? '#0288d1' : a.type === 'Call' ? '#fbc02d' : '#2e7d32',
                                         borderLeft: `3px solid ${a.type === 'Meeting' ? '#03a9f4' : a.type === 'Call' ? '#fdd835' : '#4caf50'}`,
                                         boxShadow: selectedActivity?._id === a._id ? '0 0 0 2px #10b981' : 'none',
-                                        whiteSpace: 'nowrap',
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        cursor: 'pointer',
-                                        fontWeight: 700,
-                                        zIndex: 2
+                                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', fontWeight: 700, zIndex: 2
                                     }}
                                     title={`${a.type}: ${a.subject}`}
                                 >
@@ -321,27 +451,9 @@ function ActivitiesPage() {
             }
 
             return (
-                <div className="calendar-grid" style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(7, 1fr)',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '12px',
-                    overflow: 'hidden',
-                    background: '#f8fafc'
-                }}>
+                <div className="calendar-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', background: '#f8fafc' }}>
                     {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                        <div key={day} style={{
-                            padding: '12px',
-                            background: '#fff',
-                            textAlign: 'center',
-                            fontWeight: 800,
-                            fontSize: '0.75rem',
-                            color: '#94a3b8',
-                            borderBottom: '1px solid #e2e8f0',
-                            textTransform: 'uppercase'
-                        }}>
-                            {day}
-                        </div>
+                        <div key={day} style={{ padding: '12px', background: '#fff', textAlign: 'center', fontWeight: 800, fontSize: '0.75rem', color: '#94a3b8', borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>{day}</div>
                     ))}
                     {days}
                 </div>
@@ -351,112 +463,50 @@ function ActivitiesPage() {
         const renderTimeGridPage = (viewType) => {
             const hours = Array.from({ length: 24 }, (_, i) => i);
             const numDays = viewType === 'week' ? 7 : 1;
-
-            // Get start of week/day based on currentDate
             const startDate = new Date(currentDate);
-            if (viewType === 'week') {
-                startDate.setDate(currentDate.getDate() - currentDate.getDay());
-            }
+            if (viewType === 'week') startDate.setDate(currentDate.getDate() - currentDate.getDay());
 
             return (
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: `60px repeat(${numDays}, 1fr)`,
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '12px',
-                    overflow: 'hidden',
-                    background: '#fff'
-                }}>
-                    {/* Headers */}
+                <div style={{ display: 'grid', gridTemplateColumns: `60px repeat(${numDays}, 1fr)`, border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', background: '#fff' }}>
                     <div style={{ borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}></div>
                     {Array.from({ length: numDays }).map((_, i) => {
                         const date = new Date(startDate);
                         date.setDate(startDate.getDate() + i);
                         const isToday = new Date().toDateString() === date.toDateString();
                         return (
-                            <div key={i} style={{
-                                padding: '12px',
-                                borderLeft: '1px solid #e2e8f0',
-                                borderBottom: '1px solid #e2e8f0',
-                                textAlign: 'center',
-                                background: isToday ? '#10b98110' : '#fff'
-                            }}>
-                                <div style={{ fontSize: '0.7rem', fontWeight: 800, color: isToday ? '#10b981' : '#94a3b8', textTransform: 'uppercase' }}>
-                                    {date.toLocaleString('default', { weekday: 'short' })}
-                                </div>
-                                <div style={{
-                                    fontSize: '1.2rem',
-                                    fontWeight: 800,
-                                    color: isToday ? '#fff' : '#1e293b',
-                                    background: isToday ? '#10b981' : 'transparent',
-                                    width: '32px',
-                                    height: '32px',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    borderRadius: '50%',
-                                    marginTop: '4px'
-                                }}>
-                                    {date.getDate()}
-                                </div>
+                            <div key={i} style={{ padding: '12px', borderLeft: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', textAlign: 'center', background: isToday ? '#10b98110' : '#fff' }}>
+                                <div style={{ fontSize: '0.7rem', fontWeight: 800, color: isToday ? '#10b981' : '#94a3b8', textTransform: 'uppercase' }}>{date.toLocaleString('default', { weekday: 'short' })}</div>
+                                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: isToday ? '#fff' : '#1e293b', background: isToday ? '#10b981' : 'transparent', width: '32px', height: '32px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', marginTop: '4px' }}>{date.getDate()}</div>
                             </div>
                         );
                     })}
-
-                    {/* Time Slots */}
                     {hours.map(hour => (
-                        <React.Fragment key={hour}>
-                            <div style={{
-                                padding: '10px 8px',
-                                borderBottom: '1px solid #f1f5f9',
-                                textAlign: 'right',
-                                fontSize: '0.65rem',
-                                color: '#94a3b8',
-                                fontWeight: 700
-                            }}>
-                                {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
-                            </div>
+                        <Fragment key={hour}>
+                            <div style={{ padding: '10px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'right', fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700 }}>{hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}</div>
                             {Array.from({ length: numDays }).map((_, i) => {
                                 const date = new Date(startDate);
                                 date.setDate(startDate.getDate() + i);
                                 const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-
                                 const hourActivities = filteredActivities.filter(a => {
                                     const fullDate = a.dueDate ? new Date(a.dueDate).toISOString() : '';
                                     if (!fullDate) return false;
                                     const [d, t] = fullDate.split('T');
                                     if (d !== dateStr) return false;
-                                    const activityHour = parseInt(t.split(':')[0]);
-                                    return activityHour === hour;
+                                    return parseInt(t.split(':')[0]) === hour;
                                 });
-
                                 return (
-                                    <div key={i} style={{
-                                        borderLeft: '1px solid #f1f5f9',
-                                        borderBottom: '1px solid #f1f5f9',
-                                        minHeight: '48px',
-                                        position: 'relative',
-                                        padding: '2px'
-                                    }}>
+                                    <div key={i} style={{ borderLeft: '1px solid #f1f5f9', borderBottom: '1px solid #f1f5f9', minHeight: '48px', position: 'relative', padding: '2px' }}>
                                         {hourActivities.map(a => (
                                             <div
                                                 key={a._id}
                                                 onClick={(e) => { e.stopPropagation(); setSelectedActivity(a); }}
                                                 style={{
-                                                    fontSize: '0.6rem',
-                                                    padding: '4px 8px',
-                                                    borderRadius: '4px',
+                                                    fontSize: '0.6rem', padding: '4px 8px', borderRadius: '4px',
                                                     background: a.type === 'Meeting' ? '#e1f5fe' : a.type === 'Call' ? '#fff9c4' : '#e8f5e9',
                                                     color: a.type === 'Meeting' ? '#0288d1' : a.type === 'Call' ? '#fbc02d' : '#2e7d32',
                                                     borderLeft: `3px solid ${a.type === 'Meeting' ? '#03a9f4' : a.type === 'Call' ? '#fdd835' : '#4caf50'}`,
                                                     boxShadow: selectedActivity?._id === a._id ? '0 0 0 2px #10b981' : 'none',
-                                                    fontWeight: 800,
-                                                    marginBottom: '2px',
-                                                    whiteSpace: 'nowrap',
-                                                    overflow: 'hidden',
-                                                    textOverflow: 'ellipsis',
-                                                    cursor: 'pointer',
-                                                    zIndex: 2
+                                                    fontWeight: 800, marginBottom: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', zIndex: 2
                                                 }}
                                             >
                                                 {a.relatedTo?.[0]?.name || 'Unknown'}
@@ -465,7 +515,7 @@ function ActivitiesPage() {
                                     </div>
                                 );
                             })}
-                        </React.Fragment>
+                        </Fragment>
                     ))}
                 </div>
             );
@@ -473,34 +523,24 @@ function ActivitiesPage() {
 
         return (
             <div className="calendar-view-container" style={{ display: 'flex', height: 'calc(100vh - 120px)', background: '#fff' }}>
-                {/* Calendar Sidebar */}
                 <div className="calendar-sidebar" style={{ width: '280px', borderRight: '1px solid #e2e8f0', padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px', overflowY: 'auto' }}>
-                    <button className="btn-primary" style={{ width: '100%', padding: '12px', borderRadius: '24px', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)', marginBottom: '8px' }}>
+                    <button className="btn-primary" onClick={() => setIsCreateModalOpen(true)} style={{ width: '100%', padding: '12px', borderRadius: '24px', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)', marginBottom: '8px' }}>
                         <i className="fas fa-plus" style={{ marginRight: '8px' }}></i> Create
                     </button>
-
-                    {renderMiniCalendar()}
-
+                    {miniCalendar}
                     <div>
                         <h4 style={{ fontSize: '0.75rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '16px', letterSpacing: '0.5px' }}>My Calendars</h4>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            {[
-                                { label: 'Meetings', color: '#4285F4', checked: true },
-                                { label: 'Calls', color: '#F4B400', checked: true },
-                                { label: 'Site Visits', color: '#0F9D58', checked: true },
-                                { label: 'Follow Ups', color: '#DB4437', checked: true }
-                            ].map((cal, idx) => (
+                            {['Meetings', 'Calls', 'Site Visits', 'Follow Ups'].map((label, idx) => (
                                 <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', fontSize: '0.85rem', color: '#475569' }}>
-                                    <input type="checkbox" defaultChecked={cal.checked} style={{ accentColor: cal.color }} />
-                                    <span style={{ flex: 1 }}>{cal.label}</span>
-                                    <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: cal.color }}></div>
+                                    <input type="checkbox" defaultChecked style={{ accentColor: ['#4285F4', '#F4B400', '#0F9D58', '#DB4437'][idx] }} />
+                                    <span style={{ flex: 1 }}>{label}</span>
+                                    <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: ['#4285F4', '#F4B400', '#0F9D58', '#DB4437'][idx] }}></div>
                                 </label>
                             ))}
                         </div>
                     </div>
                 </div>
-
-                {/* Main Calendar Content */}
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                     <div className="calendar-toolbar" style={{ padding: '16px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -511,43 +551,23 @@ function ActivitiesPage() {
                                 <button onClick={() => changeDate(1)} style={{ padding: '6px 12px', border: 'none', background: 'none', cursor: 'pointer', color: '#64748b' }}><i className="fas fa-chevron-right"></i></button>
                             </div>
                         </div>
-
                         <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
                             {['Month', 'Week', 'Day'].map(view => (
-                                <button
-                                    key={view}
-                                    onClick={() => setCalendarView(view.toLowerCase())}
-                                    style={{
-                                        padding: '6px 16px',
-                                        border: 'none',
-                                        background: calendarView === view.toLowerCase() ? '#fff' : 'none',
-                                        borderRadius: '6px',
-                                        color: calendarView === view.toLowerCase() ? '#10b981' : '#64748b',
-                                        fontWeight: 700,
-                                        fontSize: '0.85rem',
-                                        cursor: 'pointer',
-                                        boxShadow: calendarView === view.toLowerCase() ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                                        transition: 'all 0.2s'
-                                    }}
-                                >
-                                    {view}
-                                </button>
+                                <button key={view} onClick={() => setCalendarView(view.toLowerCase())} style={{ padding: '6px 16px', border: 'none', background: calendarView === view.toLowerCase() ? '#fff' : 'none', borderRadius: '6px', color: calendarView === view.toLowerCase() ? '#10b981' : '#64748b', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', boxShadow: calendarView === view.toLowerCase() ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.2s' }}>{view}</button>
                             ))}
                         </div>
                     </div>
-
                     <div className="calendar-main-grid" style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
                         {calendarView === 'month' ? renderMonthPage() : renderTimeGridPage(calendarView)}
                     </div>
                 </div>
             </div>
         );
-    };
+    }, [currentDate, calendarView, changeDate, filteredActivities, selectedActivity, miniCalendar]);
 
     return (
         <section className="main-content" style={{ height: 'calc(100vh - 65px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div className="page-container" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%' }}>
-                {/* Page Header */}
                 <div className="page-header" style={{ background: '#fff', borderBottom: '1px solid #eef2f5', padding: '20px 2rem', zIndex: 110 }}>
                     <div className="page-title-group">
                         <i className="fas fa-tasks" style={{ color: '#68737d' }}></i>
@@ -557,36 +577,13 @@ function ActivitiesPage() {
                         </div>
                     </div>
                     <div className="header-actions" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-
-
                         <div className="view-toggle-group">
-                            <button
-                                onClick={() => setViewMode('list')}
-                                className={`view-toggle-btn ${viewMode === 'list' ? 'active' : ''}`}
-                            >
-                                <i className="fas fa-list"></i> List View
-                            </button>
-
-                            <button
-                                onClick={() => setViewMode('calendar')}
-                                className={`view-toggle-btn ${viewMode === 'calendar' ? 'active' : ''}`}
-                            >
-                                <i className="fas fa-calendar-alt"></i> Calendar View
-                            </button>
+                            <button onClick={() => setViewMode('list')} className={`view-toggle-btn ${viewMode === 'list' ? 'active' : ''}`}><i className="fas fa-list"></i> List View</button>
+                            <button onClick={() => setViewMode('calendar')} className={`view-toggle-btn ${viewMode === 'calendar' ? 'active' : ''}`}><i className="fas fa-calendar-alt"></i> Calendar View</button>
                         </div>
-
-                        <button
-                            className="btn-outline"
-                            style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}
-                            onClick={() => setIsFilterPanelOpen(true)}
-                        >
+                        <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }} onClick={() => setIsFilterPanelOpen(true)}>
                             <i className="fas fa-filter"></i> Filter
-                            {Object.keys(filters).length > 0 && (
-                                <span style={{
-                                    position: 'absolute', top: '-5px', right: '-5px',
-                                    width: '10px', height: '10px', background: 'red', borderRadius: '50%'
-                                }}></span>
-                            )}
+                            {Object.keys(filters).length > 0 && <span style={{ position: 'absolute', top: '-5px', right: '-5px', width: '10px', height: '10px', background: 'red', borderRadius: '50%' }}></span>}
                         </button>
                     </div>
                 </div>
@@ -594,46 +591,12 @@ function ActivitiesPage() {
                 <div style={{ padding: '15px 2rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                     <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
                         {['All', 'Follow Up', 'Site Visit', 'Meeting', 'Call', 'Email', 'Task'].map(type => (
-                            <button
-                                key={type}
-                                style={{
-                                    padding: '6px 16px',
-                                    borderRadius: '6px',
-                                    border: activeType === type ? 'none' : '1px solid #e2e8f0',
-                                    background: activeType === type ? '#10b981' : '#fff',
-                                    color: activeType === type ? '#fff' : '#64748b',
-                                    fontSize: '0.8rem',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s'
-                                }}
-                                onClick={() => setQuickTypeFilter(type)}
-                            >
-                                {type}
-                            </button>
+                            <button key={type} style={{ padding: '6px 16px', borderRadius: '6px', border: activeType === type ? 'none' : '1px solid #e2e8f0', background: activeType === type ? '#10b981' : '#fff', color: activeType === type ? '#fff' : '#64748b', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }} onClick={() => setQuickTypeFilter(type)}>{type}</button>
                         ))}
                     </div>
-
-                    {/* Status Tabs */}
                     <div style={{ display: 'flex', gap: '20px', borderBottom: '2px solid #e2e8f0' }}>
                         {['Today', 'Upcoming', 'Overdue', 'Completed', 'Custom'].map(tab => (
-                            <button
-                                key={tab}
-                                onClick={() => setQuickStatusFilter(tab)}
-                                style={{
-                                    padding: '10px 0',
-                                    border: 'none',
-                                    background: 'none',
-                                    fontSize: '0.85rem',
-                                    fontWeight: 600,
-                                    color: currentTab === tab ? '#10b981' : '#64748b',
-                                    borderBottom: currentTab === tab ? '2px solid #10b981' : '2px solid transparent',
-                                    cursor: 'pointer',
-                                    marginBottom: '-2px'
-                                }}
-                            >
-                                {tab}
-                            </button>
+                            <button key={tab} onClick={() => setQuickStatusFilter(tab)} style={{ padding: '10px 0', border: 'none', background: 'none', fontSize: '0.85rem', fontWeight: 600, color: currentTab === tab ? '#10b981' : '#64748b', borderBottom: currentTab === tab ? '2px solid #10b981' : '2px solid transparent', cursor: 'pointer', marginBottom: '-2px' }}>{tab}</button>
                         ))}
                     </div>
                 </div>
@@ -641,166 +604,50 @@ function ActivitiesPage() {
                 <div className="content-body" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                     {viewMode === 'list' ? (
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                            {/* Action Bar / Toolbar */}
                             <div className="toolbar-container" style={{ padding: '5px 2rem', borderBottom: '1px solid #eef2f5', minHeight: '45px', display: 'flex', alignItems: 'center', background: '#fff', zIndex: 105 }}>
                                 {selectedIds.length > 0 ? (
                                     <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingTop: '4px', paddingBottom: '2px' }}>
-                                        <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>
-                                            {selectedIds.length} Selected
-                                        </div>
-
+                                        <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>{selectedIds.length} Selected</div>
                                         {selectedIds.length === 1 && (
                                             <>
                                                 <button className="action-btn" title="Edit Activity"><i className="fas fa-edit"></i> Edit</button>
                                                 <button className="action-btn" title="Reschedule"><i className="fas fa-calendar-alt"></i> Reschedule</button>
-                                                <button className="action-btn" title="Mark Complete"
-                                                    onClick={() => selectedIds.length === 1 &&
-                                                        handleOpenCompleteModal(filteredActivities.find(a => a._id === selectedIds[0]))}
-                                                >
-                                                    <i className="fas fa-check-circle"></i> Complete
-                                                </button>
+                                                <button className="action-btn" title="Mark Complete" onClick={() => handleOpenCompleteModal(filteredActivities.find(a => a._id === selectedIds[0]))}><i className="fas fa-check-circle"></i> Complete</button>
                                                 <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
                                             </>
                                         )}
-
                                         <button className="action-btn" title="Add Note"><i className="fas fa-sticky-note"></i> Note</button>
                                         <div style={{ flex: 1 }}></div>
-                                        <button className="action-btn delete-btn" title="Delete Activities">
-                                            <i className="fas fa-trash-alt"></i> Delete
-                                        </button>
+                                        <button className="action-btn delete-btn" title="Delete Activities"><i className="fas fa-trash-alt"></i> Delete</button>
                                     </div>
                                 ) : (
                                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center', width: '100%' }}>
                                         <div className="search-box" style={{ flex: 1, maxWidth: '400px', position: 'relative' }}>
                                             <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.85rem' }}></i>
-                                            <input
-                                                type="text"
-                                                placeholder="Search activities by contact, agenda, or type..."
-                                                value={searchTerm}
-                                                onChange={(e) => setSearchTerm(e.target.value)}
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '8px 12px 8px 36px',
-                                                    border: '1px solid #e2e8f0',
-                                                    borderRadius: '6px',
-                                                    fontSize: '0.85rem',
-                                                    outline: 'none',
-                                                    transition: 'all 0.2s'
-                                                }}
-                                                onFocus={(e) => e.target.style.borderColor = 'var(--primary-color)'}
-                                                onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                                            />
+                                            <input type="text" placeholder="Search activities..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ width: '100%', padding: '8px 12px 8px 36px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem', outline: 'none' }} />
                                         </div>
                                         <div style={{ flex: 1 }}></div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                            <div style={{ fontSize: '0.85rem', color: '#68737d', fontWeight: 500 }}>
-                                                Total: <strong>{totalRecords}</strong> Activities
-                                            </div>
-
-                                            {/* Records Per Page */}
-                                            <div
-                                                style={{
-                                                    display: "flex",
-                                                    alignItems: "center",
-                                                    gap: "8px",
-                                                    fontSize: "0.8rem",
-                                                    color: "#64748b",
-                                                }}
-                                            >
+                                            <div style={{ fontSize: '0.85rem', color: '#68737d', fontWeight: 500 }}>Total: <strong>{totalRecords}</strong> Activities</div>
+                                            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.8rem", color: "#64748b" }}>
                                                 <span>Show:</span>
-                                                <select
-                                                    value={recordsPerPage}
-                                                    onChange={handleRecordsPerPageChange}
-                                                    style={{
-                                                        padding: "4px 8px",
-                                                        border: "1px solid #e2e8f0",
-                                                        borderRadius: "6px",
-                                                        fontSize: "0.8rem",
-                                                        fontWeight: 600,
-                                                        color: "#0f172a",
-                                                        outline: "none",
-                                                        cursor: "pointer",
-                                                    }}
-                                                >
-                                                    <option value={10}>10</option>
-                                                    <option value={25}>25</option>
-                                                    <option value={50}>50</option>
-                                                    <option value={100}>100</option>
-                                                    <option value={300}>300</option>
+                                                <select value={recordsPerPage} onChange={handleRecordsPerPageChange} style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", outline: "none", cursor: "pointer" }}>
+                                                    {[10, 25, 50, 100, 300].map(v => <option key={v} value={v}>{v}</option>)}
                                                 </select>
                                             </div>
-
-                                            {/* Pagination Controls */}
-                                            <div
-                                                style={{
-                                                    display: "flex",
-                                                    alignItems: "center",
-                                                    gap: "8px",
-                                                }}
-                                            >
-                                                <button
-                                                    onClick={goToPreviousPage}
-                                                    disabled={currentPage === 1}
-                                                    style={{
-                                                        padding: "6px 12px",
-                                                        border: "1px solid #e2e8f0",
-                                                        borderRadius: "6px",
-                                                        background: currentPage === 1 ? "#f8fafc" : "#fff",
-                                                        color: currentPage === 1 ? "#cbd5e1" : "#0f172a",
-                                                        cursor: currentPage === 1 ? "not-allowed" : "pointer",
-                                                        fontSize: "0.75rem",
-                                                        fontWeight: 600,
-                                                    }}
-                                                >
-                                                    <i className="fas fa-chevron-left"></i> Prev
-                                                </button>
-                                                <span
-                                                    style={{
-                                                        fontSize: "0.8rem",
-                                                        fontWeight: 600,
-                                                        color: "#0f172a",
-                                                        minWidth: "80px",
-                                                        textAlign: "center",
-                                                    }}
-                                                >
-                                                    {currentPage} / {totalPages || 1}
-                                                </span>
-                                                <button
-                                                    onClick={goToNextPage}
-                                                    disabled={currentPage >= totalPages}
-                                                    style={{
-                                                        padding: "6px 12px",
-                                                        border: "1px solid #e2e8f0",
-                                                        borderRadius: "6px",
-                                                        background:
-                                                            currentPage >= totalPages ? "#f8fafc" : "#fff",
-                                                        color:
-                                                            currentPage >= totalPages ? "#cbd5e1" : "#0f172a",
-                                                        cursor:
-                                                            currentPage >= totalPages ? "not-allowed" : "pointer",
-                                                        fontSize: "0.75rem",
-                                                        fontWeight: 600,
-                                                    }}
-                                                >
-                                                    Next <i className="fas fa-chevron-right"></i>
-                                                </button>
+                                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                                <button onClick={goToPreviousPage} disabled={currentPage === 1} style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", background: currentPage === 1 ? "#f8fafc" : "#fff", color: currentPage === 1 ? "#cbd5e1" : "#0f172a", cursor: currentPage === 1 ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}><i className="fas fa-chevron-left"></i> Prev</button>
+                                                <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", minWidth: "80px", textAlign: "center" }}>{currentPage} / {totalPages || 1}</span>
+                                                <button onClick={goToNextPage} disabled={currentPage >= totalPages} style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", background: currentPage >= totalPages ? "#f8fafc" : "#fff", color: currentPage >= totalPages ? "#cbd5e1" : "#0f172a", cursor: currentPage >= totalPages ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Next <i className="fas fa-chevron-right"></i></button>
                                             </div>
                                         </div>
                                     </div>
                                 )}
                             </div>
-
-                            {/* Active Filters Chips */}
-                            <ActiveFiltersChips
-                                filters={filters}
-                                onRemoveFilter={handleRemoveFilter}
-                                onClearAll={handleClearAll}
-                            />
-
+                            <ActiveFiltersChips filters={filters} onRemoveFilter={handleRemoveFilter} onClearAll={handleClearAll} />
                             <div className="list-scroll-area" style={{ flex: 1, overflow: 'auto' }}>
-                                {/* Activities List Header - Unified for all types */}
                                 <div style={{ position: 'sticky', top: 0, zIndex: 99, padding: '15px 2rem', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'grid', gridTemplateColumns: '40px 200px 150px 300px 120px 300px 120px 120px 120px 100px', gap: '1rem', alignItems: 'center', minWidth: '1700px' }}>
-                                    <div><input type="checkbox" onChange={toggleSelectAll} checked={selectedIds.length === filteredActivities.length} /></div>
+                                    <div><input type="checkbox" onChange={toggleSelectAll} checked={selectedIds.length === filteredActivities.length && filteredActivities.length > 0} /></div>
                                     <div>Details</div>
                                     <div>Scheduled Date</div>
                                     <div>Agenda</div>
@@ -811,173 +658,17 @@ function ActivitiesPage() {
                                     <div>Stage / Status</div>
                                     <div style={{ textAlign: 'center' }}>Actions</div>
                                 </div>
-
-                                {/* Activities List - Unified Layout */}
                                 <div className="list-content" style={{ background: '#fafbfc', padding: '1rem 2rem' }}>
-                                    {paginatedActivities.map((activity, index) => (
-                                        <div
+                                    {paginatedActivities.map((activity) => (
+                                        <ActivityRow
                                             key={activity._id}
-                                            onClick={() => setSelectedActivity(activity)}
-                                            style={{
-                                                padding: '18px 20px',
-                                                marginBottom: '8px',
-                                                borderRadius: '8px',
-                                                border: selectedActivity?._id === activity._id ? '2px solid #10b981' : '1px solid #e2e8f0',
-                                                background: selectedActivity?._id === activity._id ? '#f0fdf4' : '#fff',
-                                                display: 'grid',
-                                                gridTemplateColumns: '40px 200px 150px 300px 120px 300px 120px 120px 120px 100px',
-                                                gap: '1rem',
-                                                alignItems: 'center',
-                                                transition: 'all 0.2s',
-                                                cursor: 'pointer',
-                                                boxShadow: selectedActivity?._id === activity._id ? '0 4px 12px rgba(16, 185, 129, 0.1)' : '0 1px 2px rgba(0,0,0,0.04)',
-                                                minWidth: '1700px'
-                                            }}
-                                        >
-                                            {/* Checkbox */}
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedIds.includes(activity._id)}
-                                                onChange={() => toggleSelect(activity._id)}
-                                            />
-
-                                            {/* Details */}
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
-                                                <div className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{activity.relatedTo?.[0]?.name || 'Unknown Client'}</div>
-                                                <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600 }}>
-                                                    <i className="fas fa-phone" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>{activity.participants?.[0]?.mobile || '--'}
-                                                </div>
-                                                {activity.contactEmail && (
-                                                    <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                                        <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>{activity.contactEmail}
-                                                    </div>
-                                                )}
-                                                {activity.type === 'Site Visit' && activity.lead && (
-                                                    <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#059669', fontWeight: 600, marginTop: '4px' }}>
-                                                        <i className="fas fa-map-marker-alt" style={{ marginRight: '4px' }}></i>{activity.lead}
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Scheduled Date */}
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                                <div style={{ fontSize: '0.8rem', color: '#0f172a', fontWeight: 700 }}>
-                                                    <i className="far fa-calendar" style={{ marginRight: '4px', color: '#6366f1' }}></i>
-                                                    {activity.dueDate ? new Date(activity.dueDate).toLocaleDateString() : '--'}
-                                                </div>
-                                                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                                    <i className="far fa-clock" style={{ marginRight: '4px' }}></i>
-                                                    {activity.dueTime || '--'}
-                                                </div>
-                                            </div>
-
-                                            {/* Agenda */}
-                                            <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.5, overflow: 'hidden' }}>
-                                                <div className="address-clamp" style={{ fontStyle: 'italic' }}>{activity.subject}</div>
-                                            </div>
-
-                                            {/* Activity Type */}
-                                            <div>
-                                                <span style={{
-                                                    fontSize: '0.7rem',
-                                                    padding: '5px 12px',
-                                                    borderRadius: '16px',
-                                                    fontWeight: 700,
-                                                    background: activity.type === 'Meeting' ? '#dbeafe' : activity.type === 'Call' ? '#fef3c7' : '#d1fae5',
-                                                    color: activity.type === 'Meeting' ? '#1e40af' : activity.type === 'Call' ? '#92400e' : '#065f46',
-                                                }}>
-                                                    {activity.type}
-                                                </span>
-                                            </div>
-
-                                            {/* Project / Feedback / Details */}
-                                            <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.5, overflow: 'hidden' }}>
-                                                {activity.details?.visitedProperties?.[0]?.project && (
-                                                    <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#0891b2', fontWeight: 600, marginBottom: '4px' }}>
-                                                        <i className="fas fa-building" style={{ marginRight: '4px' }}></i>{activity.details.visitedProperties[0].project}
-                                                    </div>
-                                                )}
-                                                {activity.description && (
-                                                    <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600, padding: '4px 8px', background: '#d1fae5', borderRadius: '4px', borderLeft: '3px solid #10b981', marginBottom: '4px' }}>
-                                                        <i className="fas fa-comment-dots" style={{ marginRight: '4px' }}></i>{activity.description}
-                                                    </div>
-                                                )}
-                                                {activity.details && Object.keys(activity.details).length > 0 && typeof activity.details === 'object' && !Array.isArray(activity.details) && (
-                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                                                        {Object.entries(activity.details).filter(([k, v]) => v && typeof v === 'string' && k !== 'visitedProperties').slice(0, 2).map(([key, value], i) => (
-                                                            <span key={i} title={`${key}: ${value}`} className="text-ellipsis" style={{ maxWidth: '100%', fontSize: '0.65rem', background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                                                                <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{key}</span>: {value}
-                                                            </span>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Scheduled By */}
-                                            <div className="text-ellipsis" style={{ fontSize: '0.8rem', color: '#334155', fontWeight: 600 }}>
-                                                {activity.scheduledBy || activity.scheduled || '--'}
-                                            </div>
-
-                                            {/* Scheduled For */}
-                                            <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                                {activity.details?.purpose || '--'}
-                                            </div>
-
-                                            {/* Stage / Status */}
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
-                                                {/* Lead Stage chip */}
-                                                {activity.relatedTo?.[0]?.stage && (
-                                                    <LeadStageChip stage={activity.relatedTo[0].stage} />
-                                                )}
-                                                {/* Activity Status badge */}
-                                                <span style={{
-                                                    fontSize: '0.68rem',
-                                                    fontWeight: 700,
-                                                    padding: '3px 8px',
-                                                    borderRadius: '10px',
-                                                    background: activity.status?.toLowerCase() === 'completed'
-                                                        ? '#d1fae5'
-                                                        : activity.status?.toLowerCase() === 'overdue'
-                                                            ? '#fee2e2'
-                                                            : '#fffbeb',
-                                                    color: activity.status?.toLowerCase() === 'completed'
-                                                        ? '#065f46'
-                                                        : activity.status?.toLowerCase() === 'overdue'
-                                                            ? '#991b1b'
-                                                            : '#92400e',
-                                                    width: 'fit-content'
-                                                }}>
-                                                    {activity.status}
-                                                </span>
-                                            </div>
-
-                                            {/* Actions */}
-                                            <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
-                                                {activity.status?.toLowerCase() !== 'completed' && (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setSelectedActivity(activity);
-                                                            setIsOutcomeModalOpen(true);
-                                                        }}
-                                                        style={{
-                                                            padding: '6px 12px',
-                                                            borderRadius: '6px',
-                                                            border: 'none',
-                                                            background: '#10b981',
-                                                            color: '#fff',
-                                                            fontSize: '0.7rem',
-                                                            fontWeight: 800,
-                                                            cursor: 'pointer',
-                                                            boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)'
-                                                        }}
-                                                        title="Log Outcome"
-                                                    >
-                                                        Complete
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
+                                            activity={activity}
+                                            isSelected={selectedIds.includes(activity._id)}
+                                            toggleSelect={toggleSelect}
+                                            selectedActivityId={selectedActivity?._id}
+                                            setSelectedActivity={setSelectedActivity}
+                                            setIsOutcomeModalOpen={setIsOutcomeModalOpen}
+                                        />
                                     ))}
                                 </div>
                             </div>
@@ -985,31 +676,16 @@ function ActivitiesPage() {
                     ) : (
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                             <div style={{ flex: 1, overflow: 'auto' }}>
-                                {renderCalendar()}
+                                {mainCalendar}
                             </div>
                         </div>
                     )}
 
-                    {/* Unified Footer - Always Visible at the Bottom */}
-                    <div className="activities-footer" style={{
-                        padding: '12px 2rem',
-                        background: selectedActivity ? '#1e293b' : '#fff',
-                        color: selectedActivity ? '#fff' : 'inherit',
-                        borderTop: '1px solid #eef2f5',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        zIndex: 1000,
-                        transition: 'all 0.3s ease',
-                        height: '55px',
-                        minHeight: '55px'
-                    }}>
+                    <div className="activities-footer" style={{ padding: '12px 2rem', background: selectedActivity ? '#1e293b' : '#fff', color: selectedActivity ? '#fff' : 'inherit', borderTop: '1px solid #eef2f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 1000, transition: 'all 0.3s ease', height: '55px', minHeight: '55px' }}>
                         {!selectedActivity ? (
                             <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
                                 <div style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 600 }}>Summary</div>
-                                <div style={{ fontSize: '0.85rem', color: '#334155', fontWeight: 700 }}>
-                                    Total Activities <span style={{ color: '#10b981', marginLeft: '5px' }}>{totalRecords}</span>
-                                </div>
+                                <div style={{ fontSize: '0.85rem', color: '#334155', fontWeight: 700 }}>Total Activities <span style={{ color: '#10b981', marginLeft: '5px' }}>{totalRecords}</span></div>
                             </div>
                         ) : (
                             <div style={{ display: 'flex', gap: '30px', alignItems: 'center', flex: 1 }}>
@@ -1017,54 +693,18 @@ function ActivitiesPage() {
                                 <div style={{ display: 'flex', gap: '20px' }}>
                                     <div style={{ fontSize: '0.8rem' }}><span style={{ color: '#94a3b8' }}>CONTACT:</span> <span style={{ fontWeight: 800 }}>{selectedActivity.relatedTo?.[0]?.name || 'Unknown'}</span></div>
                                     <div style={{ fontSize: '0.8rem' }}><span style={{ color: '#94a3b8' }}>TYPE:</span> <span style={{ fontWeight: 800, color: '#10b981' }}>{selectedActivity.type}</span></div>
-                                    <div style={{ fontSize: '0.8rem', maxWidth: '400px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                        <span style={{ color: '#94a3b8' }}>SUBJECT:</span> <span style={{ fontWeight: 600 }}>{selectedActivity.subject}</span>
-                                    </div>
-                                    {selectedActivity.description && (
-                                        <div style={{ fontSize: '0.8rem', maxWidth: '300px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                            <span style={{ color: '#94a3b8' }}>DESCRIPTION:</span> <span style={{ fontWeight: 600, color: '#fbbf24' }}>{selectedActivity.description}</span>
-                                        </div>
-                                    )}
+                                    <div style={{ fontSize: '0.8rem', maxWidth: '400px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ color: '#94a3b8' }}>SUBJECT:</span> <span style={{ fontWeight: 600 }}>{selectedActivity.subject}</span></div>
                                 </div>
-                                <button
-                                    onClick={() => setSelectedActivity(null)}
-                                    style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', marginLeft: 'auto' }}
-                                >
-                                    <i className="fas fa-times"></i>
-                                </button>
+                                <button onClick={() => setSelectedActivity(null)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', marginLeft: 'auto' }}><i className="fas fa-times"></i></button>
                             </div>
                         )}
                     </div>
                 </div>
             </div >
-            <CreateActivityModal
-                isOpen={isCreateModalOpen}
-                onClose={() => setIsCreateModalOpen(false)}
-                onSave={handleSaveActivity}
-            />
-            <ActivityFilterPanel
-                isOpen={isFilterPanelOpen}
-                onClose={() => setIsFilterPanelOpen(false)}
-                filters={filters}
-                onFilterChange={(key, value) => {
-                    // Support single key update or bulk object update
-                    if (typeof key === 'object') {
-                        setFilters(prev => ({ ...prev, ...key }));
-                    } else {
-                        setFilters(prev => ({ ...prev, [key]: value }));
-                    }
-                }}
-                onReset={() => setFilters({})}
-            />
+            <CreateActivityModal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} onSave={handleSaveActivity} />
+            <ActivityFilterPanel isOpen={isFilterPanelOpen} onClose={() => setIsFilterPanelOpen(false)} filters={filters} onFilterChange={(key, value) => { if (typeof key === 'object') { setFilters(prev => ({ ...prev, ...key })); } else { setFilters(prev => ({ ...prev, [key]: value })); } }} onReset={() => setFilters({})} />
             {isOutcomeModalOpen && (
-                <ActivityOutcomeModal
-                    isOpen={isOutcomeModalOpen}
-                    onClose={() => {
-                        setIsOutcomeModalOpen(false);
-                        fetchActivities(); // Refresh activities after completion
-                    }}
-                    activity={selectedActivity || activities.find(a => a._id === selectedIds[0])}
-                />
+                <ActivityOutcomeModal isOpen={isOutcomeModalOpen} onClose={() => { setIsOutcomeModalOpen(false); fetchActivities(); }} activity={selectedActivity || activities.find(a => a._id === selectedIds[0])} />
             )}
         </section >
     );

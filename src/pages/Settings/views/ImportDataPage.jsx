@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { MODULE_CONFIG, parseCSV, generateErrorReportCSV, downloadFile } from '../../../utils/dataManagementUtils';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import toast from 'react-hot-toast';
@@ -195,7 +195,7 @@ const ImportDataPage = () => {
         }
     };
 
-    const handleImport = async (skipDuplicates = false) => {
+    const handleImport = async () => {
         if (!fileData.data.length || Object.keys(mapping).length === 0) {
             return toast.error('No data or mapping provided');
         }

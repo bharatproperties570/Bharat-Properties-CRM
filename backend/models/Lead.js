@@ -151,7 +151,7 @@ export const resolveLeadLookup = async (type, value) => {
     return lookup._id;
 };
 
-const resolveLookupLocal = resolveLeadLookup;
+
 
 // Middleware to resolve lookup names to IDs before saving
 LeadSchema.pre('save', async function (next) {

@@ -1,17 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { emailAPI } from '../../../utils/api';
 
 const ViewEmailModal = ({ isOpen, onClose, email, onReply, onConvertToLead, onAddActivity, isActionLoading }) => {
     const [content, setContent] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
-    useEffect(() => {
-        if (isOpen && email && email.id) {
-            fetchContent();
-        }
-    }, [isOpen, email]);
-
-    const fetchContent = async () => {
+    const fetchContent = useCallback(async () => {
+        if (!email?.id) return;
         setIsLoading(true);
         try {
             const response = await emailAPI.getContent(email.id);
@@ -26,7 +21,13 @@ const ViewEmailModal = ({ isOpen, onClose, email, onReply, onConvertToLead, onAd
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [email?.id]);
+
+    useEffect(() => {
+        if (isOpen && email?.id) {
+            fetchContent();
+        }
+    }, [isOpen, email?.id, fetchContent]);
 
     if (!isOpen || !email) return null;
 

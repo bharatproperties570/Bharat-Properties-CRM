@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { LucidePlus, LucideTrash2, LucideSettings, LucideMoveUp, LucideMoveDown, LucideChevronLeft, LucideSave, LucideEye } from 'lucide-react';
+import { LucidePlus, LucideTrash2, LucideMoveUp, LucideMoveDown, LucideChevronLeft, LucideSave, LucideEye } from 'lucide-react';
 import { api } from '../../utils/api';
 
 const DealFormBuilder = ({ form, onSave, onCancel }) => {

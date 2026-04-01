@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { PROPERTY_CATEGORIES } from '../../../constants/propertyConstants';
 import { PROJECTS_LIST } from '../../../constants/projectConstants';
@@ -178,7 +178,7 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
         if (filters.sizeMode) setSizeMode(filters.sizeMode);
         else if (filters.minSize || filters.maxSize) setSizeMode('range');
         else if (filters.sizeType && filters.sizeType.length > 0) setSizeMode('type');
-    }, [isOpen]);
+    }, [isOpen, filters.sizeMode, filters.minSize, filters.maxSize, filters.sizeType]);
 
     useEffect(() => {
         if (isOpen) {
@@ -213,7 +213,7 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                 }
             });
         }
-    }, [isOpen, filters]);
+    }, [isOpen, filters, onFilterChange]);
 
     const updateFilter = (key, value) => {
         onFilterChange({ ...filters, [key]: value });

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import ComposeEmailModal from '../../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../../components/SendMessageModal';
 import CreateActivityModal from '../../../components/CreateActivityModal';
@@ -6,11 +6,11 @@ import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
 import { useActivities } from '../../../context/ActivityContext';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
-import { useCallback } from 'react';
+
 
 const DealMatchingPage = ({ onNavigate, dealId }) => {
     const { addActivity } = useActivities();
-    const { propertyConfig, lookups, projects } = usePropertyConfig();
+    const { lookups, projects } = usePropertyConfig();
     const [deal, setDeal] = useState(null);
     const [leads, setLeads] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -98,7 +98,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
         return null;
     }, [lookups, projects]);
 
-    const renderVal = (v, type = null) => {
+    const renderVal = useCallback((v, type = null) => {
         if (!v) return v;
         if (type) {
             const resolved = getStrictLookupValue(type, v);
@@ -126,7 +126,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             }
         }
         return v;
-    };
+    }, [getStrictLookupValue, projects]);
 
     const parsePrice = (priceStr) => {
         if (!priceStr && priceStr !== 0) return 0;
@@ -158,7 +158,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
         const dealPrice = parsePrice(deal.price);
         const dealSize = parseSizeSqYard(deal.size);
 
-        return leads.map((lead, index) => {
+        return leads.map((lead) => {
             let score = 0;
             const details = {
                 project: 'mismatch',
@@ -235,7 +235,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
         })
             .filter(l => l.matchPercentage > 10)
             .sort((a, b) => b.matchPercentage - a.matchPercentage);
-    }, [deal, budgetFlexibility, sizeFlexibility, leads]);
+    }, [deal, budgetFlexibility, sizeFlexibility, leads, renderVal]);
 
     if (loading) {
         return (
@@ -280,7 +280,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
         );
     };
 
-    const generateEmailContent = (leads) => {
+    const generateEmailContent = () => {
         const subject = `🔥 Priority Deal: Exclusive ${renderVal(deal.propertyType, 'PropertyType')} in ${renderVal(deal.location, 'Locality')}!`;
         let body = `Dear Partner,<br><br>`;
         body += `We have an exclusive property listing that perfectly aligns with your current requirements. This <strong>${renderVal(deal.propertyType, 'PropertyType')}</strong> at <strong>${renderVal(deal.location, 'Locality')}</strong> represents a significant opportunity in the current market.<br><br>`;

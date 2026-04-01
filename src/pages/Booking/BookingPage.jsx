@@ -1,8 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import AccountPage from '../Account/AccountPage'; // Import AccountPage as a sub-view
 import AddBookingModal from '../../components/AddBookingModal';
 import { api } from '../../utils/api';
-import toast from 'react-hot-toast';
 import ClosingFormModal from '../../components/ClosingFormModal';
 
 const BookingPage = ({ onNavigate, initialContextId }) => {

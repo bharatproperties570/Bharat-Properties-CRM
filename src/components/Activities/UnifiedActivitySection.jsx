@@ -15,7 +15,7 @@ import './UnifiedActivitySection.css';
  * @param {function} onActivitySaved - Callback after successful save
  * @param {boolean} hideComposer - Whether to hide the activity composer section
  */
-const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySaved, hideComposer = false }) => {
+const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySaved, hideComposer = false, relatedEntities = [] }) => {
     const { addActivity } = useActivities();
     const [composerTab, setComposerTab] = useState('note');
     const [composerContent, setComposerContent] = useState('');
@@ -45,28 +45,67 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
     }, []);
 
     const fetchUnifiedTimeline = useCallback(async () => {
-        if (!entityId || !entityType) return;
+        const entitiesToFetch = relatedEntities.length > 0 
+            ? relatedEntities 
+            : (entityId && entityType ? [{ type: entityType, id: entityId }] : []);
+        
+        if (entitiesToFetch.length === 0) return;
+        
         setLoadingTimeline(true);
         try {
-            const res = await activitiesAPI.getUnified(entityType.toLowerCase(), entityId);
-            if (res && res.success) {
-                const timeline = res.data || [];
-                setUnifiedTimeline(timeline);
-                // Extract unique tags
-                const tags = new Set();
-                timeline.forEach(item => {
-                    if (item.tags && Array.isArray(item.tags)) {
-                        item.tags.forEach(t => tags.add(t));
+            // Parallel fetching for all related entities
+            const results = await Promise.all(
+                entitiesToFetch.map(async (entity) => {
+                    try {
+                        const res = await activitiesAPI.getUnified(entity.type.toLowerCase(), entity.id);
+                        if (res && res.success) {
+                            return (res.data || []).map(item => ({
+                                ...item,
+                                sourceEntity: entity.type // Track source for visual labeling
+                            }));
+                        }
+                    } catch (err) {
+                        console.error(`Error fetching timeline for ${entity.type} ${entity.id}:`, err);
                     }
-                });
-                setAllTags(Array.from(tags));
-            }
+                    return [];
+                })
+            );
+
+            // Merge and Deduplicate by _id
+            const merged = [];
+            const seenIds = new Set();
+            
+            results.flat().forEach(item => {
+                const id = item._id || item.id;
+                if (!seenIds.has(id)) {
+                    seenIds.add(id);
+                    merged.push(item);
+                }
+            });
+
+            // Sort by createdAt descending
+            const sorted = merged.sort((a, b) => {
+                const dateA = new Date(a.createdAt || a.date).getTime();
+                const dateB = new Date(b.createdAt || b.date).getTime();
+                return dateB - dateA;
+            });
+
+            setUnifiedTimeline(sorted);
+
+            // Extract unique tags
+            const tags = new Set();
+            sorted.forEach(item => {
+                if (item.tags && Array.isArray(item.tags)) {
+                    item.tags.forEach(t => tags.add(t));
+                }
+            });
+            setAllTags(Array.from(tags));
         } catch (error) {
-            console.error("Error fetching unified timeline:", error);
+            console.error("Error fetching aggregated timeline:", error);
         } finally {
             setLoadingTimeline(false);
         }
-    }, [entityId, entityType]);
+    }, [entityId, entityType, relatedEntities]);
 
     useEffect(() => {
         fetchUsers();
@@ -455,8 +494,19 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                     />
                                                 )}
                                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '12px', borderTop: '1px solid rgba(0,0,0,0.03)', paddingTop: '8px' }}>
-                                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>
-                                                        <i className="fas fa-user-circle" style={{ marginRight: '4px' }}></i> {item.actor || 'System'}
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>
+                                                            <i className="fas fa-user-circle" style={{ marginRight: '4px' }}></i> {item.actor || 'System'}
+                                                        </div>
+                                                        {item.sourceEntity && item.sourceEntity !== entityType && (
+                                                            <span style={{ 
+                                                                fontSize: '0.6rem', fontWeight: 800, padding: '2px 8px', 
+                                                                borderRadius: '4px', background: '#f1f5f9', color: '#64748b',
+                                                                textTransform: 'uppercase', letterSpacing: '0.02em', border: '1px solid #e2e8f0'
+                                                            }}>
+                                                                {item.sourceEntity}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                     {item.status && (
                                                         <div style={{

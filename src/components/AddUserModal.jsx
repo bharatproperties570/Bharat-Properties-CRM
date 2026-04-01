@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useUserContext } from '../context/UserContext';
 
 const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) => {
@@ -72,16 +72,16 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) 
     }, [isEdit, userData, isOpen]);
 
     // Derived state for dropdowns
-    const availableRoles = roles.filter(r => r.department === formData.department && (r.isActive !== false));
-    const availableTeams = teams.filter(t => t.department === formData.department && (t.isActive !== false));
-    const availableManagers = users.filter(u => u.department === formData.department && u.status !== 'inactive' && u._id !== userData?._id);
+    const availableRoles = useMemo(() => roles.filter(r => r.department === formData.department && (r.isActive !== false)), [roles, formData.department]);
+    const availableTeams = useMemo(() => teams.filter(t => t.department === formData.department && (t.isActive !== false)), [teams, formData.department]);
+    const availableManagers = useMemo(() => users.filter(u => u.department === formData.department && u.status !== 'inactive' && u._id !== userData?._id), [users, formData.department, userData?._id]);
 
     // Auto-select first role if none selected and available
     useEffect(() => {
         if (isOpen && availableRoles.length > 0 && !formData.role && !isEdit) {
             setFormData(prev => ({ ...prev, role: availableRoles[0]._id }));
         }
-    }, [isOpen, formData.department, availableRoles.length, isEdit]);
+    }, [isOpen, formData.department, availableRoles, formData.role, isEdit]);
 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -90,7 +90,9 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) 
     // Departments configuration
     const departments = [
         { id: 'inventory', name: 'Inventory Management', icon: '🏢' },
-        { id: 'accounts', name: 'Accounts', icon: '💰' }
+        { id: 'accounts', name: 'Accounts', icon: '💰' },
+        { id: 'sales', name: 'Sales', icon: '🤝' },
+        { id: 'marketing', name: 'Marketing', icon: '📢' }
     ];
 
     // Data scope options
@@ -116,7 +118,7 @@ const AddUserModal = ({ isOpen, onClose, onAdd, isEdit: isEditProp, userData }) 
         if (!/\d/.test(password)) {
             errors.push('One number');
         }
-        if (!/[@$!%*?&#^()_+\-=\[\]{}|;:,.<>]/.test(password)) {
+        if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)) {
             errors.push('One special character');
         }
 

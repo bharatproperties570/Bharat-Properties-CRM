@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Toast from '../../../components/Toast';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { generateCSV, downloadFile } from '../../../utils/dataManagementUtils';
@@ -11,7 +11,7 @@ const CustomizeCompanyPage = () => {
     const [activeDetailField, setActiveDetailField] = useState('companyTypes');
 
     // Ensure activeDetailField is valid on init if companyTypes is missing (unlikely given context)
-    React.useEffect(() => {
+    useEffect(() => {
         if (companyMasterFields && !companyMasterFields[activeDetailField]) {
             const keys = Object.keys(companyMasterFields);
             if (keys.length > 0 && keys.includes('companyTypes')) {

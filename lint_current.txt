@@ -1,0 +1,287 @@
+
+> bharat-properties-crm@1.0.0 lint
+> eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0
+
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/backfill_direction.js
+  4:8  warning  'Lookup' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/check_deal_data.js
+  4:8  warning  'path' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/check_today_inventory.js
+  5:8  warning  'Lookup' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/clean_projects_falsy.js
+  3:8  warning  'Lookup' is defined but never used   no-unused-vars
+  4:8  warning  'Project' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/cleanup_final.js
+  11:15  warning  'db' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/config/db.js
+  23:7   warning  'setupMockRoutes' is assigned a value but never used  no-unused-vars
+  23:26  warning  'app' is defined but never used                       no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/controllers/dashboard.controller.js
+  175:78  warning  '_' is defined but never used                             no-unused-vars
+  180:35  warning  'availableCountValue' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/controllers/dealForm.controller.js
+  6:8  warning  'mongoose' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/controllers/duplicationRule.controller.js
+  155:60  warning  'entityType' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/controllers/feedbackForm.controller.js
+   3:8   warning  'Lead' is defined but never used                 no-unused-vars
+  80:15  warning  'submission' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/controllers/googleSettings.controller.js
+  3:10  warning  'getOAuth2Client' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/controllers/inventory.controller.js
+   5:8  warning  'SystemSetting' is defined but never used  no-unused-vars
+  10:8  warning  'Deal' is defined but never used           no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/controllers/public.controller.js
+  318:41  warning  'limit' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/controllers/stage.controller.js
+  682:15  warning  'multipliersConfig' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/count_inventory.js
+  14:15  warning  'Lookup' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/debug_company_addresses.js
+  3:8  warning  'path' is defined but never used    no-unused-vars
+  5:8  warning  'Lookup' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/debug_data.js
+  4:8  warning  'Lookup' is defined but never used  no-unused-vars
+  5:8  warning  'User' is defined but never used    no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/debug_inventory_lookups.js
+  4:8  warning  'Lookup' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/deep_analyze_kc_sharma.js
+  3:8  warning  'path' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/deep_inspect.js
+  37:25  warning  'hasIssue' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/diagnose_activities_v2.js
+  3:8  warning  'path' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/diagnose_contacts.js
+  4:8  warning  'Lead' is defined but never used    no-unused-vars
+  5:8  warning  'Lookup' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/diagnose_ids.js
+  3:8  warning  'Project' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/diagnose_inventory_v2.js
+  3:8  warning  'path' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/inspect_inv_sample.js
+  3:8  warning  'path' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/middleware/errorHandler.js
+  1:45  warning  'next' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/migrate_projects_ids.js
+  4:8  warning  'Project' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/models/Lead.js
+  154:7  warning  'resolveLookupLocal' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/models/User.js
+  185:46  warning  'module' is defined but never used  no-unused-vars
+  185:54  warning  'action' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/reproduce_500.js
+   4:8  warning  'User' is defined but never used                no-unused-vars
+  10:7  warning  '__dirname' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/routes/upload.routes.js
+  4:8  warning  'path' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/scripts/fix_bad_data.js
+   6:8   warning  'User' is defined but never used               no-unused-vars
+  47:15  warning  'fixField' is assigned a value but never used  no-unused-vars
+  47:33  warning  'field' is defined but never used              no-unused-vars
+  47:40  warning  'type' is defined but never used               no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/scripts/fix_owner_data.js
+  5:8  warning  'User' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/scripts/normalize-all-contacts.js
+  115:33  warning  'itemChanged' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/scripts/sanitizeDeals.js
+  73:15  warning  'leadRefs' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/scripts/seedDistributionRule.js
+  4:8  warning  'User' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/scripts/test-populate.js
+  4:8  warning  'Lookup' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/scripts/verify_engine_alignment.js
+  12:8  warning  'Deal' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/services/LeadIngestionService.js
+  7:8  warning  'Lookup' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/services/cache.service.js
+  22:24  warning  'err' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/services/drive.service.js
+  103:19  warning  'ext' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/services/email.service.js
+  10:8  warning  'Activity' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/src/app.js
+  31:8  warning  'smsRoutes' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/src/config/redis.js
+  19:30  warning  'err' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/src/middlewares/error.middleware.js
+  1:45  warning  'next' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/src/modules/sms/sms.controller.js
+  199:17  warning  'channel' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/src/server.js
+  3:8  warning  'mongoose' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/src/services/StageTransitionEngine.js
+  30:8  warning  'Activity' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/src/utils/enrichmentEngine.js
+  2:8  warning  'Activity' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/src/workers/cronWorker.js
+  111:24  warning  'err' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/src/workers/enrichmentWorker.js
+  26:30  warning  'err' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/test_import_payload.js
+  6:8  warning  'express' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/test_populate.js
+  4:8  warning  'Lookup' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/verify_activities.js
+  4:8  warning  'path' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/verify_dashboard_fix.js
+   1:10  warning  'getDashboardStats' is defined but never used       no-unused-vars
+   4:7   warning  'mockActivity' is assigned a value but never used   no-unused-vars
+  17:7   warning  'mockLead' is assigned a value but never used       no-unused-vars
+  21:7   warning  'mockDeal' is assigned a value but never used       no-unused-vars
+  25:7   warning  'mockLookup' is assigned a value but never used     no-unused-vars
+  29:7   warning  'mockInventory' is assigned a value but never used  no-unused-vars
+  34:7   warning  'req' is assigned a value but never used            no-unused-vars
+  35:7   warning  'res' is assigned a value but never used            no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/verify_enrichment.js
+  1:8  warning  'mongoose' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/check_settings.js
+  4:8  warning  'path' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/debug_lookups.js
+  3:8  warning  'path' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/diagnose_inventory.js
+  3:8  warning  'path' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/diagnose_projects_ids.js
+  3:8  warning  'Project' is defined but never used  no-unused-vars
+  4:8  warning  'Lookup' is defined but never used   no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/find_dirty_contacts.js
+  4:8  warning  'path' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/legacy_backup/script.js
+    2:11  warning  'listContent' is assigned a value but never used    no-unused-vars
+    3:11  warning  'actionBar' is assigned a value but never used      no-unused-vars
+    4:11  warning  'selectCount' is assigned a value but never used    no-unused-vars
+  311:19  warning  'total' is assigned a value but never used          no-unused-vars
+  500:11  warning  'contactsView' is assigned a value but never used   no-unused-vars
+  501:11  warning  'leadsView' is assigned a value but never used      no-unused-vars
+  502:11  warning  'marketingView' is assigned a value but never used  no-unused-vars
+  503:11  warning  'wizardView' is assigned a value but never used     no-unused-vars
+  821:15  warning  'sideContent' is assigned a value but never used    no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/repair_contacts.js
+  4:8  warning  'path' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/script.js
+    2:11  warning  'listContent' is assigned a value but never used    no-unused-vars
+    3:11  warning  'actionBar' is assigned a value but never used      no-unused-vars
+    4:11  warning  'selectCount' is assigned a value but never used    no-unused-vars
+  311:19  warning  'total' is assigned a value but never used          no-unused-vars
+  500:11  warning  'contactsView' is assigned a value but never used   no-unused-vars
+  501:11  warning  'leadsView' is assigned a value but never used      no-unused-vars
+  502:11  warning  'marketingView' is assigned a value but never used  no-unused-vars
+  503:11  warning  'wizardView' is assigned a value but never used     no-unused-vars
+  821:15  warning  'sideContent' is assigned a value but never used    no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/DocumentUploadModal.jsx
+  4:10  warning  'usePropertyConfig' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/FilterDropdown.jsx
+  51:43  warning  '_' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/FilterPanel.jsx
+  19:43  warning  '_' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/InventoryFeedbackModal.jsx
+  258:80  warning  'channel' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/SendMessageModal.jsx
+  17:12  warning  'rcsMedia' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/Sidebar.jsx
+  1:10  warning  'Home' is defined but never used           no-unused-vars
+  1:16  warning  'Users' is defined but never used          no-unused-vars
+  1:23  warning  'BarChart3' is defined but never used      no-unused-vars
+  1:34  warning  'Settings' is defined but never used       no-unused-vars
+  1:44  warning  'Grid' is defined but never used           no-unused-vars
+  1:50  warning  'MessageSquare' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/SingleDealLifecycle.jsx
+   5:5  warning  'Clock' is defined but never used         no-unused-vars
+   6:5  warning  'Calendar' is defined but never used      no-unused-vars
+  10:5  warning  'ChevronRight' is defined but never used  no-unused-vars
+  12:5  warning  'ArrowRight' is defined but never used    no-unused-vars
+  15:5  warning  'DollarSign' is defined but never used    no-unused-vars
+  16:5  warning  'Shield' is defined but never used        no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/UploadModal.jsx
+   1:20  warning  'useRef' is defined but never used                            no-unused-vars
+  19:11  warning  'projectMasterFieldsSafe' is assigned a value but never used  no-unused-vars
+  20:12  warning  'currentTime' is assigned a value but never used              no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/VerificationBadge.jsx
+  31:11  warning  'isNotInterested' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/common/QuickInventoryForm.jsx
+  10:23  warning  'masterFields' is assigned a value but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/context/DistributionContext.jsx
+  320:51  warning  '_context' is defined but never used  no-unused-vars
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/context/UserContext.jsx
+  61:5  error  'useEffect' is not defined  no-undef
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/hooks/useActivityForm.js
+  10:11  error  Unexpected empty object pattern  no-empty-pattern
+
+✖ 126 problems (2 errors, 124 warnings)
+

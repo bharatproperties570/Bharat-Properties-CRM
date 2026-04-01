@@ -46,7 +46,7 @@ async function deepClean() {
                     }
                 } else {
                     if (val === "" || val === null || val === undefined) {
-                        if (p.hasOwnProperty(field)) unsets[field] = "";
+                        if (Object.prototype.hasOwnProperty.call(p, field)) unsets[field] = "";
                     } else if (!mongoose.Types.ObjectId.isValid(val)) {
                         console.log(`  !! INVALID ID for ${field}: ${val}`);
                         unsets[field] = "";

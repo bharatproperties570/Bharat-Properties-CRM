@@ -2,7 +2,7 @@
 import mongoose from 'mongoose';
 import Contact from '../models/Contact.js';
 import Lead from '../models/Lead.js';
-import User from '../models/User.js';
+
 import config from '../src/config/env.js';
 
 const fixData = async () => {

@@ -1,7 +1,6 @@
 import LeadForm from "../models/LeadForm.js";
 import Lead from "../models/Lead.js";
 import Lookup from "../models/Lookup.js";
-import User from "../models/User.js";
 import mongoose from "mongoose";
 import { enrichmentQueue } from "../src/queues/queueManager.js";
 
@@ -81,7 +80,7 @@ export const getFormBySlug = async (req, res, next) => {
     }
 };
 
-export const submitForm = async (req, res, next) => {
+export const submitForm = async (req, res) => {
     try {
         const { slug } = req.params;
         const { formData, sourceMeta } = req.body; // formData is { fieldId: value }

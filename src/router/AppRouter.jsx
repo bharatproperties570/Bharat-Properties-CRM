@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from 'react';
+import { Suspense, lazy } from 'react';
 
 // Lazy load pages for massive bundle reduction
 const DashboardPage = lazy(() => import('../pages/Dashboard/DashboardPage'));
@@ -14,6 +14,8 @@ const InventoryPage = lazy(() => import('../pages/Inventory/InventoryPage'));
 const InventoryDetailPage = lazy(() => import('../pages/Inventory/InventoryDetailPage'));
 const InventoryMatchingPage = lazy(() => import('../pages/Inventory/views/InventoryMatchingPage'));
 const MarketingPage = lazy(() => import('../pages/Marketing/MarketingPage'));
+const MarketingOverviewPage = lazy(() => import('../pages/Marketing/MarketingOverviewPage'));
+const MarketingsPage = lazy(() => import('../pages/Marketings/MarketingsPage'));
 const ProfilePage = lazy(() => import('../pages/Profile/ProfilePage'));
 const ProjectsPage = lazy(() => import('../pages/Projects/ProjectsPage'));
 const ReportsPage = lazy(() => import('../pages/Reports/ReportsPage'));
@@ -98,6 +100,10 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
                 />;
             case 'marketing':
                 return <MarketingPage onNavigate={onNavigate} />;
+            case 'marketing-overview':
+                return <MarketingOverviewPage onNavigate={onNavigate} />;
+            case 'marketings':
+                return <MarketingsPage onNavigate={onNavigate} />;
             case 'wizard':
                 return <WizardPage onBack={() => onNavigate('marketing')} />;
             case 'projects':

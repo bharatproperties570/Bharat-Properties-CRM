@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Toast from '../../../components/Toast';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 
@@ -163,14 +163,14 @@ const ActivitySettingsPage = () => {
                                         alignItems: 'center',
                                         transition: 'all 0.1s'
                                     }}
-                                    className="list-item-hover"
+                                    className="group transition-colors hover:bg-slate-50"
                                 >
                                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{itemName}</span>
-                                    {!disableAdd && ( // Reusing this flag to disable delete logic for critical root items if needed, though here we allow deleting everything
+                                    {!disableAdd && (
                                         <button
                                             onClick={(e) => { e.stopPropagation(); handleDeleteItem(type, itemName); }}
-                                            style={{ border: 'none', background: 'transparent', color: '#cbd5e1', cursor: 'pointer', padding: '4px', opacity: 0, transition: 'opacity 0.2s' }}
-                                            className="delete-btn"
+                                            style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '4px', transition: 'all 0.2s' }}
+                                            className="opacity-0 group-hover:opacity-100 text-slate-300 group-hover:text-red-500"
                                         >
                                             <i className="fas fa-trash-alt" style={{ fontSize: '0.8rem' }}></i>
                                         </button>
@@ -181,10 +181,6 @@ const ActivitySettingsPage = () => {
                     </div>
                 )}
             </div>
-            <style jsx>{`
-                .list-item-hover:hover { background: #f1f5f9 !important; }
-                .list-item-hover:hover .delete-btn { opacity: 1 !important; color: #ef4444 !important; }
-            `}</style>
         </div>
     );
 

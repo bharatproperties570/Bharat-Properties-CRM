@@ -1,10 +1,11 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import ComposeEmailModal from '../../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../../components/SendMessageModal';
 import CreateActivityModal from '../../../components/CreateActivityModal';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
 import { useActivities } from '../../../context/ActivityContext';
+import { fixDriveUrl } from '../../../utils/helpers';
 
 const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
     const { addActivity } = useActivities();
@@ -12,197 +13,77 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
     const [leads, setLeads] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        if (!inventoryId) {
-            setLoading(false);
-            return;
+    const handleToggleInterest = useCallback(async (lead) => {
+        try {
+            const res = await api.put(`leads/interest/${inventoryId}`, { leadId: lead._id });
+            if (res.data && res.data.success) {
+                toast.success(res.data.message);
+                // Update local state
+                setLeads(prevLeads => prevLeads.map(l =>
+                    l._id === lead._id
+                        ? {
+                            ...l, interestedInventory: res.data.isInterested
+                                ? [...(l.interestedInventory || []), inventoryId]
+                                : (l.interestedInventory || []).filter(id => id !== inventoryId)
+                        }
+                        : l
+                ));
+            }
+        } catch (error) {
+            console.error("Error toggling interest:", error);
+            toast.error("Failed to update interest");
         }
+    }, [inventoryId]);
+
+    const fetchMatches = useCallback(async () => {
+        if (!inventoryId) return;
+        setLoading(true);
+        try {
+            const res = await api.get(`inventory/match?inventoryId=${inventoryId}`);
+            if (res.data && res.data.success) {
+                setLeads(res.data.data || []);
+            }
+        } catch (error) {
+            console.error("Error fetching matches:", error);
+            toast.error("Failed to fetch matching leads");
+        } finally {
+            setLoading(false);
+        }
+    }, [inventoryId]);
+
+    useEffect(() => {
+        if (!inventoryId) return;
 
         const fetchData = async () => {
             setLoading(true);
             try {
-                // Fetch specific inventory
                 const invRes = await api.get(`inventory/${inventoryId}`);
                 if (invRes.data && invRes.data.success) {
                     setInventory(invRes.data.data);
-                } else {
-                    console.error("Inventory fetch unsuccessful:", invRes.data);
                 }
-
-                // Fetch leads for matching
-                const leadsRes = await api.get('leads', { params: { limit: 1000 } });
-                if (leadsRes.data && leadsRes.data.success) {
-                    setLeads(leadsRes.data.records || []);
-                }
+                await fetchMatches();
             } catch (error) {
-                console.error("Error fetching match data:", error);
-                toast.error("Failed to load match data");
+                console.error("Error fetching data:", error);
             } finally {
                 setLoading(false);
             }
         };
 
-        const handleToggleInterest = async (lead) => {
-            try {
-                const res = await api.put(`leads/interest/${inventoryId}`, { leadId: lead._id });
-                if (res.data && res.data.success) {
-                    toast.success(res.data.message);
-                    // Update local state
-                    setLeads(prevLeads => prevLeads.map(l =>
-                        l._id === lead._id
-                            ? {
-                                ...l, interestedInventory: res.data.isInterested
-                                    ? [...(l.interestedInventory || []), inventoryId]
-                                    : (l.interestedInventory || []).filter(id => id !== inventoryId)
-                            }
-                            : l
-                    ));
-                }
-            } catch (error) {
-                console.error("Error toggling interest:", error);
-                toast.error("Failed to update interest");
-            }
-        };
-
         fetchData();
-    }, [inventoryId]);
-
-    // State for Bulk Selection
-    const [selectedLeads, setSelectedLeads] = useState([]);
-
-    // Communication Modals State
-    const [isMailOpen, setIsMailOpen] = useState(false);
-    const [isMessageOpen, setIsMessageOpen] = useState(false);
-    const [isActivityOpen, setIsActivityOpen] = useState(false);
-    const [selectedContactsForMail, setSelectedContactsForMail] = useState([]);
-    const [selectedContactsForMessage, setSelectedContactsForMessage] = useState([]);
-    const [activityInitialData, setActivityInitialData] = useState(null);
-    const [mailSubject, setMailSubject] = useState('');
-    const [mailBody, setMailBody] = useState('');
-    const [mailAttachments, setMailAttachments] = useState([]);
-
-    // Refinement State
-    const [budgetFlexibility, setBudgetFlexibility] = useState(10); // % flexibility
-    const [sizeFlexibility, setSizeFlexibility] = useState(10); // % flexibility
-
-    const parsePrice = (priceStr) => {
-        if (!priceStr && priceStr !== 0) return 0;
-        if (typeof priceStr === 'number') return priceStr;
-        return parseFloat(String(priceStr).replace(/,/g, '').replace(/[^\d.]/g, '')) || 0;
-    };
-
-    const parseBudget = (budgetStr) => {
-        if (!budgetStr && budgetStr !== 0) return { min: 0, max: 0 };
-        if (typeof budgetStr === 'number') return { min: budgetStr, max: budgetStr };
-        const numbers = String(budgetStr).replace(/[^\d-]/g, '').split('-').map(n => parseFloat(n) || 0);
-        if (numbers.length === 1) return { min: numbers[0], max: numbers[0] };
-        return { min: numbers[0], max: numbers[1] };
-    };
-
-    const parseSizeSqYard = (sizeStr) => {
-        if (!sizeStr) return 0;
-        const normalizedSize = String(sizeStr);
-        const match = normalizedSize.match(/\(([\d.]+)\s*Sq Yard\)/);
-        if (match) return parseFloat(match[1]);
-        const marlaMatch = normalizedSize.match(/([\d.]+)\s*Marla/);
-        if (marlaMatch) return parseFloat(marlaMatch[1]) * 30.25;
-        return parseFloat(normalizedSize.replace(/[^\d.]/g, '')) || 0;
-    };
+    }, [inventoryId, fetchMatches]);
 
     const matchedLeads = useMemo(() => {
-        if (!inventory || leads.length === 0) return [];
-
-        // Inventory fields
-        const invPrice = parsePrice(inventory.price || inventory.demand || 0);
-        const invSize = parseSizeSqYard(inventory.size || inventory.area || '0');
-        const invType = (inventory.propertyType?.lookup_value || inventory.propertyType || '').toLowerCase();
-        const invProject = (inventory.project?.lookup_value || inventory.project || '').toLowerCase();
-        const invLocation = (inventory.location?.name || inventory.location || '').toLowerCase();
-
-        return leads.map((lead, index) => {
-            let score = 0;
-            const details = {
-                project: 'mismatch',
-                type: 'mismatch',
-                budget: 'mismatch',
-                size: 'mismatch'
-            };
-
-            const gaps = [];
-
-            // Project/Location Match (30 points)
-            const areaText = (lead.location || '').toLowerCase();
-            const projectMatch = invProject && areaText.includes(invProject);
-            const locationMatch = invLocation && areaText.includes(invLocation);
-
-            if (projectMatch || locationMatch) {
-                score += 30;
-                details.project = 'match';
-            } else {
-                gaps.push('Location Mismatch');
-            }
-
-            // Type Match (20 points)
-            const leadType = (lead.req?.type?.lookup_value || lead.req?.type || '').toLowerCase();
-            if (invType && leadType && (invType.includes(leadType) || leadType.includes(invType))) {
-                score += 20;
-                details.type = 'match';
-            } else {
-                gaps.push('Property Type Mismatch');
-            }
-
-            // Budget Match (25 points)
-            const budget = parseBudget(lead.budget?.lookup_value || lead.budget);
-            const budgetTolerance = (budget.max - budget.min || budget.max) * (budgetFlexibility / 100);
-
-            if (invPrice >= (budget.min - budgetTolerance) && invPrice <= (budget.max + budgetTolerance)) {
-                score += 25;
-                details.budget = invPrice >= budget.min && invPrice <= budget.max ? 'match' : 'partial';
-            } else {
-                gaps.push('Budget Out of Range');
-            }
-
-            // Size Match (25 points)
-            if (lead.req?.size) {
-                const leadSize = parseSizeSqYard(lead.req.size);
-                if (leadSize > 0 && invSize > 0) {
-                    const diff = Math.abs(invSize - leadSize);
-                    const tolerance = leadSize * (sizeFlexibility / 100);
-
-                    if (diff <= tolerance) {
-                        const proximity = Math.max(0, 25 - (diff / leadSize) * 100);
-                        score += proximity;
-                        details.size = diff === 0 ? 'match' : 'partial';
-                    } else {
-                        gaps.push('Size Mismatch');
-                    }
-                } else {
-                    score += 10;
-                    details.size = 'partial';
-                }
-            } else {
-                // If lead has no size preference, assume a partial match/neutral
-                score += 10;
-                details.size = 'partial';
-            }
-
-            // Lead Intent Check - Vital for Inventory Matching
-            const intent = (lead.intent || '').toLowerCase();
-            // Assuming this page handles general matching. Specific intent filtering can happen here or be passed as a prop if needed.
-            // For now, we show all matches but could prioritize based on inventory status (e.g., if Sell, prioritize Buy leads)
-
-            return {
-                ...lead,
-                matchPercentage: Math.round(score),
-                matchDetails: details,
-                gaps,
-                leadScore: lead.matchPercentage || 0,
-                leadStage: lead.stage || 'Prospect'
-            };
-        })
-            .filter(l => l.matchPercentage > 10)
-            .sort((a, b) => b.matchPercentage - a.matchPercentage);
-    }, [inventory, budgetFlexibility, sizeFlexibility, leads]);
+        if (!leads) return [];
+        // Filtering based on flexibility if needed, but backend already handles matching
+        // We'll just map the scores from backend
+        return leads.map(l => ({
+            ...l,
+            matchPercentage: l.score || 0,
+            matchDetails: l.matchDetails || { project: 'match', type: 'match', budget: 'match', size: 'match' },
+            gaps: l.gaps || [],
+            leadStage: l.stage || 'Prospect'
+        })).sort((a,b) => b.matchPercentage - a.matchPercentage);
+    }, [leads]);
 
     if (loading) {
         return (
@@ -247,7 +128,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
         );
     };
 
-    const generateEmailContent = (leads) => {
+    const generateEmailContent = () => {
         const subject = `🔥 New Matching Property: ${inventory.propertyType} in ${inventory.location?.name || 'Prime Location'}!`;
         let body = `Dear Client,<br><br>`;
         body += `We have found a property that matches your requirements. This <strong>${inventory.propertyType}</strong> at <strong>${inventory.location?.name || 'Prime Location'}</strong> is available for immediate viewing.<br><br>`;
@@ -255,8 +136,11 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
         body += `<div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-bottom: 24px; font-family: sans-serif; background: #fff; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">`;
         body += `<div style="display: flex; gap: 20px; align-items: flex-start;">`;
 
+        const mainImage = inventory.inventoryImages?.[0]?.url || 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6';
+        const displayImage = mainImage.startsWith('http') ? fixDriveUrl(mainImage) : mainImage;
+
         body += `<div style="width: 200px; height: 140px; border-radius: 12px; overflow: hidden; flex-shrink: 0; background: #f1f5f9;">`;
-        body += `<img src="https://images.unsplash.com/photo-1564013799919-ab600027ffc6" style="width: 100%; height: 100%; object-fit: cover;">`;
+        body += `<img src="${displayImage}" style="width: 100%; height: 100%; object-fit: cover;">`;
         body += `</div>`;
 
         body += `<div>`;

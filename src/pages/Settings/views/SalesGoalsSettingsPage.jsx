@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { api } from '../../../utils/api';
 import toast from 'react-hot-toast';
 import { useUserContext } from '../../../context/UserContext';
 
-const GoalCard = ({ title, description, icon, onDisable, onPeriodChange, resolutionPeriod, currentPeriod, users, onUserGoalChange, goalSuffix = '' }) => {
+const GoalCard = ({ title, description, icon, onDisable, onPeriodChange, resolutionPeriod, currentPeriod, users, goalSuffix = '' }) => {
     const [searchTerm, setSearchTerm] = useState('');
 
     const filteredUsers = Array.isArray(users) ? users.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase())) : [];
@@ -201,7 +201,7 @@ const SalesGoalsSettings = () => {
     const currentYear = new Date().getFullYear();
     const periodStr = `${currentMonth} ${currentYear}`;
 
-    const fetchInitialData = async () => {
+    const fetchInitialData = useCallback(async () => {
         try {
             setLoading(true);
             setError(null);
@@ -228,11 +228,11 @@ const SalesGoalsSettings = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [contextUsers.length, refreshContextUsers, logout]);
 
     useEffect(() => {
         fetchInitialData();
-    }, []);
+    }, [fetchInitialData]);
 
     const handleSaveUnifiedGoal = async (data) => {
         try {
@@ -303,7 +303,6 @@ const SalesGoalsSettings = () => {
                         resolutionPeriod="Monthly"
                         currentPeriod={periodStr}
                         users={revenueUsers}
-                        onUserGoalChange={() => {}}
                         onDisable={() => { }}
                         onPeriodChange={() => setIsModalOpen(true)}
                         goalSuffix="$"
@@ -316,7 +315,6 @@ const SalesGoalsSettings = () => {
                         resolutionPeriod="Monthly"
                         currentPeriod={periodStr}
                         users={dealUsers}
-                        onUserGoalChange={() => {}}
                         onDisable={() => { }}
                         onPeriodChange={() => setIsModalOpen(true)}
                     />
@@ -328,7 +326,6 @@ const SalesGoalsSettings = () => {
                         resolutionPeriod="Monthly"
                         currentPeriod={periodStr}
                         users={visitUsers}
-                        onUserGoalChange={() => {}}
                         onDisable={() => { }}
                         onPeriodChange={() => setIsModalOpen(true)}
                     />

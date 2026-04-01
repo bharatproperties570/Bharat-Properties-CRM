@@ -1,5 +1,3 @@
-import React from 'react';
-
 const AddContactFormPage = () => {
     return (
         <div className="view-section">

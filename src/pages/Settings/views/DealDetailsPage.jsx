@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Toast from '../../../components/Toast';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { generateCSV, downloadFile } from '../../../utils/dataManagementUtils';
@@ -15,7 +15,7 @@ const DealDetailsPage = () => {
 
     // New Item State
     const [showAddItemForm, setShowAddItemForm] = useState(false);
-    const [addItemTarget, setAddItemTarget] = useState('flat');
+    const [, setAddItemTarget] = useState('flat');
     const [newItemValue, setNewItemValue] = useState('');
 
     const showToast = (message, type = 'success') => {

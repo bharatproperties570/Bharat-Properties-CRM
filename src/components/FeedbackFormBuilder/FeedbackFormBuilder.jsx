@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { api } from '../../utils/api';
 import { toast } from 'react-hot-toast';
 import { 
-    LucideChevronLeft, LucideEye, LucideSave, LucidePlus, 
-    LucideTrash2, LucideMoveUp, LucideMoveDown, LucideStar, 
+    LucideChevronLeft, LucideStar, 
     LucideSmile, LucideLayout, LucideMonitor
 } from 'lucide-react';
 
@@ -25,9 +24,8 @@ const FeedbackFormBuilder = ({ form, onSave, onCancel }) => {
         }
     });
 
-    const [activeSectionId, setActiveSectionId] = useState('sec_1');
+    const [activeSectionId] = useState('sec_1');
     const [selectedFieldId, setSelectedFieldId] = useState(null);
-    const [isPreviewMode, setIsPreviewMode] = useState(false);
 
     const handleSave = async () => {
         try {

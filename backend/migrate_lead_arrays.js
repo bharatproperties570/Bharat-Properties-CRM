@@ -62,7 +62,7 @@ async function migrate() {
                     } catch (e) {
                         console.warn(`Failed to parse ${currentVal}: ${e.message}`);
                         // Fallback: simple strip and split
-                        currentVal = currentVal.replace(/[\[\]']/g, '').split(',').map(s => s.trim());
+                        currentVal = currentVal.replace(/[[]']/g, '').split(',').map(s => s.trim());
                         needsUpdate = true;
                     }
                 }

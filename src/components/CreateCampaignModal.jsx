@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 const CreateCampaignModal = ({ isOpen, onClose, campaignType = 'online', onSave }) => {
     const [formData, setFormData] = useState({

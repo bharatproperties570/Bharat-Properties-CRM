@@ -81,9 +81,10 @@ async function runVerification() {
 
     } catch (error) {
         console.error("Verification failed:", error.response?.data || error.message);
-        try { await mongoose.disconnect(); } catch (e) { }
+        try { await mongoose.disconnect(); } catch (e) {
+            // Silently ignore disconnect errors
+        }
     }
 }
 
 runVerification();
-house

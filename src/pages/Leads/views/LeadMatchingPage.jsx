@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { whatsappTemplates } from '../../../constants/templates';
 import ComposeEmailModal from '../../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../../components/SendMessageModal';
@@ -48,8 +48,8 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const [budgetFlexibility, setBudgetFlexibility] = useState(10); // % flexibility
     const [sizeFlexibility, setSizeFlexibility] = useState(10); // % flexibility
     const [includeNearby, setIncludeNearby] = useState(true);
-    const [isTypeFlexible, setIsTypeFlexible] = useState(false);
-    const [isSizeFlexible, setIsSizeFlexible] = useState(false);
+    const [isTypeFlexible] = useState(false);
+    const [isSizeFlexible] = useState(false);
     const [minMatchScore, setMinMatchScore] = useState(20);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [weights, setWeights] = useState({
@@ -63,7 +63,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const [isMailOpen, setIsMailOpen] = useState(false);
     const [isMessageOpen, setIsMessageOpen] = useState(false);
     const [isActivityOpen, setIsActivityOpen] = useState(false);
-    const [selectedItemsForAction, setSelectedItemsForAction] = useState([]);
+    const [, setSelectedItemsForAction] = useState([]);
     const [activityInitialData, setActivityInitialData] = useState(null);
     const [mailSubject, setMailSubject] = useState('');
     const [mailBody, setMailBody] = useState('');
@@ -247,6 +247,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         );
     }
 
+    /*
     const getStatusColor = (status) => {
         switch (status) {
             case 'match': return '#10b981';
@@ -254,6 +255,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             default: return '#94a3b8';
         }
     };
+    */
 
     return (
         <div style={{ background: '#f8fafc', minHeight: '100vh', padding: '24px', paddingBottom: '100px' }}>

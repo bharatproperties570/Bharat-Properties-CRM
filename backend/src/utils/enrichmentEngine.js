@@ -1,5 +1,5 @@
 import Lead from "../../models/Lead.js";
-import Activity from "../../models/Activity.js";
+
 import IntentKeywordRule from "../../models/IntentKeywordRule.js";
 import ProspectEnrichmentRule from "../../models/ProspectEnrichmentRule.js";
 import EnrichmentLog from "../../models/EnrichmentLog.js";

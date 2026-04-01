@@ -1,8 +1,6 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import path from 'path';
 import Company from './models/Company.js';
-import Lookup from './models/Lookup.js';
 
 dotenv.config();
 

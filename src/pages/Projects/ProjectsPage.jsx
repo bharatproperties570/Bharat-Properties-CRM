@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useUserContext } from '../../context/UserContext';
 import { api } from '../../utils/api';
-import { getInitials } from '../../utils/helpers';
+// import { getInitials } from '../../utils/helpers';
 import toast from 'react-hot-toast';
 import AddProjectModal from '../../components/AddProjectModal';
 import AddProjectPriceModal from '../../components/AddProjectPriceModal';
@@ -11,13 +11,13 @@ import UploadModal from '../../components/UploadModal';
 import AddDocumentModal from '../../components/AddDocumentModal';
 import ProjectFilterPanel from './components/ProjectFilterPanel';
 import { applyProjectFilters } from '../../utils/projectFilterLogic';
-import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
+// import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
 import ProfessionalMap from '../../components/ProfessionalMap';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { renderValue } from '../../utils/renderUtils';
 
-function ProjectsPage({ onNavigate, onAddProject }) {
-    const { teams, users } = useUserContext();
+function ProjectsPage({ onNavigate }) {
+    const { teams } = useUserContext();
     const { getLookupValue } = usePropertyConfig();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
@@ -26,7 +26,7 @@ function ProjectsPage({ onNavigate, onAddProject }) {
     const [filters, setFilters] = useState({});
 
     const [projectsData, setProjectsData] = useState([]);
-    const [loading, setLoading] = useState(false);
+    const [, setLoading] = useState(false);
 
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isPriceModalOpen, setIsPriceModalOpen] = useState(false);
@@ -48,6 +48,7 @@ function ProjectsPage({ onNavigate, onAddProject }) {
         return found ? (found.name || found.lookup_value) : "-";
     }, [teams]);
 
+    /*
     const getUserName = useCallback((ownerValue) => {
         const value = Array.isArray(ownerValue) ? ownerValue[0] : ownerValue;
         if (!value) return "-";
@@ -57,6 +58,7 @@ function ProjectsPage({ onNavigate, onAddProject }) {
         const found = users.find(u => (u._id === value) || (u.id === value));
         return found ? (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username))) : "-";
     }, [users]);
+    */
 
     useEffect(() => {
         fetchProjects();
@@ -104,11 +106,13 @@ function ProjectsPage({ onNavigate, onAddProject }) {
         }
     };
 
+    /*
     const handleOpenAddModal = () => {
         setEditProjectData(null);
         setInitialModalTab('Basic');
         setIsAddModalOpen(true);
     };
+    */
 
     const handlePriceClick = () => {
         const project = projectsData.find(p => p._id === selectedIds[0]);
@@ -552,7 +556,7 @@ function ProjectsPage({ onNavigate, onAddProject }) {
                                     <div className="group-header" style={{ padding: '10px 2rem', background: '#f1f5f9', letterSpacing: '1px', fontWeight: 700, fontSize: '0.75rem', color: '#64748b', borderBottom: '1px solid #e2e8f0' }}>
                                         {city.toUpperCase()} PROJECTS <span style={{ marginLeft: '8px', background: '#e2e8f0', padding: '1px 6px', borderRadius: '4px', fontSize: '0.7rem' }}>{projects.length}</span>
                                     </div>
-                                    {projects.map((project, index) => (
+                                    {projects.map((project) => (
                                         <div key={project._id} className="list-item project-list-grid" style={{ padding: '15px 1.5rem', borderBottom: '1px solid #f1f5f9', transition: 'all 0.2s ease' }}>
                                             <input
                                                 type="checkbox"

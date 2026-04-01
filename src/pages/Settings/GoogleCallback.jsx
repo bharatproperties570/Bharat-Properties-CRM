@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { googleSettingsAPI } from '../../utils/api';
 import { toast } from 'react-hot-toast';
 

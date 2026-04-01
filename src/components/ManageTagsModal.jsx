@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 // Mock data removed
 const suggestedTags = [];
 
@@ -7,7 +7,6 @@ const ManageTagsModal = ({ isOpen, onClose, selectedContacts = [], onUpdateTags 
     const [currentTags, setCurrentTags] = useState([]);
     const [inputValue, setInputValue] = useState('');
     const [mode, setMode] = useState('add'); // 'add' or 'remove' for bulk
-    const [selectedSummary, setSelectedSummary] = useState([]);
 
     // AI Suggestions (Mock logic: filter out already selected tags)
     const aiSuggestions = suggestedTags.filter(tag => !currentTags.includes(tag)).slice(0, 5);

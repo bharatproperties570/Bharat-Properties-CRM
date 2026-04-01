@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useContactConfig } from '../context/ContactConfigContext';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 
 const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) => {
-    const { propertyConfig } = usePropertyConfig();
+    usePropertyConfig();
     const config = useContactConfig();
     const documentConfig = config?.documentConfig || {};
 
@@ -29,11 +29,11 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
                     if (Array.isArray(project.owners)) {
                         project.owners.forEach(owner => {
                             if (owner && typeof owner === 'object') {
-                                potentialOwners.push({
-                                    name: String(owner.name || 'Unknown Owner'),
-                                    mobile: owner.phones?.[0]?.number ? String(owner.phones[0].number) : (owner.mobile ? String(owner.mobile) : ''),
-                                    role: 'Property Owner'
-                                });
+                                const name = owner.name || owner.fullName || owner.displayName || 'Unknown Owner';
+                                const mobile = owner.mobile || (owner.phones && owner.phones[0]?.number) || '';
+                                if (name && mobile) {
+                                    potentialOwners.push({ name: String(name), mobile: String(mobile), role: 'Property Owner' });
+                                }
                             }
                         });
                     }
@@ -41,13 +41,17 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
                     // Populate from 'associates' array
                     if (Array.isArray(project.associates)) {
                         project.associates.forEach(assoc => {
-                            const contact = assoc.contact;
+                            const contact = assoc && typeof assoc === 'object' ? (assoc.contact || assoc) : null;
                             if (contact && typeof contact === 'object') {
-                                potentialOwners.push({
-                                    name: String(contact.name || 'Unknown Associate'),
-                                    mobile: contact.phones?.[0]?.number ? String(contact.phones[0].number) : (contact.mobile ? String(contact.mobile) : ''),
-                                    role: String(assoc.relationship || 'Associate')
-                                });
+                                const name = contact.name || contact.fullName || 'Unknown Associate';
+                                const mobile = contact.mobile || (contact.phones && contact.phones[0]?.number) || '';
+                                if (name && mobile) {
+                                    potentialOwners.push({ 
+                                        name: String(name), 
+                                        mobile: String(mobile), 
+                                        role: String(assoc.relationship || 'Associate') 
+                                    });
+                                }
                             }
                         });
                     }
@@ -77,9 +81,7 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
             setFormData(prev => ({
                 ...prev,
                 owners: potentialOwners,
-                inventoryDocuments: (project && Array.isArray(project.inventoryDocuments) && project.inventoryDocuments.length > 0)
-                    ? project.inventoryDocuments
-                    : [{ documentName: '', documentType: '', documentNumber: '', linkedContactMobile: '', file: null }]
+                inventoryDocuments: [{ documentName: '', documentType: '', documentNumber: '', linkedContactMobile: '', file: null }]
             }));
         } else if (isOpen) {
             setFormData({
@@ -88,6 +90,20 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
             });
         }
     }, [isOpen, project]);
+
+    const [isAuthExpired, setIsAuthExpired] = useState(false);
+    
+    const handleReconnect = async () => {
+        try {
+            const res = await api.get('/settings/google/url');
+            if (res.data?.success && res.data.url) {
+                window.location.href = res.data.url;
+            }
+        } catch (err) {
+            console.error("Failed to get auth URL", err);
+            toast.error("Could not start re-authentication. Go to Settings > Integrations.");
+        }
+    };
 
     const handleSave = async () => {
         const toastId = toast.loading('Uploading documents to Google Drive...');
@@ -129,7 +145,17 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
             }
         } catch (error) {
             console.error("Upload error:", error);
-            toast.error(error.response?.data?.error || "Failed to upload documents", { id: toastId });
+            const errorMessage = error.response?.data?.error || error.message || "Failed to upload documents";
+            
+            if (errorMessage.includes('invalid_grant')) {
+                setIsAuthExpired(true);
+                toast.error("Google Drive connection expired. Please re-connect below.", { 
+                    id: toastId,
+                    duration: 6000 
+                });
+            } else {
+                toast.error(errorMessage, { id: toastId });
+            }
         }
     };
 
@@ -367,6 +393,22 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
 
                 {/* Footer */}
                 <div style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px' }}>
+                    {isAuthExpired && (
+                        <button 
+                            onClick={handleReconnect}
+                            style={{ 
+                                ...buttonStyle.success, 
+                                background: '#4285F4', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '8px',
+                                marginRight: 'auto' 
+                            }}
+                        >
+                            <i className="fab fa-google"></i>
+                            Reconnect Google Drive
+                        </button>
+                    )}
                     <button onClick={onClose} style={buttonStyle.cancel}>Cancel</button>
                     <button onClick={handleSave} style={buttonStyle.success}>Save Documents</button>
                 </div>

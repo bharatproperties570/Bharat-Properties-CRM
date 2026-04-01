@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+
 import Lead from "./models/Lead.js";
 import IntentKeywordRule from "./models/IntentKeywordRule.js";
 import connectDB from "./src/config/db.js";

@@ -1,0 +1,16 @@
+# Scratch scripts and temporary files
+backend/count_inventory.js
+backend/deep_inspect.js
+backend/reproduce_500.js
+backend/verify_dashboard_fix.js
+backend/scripts/
+check_settings.js
+debug_lookups.js
+diagnose_inventory.js
+diagnose_projects_ids.js
+find_dirty_contacts.js
+legacy_backup/
+repair_contacts.js
+script.js
+node_modules/
+dist/

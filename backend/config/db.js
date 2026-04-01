@@ -20,9 +20,6 @@ const connectDB = async () => {
     }
 };
 
-const setupMockRoutes = (app) => {
-    // Add temporary mock logic if needed, or rely on frontend to handle 500s gracefully
-    // But since backend crashes, we need it to NOT crash
-};
+
 
 export default connectDB;

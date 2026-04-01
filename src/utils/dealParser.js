@@ -54,13 +54,15 @@ const PATTERNS = {
 const normalizeText = (text) => text.toLowerCase().replace(/\s+/g, ' ').trim();
 
 // Extraction helpers now return { value, match } to allow stripping from text
-const extractCity = (text) => {
-    const match = text.match(PATTERNS.CITY);
+const extractCity = (text, customPatterns = null) => {
+    const pattern = (customPatterns && customPatterns.CITY) ? customPatterns.CITY : PATTERNS.CITY;
+    const match = text.match(pattern);
     return match ? { value: match[0].toUpperCase(), match: match[0] } : null;
 };
 
-const extractLocation = (text) => {
-    const match = text.match(PATTERNS.LOCATION);
+const extractLocation = (text, customPatterns = null) => {
+    const pattern = (customPatterns && customPatterns.LOCATION) ? customPatterns.LOCATION : PATTERNS.LOCATION;
+    const match = text.match(pattern);
     if (!match) return null;
 
     let value;
@@ -87,6 +89,12 @@ const extractUnit = (text) => {
     const genericMatch = text.match(PATTERNS.UNIT_GENERIC);
     if (genericMatch && genericMatch[1]) {
         return { value: genericMatch[1].toUpperCase(), match: genericMatch[0] };
+    }
+
+    // Priority 4: Raw Asterisk Match (e.g. *101*)
+    const rawMatch = text.match(PATTERNS.UNIT_RAW_ASTERISK);
+    if (rawMatch && rawMatch[1]) {
+        return { value: rawMatch[1].toUpperCase(), match: rawMatch[0] };
     }
 
     return null;
@@ -255,42 +263,40 @@ const determineIntent = (text) => {
 export const splitIntakeMessage = (text, customPatterns = null) => {
     if (!text) return [];
 
-    // Strategy 1: Numbered Lists (e.g. "1. Deal one\n2. Deal two")
-    // Needs to look for "Digit + Dot/Paren + Space" at start of line
+    // Pre-processing for PDF text: Normalize whitespace but keep useful line breaks
+    const normalizedText = text.replace(/[ \t]+/g, ' ').trim();
+
+    // Strategy Definitions
     const numberedListRegex = /(?:\r\n|\r|\n|^)\s*\d+[.)]\s+/g;
-
-    // Strategy 2: Double Newlines (gap between paragraphs)
     const doubleNewlineRegex = /\n\s*\n/;
+    
+    // Keyword-based boundaries: Plot, SCO, House, #101, Unit, Flat
+    // Splits before these keywords ONLY if they are likely starting a new deal (newline or after period)
+    const keywordSplitRegex = /(?:\n|[.!?])\s*(?=(?:(?:plot|sco|house|unit|flat|property|req|available|no)\b|#)\s*(?:no\.?|number|#)?\s*\d+)/gi;
 
-    let segments = [];
+    let markedText = normalizedText;
 
-    // Check for Numbered List
-    const hasNumberedList = numberedListRegex.test(text);
+    // Apply multiple marking passes to identify all boundaries
+    markedText = markedText.replace(numberedListRegex, (match) => `|SPLIT|${match}`);
+    markedText = markedText.replace(doubleNewlineRegex, () => `|SPLIT|`);
+    markedText = markedText.replace(keywordSplitRegex, (match) => {
+        // match starts with \n or .!?
+        const prefix = match.charAt(0);
+        return `${prefix}|SPLIT|`;
+    });
 
-    if (hasNumberedList) {
-        // Split by the regex, but we need to keep the content. 
-        // We add a delimiter and then split.
-        const markedText = text.replace(numberedListRegex, (match) => `|SPLIT|${match}`);
-        segments = markedText.split('|SPLIT|');
-    } else if (doubleNewlineRegex.test(text)) {
-        // Double newline split
-        segments = text.split(doubleNewlineRegex);
-    } else {
-        // Single block
-        segments = [text];
-    }
+    const segments = markedText.split('|SPLIT|');
 
     // Clean Segments and Parse
     const parsedDeals = segments
         .map(s => {
-            // Remove the numbering artifact (e.g. "1. ")
+            // Remove the numbering artifact
             return s.replace(/^\s*\d+[.)]\s+/, '').trim();
         })
-        .filter(s => s.length > 10) // Min length matches
+        .filter(s => s.length > 10) // Min length to avoid junk
         .map(seg => parseDealContent(seg, customPatterns))
         .filter(deal => {
-            // Filter out "Deals" that have NO extractable info (junk headers)
-            // Keep if has significant data (Loc, Unit, Size, Price OR Type)
+            // Filter out junk. Keep if significant data exists.
             const hasData = deal.location !== 'Unspecified' || deal.address.unitNumber || deal.specs.size || deal.specs.price || (deal.type && deal.type !== 'Unknown');
             return hasData;
         });
@@ -301,47 +307,29 @@ export const splitIntakeMessage = (text, customPatterns = null) => {
 
 // --- MAIN PARSER ---
 
-// --- MAIN PARSER ---
-
 export const parseDealContent = (originalText, customPatterns = null) => {
-    // If customPatterns provided, use them to override or augment PATTERNS
-    // For now, we stick to PATTERNS but in future steps we will merge.
-    // However, customPatterns logic should be:
-    // 1. If custom pattern found -> extract.
-
-    // NOTE: This function's implementation of 'consume' relies on regex matching from PATTERNS.
-    // If we want to support dynamic city/location/type, we need to construct RegExp dynamically from the list.
-    // That implementation will be done in the next step when we fully enable the Context.
-    // For now, just accepting the arg to prevent breaking.
-
     if (!originalText) return null;
-    if (!originalText) return null;
-    let remainingText = originalText + ""; // Clone for consumption
-    const textLower = normalizeText(originalText); // Read-only for detection
+    let remainingText = originalText + ""; 
+    const textLower = normalizeText(originalText); 
 
-    // Helper to consume text (remove matched part)
     const consume = (matchString) => {
         if (!matchString) return;
-        // Case-insensitive remove
         const regex = new RegExp(matchString.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
         remainingText = remainingText.replace(regex, '').replace(/\s{2,}/g, ' ').trim();
     };
 
-    // 1. Core Extraction
+    // 1. Core Extraction with dynamic support
 
     // City
-    const cityResult = extractCity(textLower);
+    const cityResult = extractCity(textLower, customPatterns);
     if (cityResult) consume(cityResult.match);
 
     // Location
-    const locResult = extractLocation(textLower);
+    const locResult = extractLocation(textLower, customPatterns);
     if (locResult) consume(locResult.match);
 
     // Unit
-    const unitResult = extractUnit(originalText); // Use original for case sensitivity if needed, though regex handles it?
-    // unitResult regexes are case insensitive but extraction logic returns UPPER. 
-    // We should grep the original text again or use what we matched.
-    // extractUnit returns { match: ... } which is the string found.
+    const unitResult = extractUnit(originalText); 
     if (unitResult) consume(unitResult.match);
 
     // Size
@@ -349,14 +337,9 @@ export const parseDealContent = (originalText, customPatterns = null) => {
     if (sizeResult) consume(sizeResult.match);
 
     // Price
-    // Note: User didn't strictly ask to move price to remarks, but standard practice is to extract it.
-    // We will extract it but if the user *really* wants "everything else" in remarks, price should be extracted.
-    // To support "other data" in remarks, we must consume standard data.
     const priceResult = extractPrice(originalText);
     if (priceResult) {
         consume(priceResult.match);
-        // Also consume the label "Price" or "Rate" if it exists near the match? 
-        // Simplistic approach: Remove "Price" or "Ask" keywords globally if price is found
         remainingText = remainingText.replace(/\b(price|rate|ask|demand)\b/gi, '').replace(/\s{2,}/g, ' ');
     }
 
@@ -364,26 +347,23 @@ export const parseDealContent = (originalText, customPatterns = null) => {
     const catResult = determineCategoryType(textLower, customPatterns);
     if (catResult.match) consume(catResult.match);
 
-    // 2. Contacts (Do NOT consume contacts, keep them for reference, or should we?)
-    // Usually contacts are signatures. Let's consume specific phones.
+    // 2. Contacts
     const contacts = extractContacts(originalText);
     contacts.forEach(c => consume(c.mobile));
 
     // 3. Intent
     const intent = determineIntent(textLower);
 
-    // 4. Tags (Smart Tagging)
+    // 4. Tags
     const tags = determineTags(textLower);
 
-    // 5. Remarks (Whatever is left)
-    // Clean up punctuation leftovers
+    // 5. Remarks (Clean remaining text)
     let remarks = remainingText
-        .replace(/^[,.\-\s]+/, '') // Leading junk
-        .replace(/[,.\-\s]+$/, '') // Trailing junk
+        .replace(/^[,.\-\s]+/, '') 
+        .replace(/[,.\-\s]+$/, '') 
         .trim();
 
     return {
-        // Structured Data Object
         intent,
         category: catResult.category,
         type: catResult.type,
@@ -398,14 +378,11 @@ export const parseDealContent = (originalText, customPatterns = null) => {
             size: sizeResult?.value || null,
             price: priceResult?.value || null
         },
-        remarks: remarks || null, // The "Remainder" content
+        remarks: remarks || null, 
         contact: contacts.length > 0 ? { ...contacts[0], unitNo: unitResult?.value || null } : null,
         allContacts: contacts.map(c => ({ ...c, unitNo: unitResult?.value || null })),
-        tags: tags, // New Smart Tags
-
-        // Metadata for UI
+        tags: tags, 
         raw: originalText,
-        confidence: locResult ? 'High' : 'Low'
     };
 };
 

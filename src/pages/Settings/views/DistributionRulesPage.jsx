@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useDistribution } from '../../../context/DistributionContext';
 import CreateDistributionRuleModal from '../../../components/CreateDistributionRuleModal';
 

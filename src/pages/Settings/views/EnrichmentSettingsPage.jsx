@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { enrichmentAPI } from '../../../utils/api';
 import Toast from '../../../components/Toast';
 
@@ -41,11 +41,7 @@ const EnrichmentSettingsPage = () => {
         priceGapThreshold: 12
     });
 
-    useEffect(() => {
-        fetchRules();
-    }, []);
-
-    const fetchRules = async () => {
+    const fetchRules = useCallback(async () => {
         try {
             setLoading(true);
             const response = await enrichmentAPI.getRules();
@@ -66,7 +62,11 @@ const EnrichmentSettingsPage = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        fetchRules();
+    }, [fetchRules]);
 
     const showToast = (message, type = 'success') => {
         setNotification({ show: true, message, type });
@@ -104,6 +104,20 @@ const EnrichmentSettingsPage = () => {
             }
         } catch (error) {
             showToast(`Error saving ${type} settings`, 'error');
+        }
+    };
+
+    const handleDeleteKeyword = async (id) => {
+        if (window.confirm('Are you sure you want to delete this keyword rule?')) {
+            try {
+                const response = await enrichmentAPI.deleteKeywordRule(id);
+                if (response.success) {
+                    showToast('Rule deleted');
+                    fetchRules();
+                }
+            } catch (error) {
+                showToast('Error deleting keyword rule', 'error');
+            }
         }
     };
 

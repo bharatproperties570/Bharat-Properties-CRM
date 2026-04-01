@@ -9,6 +9,7 @@ import smsService from "../src/modules/sms/sms.service.js";
 import Lookup from "../models/Lookup.js";
 import AuditLog from "../models/AuditLog.js";
 import { syncDocumentsToContact } from "../utils/sync.js";
+import CampaignEngine from "../services/CampaignEngine.js";
 
 // --- OPTIMIZATION: In-Memory Lookup Cache (Process Scoped) ---
 const _lookupResolveCache = new Map();
@@ -172,11 +173,11 @@ export const getDeals = async (req, res) => {
         const populateFields = [
             { path: 'inventoryId' },
             { path: 'projectId' },
-            { path: 'owner', select: 'name phone email' },
-            { path: 'associatedContact', select: 'name phone email' },
+            { path: 'owner', select: 'name phones emails', model: 'Contact' },
+            { path: 'associatedContact', select: 'name phones emails', model: 'Contact' },
             { path: 'assignedTo', select: 'fullName name email' },
-            { path: 'partyStructure.buyer', select: 'name phone email' },
-            { path: 'partyStructure.channelPartner', select: 'name phone email' },
+            { path: 'partyStructure.buyer', select: 'name phones emails', model: 'Contact' },
+            { path: 'partyStructure.channelPartner', select: 'name phones emails', model: 'Contact' },
             { path: 'partyStructure.internalRM', select: 'fullName name email' },
             { path: 'category', select: 'lookup_value' },
             { path: 'subCategory', select: 'lookup_value' },
@@ -238,10 +239,10 @@ export const getDeals = async (req, res) => {
         }
 
         // --- OPTIMIZATION 10: Batch Inventory Fetch ---
-        const inventoryIdsToFetch = [...new Set(results.records.map(d => d.inventoryId).filter(Boolean))];
+        const inventoryIdsToFetch = [...new Set(results.records.map(d => d.inventoryId?._id || d.inventoryId).filter(Boolean))];
         const inventoryMap = new Map();
         if (inventoryIdsToFetch.length > 0) {
-            const inventories = await Inventory.find({ _id: { $in: inventoryIdsToFetch } }).populate('owners').lean();
+            const inventories = await Inventory.find({ _id: { $in: inventoryIdsToFetch } }).populate('owners').populate('associates.contact').lean();
             inventories.forEach(inv => inventoryMap.set(String(inv._id), inv));
         }
 
@@ -251,9 +252,18 @@ export const getDeals = async (req, res) => {
 
             // Live Owner Sync: Use batched inventory data
             if (!dealObj.closingDetails?.isClosed && dealObj.inventoryId) {
-                const inventory = inventoryMap.get(String(dealObj.inventoryId));
-                if (inventory && inventory.owners && inventory.owners.length > 0) {
-                    dealObj.owner = inventory.owners[0];
+                const invId = dealObj.inventoryId?._id || dealObj.inventoryId;
+                const inventory = inventoryMap.get(String(invId));
+                if (inventory) {
+                    if (inventory.owners && inventory.owners.length > 0) {
+                        dealObj.owner = inventory.owners[0];
+                    }
+                    if (inventory.associates && inventory.associates.length > 0) {
+                        // Sync if empty OR if it's just an ID string (failed population)
+                        if (!dealObj.associatedContact || typeof dealObj.associatedContact === 'string') {
+                            dealObj.associatedContact = inventory.associates[0].contact;
+                        }
+                    }
                 }
             }
 
@@ -287,12 +297,12 @@ export const getDealById = async (req, res) => {
         const populateFields = [
             { path: 'inventoryId' },
             { path: 'projectId' },
-            { path: 'owner' },
-            { path: 'associatedContact' },
+            { path: 'owner', model: 'Contact' },
+            { path: 'associatedContact', model: 'Contact' },
             { path: 'assignedTo' },
-            { path: 'partyStructure.owner' },
-            { path: 'partyStructure.buyer' },
-            { path: 'partyStructure.channelPartner' },
+            { path: 'partyStructure.owner', model: 'Contact' },
+            { path: 'partyStructure.buyer', model: 'Contact' },
+            { path: 'partyStructure.channelPartner', model: 'Contact' },
             { path: 'partyStructure.internalRM' },
             { path: 'category' },
             { path: 'subCategory' },
@@ -321,7 +331,7 @@ const sanitizeData = (data) => {
     const refFields = [
         'inventoryId', 'projectId', 'unitType', 'propertyType', 'location', 'intent',
         'status', 'dealType', 'transactionType', 'source', 'owner', 'associatedContact',
-        'category', 'subCategory', 'assignedTo', 'partyStructure.owner',
+        'category', 'subCategory', 'assignedTo', 'team', 'partyStructure.owner',
         'partyStructure.buyer', 'partyStructure.channelPartner', 'partyStructure.internalRM'
     ];
     const sanitized = { ...data };
@@ -330,7 +340,9 @@ const sanitizeData = (data) => {
     const sanitizeValue = (val) => {
         if (val === "" || val === undefined || val === null) return null;
         if (typeof val === 'object' && !Array.isArray(val)) {
-            return val._id || val;
+            // Reference fields MUST be ObjectIds. 
+            // If we have an object, try to get _id. If no _id, return null to avoid CastError.
+            return val._id || null;
         }
         return val;
     };
@@ -436,6 +448,11 @@ export const addDeal = async (req, res) => {
                 projectName: dealWithConfig.projectName || 'the property'
             }).catch(e => console.error('[SMS Trigger Error] New Deal failed:', e.message));
         }
+
+        // 🚀 AUTO-MARKETING: Fire campaign engine for new deal (fire-and-forget, non-blocking)
+        CampaignEngine.launch(deal._id).catch(err =>
+            console.error('[CampaignEngine] Auto-launch error for new deal:', err.message)
+        );
 
         res.status(201).json({ success: true, data: deal });
     } catch (error) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { renderValue } from '../utils/renderUtils';
 
@@ -450,7 +450,7 @@ export default function AddProjectPriceModal({ isOpen, onClose, onSave, project 
                                     <div></div>
                                 </div>
                                 <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                                    {(formData.pricing?.masterCharges || []).map((charge, idx) => (
+                                    {(formData.pricing?.masterCharges || []).map((charge) => (
                                         <div key={charge.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 2fr) 1.2fr 1fr 1.5fr 1fr 40px', gap: '16px', padding: '16px 20px', borderBottom: '1px solid #f1f5f9', alignItems: 'center' }}>
                                             <input
                                                 style={{ ...inputStyle, fontWeight: 600 }}

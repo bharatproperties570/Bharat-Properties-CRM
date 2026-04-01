@@ -1,6 +1,6 @@
 import express from 'express';
 import { uploadImageOnly, uploadZipOnly, uploadPdfOnly } from '../../middlewares/upload.middleware.js';
-import { processOCR, processZIP, processPDF, getIntakes, updateIntakeStatus, createIntake, deleteIntake } from './intake.controller.js';
+import { processOCR, processZIP, processPDF, getIntakes, getIntakeById, updateIntakeStatus, createIntake, deleteIntake } from './intake.controller.js';
 
 const router = express.Router();
 
@@ -9,6 +9,7 @@ const router = express.Router();
  * @desc    Get all intake records
  */
 router.get('/', getIntakes);
+router.get('/:id', getIntakeById);
 
 /**
  * @route   POST /api/intake

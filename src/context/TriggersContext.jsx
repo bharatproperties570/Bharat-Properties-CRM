@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback } from 'react';
 import { evaluateAndExecuteTriggers } from '../utils/triggersEngine';
 import { activitiesAPI } from '../utils/api';
 import { useSequences } from './SequenceContext';
@@ -249,7 +249,7 @@ export const TriggersProvider = ({ children }) => {
                     return { success: true };
                 },
 
-                sendNotification: async ({ target, template, entity, data, message }) => {
+                sendNotification: async ({ target, template, data, message }) => {
                     const finalMessage = message || data?.message || `Trigger: ${template}`;
                     // Real implementation (simulated with toast/log for now)
                     console.log(`[TRIGGER_NOTIFICATION] to ${target}: ${finalMessage}`);
@@ -323,7 +323,7 @@ export const TriggersProvider = ({ children }) => {
             console.error('Error firing event:', error);
             return [];
         }
-    }, [triggers, enrollInSequence, updateEnrollmentStatus]);
+    }, [triggers, enrollInSequence, updateEnrollmentStatus, automatedActionsCtx]);
 
     /**
      * Get trigger statistics
@@ -411,6 +411,7 @@ export const TriggersProvider = ({ children }) => {
     );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useTriggers = () => {
     const context = useContext(TriggersContext);
     if (!context) {

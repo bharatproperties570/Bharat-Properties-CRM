@@ -110,10 +110,10 @@ const InventorySchema = new mongoose.Schema({
         landmark: String,
         city: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         tehsil: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        postOffice: String,
+        postOffice: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         state: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         pincode: String,
-        country: { type: String, default: 'India' }
+        country: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup', default: 'India' }
     },
 
     // Ownership & Association
@@ -159,6 +159,16 @@ const InventorySchema = new mongoose.Schema({
         type: { type: String, default: 'Feedback' }, // Feedback, System, Status Change, etc.
         note: String,
         details: mongoose.Schema.Types.Mixed
+    }],
+    ownerHistory: [{
+        date: { type: Date, default: Date.now },
+        author: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        contactName: String,
+        contactMobile: String,
+        contactId: { type: mongoose.Schema.Types.ObjectId, ref: 'Contact' },
+        role: String,
+        type: { type: String, enum: ['Added', 'Removed'], default: 'Added' },
+        source: String
     }]
 }, { timestamps: true, strict: true });
 
@@ -195,6 +205,8 @@ InventorySchema.pre('save', async function (next) {
             if (this.address.city && !mongoose.Types.ObjectId.isValid(this.address.city)) this.address.city = await resolveLookupLocal('City', this.address.city);
             if (this.address.tehsil && !mongoose.Types.ObjectId.isValid(this.address.tehsil)) this.address.tehsil = await resolveLookupLocal('Tehsil', this.address.tehsil);
             if (this.address.state && !mongoose.Types.ObjectId.isValid(this.address.state)) this.address.state = await resolveLookupLocal('State', this.address.state);
+            if (this.address.postOffice && !mongoose.Types.ObjectId.isValid(this.address.postOffice)) this.address.postOffice = await resolveLookupLocal('PostOffice', this.address.postOffice);
+            if (this.address.country && !mongoose.Types.ObjectId.isValid(this.address.country)) this.address.country = await resolveLookupLocal('Country', this.address.country);
             if (this.address.locality && !mongoose.Types.ObjectId.isValid(this.address.locality)) this.address.locality = await resolveLookupLocal('Area', this.address.locality);
             if (this.address.area && !mongoose.Types.ObjectId.isValid(this.address.area)) this.address.area = await resolveLookupLocal('Area', this.address.area);
             if (this.address.location && !mongoose.Types.ObjectId.isValid(this.address.location)) this.address.location = await resolveLookupLocal('Area', this.address.location);
@@ -254,6 +266,8 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
             if (address.city && !mongoose.Types.ObjectId.isValid(address.city)) address.city = await resolveLookupLocal('City', address.city);
             if (address.tehsil && !mongoose.Types.ObjectId.isValid(address.tehsil)) address.tehsil = await resolveLookupLocal('Tehsil', address.tehsil);
             if (address.state && !mongoose.Types.ObjectId.isValid(address.state)) address.state = await resolveLookupLocal('State', address.state);
+            if (address.postOffice && !mongoose.Types.ObjectId.isValid(address.postOffice)) address.postOffice = await resolveLookupLocal('PostOffice', address.postOffice);
+            if (address.country && !mongoose.Types.ObjectId.isValid(address.country)) address.country = await resolveLookupLocal('Country', address.country);
             if (address.locality && !mongoose.Types.ObjectId.isValid(address.locality)) address.locality = await resolveLookupLocal('Area', address.locality);
             if (address.area && !mongoose.Types.ObjectId.isValid(address.area)) address.area = await resolveLookupLocal('Area', address.area);
             if (address.location && !mongoose.Types.ObjectId.isValid(address.location)) address.location = await resolveLookupLocal('Area', address.location);
@@ -262,6 +276,8 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
             if (obj['address.city'] && !mongoose.Types.ObjectId.isValid(obj['address.city'])) obj['address.city'] = await resolveLookupLocal('City', obj['address.city']);
             if (obj['address.tehsil'] && !mongoose.Types.ObjectId.isValid(obj['address.tehsil'])) obj['address.tehsil'] = await resolveLookupLocal('Tehsil', obj['address.tehsil']);
             if (obj['address.state'] && !mongoose.Types.ObjectId.isValid(obj['address.state'])) obj['address.state'] = await resolveLookupLocal('State', obj['address.state']);
+            if (obj['address.postOffice'] && !mongoose.Types.ObjectId.isValid(obj['address.postOffice'])) obj['address.postOffice'] = await resolveLookupLocal('PostOffice', obj['address.postOffice']);
+            if (obj['address.country'] && !mongoose.Types.ObjectId.isValid(obj['address.country'])) obj['address.country'] = await resolveLookupLocal('Country', obj['address.country']);
             if (obj['address.locality'] && !mongoose.Types.ObjectId.isValid(obj['address.locality'])) obj['address.locality'] = await resolveLookupLocal('Area', obj['address.locality']);
             if (obj['address.area'] && !mongoose.Types.ObjectId.isValid(obj['address.area'])) obj['address.area'] = await resolveLookupLocal('Area', obj['address.area']);
             if (obj['address.location'] && !mongoose.Types.ObjectId.isValid(obj['address.location'])) obj['address.location'] = await resolveLookupLocal('Area', obj['address.location']);

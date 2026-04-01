@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 const AlgorithmSettingsModal = ({ isOpen, onClose, weights, onSave }) => {
     const [tempWeights, setTempWeights] = useState({

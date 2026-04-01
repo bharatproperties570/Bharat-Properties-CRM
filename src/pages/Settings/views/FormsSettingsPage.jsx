@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { LucideFileSignature, LucideStar } from 'lucide-react';
 
 const FormsSettingsPage = ({ setActiveTab }) => {

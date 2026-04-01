@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useSequences } from '../../../context/SequenceContext';
 import CreateSequenceModal from '../../../components/CreateSequenceModal';
 
 const SequencesSettingsPage = () => {
-    const { sequences, toggleSequence, deleteSequence, updateSequence, getEnrollmentCount, enrollments } = useSequences();
+    const { sequences, toggleSequence, deleteSequence, getEnrollmentCount, enrollments } = useSequences();
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);

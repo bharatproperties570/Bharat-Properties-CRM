@@ -16,16 +16,15 @@ import AIExpertService from '../../services/AIExpertService';
 import { STAGE_PIPELINE } from '../../utils/stageEngine';
 
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
-import { useSequences } from '../../context/SequenceContext';
 import { useTriggers } from '../../context/TriggersContext';
 import { useCall } from '../../context/CallContext';
 import { useDistribution } from '../../context/DistributionContext';
 import EnrollSequenceModal from '../../components/EnrollSequenceModal';
 import DocumentUploadModal from '../../components/DocumentUploadModal';
 import ActivityOutcomeModal from '../../components/ActivityOutcomeModal';
+import useDebounce from '../../hooks/useDebounce';
 
 import LeadFilterPanel from './components/LeadFilterPanel';
-import { applyLeadFilters } from '../../utils/leadFilterLogic';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 import { parseBudget, parseSizeSqYard, calculateMatch } from '../../utils/matchingLogic';
 import { useUserContext } from '../../context/UserContext';
@@ -36,7 +35,6 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const {
         scoringAttributes,
         activityMasterFields,
-        updateActivityMasterFields,
         sourceQualityScores,
         inventoryFitScores,
         decayRules,
@@ -91,6 +89,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [liveScores, setLiveScores] = useState({}); // { leadId: { score, color, label } } from stage engine
 
+    // --- OPTIMIZATION: Debounced Search Term ---
+    const debouncedSearchTerm = useDebounce(searchTerm, 500);
+
     // Filter State
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
@@ -125,14 +126,14 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
 
     const getUserName = useCallback((userValue) => {
-        if (!userValue) return "-";
+        if (!userValue) return "Unassigned";
         if (typeof userValue === 'object') {
-            return userValue.fullName || userValue.name || userValue.lookup_value || userValue.username || "-";
+            return userValue.fullName || userValue.name || userValue.lookup_value || userValue.username || "Unassigned";
         }
         // Check if users is an array
         const userArray = Array.isArray(users) ? users : (users?.data || []);
         const found = userArray.find(u => (u._id === userValue) || (u.id === userValue));
-        return found ? (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username))) : userValue;
+        return found ? (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username))) : "Unassigned";
     }, [users]);
 
 
@@ -185,7 +186,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     params: {
                         page: currentPage,
                         limit: recordsPerPage,
-                        search: searchTerm
+                        search: debouncedSearchTerm
                     }
                 });
 
@@ -262,19 +263,32 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             : "—",
 
                         location: lead.location,
+                        locationLines: {
+                            project: (() => {
+                                const p = lead.project?.name || lead.projectName;
+                                if (Array.isArray(p)) return p.map(i => typeof i === 'object' ? (i.name || i.lookup_value) : i).join(", ");
+                                return typeof p === 'object' ? (p.name || p.lookup_value) : p;
+                            })(),
+                            block: (() => {
+                                const b = lead.locBlock;
+                                if (Array.isArray(b)) return b.map(i => typeof i === 'object' ? (i.name || i.lookup_value) : i).join(", ");
+                                return typeof b === 'object' ? (b.name || b.lookup_value) : b;
+                            })(),
+                            area: [lead.locArea, lead.locCity].filter(Boolean).join(", ")
+                        },
                         locationDisplay: [
-                            lead.project?.name || (Array.isArray(lead.projectName) ? lead.projectName.join(", ") : lead.projectName),
-                            Array.isArray(lead.locBlock) ? lead.locBlock.join(", ") : lead.locBlock,
+                            lead.projectName,
+                            lead.locBlock,
                             lead.locArea,
                             lead.locCity
-                        ].filter(Boolean).map(s => s?.toString().trim()).filter(s => s && s.length > 0).join(", ") || lead.searchLocation || "—",
+                        ].filter(Boolean).map(s => String(s)).join(", "),
 
                         source: lead.source,
                         sourceFallback: contact.source || "Direct",
-                        owner: ownerNameDisplay,
-                        ownerNameDisplay: lead.assignment?.assignedTo ? (lead.assignment.assignedTo.fullName || lead.assignment.assignedTo.name || "Unassigned") : (lead.owner ? (lead.owner.fullName || lead.owner.name || "Unassigned") : "Unassigned"),
+                        owner: getUserName(lead.assignment?.assignedTo || lead.owner),
                         rawOwner: lead.assignment?.assignedTo || lead.owner || null,
-                        team: lead.assignment?.team?.[0] || lead.owner?.team || null,
+                        team: getTeamName(lead.assignment?.team?.[0] || lead.owner?.team),
+                        updatedAt: lead.updatedAt || lead.createdAt || null,
                         lastAct: lead.lastAct || "Today",
                         activity: lead.activity || "None",
                         remarks: lead.notes || lead.remarks || "",
@@ -308,9 +322,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
             }
         };
 
-        const timer = setTimeout(fetchLeads, 500);
-        return () => clearTimeout(timer);
-    }, [currentPage, recordsPerPage, searchTerm, filters, refreshTrigger]);
+        fetchLeads();
+    }, [currentPage, recordsPerPage, debouncedSearchTerm, filters, refreshTrigger, getLookupValue]);
 
 
     const toggleSelect = (id) => {
@@ -794,531 +807,70 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             <div>Location</div>
                             <div>Status & Source</div>
                             <div>Interaction</div>
-                            <div>Assignment</div>
+                            <div style={{ textAlign: 'right', paddingRight: '20px' }}>Assignment</div>
                         </div>
                     )}
 
                     {/* Content Area */}
                     <div id="leadListContent" style={{ display: viewMode === 'grid' || viewMode === 'card' ? 'block' : 'grid' }}>
                         {viewMode === 'card' ? (
-                            /* Card View Grid */
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px', padding: '20px' }}>
-                                {leads.map((lead, idx) => {
-                                    // Unified Scoring Logic for Card View
-                                    const liveBackendScore = liveScores[lead._id];
-                                    const normalizedLead = {
-                                        ...lead,
-                                        source: getLookupValue('Source', lead.source) || lead.source,
-                                        stage: getLookupValue('Stage', lead.stage) || lead.stage
-                                    };
-                                    const scoring = calculateLeadScore(normalizedLead, lead.activities || [], scoringConfig);
-                                    const calculatedScore = Math.max(scoring?.total || 0, lead.intentIndex || 0);
-                                    const displayScore = Math.max(liveBackendScore?.score || 0, calculatedScore);
-                                    const displayColor = (liveBackendScore && liveBackendScore.score >= displayScore) ? liveBackendScore.color : (scoring?.temperature?.color || '#94a3b8');
-                                    const tempClass = (liveBackendScore && liveBackendScore.score >= displayScore) ? String(liveBackendScore.tempClass) : String(scoring?.temperature?.class || 'cold');
-
-                                    return (
-                                        <div
-                                            key={lead._id || lead.name || idx}
-                                            style={{
-                                                backgroundColor: '#fff',
-                                                borderRadius: '12px',
-                                                border: isSelected(lead._id) ? '2px solid var(--primary-color)' : '1px solid #e2e8f0',
-                                                padding: '16px',
-                                                position: 'relative',
-                                                transition: 'all 0.2s',
-                                                boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
-                                                cursor: 'pointer'
-                                            }}
-                                            onClick={(e) => {
-                                                if (!e.target.closest('button') && !e.target.closest('input')) {
-                                                    toggleSelect(lead._id);
-                                                }
-                                            }}
-                                        >
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
-                                                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                                    {/* Dynamic Lead Scoring Engine Badge for Card View */}
-                                                    <div style={{ position: 'relative' }}>
-                                                        {(() => {
-                                                            return (
-                                                                <div
-                                                                    className={`score-indicator ${tempClass}`}
-                                                                    style={{
-                                                                        width: '32px',
-                                                                        height: '32px',
-                                                                        fontSize: '0.8rem',
-                                                                        borderRadius: '50%',
-                                                                        display: 'flex',
-                                                                        alignItems: 'center',
-                                                                        justifyContent: 'center',
-                                                                        fontWeight: '900',
-                                                                        border: '2px solid rgba(255,255,255,0.2)',
-                                                                        boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                                                                        background: displayColor,
-                                                                        color: '#fff',
-                                                                        cursor: 'help'
-                                                                    }}
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        const rect = e.currentTarget.getBoundingClientRect();
-                                                                        const aiExplanation = AIExpertService.explainLeadScore(lead, scoringConfig);
-                                                                        setActiveScorePopover({
-                                                                            name: lead.name,
-                                                                            x: rect.left,
-                                                                            y: rect.bottom + 10,
-                                                                            scoring: { ...scoring, total: displayScore },
-                                                                            ai: aiExplanation
-                                                                        });
-                                                                    }}
-                                                                >
-                                                                    {displayScore}
-                                                                </div>
-                                                            );
-                                                        })()}
-                                                    </div>
-                                                    <div>
-                                                        <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '1rem' }}>{lead.name}</div>
-                                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{lead.mobile}</div>
-                                                    </div>
-                                                </div>
-                                                <input type="checkbox" checked={isSelected(lead._id)} onChange={() => toggleSelect(lead._id)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
-                                            </div>
-                                            {/* Simplified Card Content for brevity in fix */}
-                                            <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', marginBottom: '12px' }}>
-                                                {(() => {
-                                                    const siteVisit = (lead.activities || []).find(a =>
-                                                        (a.type === 'Site Visit' || a.subject?.toLowerCase().includes('site visit')) &&
-                                                        a.status !== 'Completed'
-                                                    );
-
-                                                    if (siteVisit) {
-                                                        const dateStr = siteVisit.dueDate ? new Date(siteVisit.dueDate).toLocaleDateString() : 'TBD';
-                                                        return (
-                                                            <div
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    setSelectedActivityForOutcome(siteVisit);
-                                                                    setIsOutcomeModalOpen(true);
-                                                                }}
-                                                                style={{
-                                                                    background: '#f0fdf4',
-                                                                    border: '1px solid #bbf7d0',
-                                                                    borderRadius: '6px',
-                                                                    padding: '6px 10px',
-                                                                    cursor: 'pointer',
-                                                                    marginBottom: '8px',
-                                                                    display: 'flex',
-                                                                    justifyContent: 'space-between',
-                                                                    alignItems: 'center'
-                                                                }}
-                                                            >
-                                                                <div>
-                                                                    <div style={{ color: '#166534', fontSize: '0.7rem', fontWeight: 800 }}>
-                                                                        <i className="fas fa-map-marked-alt"></i> SITE VISIT
-                                                                    </div>
-                                                                    <div style={{ color: '#15803d', fontSize: '0.6rem', fontWeight: 600 }}>
-                                                                        {dateStr} {siteVisit.dueTime ? `@ ${siteVisit.dueTime}` : ''}
-                                                                    </div>
-                                                                </div>
-                                                                <div style={{ color: '#166534', fontSize: '0.6rem', fontWeight: 800, textDecoration: 'underline' }}>
-                                                                    Log Outcome
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    }
-                                                    return null;
-                                                })()}
-                                                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>
-                                                    {(() => {
-                                                        const cat = Array.isArray(lead.reqDisplay?.category)
-                                                            ? lead.reqDisplay.category.map(s => getLookupValue('Category', s)).filter(Boolean).join(', ')
-                                                            : renderValue(getLookupValue('Category', lead.reqDisplay?.category), null);
-                                                        const sub = Array.isArray(lead.reqDisplay?.subCategory)
-                                                            ? lead.reqDisplay.subCategory.map(s => getLookupValue('SubCategory', s)).filter(Boolean).join(', ')
-                                                            : renderValue(getLookupValue('SubCategory', lead.reqDisplay?.subCategory), null);
-                                                        return [cat, sub].filter(Boolean).join(" - ") || "Any Property";
-                                                    })()}
-                                                </div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginTop: '4px', color: '#64748b' }}>
-                                                    <span>{renderValue(lead.reqDisplay?.size, 'Std. Size')}</span>
-
-                                                    <span style={{ fontWeight: 700, color: '#059669' }}>
-                                                        {renderValue(getLookupValue('Budget', lead.budget), null) || lead.budgetDisplay}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                                <div className="flex items-center gap-2">
-                                                    <span
-                                                        className={`status-badge ${(String(renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.class : 'new') || 'new')).toLowerCase()}`}
-                                                    >
-                                                        {renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.label : lead.statusFallback)}
-                                                    </span>
-
-                                                    {/* ── STAGE ENGINE CHIP (LIVE) ──────────────────────── */}
-                                                    {(() => {
-                                                        const stageName = String(liveBackendScore?.stage || renderValue(getLookupValue('Stage', lead.stage), null) || 'New');
-                                                        const stageInfo = STAGE_PIPELINE.find(s => s.label.toLowerCase() === stageName.toLowerCase()) || { color: '#94a3b8', icon: 'fa-circle', label: stageName };
-                                                        return (
-                                                            <span title="Auto-computed stage from backend" style={{
-                                                                display: 'inline-flex', alignItems: 'center', gap: '4px',
-                                                                background: stageInfo.color + '18',
-                                                                color: stageInfo.color,
-                                                                border: `1px solid ${stageInfo.color}40`,
-                                                                borderRadius: '5px',
-                                                                padding: '2px 7px',
-                                                                fontSize: '0.6rem',
-                                                                fontWeight: 800,
-                                                                letterSpacing: '0.3px',
-                                                            }}>
-                                                                <i className={`fas ${stageInfo.icon}`} style={{ fontSize: '0.5rem' }}></i>
-                                                                {stageInfo.label.toUpperCase()}
-                                                            </span>
-                                                        );
-                                                    })()}
-                                                </div>
-                                                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                                                    {renderValue(getLookupValue('Source', lead.source), null) || renderValue(lead.sourceFallback, "Direct")}
-                                                </span>
-                                            </div>
-
-                                            {/* Assigned To Section */}
-                                            <div style={{ padding: '10px 0', borderTop: '1px solid #f1f5f9', marginBottom: '12px' }}>
-                                                <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#9ca3af', marginBottom: '6px', textTransform: 'uppercase' }}>Assigned To</div>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                    <div className="avatar-circle" style={{ width: '28px', height: '28px', fontSize: '0.7rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b' }}>
-                                                        {getInitials(getUserName(lead.rawOwner || lead.owner))}
-                                                    </div>
-                                                    <div style={{ lineHeight: 1.2 }}>
-                                                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{getUserName(lead.rawOwner || lead.owner)}</div>
-                                                        <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{getTeamName(lead.team)}</div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div style={{ display: 'flex', gap: '8px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
-                                                <button className="btn-icon" style={{ flex: 1, padding: '6px', fontSize: '0.9rem', color: '#16a34a', background: '#f0fdf4', borderRadius: '6px', border: 'none', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); enrichmentAPI.runLead(lead._id).then(() => { toast.success('Enrichment updated'); setRefreshTrigger(t => t + 1); }).catch(() => toast.error('Enrichment failed')); }} title="Run Enrichment"><i className="fas fa-magic"></i></button>
-                                                <button className="btn-icon" style={{ flex: 1, padding: '6px', fontSize: '0.9rem', color: '#3b82f6', background: '#eff6ff', borderRadius: '6px', border: 'none', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); startCall({ name: lead.name, mobile: lead.mobile }, { purpose: 'Lead Follow-up', entityId: lead._id, entityType: 'lead' }); }}><i className="fas fa-phone-alt"></i></button>
-                                                <button className="btn-icon" style={{ flex: 1, padding: '6px', fontSize: '0.9rem', color: '#64748b', background: '#f1f5f9', borderRadius: '6px', border: 'none', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onEdit(lead); }}><i className="fas fa-edit"></i></button>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
+                                {loading ? <div style={{ padding: '20px', textAlign: 'center' }}>Loading...</div> : leads.map((lead, idx) => (
+                                    <LeadCard
+                                        key={lead._id || idx}
+                                        lead={lead}
+                                        isSelected={isSelected(lead._id)}
+                                        toggleSelect={toggleSelect}
+                                        getLookupValue={getLookupValue}
+                                        liveBackendScore={liveScores[lead._id]}
+                                        scoringConfig={scoringConfig}
+                                        calculateLeadScore={calculateLeadScore}
+                                        renderValue={renderValue}
+                                        onNavigate={onNavigate}
+                                        startCall={startCall}
+                                        onEdit={onEdit}
+                                        setActiveScorePopover={setActiveScorePopover}
+                                        enrichmentAPI={enrichmentAPI}
+                                        setRefreshTrigger={setRefreshTrigger}
+                                        getUserName={getUserName}
+                                        getTeamName={getTeamName}
+                                        getInitials={getInitials}
+                                        STAGE_PIPELINE={STAGE_PIPELINE}
+                                        setSelectedActivityForOutcome={setSelectedActivityForOutcome}
+                                        setIsOutcomeModalOpen={setIsOutcomeModalOpen}
+                                        AIExpertService={AIExpertService}
+                                        showToast={showToast}
+                                    />
+                                ))}
                             </div>
                         ) : (
-                            /* List View Render (Falling through to existing map below) */
-                            null
-                        )}
-
-
-                        {/* List View Rendering */}
-                        {viewMode === 'list' && (
-                            loading ? <div style={{ padding: '20px', textAlign: 'center' }}>Loading...</div> : leads.map((c, idx) => {
-                                if (!c) return null;
-                                // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
-                                const intent = renderValue(getLookupValue('Requirement', c.reqDisplay?.intent), null) || 'Any';
-                                const category = Array.isArray(c.reqDisplay?.category)
-                                    ? c.reqDisplay.category.map(s => getLookupValue('Category', s)).filter(Boolean).join(', ')
-                                    : (renderValue(getLookupValue('Category', c.reqDisplay?.category), null) || '');
-                                const subCategory = Array.isArray(c.reqDisplay?.subCategory)
-                                    ? c.reqDisplay.subCategory.map(s => getLookupValue('SubCategory', s)).filter(Boolean).join(', ')
-                                    : (renderValue(getLookupValue('SubCategory', c.reqDisplay?.subCategory), null) || '');
-
-                                const fullPropertyType = [
-                                    intent,
-                                    category,
-                                    subCategory
-                                ].filter(Boolean).filter(s => s !== "Any").join(" - ");
-
-                                // Unified Scoring Logic for List View
-                                const liveBackendScore = liveScores[c._id];
-                                const normalizedLead = {
-                                    ...c,
-                                    source: getLookupValue('Source', c.source) || c.source,
-                                    stage: getLookupValue('Stage', c.stage) || c.stage
-                                };
-                                const scoring = calculateLeadScore(normalizedLead, c.activities || [], scoringConfig);
-                                const calculatedScore = Math.max(scoring?.total || 0, c.intentIndex || 0);
-                                const displayScore = Math.max(liveBackendScore?.score || 0, calculatedScore);
-                                const displayColor = (liveBackendScore && liveBackendScore.score >= displayScore) ? liveBackendScore.color : (scoring?.temperature?.color || '#94a3b8');
-                                const tempClass = (liveBackendScore && liveBackendScore.score >= displayScore) ? String(liveBackendScore.tempClass) : String(scoring?.temperature?.class || 'cold');
-
-                                return (
-                                    <div
-                                        key={c._id || c.name}
-                                        className="list-item lead-list-grid"
-                                    >
-                                        <div>
-                                            <input
-                                                type="checkbox"
-                                                className="item-check"
-                                                checked={isSelected(c._id)}
-                                                onChange={() => toggleSelect(c._id)}
-                                            />
-                                        </div>
-                                        <div className="col-profile">
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                                {/* Dynamic Lead Scoring Engine Badge */}
-                                                <div style={{ position: 'relative' }}>
-                                                    {(() => {
-                                                        return (
-                                                            <div
-                                                                className={`score-indicator ${tempClass}`}
-                                                                style={{
-                                                                    width: '42px',
-                                                                    height: '42px',
-                                                                    fontSize: '0.95rem',
-                                                                    borderRadius: '50%',
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    justifyContent: 'center',
-                                                                    fontWeight: '900',
-                                                                    border: '2px solid rgba(255,255,255,0.2)',
-                                                                    boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                                                                    background: displayColor,
-                                                                    color: '#fff'
-                                                                }}
-                                                                onClick={(e) => {
-                                                                    const rect = e.currentTarget.getBoundingClientRect();
-                                                                    const aiExplanation = AIExpertService.explainLeadScore(c, scoringConfig);
-                                                                    setActiveScorePopover({
-                                                                        name: c.name,
-                                                                        x: rect.left,
-                                                                        y: rect.bottom + 10,
-                                                                        scoring: { ...scoring, total: displayScore },
-                                                                        ai: aiExplanation
-                                                                    });
-                                                                }}
-                                                            >
-                                                                {displayScore}
-                                                            </div>
-                                                        );
-                                                    })()}
-                                                </div>
-                                                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                                                    <div>
-                                                        <a
-                                                            href="#"
-                                                            className="primary-text text-ellipsis"
-                                                            onClick={(e) => {
-                                                                e.preventDefault();
-                                                                if (onNavigate) onNavigate('contact-detail', c._id);
-                                                            }}
-                                                            style={{ color: '#0f172a', fontWeight: 800, fontSize: '0.95rem', textDecoration: 'none', display: 'block' }}
-                                                        >
-                                                            {c.name}
-                                                        </a>
-                                                    </div>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
-                                                        {c.isTemporary && c.expiryBadge ? (
-                                                            <span
-                                                                style={{
-                                                                    background: c.expiryBadge.class === 'badge-danger' ? '#fee2e2' : '#fef3c7',
-                                                                    color: c.expiryBadge.class === 'badge-danger' ? '#991b1b' : '#92400e',
-                                                                    fontSize: '0.65rem',
-                                                                    padding: '1px 6px',
-                                                                    borderRadius: '4px',
-                                                                    fontWeight: 800,
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    gap: '3px',
-                                                                    border: c.expiryBadge.class === 'badge-danger' ? '1px solid #fca5a5' : '1px solid #fcd34d'
-                                                                }}
-                                                                title="Broker leads auto-expire in 15 days"
-                                                            >
-                                                                <i className="fas fa-clock"></i> {c.expiryBadge.label.toUpperCase()}
-                                                            </span>
-                                                        ) : (
-                                                            LeadConversionService.isConverted(c.mobile) || c.isConverted ? (
-                                                                <span
-                                                                    onClick={() => onNavigate('contact-detail', c._id)}
-                                                                    style={{ background: '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
-                                                                >
-                                                                    <i className="fas fa-check-circle"></i> CONVERTED
-                                                                </span>
-                                                            ) : (
-                                                                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}><i className="fas fa-mobile-alt" style={{ marginRight: '6px', width: '12px' }}></i>{c.mobile}</div>
-                                                            )
-                                                        )}
-                                                        {(() => {
-                                                            const liveIntent = (liveBackendScore && liveBackendScore.score >= 80) ? 'Closing Soon' :
-                                                                (displayScore >= 80) ? 'Closing Soon' :
-                                                                    (displayScore >= 60) ? 'High Intent' :
-                                                                        (displayScore >= 30) ? 'Nurture' : 'Low Intent';
-
-                                                            const isHigh = displayScore >= 60;
-                                                            return (
-                                                                <span style={{
-                                                                    background: isHigh ? `${displayColor}22` : '#fef3c7',
-                                                                    color: isHigh ? displayColor : '#92400e',
-                                                                    fontSize: '0.6rem',
-                                                                    padding: '1px 6px',
-                                                                    borderRadius: '4px',
-                                                                    fontWeight: 800,
-                                                                    border: `1px solid ${isHigh ? displayColor + '44' : '#fcd34d'}`
-                                                                }}>
-                                                                    {liveIntent.toUpperCase()}
-                                                                </span>
-                                                            );
-                                                        })()}
-                                                        {c.roleType && (
-                                                            <span style={{ background: '#f3f4f6', color: '#374151', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 800, border: '1px solid #e5e7eb' }}>
-                                                                {c.roleType.toUpperCase()}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="col-intent">
-                                            <div style={{ lineHeight: 1.4 }}>
-                                                <div
-                                                    contentEditable
-                                                    suppressContentEditableWarning
-                                                    onBlur={() => showToast(`Requirement updated for ${c.name}`)}
-                                                    style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', outline: 'none', padding: '2px 0' }}
-                                                >{intent}</div>
-                                                <div style={{ marginTop: '4px', fontSize: '0.7rem' }}>
-                                                    <span
-                                                        onClick={(e) => {
-                                                            const rect = e.currentTarget.getBoundingClientRect();
-                                                            setActiveMatchPopover({ name: c.name, x: rect.left, y: rect.bottom + 10 });
-                                                        }}
-                                                        style={{ background: '#e0f2fe', color: '#0284c7', fontWeight: 800, padding: '3px 10px', borderRadius: '6px', cursor: 'pointer', border: '1px solid rgba(2, 132, 199, 0.1)' }}
-                                                    >
-                                                        {c.matched} Matches
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="col-budget" key={`budget-${c._id || idx}`}>
-                                            <div style={{ lineHeight: 1.4 }}>
-                                                <div style={{ color: '#0f172a', fontSize: '0.75rem', fontWeight: 700, marginBottom: '2px' }}>{fullPropertyType || 'Requirement TBA'}</div>
-                                                <div
-                                                    contentEditable
-                                                    suppressContentEditableWarning
-                                                    onBlur={() => showToast(`Budget updated for ${c.name}. Recalculating matches...`)}
-                                                    style={{ color: 'var(--primary-color)', fontWeight: 800, fontSize: '0.85rem', outline: 'none' }}
-                                                >{String(renderValue(getLookupValue('Budget', c.budget), null) || c.budgetDisplay || '').replace('<br/>', ' ')}</div>
-                                                <div style={{ color: '#64748b', fontSize: '0.7rem', fontWeight: 600, marginTop: '2px' }}>{renderValue(c.reqDisplay?.size, 'Std. Size')}</div>
-                                            </div>
-                                        </div>
-
-                                        <div className="col-location" key={`location-${c._id || idx}`}>
-                                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                                <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '3px' }}></i>
-                                                <div
-                                                    contentEditable
-                                                    suppressContentEditableWarning
-                                                    onBlur={() => showToast(`Location preference updated for ${c.name}`)}
-                                                    style={{ fontWeight: 600, color: '#334155', fontSize: '0.8rem', lineHeight: 1.3, outline: 'none' }}
-                                                >{renderValue(getLookupValue('Location', c.location), null) || c.locationDisplay}</div>
-                                            </div>
-                                        </div>
-
-                                        <div className="col-status" key={`status-${c._id || idx}`}>
-                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
-                                                <span
-                                                    className={`status-badge ${(renderValue(getLookupValue('Status', c.status), null) || (typeof c.statusFallback === 'object' ? c.statusFallback.class : 'new')).toLowerCase()}`}
-                                                    style={{ height: '20px', fontSize: '0.65rem', padding: '0 8px', borderRadius: '4px' }}
-                                                >
-                                                    {(renderValue(getLookupValue('Status', c.status), null) || (typeof c.statusFallback === 'object' ? c.statusFallback.label : c.statusFallback || 'NEW')).toUpperCase()}
-                                                </span>
-
-                                                {/* ── STAGE ENGINE CHIP ─────────────────────── */}
-                                                {(() => {
-                                                    const stageName = String((liveBackendScore?.stage) || renderValue(getLookupValue('Stage', c.stage), null) || 'New');
-                                                    const stageInfo = STAGE_PIPELINE.find(s => s.label.toLowerCase() === stageName.toLowerCase()) || { color: '#94a3b8', icon: 'fa-circle', label: stageName };
-                                                    return (
-                                                        <span title="Auto-computed stage" style={{
-                                                            display: 'inline-flex', alignItems: 'center', gap: '4px',
-                                                            background: stageInfo.color + '18',
-                                                            color: stageInfo.color,
-                                                            border: `1px solid ${stageInfo.color}40`,
-                                                            borderRadius: '5px',
-                                                            padding: '2px 7px',
-                                                            fontSize: '0.6rem',
-                                                            fontWeight: 800,
-                                                            letterSpacing: '0.3px',
-                                                        }}>
-                                                            <i className={`fas ${stageInfo.icon}`} style={{ fontSize: '0.5rem' }}></i>
-                                                            {stageInfo.label.toUpperCase()}
-                                                        </span>
-                                                    );
-                                                })()}
-                                                {/* ─────────────────────────────────────────── */}
-
-                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                    {renderValue(getLookupValue('Source', c.source), null) || renderValue(c.sourceFallback, "Direct")}
-                                                    <i className="fas fa-info-circle" title="AI Insight: Facebook leads convert better when called within 30 mins" style={{ fontSize: '0.6rem', color: '#cbd5e1' }}></i>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="col-interaction">
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
-                                                {(() => {
-                                                    const counts = c.interactionCounts || { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: 0, whatsapp: 0 };
-                                                    const items = [
-                                                        { key: 'call', icon: 'fa-phone-alt', color: '#3b82f6', label: 'Call' },
-                                                        { key: 'whatsapp', icon: 'fa-whatsapp', color: '#25d366', label: 'WhatsApp', brand: true },
-                                                        { key: 'meeting', icon: 'fa-users', color: '#8b5cf6', label: 'Meeting' },
-                                                        { key: 'siteVisit', icon: 'fa-map-marked-alt', color: '#f59e0b', label: 'Site Visit' },
-                                                        { key: 'email', icon: 'fa-envelope', color: '#ef4444', label: 'Email' },
-                                                        { key: 'sms', icon: 'fa-sms', color: '#64748b', label: 'SMS' }
-                                                    ];
-
-                                                    const activeItems = items.filter(item => (counts[item.key] || 0) > 0);
-
-                                                    if (activeItems.length === 0) {
-                                                        return <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic' }}>No interactions</span>;
-                                                    }
-
-                                                    return activeItems.map(item => (
-                                                        <div key={item.key} title={`${counts[item.key]} ${item.label}`} style={{
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            gap: '4px',
-                                                            background: `${item.color}10`,
-                                                            border: `1px solid ${item.color}30`,
-                                                            padding: '2px 6px',
-                                                            borderRadius: '4px',
-                                                            color: item.color,
-                                                            fontSize: '0.7rem',
-                                                            fontWeight: 700
-                                                        }}>
-                                                            <i className={`${item.brand ? 'fab' : 'fas'} ${item.icon}`} style={{ fontSize: '0.65rem' }}></i>
-                                                            <span>{counts[item.key]}</span>
-                                                        </div>
-                                                    ));
-                                                })()}
-                                            </div>
-                                            <div style={{ marginTop: '4px', fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600 }}>
-                                                Last: {c.lastAct}
-                                            </div>
-                                        </div>
-
-                                        <div className="col-assignment">
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
-                                                    {getInitials(getUserName(c.rawOwner || c.owner))}
-                                                </div>
-                                                <div style={{ lineHeight: 1.2 }}>
-                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{getUserName(c.rawOwner || c.owner)}</div>
-                                                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{getTeamName(c.team || c.assignment?.team)}</div>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px', fontSize: '0.6rem', color: '#94a3b8' }}>
-                                                        <i className="far fa-clock" style={{ fontSize: '0.6rem' }}></i>
-                                                        <span dangerouslySetInnerHTML={{ __html: (c.addOn || '').replace('Added ', '') }}></span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                );
-                            })
+                            /* List View Rendering */
+                            loading ? <div style={{ padding: '20px', textAlign: 'center' }}>Loading...</div> : leads.map((c, idx) => (
+                                <LeadItem
+                                    key={c._id || idx}
+                                    lead={c}
+                                    isSelected={isSelected(c._id)}
+                                    toggleSelect={toggleSelect}
+                                    getLookupValue={getLookupValue}
+                                    liveBackendScore={liveScores[c._id]}
+                                    scoringConfig={scoringConfig}
+                                    calculateLeadScore={calculateLeadScore}
+                                    renderValue={renderValue}
+                                    onNavigate={onNavigate}
+                                    startCall={startCall}
+                                    onEdit={onEdit}
+                                    setActiveScorePopover={setActiveScorePopover}
+                                    setActiveMatchPopover={setActiveMatchPopover}
+                                    getUserName={getUserName}
+                                    getTeamName={getTeamName}
+                                    getInitials={getInitials}
+                                    AIExpertService={AIExpertService}
+                                    LeadConversionService={LeadConversionService}
+                                    enrichmentAPI={enrichmentAPI}
+                                    setRefreshTrigger={setRefreshTrigger}
+                                    showToast={showToast}
+                                />
+                            ))
                         )}
                     </div>
                 </div>
@@ -1430,77 +982,59 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 }}
             />
             {/* Score Breakdown Popover for Lead Scoring Engine */}
-            {
-                activeScorePopover && (
-                    <div
-                        style={{ position: 'fixed', top: activeScorePopover.y, left: activeScorePopover.x, zIndex: 2000, background: 'rgba(30, 41, 59, 0.95)', backdropFilter: 'blur(12px)', color: '#fff', padding: '16px', borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', minWidth: '240px' }}
-                        onMouseLeave={() => setActiveScorePopover(null)}
-                    >
-                        <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.5px' }}>Lead Scoring Hub</div>
+            {activeScorePopover && (
+                <div
+                    style={{ position: 'fixed', top: activeScorePopover.y, left: activeScorePopover.x, zIndex: 2000, background: 'rgba(30, 41, 59, 0.95)', backdropFilter: 'blur(12px)', color: '#fff', padding: '16px', borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', minWidth: '240px' }}
+                    onMouseLeave={() => setActiveScorePopover(null)}
+                >
+                    <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.5px' }}>Lead Scoring Hub</div>
 
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>
-                            <div>
-                                <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>TOTAL SCORE</div>
-                                <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#3b82f6' }}>{activeScorePopover.scoring.total}<span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>/100</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>
+                        <div>
+                            <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>TOTAL SCORE</div>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#3b82f6' }}>{activeScorePopover.scoring.total}<span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>/100</span></div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>INTENT</div>
+                            <div style={{ fontSize: '0.9rem', fontWeight: 900, color: '#10b981' }}>{activeScorePopover.scoring.temperature.label}</div>
+                        </div>
+                    </div>
+
+                    {[
+                        { label: 'Attribute Score', val: activeScorePopover.scoring.breakdown.attribute, max: 77 },
+                        { label: 'Activity Score', val: activeScorePopover.scoring.breakdown.activity, max: 50 },
+                        { label: 'Source Quality', val: activeScorePopover.scoring.breakdown.source, max: 20 },
+                        { label: 'Inventory Fit', val: activeScorePopover.scoring.breakdown.fit, max: 25 },
+                        { label: 'Time Decay', val: activeScorePopover.scoring.breakdown.decay, max: -30 },
+                    ].map((item, i) => (
+                        <div key={i} style={{ marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', marginBottom: '3px' }}>
+                                <span style={{ opacity: 0.8 }}>{item.label}</span>
+                                <span style={{ color: item.val < 0 ? '#ef4444' : '#fff', fontWeight: 800 }}>{item.val}</span>
                             </div>
-                            <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>INTENT</div>
-                                <div style={{ fontSize: '0.9rem', fontWeight: 900, color: '#10b981' }}>{activeScorePopover.scoring.temperature.label}</div>
+                            <div style={{ width: '100%', height: '3px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+                                <div style={{ width: `${Math.min(Math.abs(item.val / (item.max || 1)) * 100, 100)}%`, height: '100%', background: item.val < 0 ? '#ef4444' : '#3b82f6' }}></div>
                             </div>
                         </div>
+                    ))}
 
-                        {[
-                            { label: 'Attribute Score', val: activeScorePopover.scoring.breakdown.attribute, max: 77 }, // Using breakdown from new engine
-                            { label: 'Activity Score', val: activeScorePopover.scoring.breakdown.activity, max: 50 },
-                            { label: 'Source Quality', val: activeScorePopover.scoring.breakdown.source, max: 20 },
-                            { label: 'Inventory Fit', val: activeScorePopover.scoring.breakdown.fit, max: 25 },
-                            { label: 'Time Decay', val: activeScorePopover.scoring.breakdown.decay, max: -30 }, // Display negative
-                        ].map((item, i) => (
-                            <div key={i} style={{ marginBottom: '8px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', marginBottom: '3px' }}>
-                                    <span style={{ opacity: 0.8 }}>{item.label}</span>
-                                    <span style={{ color: item.val < 0 ? '#ef4444' : '#fff', fontWeight: 800 }}>{item.val}</span>
-                                </div>
-                                <div style={{ width: '100%', height: '3px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
-                                    <div style={{ width: `${Math.min(Math.abs(item.val / (item.max || 1)) * 100, 100)}%`, height: '100%', background: item.val < 0 ? '#ef4444' : '#3b82f6' }}></div>
-                                </div>
-                            </div>
-                        ))}
-
-                        {activeScorePopover.ai && (
-                            <div style={{ marginTop: '15px', background: 'rgba(255,255,255,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                                <div style={{ fontSize: '0.65rem', fontWeight: 900, color: '#10b981', textTransform: 'uppercase', marginBottom: '5px' }}>AI Insight</div>
-                                <p style={{ fontSize: '0.7rem', color: '#e2e8f0', margin: 0, lineHeight: 1.4 }}>{activeScorePopover.ai.summary}</p>
-                                <div style={{ marginTop: '8px' }}>
-                                    {activeScorePopover.ai.fullExplanation.map((exp, idx) => (
-                                        <div key={idx} style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'flex', gap: '5px', marginBottom: '3px' }}>
-                                            <i className="fas fa-check" style={{ color: '#10b981', marginTop: '2px' }}></i>
-                                            <span>{exp}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <span style={{ opacity: 0.8 }}>Live Intent:</span>
-                                <span style={{ color: '#10b981', fontWeight: 900 }}>{activeScorePopover.scoring.intent.toUpperCase()}</span>
-                            </div>
-                        </div>
-
-                        {activeScorePopover.ai.intentTags && activeScorePopover.ai.intentTags.length > 0 && (
-                            <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                                {activeScorePopover.ai.intentTags.map((tag, idx) => (
-                                    <span key={idx} style={{ fontSize: '0.55rem', background: 'rgba(59, 130, 246, 0.2)', color: '#93c5fd', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
-                                        #{tag.toUpperCase()}
-                                    </span>
+                    {activeScorePopover.ai && (
+                        <div style={{ marginTop: '15px', background: 'rgba(255,255,255,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                            <div style={{ fontSize: '0.65rem', fontWeight: 900, color: '#10b981', textTransform: 'uppercase', marginBottom: '5px' }}>AI Insight</div>
+                            <p style={{ fontSize: '0.7rem', color: '#e2e8f0', margin: 0, lineHeight: 1.4 }}>{activeScorePopover.ai.summary}</p>
+                            <div style={{ marginTop: '8px' }}>
+                                {activeScorePopover.ai.fullExplanation.map((exp, idx) => (
+                                    <div key={idx} style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'flex', gap: '5px', marginBottom: '3px' }}>
+                                        <i className="fas fa-check" style={{ color: '#10b981', marginTop: '2px' }}></i>
+                                        <span>{exp}</span>
+                                    </div>
                                 ))}
                             </div>
-                        )}
-                    </div>
-                )
-            }
+                        </div>
+                    )}
+                </div>
+            )}
+
 
             {/* Top Matches Popover */}
             {
@@ -1618,3 +1152,582 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 }
 
 export default LeadsPage;
+
+// --- MEMOIZED COMPONENTS FOR PERFORMANCE ---
+
+const LeadItem = React.memo(function LeadItem({
+    lead,
+    isSelected,
+    toggleSelect,
+    getLookupValue,
+    liveBackendScore,
+    scoringConfig,
+    calculateLeadScore,
+    renderValue,
+    onNavigate,
+    startCall,
+    onEdit,
+    setActiveScorePopover,
+    setActiveMatchPopover,
+    getUserName,
+    getTeamName,
+    getInitials,
+    AIExpertService,
+    LeadConversionService,
+    enrichmentAPI,
+    setRefreshTrigger,
+    showToast
+}) {
+    if (!lead) return null;
+
+    // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
+    const intent = renderValue(getLookupValue('Requirement', lead.reqDisplay?.intent), null) || 'Any';
+    const category = Array.isArray(lead.reqDisplay?.category)
+        ? lead.reqDisplay.category.map(s => typeof s === 'object' ? (s.name || s.lookup_value) : (getLookupValue('Category', s) || s)).filter(Boolean).join(', ')
+        : (typeof lead.reqDisplay?.category === 'object' ? (lead.reqDisplay.category.name || lead.reqDisplay.category.lookup_value) : (renderValue(getLookupValue('Category', lead.reqDisplay?.category), null) || lead.reqDisplay?.category || ''));
+    
+    const subCategory = Array.isArray(lead.reqDisplay?.subCategory)
+        ? lead.reqDisplay.subCategory.map(s => typeof s === 'object' ? (s.name || s.lookup_value) : (getLookupValue('SubCategory', s) || s)).filter(Boolean).join(', ')
+        : (typeof lead.reqDisplay?.subCategory === 'object' ? (lead.reqDisplay.subCategory.name || lead.reqDisplay.subCategory.lookup_value) : (renderValue(getLookupValue('SubCategory', lead.reqDisplay?.subCategory), null) || lead.reqDisplay?.subCategory || ''));
+
+    const fullPropertyType = [category, subCategory].filter(Boolean).join(" - ");
+
+    // Unified Scoring Logic for List View
+    const normalizedLead = {
+        ...lead,
+        source: getLookupValue('Source', lead.source) || lead.source,
+        stage: getLookupValue('Stage', lead.stage) || lead.stage
+    };
+    const scoring = calculateLeadScore(normalizedLead, lead.activities || [], scoringConfig);
+    const calculatedScore = Math.max(scoring?.total || 0, lead.intentIndex || 0);
+    const displayScore = Math.max(liveBackendScore?.score || 0, calculatedScore);
+    const displayColor = (liveBackendScore && liveBackendScore.score >= displayScore) ? liveBackendScore.color : (scoring?.temperature?.color || '#94a3b8');
+    const tempClass = (liveBackendScore && liveBackendScore.score >= displayScore) ? String(liveBackendScore.tempClass) : String(scoring?.temperature?.class || 'cold');
+
+    return (
+        <div className="list-item lead-list-grid">
+            <div>
+                <input
+                    type="checkbox"
+                    className="item-check"
+                    checked={isSelected}
+                    onChange={() => toggleSelect(lead._id)}
+                />
+            </div>
+            <div className="col-profile">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                    <div style={{ position: 'relative' }}>
+                        <div
+                            className={`score-indicator ${tempClass}`}
+                            style={{
+                                width: '42px',
+                                height: '42px',
+                                fontSize: '0.95rem',
+                                borderRadius: '50%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontWeight: '900',
+                                border: '2px solid rgba(255,255,255,0.2)',
+                                boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                                background: displayColor,
+                                color: '#fff'
+                            }}
+                            onClick={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const aiExplanation = AIExpertService.explainLeadScore(lead, scoringConfig);
+                                setActiveScorePopover({
+                                    name: lead.name,
+                                    x: rect.left,
+                                    y: rect.bottom + 10,
+                                    scoring: { ...scoring, total: displayScore },
+                                    ai: aiExplanation
+                                });
+                            }}
+                        >
+                            {displayScore}
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                        <div>
+                            <a
+                                href="#"
+                                className="primary-text text-ellipsis"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    if (onNavigate) onNavigate('contact-detail', lead._id);
+                                }}
+                                style={{ color: '#0f172a', fontWeight: 800, fontSize: '0.95rem', textDecoration: 'none', display: 'block' }}
+                            >
+                                {lead.name}
+                            </a>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+                            {lead.isTemporary && lead.expiryBadge ? (
+                                <span
+                                    style={{
+                                        background: lead.expiryBadge.class === 'badge-danger' ? '#fee2e2' : '#fef3c7',
+                                        color: lead.expiryBadge.class === 'badge-danger' ? '#991b1b' : '#92400e',
+                                        fontSize: '0.65rem',
+                                        padding: '1px 6px',
+                                        borderRadius: '4px',
+                                        fontWeight: 800,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '3px',
+                                        border: lead.expiryBadge.class === 'badge-danger' ? '1px solid #fca5a5' : '1px solid #fcd34d'
+                                    }}
+                                    title="Broker leads auto-expire in 15 days"
+                                >
+                                    <i className="fas fa-clock"></i> {lead.expiryBadge.label.toUpperCase()}
+                                </span>
+                            ) : (
+                                LeadConversionService.isConverted(lead.mobile) || lead.isConverted ? (
+                                    <span
+                                        onClick={() => onNavigate('contact-detail', lead._id)}
+                                        style={{ background: '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
+                                    >
+                                        <i className="fas fa-check-circle"></i> CONVERTED
+                                    </span>
+                                ) : (
+                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}><i className="fas fa-mobile-alt" style={{ marginRight: '6px', width: '12px' }}></i>{lead.mobile}</div>
+                                )
+                            )}
+                            {(() => {
+                                const liveIntent = (liveBackendScore && liveBackendScore.score >= 80) ? 'Closing Soon' :
+                                    (displayScore >= 80) ? 'Closing Soon' :
+                                        (displayScore >= 60) ? 'High Intent' :
+                                            (displayScore >= 30) ? 'Nurture' : 'Low Intent';
+
+                                const isHigh = displayScore >= 60;
+                                return (
+                                    <span style={{
+                                        background: isHigh ? `${displayColor}22` : '#fef3c7',
+                                        color: isHigh ? displayColor : '#92400e',
+                                        fontSize: '0.6rem',
+                                        padding: '1px 6px',
+                                        borderRadius: '4px',
+                                        fontWeight: 800,
+                                        border: `1px solid ${isHigh ? displayColor + '44' : '#fcd34d'}`
+                                    }}>
+                                        {liveIntent.toUpperCase()}
+                                    </span>
+                                );
+                            })()}
+                            {lead.roleType && (
+                                <span style={{ background: '#f3f4f6', color: '#374151', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 800, border: '1px solid #e5e7eb' }}>
+                                    {lead.roleType.toUpperCase()}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="col-intent">
+                <div style={{ lineHeight: 1.4 }}>
+                    <div
+                        contentEditable
+                        suppressContentEditableWarning
+                        onBlur={() => showToast(`Requirement updated for ${lead.name}`)}
+                        style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', outline: 'none', padding: '2px 0' }}
+                    >{intent}</div>
+                    <div style={{ marginTop: '4px', fontSize: '0.7rem' }}>
+                        <span
+                            onClick={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                setActiveMatchPopover({ name: lead.name, x: rect.left, y: rect.bottom + 10 });
+                            }}
+                            style={{ background: '#e0f2fe', color: '#0284c7', fontWeight: 800, padding: '3px 10px', borderRadius: '6px', cursor: 'pointer', border: '1px solid rgba(2, 132, 199, 0.1)' }}
+                        >
+                            {lead.matched} Matches
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div className="col-budget">
+                <div style={{ lineHeight: 1.4 }}>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#475569', marginBottom: '2px', textTransform: 'uppercase' }}>
+                        {fullPropertyType || "Any Property"}
+                    </div>
+                    <div style={{ fontWeight: 900, color: '#059669', fontSize: '0.9rem' }}>
+                        {renderValue(getLookupValue('Budget', lead.budget), null) || lead.budgetDisplay}
+                    </div>
+                    {lead.reqDisplay?.size && (
+                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, marginTop: '2px' }}>
+                            <i className="fas fa-ruler-combined" style={{ marginRight: '4px', fontSize: '0.6rem' }}></i>
+                            {lead.reqDisplay.size}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="col-location">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '0.75rem', fontWeight: 600, color: '#1e293b' }}>
+                    {lead.locationLines?.project && (
+                        <div style={{ color: '#0f172a', fontWeight: 800 }}>
+                           <i className="fas fa-building" style={{ marginRight: '6px', color: '#64748b', fontSize: '0.65rem' }}></i>
+                           {lead.locationLines.project}
+                        </div>
+                    )}
+                    {lead.locationLines?.block && (
+                        <div style={{ color: '#475569' }}>
+                           <i className="fas fa-th-large" style={{ marginRight: '6px', color: '#94a3b8', fontSize: '0.65rem' }}></i>
+                           {lead.locationLines.block}
+                        </div>
+                    )}
+                    {(lead.locationLines?.area || lead.searchLocation) && (
+                        <div style={{ color: '#64748b', fontSize: '0.7rem' }}>
+                           <i className="fas fa-map-marker-alt" style={{ marginRight: '6px', color: '#ef4444', fontSize: '0.65rem' }}></i>
+                           {lead.locationLines.area || lead.searchLocation}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="col-status">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'start' }}>
+                    <span
+                        className={`status-badge ${(String(renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.class : 'new') || 'new')).toLowerCase()}`}
+                    >
+                        {renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.label : lead.statusFallback)}
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        {(() => {
+                            const stageName = String(liveBackendScore?.stage || renderValue(getLookupValue('Stage', lead.stage), null) || 'New');
+                            const stageInfo = STAGE_PIPELINE.find(s => s.label.toLowerCase() === stageName.toLowerCase()) || { color: '#94a3b8', icon: 'fa-circle', label: stageName };
+                            return (
+                                <span style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                    background: stageInfo.color + '18',
+                                    color: stageInfo.color,
+                                    border: `1px solid ${stageInfo.color}40`,
+                                    borderRadius: '5px',
+                                    padding: '1px 6px',
+                                    fontSize: '0.55rem',
+                                    fontWeight: 800,
+                                }}>
+                                    <i className={`fas ${stageInfo.icon}`} style={{ fontSize: '0.5rem' }}></i>
+                                    {stageInfo.label.toUpperCase()}
+                                </span>
+                            );
+                        })()}
+                        {lead.source && (
+                            <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '3px',
+                                background: '#f1f5f9',
+                                color: '#475569',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '5px',
+                                padding: '1px 6px',
+                                fontSize: '0.55rem',
+                                fontWeight: 800,
+                            }}>
+                                <i className="fas fa-sign-in-alt" style={{ fontSize: '0.5rem' }}></i>
+                                {(renderValue(getLookupValue('Source', lead.source), null) || lead.source).toUpperCase()}
+                            </span>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            <div className="col-interaction">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {(() => {
+                        // Find latest activity regardless of status
+                        const sortedActs = [...(lead.activities || [])].sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+                        const activity = sortedActs[0];
+                        
+                        if (activity) {
+                            return (
+                                <div style={{
+                                    background: '#f8fafc',
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: '6px',
+                                    padding: '4px 8px',
+                                    fontSize: '0.7rem',
+                                    color: '#475569',
+                                    fontWeight: 700
+                                }}>
+                                    LAST: {activity.type.toUpperCase()}
+                                </div>
+                            );
+                        }
+                        return <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>No activities</span>;
+                    })()}
+                    
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {[
+                            { icon: 'fa-phone-alt', type: 'Call', color: '#10b981' },
+                            { icon: 'fa-sms', type: 'SMS', color: '#3b82f6' },
+                            { icon: 'fa-whatsapp', type: 'WhatsApp', color: '#25d366' },
+                            { icon: 'fa-envelope', type: 'Email', color: '#ef4444' }
+                        ].map(act => {
+                            const count = (lead.activities || []).filter(a => a.type === act.type).length;
+                            if (count === 0) return null;
+                            return (
+                                <div key={act.type} style={{ display: 'flex', alignItems: 'center', gap: '3px', filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.05))' }}>
+                                    <div style={{ 
+                                        width: '18px', 
+                                        height: '18px', 
+                                        borderRadius: '50%', 
+                                        background: act.color + '15', 
+                                        color: act.color,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '0.6rem'
+                                    }}>
+                                        <i className={`fas ${act.icon}`}></i>
+                                    </div>
+                                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#475569' }}>{count}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+
+            <div className="col-assignment" style={{ textAlign: 'right', paddingRight: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'flex-end' }}>
+                    <div className="avatar-circle" style={{ 
+                        width: '28px', 
+                        height: '28px', 
+                        fontSize: '0.7rem', 
+                        background: '#f1f5f9', 
+                        color: '#64748b', 
+                        borderRadius: '50%', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center',
+                        fontWeight: 700,
+                        border: '1px solid #e2e8f0'
+                    }}>
+                        {getInitials(lead.owner || 'U')}
+                    </div>
+                    <div style={{ textAlign: 'right', lineHeight: 1.2 }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 900, color: '#0f172a' }}>{lead.owner}</div>
+                        <div style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 700 }}>{lead.team}</div>
+                        <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>
+                            {lead.updatedAt ? new Date(lead.updatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) + ' ' + new Date(lead.updatedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    );
+});
+LeadItem.displayName = 'LeadItem';
+
+
+const LeadCard = React.memo(function LeadCard({
+    lead,
+    isSelected,
+    toggleSelect,
+    getLookupValue,
+    liveBackendScore,
+    scoringConfig,
+    calculateLeadScore,
+    renderValue,
+    startCall,
+    onEdit,
+    setActiveScorePopover,
+    enrichmentAPI,
+    setRefreshTrigger,
+    getUserName,
+    getTeamName,
+    getInitials,
+    STAGE_PIPELINE,
+    setSelectedActivityForOutcome,
+    setIsOutcomeModalOpen,
+    AIExpertService,
+    showToast
+}) {
+    if (!lead) return null;
+
+    const normalizedLead = {
+        ...lead,
+        source: getLookupValue('Source', lead.source) || lead.source,
+        stage: getLookupValue('Stage', lead.stage) || lead.stage
+    };
+    const scoring = calculateLeadScore(normalizedLead, lead.activities || [], scoringConfig);
+    const calculatedScore = Math.max(scoring?.total || 0, lead.intentIndex || 0);
+    const displayScore = Math.max(liveBackendScore?.score || 0, calculatedScore);
+    const displayColor = (liveBackendScore && liveBackendScore.score >= displayScore) ? liveBackendScore.color : (scoring?.temperature?.color || '#94a3b8');
+    const tempClass = (liveBackendScore && liveBackendScore.score >= displayScore) ? String(liveBackendScore.tempClass) : String(scoring?.temperature?.class || 'cold');
+
+    return (
+        <div
+            style={{
+                backgroundColor: '#fff',
+                borderRadius: '12px',
+                border: isSelected ? '2px solid var(--primary-color)' : '1px solid #e2e8f0',
+                padding: '16px',
+                position: 'relative',
+                transition: 'all 0.2s',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+                cursor: 'pointer'
+            }}
+            onClick={(e) => {
+                if (!e.target.closest('button') && !e.target.closest('input')) {
+                    toggleSelect(lead._id);
+                }
+            }}
+        >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <div style={{ position: 'relative' }}>
+                        <div
+                            className={`score-indicator ${tempClass}`}
+                            style={{
+                                width: '32px',
+                                height: '32px',
+                                fontSize: '0.8rem',
+                                borderRadius: '50%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontWeight: '900',
+                                border: '2px solid rgba(255,255,255,0.2)',
+                                boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                                background: displayColor,
+                                color: '#fff',
+                                cursor: 'help'
+                            }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const aiExplanation = AIExpertService.explainLeadScore(lead, scoringConfig);
+                                setActiveScorePopover({
+                                    name: lead.name,
+                                    x: rect.left,
+                                    y: rect.bottom + 10,
+                                    scoring: { ...scoring, total: displayScore },
+                                    ai: aiExplanation
+                                });
+                            }}
+                        >
+                            {displayScore}
+                        </div>
+                    </div>
+                    <div>
+                        <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '1rem' }}>{lead.name}</div>
+                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{lead.mobile}</div>
+                    </div>
+                </div>
+                <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(lead._id)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
+            </div>
+
+            <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', marginBottom: '12px' }}>
+                {(() => {
+                    const siteVisit = (lead.activities || []).find(a =>
+                        (a.type === 'Site Visit' || a.subject?.toLowerCase().includes('site visit')) &&
+                        a.status !== 'Completed'
+                    );
+
+                    if (siteVisit) {
+                        const dateStr = siteVisit.dueDate ? new Date(siteVisit.dueDate).toLocaleDateString() : 'TBD';
+                        return (
+                            <div
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedActivityForOutcome(siteVisit);
+                                    setIsOutcomeModalOpen(true);
+                                }}
+                                style={{
+                                    background: '#f0fdf4',
+                                    border: '1px solid #bbf7d0',
+                                    borderRadius: '6px',
+                                    padding: '6px 10px',
+                                    cursor: 'pointer',
+                                    marginBottom: '8px',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center'
+                                }}
+                            >
+                                <div>
+                                    <div style={{ color: '#166534', fontSize: '0.7rem', fontWeight: 800 }}>
+                                        <i className="fas fa-map-marked-alt"></i> SITE VISIT
+                                    </div>
+                                    <div style={{ color: '#15803d', fontSize: '0.65rem', fontWeight: 600 }}>
+                                        {dateStr} {siteVisit.dueTime ? `@ ${siteVisit.dueTime}` : ''}
+                                    </div>
+                                </div>
+                                <div style={{ color: '#166534', fontSize: '0.6rem', fontWeight: 800, textDecoration: 'underline' }}>
+                                    Log Outcome
+                                </div>
+                            </div>
+                        );
+                    }
+                    return null;
+                })()}
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>
+                    {(() => {
+                        const cat = Array.isArray(lead.reqDisplay?.category)
+                            ? lead.reqDisplay.category.map(s => getLookupValue('Category', s)).filter(Boolean).join(', ')
+                            : renderValue(getLookupValue('Category', lead.reqDisplay?.category), null);
+                        const sub = Array.isArray(lead.reqDisplay?.subCategory)
+                            ? lead.reqDisplay.subCategory.map(s => getLookupValue('SubCategory', s)).filter(Boolean).join(', ')
+                            : renderValue(getLookupValue('SubCategory', lead.reqDisplay?.subCategory), null);
+                        return [cat, sub].filter(Boolean).join(" - ") || "Any Property";
+                    })()}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginTop: '4px', color: '#64748b' }}>
+                    <span>{renderValue(lead.reqDisplay?.size, 'Std. Size')}</span>
+                    <span style={{ fontWeight: 700, color: '#059669' }}>
+                        {renderValue(getLookupValue('Budget', lead.budget), null) || lead.budgetDisplay}
+                    </span>
+                </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <div className="flex items-center gap-2">
+                    <span className={`status-badge ${(String(renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.class : 'new') || 'new')).toLowerCase()}`}>
+                        {renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.label : lead.statusFallback)}
+                    </span>
+                    {(() => {
+                        const stageName = String(liveBackendScore?.stage || renderValue(getLookupValue('Stage', lead.stage), null) || 'New');
+                        const stageInfo = STAGE_PIPELINE.find(s => s.label.toLowerCase() === stageName.toLowerCase()) || { color: '#94a3b8', icon: 'fa-circle', label: stageName };
+                        return (
+                            <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                background: stageInfo.color + '18',
+                                color: stageInfo.color,
+                                border: `1px solid ${stageInfo.color}40`,
+                                borderRadius: '5px',
+                                padding: '2px 7px',
+                                fontSize: '0.6rem',
+                                fontWeight: 800,
+                            }}>
+                                <i className={`fas ${stageInfo.icon}`} style={{ fontSize: '0.5rem' }}></i>
+                                {stageInfo.label.toUpperCase()}
+                            </span>
+                        );
+                    })()}
+                </div>
+                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                    {renderValue(getLookupValue('Source', lead.source), null) || renderValue(lead.sourceFallback, "Direct")}
+                </span>
+            </div>
+
+            <div style={{ padding: '10px 0', borderTop: '1px solid #f1f5f9', marginBottom: '12px' }}>
+                <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#9ca3af', marginBottom: '6px', textTransform: 'uppercase' }}>Assigned To</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div className="avatar-circle" style={{ width: '28px', height: '28px', fontSize: '0.7rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b' }}>
+                        {getInitials(getUserName(lead.rawOwner || lead.owner))}
+                    </div>
+                    <div style={{ lineHeight: 1.2 }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{getUserName(lead.rawOwner || lead.owner)}</div>
+                        <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{getTeamName(lead.team)}</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    );
+});
+LeadCard.displayName = 'LeadCard';
+

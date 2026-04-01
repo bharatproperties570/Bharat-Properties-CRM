@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 const LiveClock = () => {
     const [time, setTime] = useState(new Date());
@@ -22,6 +22,7 @@ const LiveClock = () => {
 const CreateGlobalConfigModal = ({ isOpen, onClose, onSave, initialConfig, saving }) => {
     const [config, setConfig] = useState({
         configName: '',
+        state: '',
         stampDutyMale: 7,
         stampDutyFemale: 5,
         stampDutyJoint: 6,
@@ -35,6 +36,20 @@ const CreateGlobalConfigModal = ({ isOpen, onClose, onSave, initialConfig, savin
         useCollectorRateDefault: true,
         ...initialConfig
     });
+
+    const [states, setStates] = useState([]);
+
+    // Fetch States for dropdown
+    useEffect(() => {
+        const fetchStates = async () => {
+            try {
+                const response = await fetch('/api/lookups?lookup_type=State');
+                const data = await response.json();
+                if (data.status === 'success') setStates(data.data);
+            } catch (e) { console.error(e); }
+        };
+        fetchStates();
+    }, []);
 
     // Update internal state when initialConfig changes
     useEffect(() => {
@@ -171,6 +186,21 @@ const CreateGlobalConfigModal = ({ isOpen, onClose, onSave, initialConfig, savin
                                 required
                             />
                             {!config.configName && <p style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px' }}>Name is required to save as a list item.</p>}
+                        </div>
+
+                        <div style={{ marginBottom: '20px' }}>
+                            <label style={labelStyle}>Select State (For region-specific charges)</label>
+                            <select
+                                style={inputStyle}
+                                value={config.state || ''}
+                                onChange={e => handleFieldChange('state', e.target.value)}
+                            >
+                                <option value="">Global (All States)</option>
+                                {(states || []).map(s => (
+                                    <option key={s._id} value={s._id}>{s.lookup_value}</option>
+                                ))}
+                            </select>
+                            <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '4px' }}>* If a state is selected, these charges will only apply to properties in that state.</p>
                         </div>
 
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>

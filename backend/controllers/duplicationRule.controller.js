@@ -152,7 +152,7 @@ export const checkDuplicates = async (req, res, next) => {
 
 export const checkDocument = async (req, res, next) => {
     try {
-        const { documentType, documentNo, excludeEntityId, entityType } = req.body;
+        const { documentType, documentNo, excludeEntityId } = req.body;
 
         if (!documentType || !documentNo) {
             return res.status(400).json({ success: false, error: "Document Type and Number are required" });

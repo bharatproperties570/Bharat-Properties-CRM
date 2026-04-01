@@ -197,12 +197,13 @@ class ContactSyncManager {
      */
     async signIn(provider) {
         switch (provider) {
-            case 'google':
+            case 'google': {
                 const result = await this.providers.google.signIn();
                 if (result.success) {
                     this.enableProvider('google');
                 }
                 return result;
+            }
             case 'apple':
                 // Apple connection happens during initialize
                 this.enableProvider('apple');

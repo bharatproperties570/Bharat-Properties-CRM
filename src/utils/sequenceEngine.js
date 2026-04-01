@@ -6,7 +6,7 @@
 /**
  * Evaluates if a lead/contact should enter a sequence based on its trigger.
  */
-export const evaluateSequenceTrigger = (entity, trigger, type = 'lead') => {
+export const evaluateSequenceTrigger = (entity, trigger) => {
     if (!entity || !trigger) return false;
 
     switch (trigger.type) {

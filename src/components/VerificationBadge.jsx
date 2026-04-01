@@ -1,4 +1,3 @@
-import React from 'react';
 
 /**
  * VerificationBadge - Reusable component to display call verification status
@@ -29,7 +28,6 @@ const VerificationBadge = ({ status, size = 'medium', showIcon = true }) => {
 
     const isConfirmed = status === 'confirmed';
     const isFollowUp = status.includes('follow');
-    const isNotInterested = status.includes('not-interested');
 
     const background = isConfirmed ? '#dcfce7' : isFollowUp ? '#fef3c7' : '#fee2e2';
     const color = isConfirmed ? '#166534' : isFollowUp ? '#b45309' : '#991b1b';

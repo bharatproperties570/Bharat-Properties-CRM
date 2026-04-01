@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Toast from '../../../components/Toast';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { generateCSV, downloadFile } from '../../../utils/dataManagementUtils';
@@ -325,7 +325,7 @@ const CustomizeLeadPage = () => {
                                     <button
                                         onClick={(e) => { e.stopPropagation(); handleDeleteHierarchyItem(type, itemName); }}
                                         style={{ border: 'none', background: 'transparent', color: '#cbd5e1', cursor: 'pointer', padding: '2px' }}
-                                        className="delete-btn"
+                                        className="transition-colors hover:text-red-500"
                                     >
                                         <i className="fas fa-times"></i>
                                     </button>
@@ -422,9 +422,6 @@ const CustomizeLeadPage = () => {
                     {activeTab === 'Lead Details' ? renderFlatView() : renderHierarchyView()}
                 </div>
             </div>
-            <style jsx>{`
-                .delete-btn:hover { color: #ef4444 !important; }
-            `}</style>
         </div>
     );
 };

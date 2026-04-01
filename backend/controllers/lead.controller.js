@@ -4,11 +4,8 @@ import Lookup from "../models/Lookup.js";
 import User from "../models/User.js";
 import Contact from "../models/Contact.js";
 import Activity from "../models/Activity.js";
-import AuditLog from "../models/AuditLog.js";
 import mongoose from "mongoose";
 import { paginate } from "../utils/pagination.js";
-import mockStore from "../utils/mockStore.js";
-import { enrichmentQueue } from "../src/queues/queueManager.js";
 import smsService from "../src/modules/sms/sms.service.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
 import { runFullLeadEnrichment } from "../src/utils/enrichmentEngine.js";
@@ -21,11 +18,6 @@ const escapeRegExp = (string) => {
     return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
-const sanitizeIds = (ids) => {
-    if (!ids) return [];
-    const arr = Array.isArray(ids) ? ids : ids.split(",").map((s) => s.trim());
-    return arr.filter((id) => mongoose.Types.ObjectId.isValid(id)).map((id) => new mongoose.Types.ObjectId(id));
-};
 
 // ━━ GLOBAL LOOKUP CACHE (process-scoped, bounded to 500 entries) ━━━━━━━━━━━━
 const _lookupResolveCache = new Map();
@@ -48,7 +40,6 @@ const resolveLookup = async (type, value, createIfMissing = true) => {
         lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
     }
 
-    // Evict oldest entry if cache is full
     if (_lookupResolveCache.size >= LOOKUP_CACHE_MAX) {
         _lookupResolveCache.delete(_lookupResolveCache.keys().next().value);
     }
@@ -78,6 +69,10 @@ const resolveAllReferenceFields = async (doc) => {
     const fieldsToResolve = ['requirement', 'subRequirement', 'budget', 'location', 'source', 'status', 'stage', 'countryCode', 'campaign', 'subSource'];
     for (const field of fieldsToResolve) {
         if (doc[field] === "") doc[field] = null;
+        // If it's an object from frontend state that didn't get flattened, try to extract ID or string
+        if (doc[field] && typeof doc[field] === 'object' && !mongoose.Types.ObjectId.isValid(doc[field])) {
+            doc[field] = doc[field]._id || doc[field].id || doc[field].lookup_value || doc[field].value || null;
+        }
     }
 
     // ─── PERFORMANCE FIX: Parallel resolution of all scalar lookups ──────────────
@@ -94,7 +89,7 @@ const resolveAllReferenceFields = async (doc) => {
         ['subSource', 'SubSource'],
     ];
     const scalarResults = await Promise.all(
-        scalarFieldMap.map(([field, type]) => doc[field] ? resolveLookup(type, doc[field], false) : Promise.resolve(null))
+        scalarFieldMap.map(([field, type]) => doc[field] ? resolveLookup(type, doc[field], true) : Promise.resolve(null))
     );
     scalarFieldMap.forEach(([field], i) => { if (scalarResults[i] !== null) doc[field] = scalarResults[i]; });
 
@@ -111,12 +106,23 @@ const resolveAllReferenceFields = async (doc) => {
     await Promise.all(Object.entries(arrayLookups).map(async ([field, type]) => {
         if (Array.isArray(doc[field])) {
             doc[field] = doc[field].filter(val => val !== "");
-            doc[field] = await Promise.all(doc[field].map(val => resolveLookup(type, val, false)));
+            doc[field] = await Promise.all(doc[field].map(async val => {
+                if (val && typeof val === 'object' && !mongoose.Types.ObjectId.isValid(val)) {
+                    val = val._id || val.id || val.lookup_value || val.value;
+                }
+                return val ? resolveLookup(type, val, true) : null;
+            }));
+            doc[field] = doc[field].filter(v => v !== null);
         }
     }));
 
     if (doc.owner === "") doc.owner = null;
-    if (doc.owner) doc.owner = await resolveUser(doc.owner);
+    if (doc.owner) {
+        if (typeof doc.owner === 'object' && !mongoose.Types.ObjectId.isValid(doc.owner)) {
+            doc.owner = doc.owner._id || doc.owner.id || null;
+        }
+        if (doc.owner) doc.owner = await resolveUser(doc.owner);
+    }
 
     // Handle Team resolution (from ID or Name)
     if (doc.team) {

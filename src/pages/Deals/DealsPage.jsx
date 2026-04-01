@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useUserContext } from '../../context/UserContext';
 import { getInitials } from '../../utils/helpers';
 import AddDealModal from '../../components/AddDealModal';
@@ -6,7 +6,6 @@ import AddBookingModal from '../../components/AddBookingModal';
 import DealsFilterPanel from './components/DealsFilterPanel';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 import { useCall } from '../../context/CallContext';
-import { sizeData } from '../../constants/sizeConstants';
 import { applyDealsFilters } from '../../utils/dealsFilterLogic';
 import UploadModal from '../../components/UploadModal';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
@@ -16,13 +15,13 @@ import ManageTagsModal from '../../components/ManageTagsModal';
 import AddQuoteModal from '../../components/AddQuoteModal';
 import toast from 'react-hot-toast';
 import { api } from "../../utils/api";
-import { getCoordinates, getPinPosition } from '../../utils/mapUtils';
 import ProfessionalMap from '../../components/ProfessionalMap';
 import { formatIndianCurrency, numberToIndianWords } from '../../utils/numberToWords';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { STAGE_PIPELINE, getStageProbability } from '../../utils/stageEngine';
 import { renderValue } from "../../utils/renderUtils";
 import PipelineDashboard from '../../components/PipelineDashboard';
+import useDebounce from '../../hooks/useDebounce';
 
 // Helper: colored stage chip for deals
 const DealStageChip = ({ stage }) => {
@@ -67,8 +66,26 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+    // ── STAGE ENGINE SYNC ──────────────────────────────────────────
+    useEffect(() => {
+        const handleActivitySync = () => setRefreshTrigger(prev => prev + 1);
+        const handleDealUpdate = () => setRefreshTrigger(prev => prev + 1);
+
+        window.addEventListener('activity-completed', handleActivitySync);
+        window.addEventListener('deal-updated', handleDealUpdate);
+
+        return () => {
+            window.removeEventListener('activity-completed', handleActivitySync);
+            window.removeEventListener('deal-updated', handleDealUpdate);
+        };
+    }, []);
+    // ────────────────────────────────────────────────────────────────
     const [dealScores, setDealScores] = useState({}); // { dealId: { score, color, label } } from stage engine
     const [categoryStats, setCategoryStats] = useState([]);
+
+    // --- OPTIMIZATION: Debounced Search Term ---
+    const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
     const fetchDeals = useCallback(async () => {
         setLoading(true);
@@ -76,7 +93,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
             const queryParams = new URLSearchParams({
                 page: currentPage,
                 limit: recordsPerPage,
-                search: searchTerm,
+                search: debouncedSearchTerm,
             });
 
             const response = await api.get(`deals?${queryParams.toString()}`);
@@ -103,7 +120,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
         } finally {
             setLoading(false);
         }
-    }, [currentPage, recordsPerPage, searchTerm, refreshTrigger]);
+    }, [currentPage, recordsPerPage, debouncedSearchTerm]);
 
     const handleSaveUploads = async (mediaData) => {
         try {
@@ -177,7 +194,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
     useEffect(() => {
         fetchDeals();
-    }, [fetchDeals]);
+    }, [fetchDeals, refreshTrigger]);
 
     // Action Modal States
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -209,7 +226,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
     const filteredDeals = deals.filter(deal => {
         if (deal.isVisible === false) return false;
-        const search = searchTerm.toLowerCase();
+        const search = debouncedSearchTerm.toLowerCase();
 
         const dealId = deal.id || deal._id;
         const ownerName = deal.owner?.name || deal.owner;
@@ -668,205 +685,17 @@ function DealsPage({ onNavigate, onAddActivity }) {
                         <div className="list-content" style={{ background: '#fafbfc' }}>
                             <div className="list-group">
                                 {filteredDeals.map((deal, index) => (
-                                    <div key={deal._id} className="list-item deals-list-grid" style={{ padding: '18px 1.5rem', borderBottom: '1px solid #e2e8f0', transition: 'all 0.2s ease', background: '#fff', marginBottom: '2px' }}>
-                                        <input
-                                            type="checkbox"
-                                            className="item-check"
-                                            checked={selectedIds.includes(deal._id)}
-                                            onChange={() => toggleSelect(deal._id)}
-                                        />
-
-                                        {/* Col 1: Score */}
-                                        {(() => {
-                                            const s = dealScores[deal._id];
-                                            const scoreVal = s ? s.score : (deal.dealProbability || 0);
-                                            const scoreColor = s ? s.color : '#94a3b8';
-                                            const scoreLabel = s ? s.label : '';
-                                            return (
-                                                <div
-                                                    title={scoreLabel ? `${scoreLabel} · Score: ${scoreVal}` : `Score: ${scoreVal}`}
-                                                    style={{
-                                                        width: '40px', height: '40px', fontSize: '0.9rem',
-                                                        borderRadius: '50%', display: 'flex',
-                                                        alignItems: 'center', justifyContent: 'center',
-                                                        fontWeight: '800', cursor: 'default',
-                                                        background: scoreColor + '18',
-                                                        border: `2px solid ${scoreColor}`,
-                                                        color: scoreColor
-                                                    }}
-                                                >
-                                                    {scoreVal}
-                                                </div>
-                                            );
-                                        })()}
-
-                                        {/* Col 2: Property Details */}
-                                        <div className="super-cell">
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                                                <div
-                                                    onClick={() => onNavigate('deal-detail', deal._id)}
-                                                    className={`project-thumbnail ${deal.status === 'Open' ? 'thumb-active' : 'thumb-inactive'}`}
-                                                    style={{
-                                                        width: 'auto',
-                                                        minWidth: '60px',
-                                                        height: '28px',
-                                                        borderRadius: '6px',
-                                                        padding: '0 10px',
-                                                        aspectRatio: 'auto',
-                                                        cursor: 'pointer'
-                                                    }}
-                                                >
-                                                    {renderValue(deal.unitNo, 'N/A')}
-                                                </div>
-                                                <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                                    {renderValue(deal.unitType || deal.corner, '')}
-                                                </div>
-                                            </div>
-                                            <div style={{ paddingLeft: '2px' }}>
-                                                <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>
-                                                    {renderValue(getLookupValue('Category', deal.category) || getLookupValue('PropertyType', deal.propertyType), 'N/A')}
-                                                    {deal.subCategory ? ` - ${renderValue(getLookupValue('SubCategory', deal.subCategory))}` : ''}
-                                                </div>
-                                                <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                    {renderValue(deal.size, 'N/A')}
-                                                    {(deal.sizeLabel || deal.unitSpecification?.sizeLabel || deal.sizeConfig) && (
-                                                         <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#4338ca', background: '#e0e7ff', padding: '2px 6px', borderRadius: '4px' }}>
-                                                             {getLookupValue('Size', deal.sizeLabel || deal.unitSpecification?.sizeLabel || (typeof deal.sizeConfig === 'object' ? deal.sizeConfig?.lookup_value : deal.sizeConfig))}
-                                                         </span>
-                                                     )}
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Col 3: Location & Project */}
-                                        <div className="super-cell">
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
-                                                <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem' }}></i>
-                                                 <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{renderValue(getLookupValue('Locality', deal.location) || getLookupValue('Area', deal.location) || getLookupValue('Location', deal.location))}</span>
-                                            </div>
-                                            {deal.projectName && (
-                                                <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px' }}>
-                                                    <i className="fas fa-building" style={{ marginRight: '4px', fontSize: '0.7rem' }}></i>
-                                                    {renderValue(deal.projectName)}
-                                                </div>
-                                            )}
-                                            {deal.block && (
-                                                <span className="verified-badge" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800 }}>BLOCK: {deal.block}</span>
-                                            )}
-                                        </div>
-
-                                        {/* Col 4: Match */}
-                                        <div style={{ lineHeight: 1.4, padding: '8px', background: '#f8fafc', borderRadius: '6px' }}>
-                                            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', marginBottom: '4px' }}>{renderValue(getLookupValue('Intent', deal.intent))}</div>
-                                            <div style={{ fontSize: '0.7rem' }}>
-                                                <span style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(102, 126, 234, 0.3)' }}>{deal.matched} Matches</span>
-                                            </div>
-                                        </div>
-
-                                        {/* Col 5: Expectation */}
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '8px', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', borderRadius: '6px' }}>
-                                            <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#15803d' }}>{formatIndianCurrency(deal.price)}</div>
-                                            <div style={{ fontSize: '0.65rem', color: '#64748b', lineHeight: 1.2, fontStyle: 'italic' }}>
-                                                {deal.priceInWords || deal.priceWord || numberToIndianWords(deal.price)}
-                                            </div>
-                                        </div>
-
-                                        {/* Col 6: Owner Details */}
-                                        <div className="super-cell" style={{ background: '#fefce8', padding: '8px', borderRadius: '6px', borderLeft: '3px solid #eab308' }}>
-                                            <div className="text-ellipsis" style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.8rem', marginBottom: '4px' }}>
-                                                {renderValue(deal.owner?.name || deal.ownerName, 'Unknown')}
-                                            </div>
-                                            <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600, marginBottom: '2px' }}>
-                                                <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>
-                                                {renderValue(deal.owner?.mobile || deal.owner?.phone || deal.ownerPhone, 'N/A')}
-                                            </div>
-                                            <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                                <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>
-                                                {renderValue(deal.owner?.email || deal.ownerEmail, 'N/A')}
-                                            </div>
-                                        </div>
-
-                                        {/* Col 7: Associate */}
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                            { (deal.associatedContact?.name || deal.associateName) ? (
-                                                <>
-                                                    <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.8rem' }}>
-                                                        {renderValue(deal.associatedContact?.name || deal.associateName)}
-                                                    </div>
-                                                    <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600 }}>
-                                                        <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>
-                                                        {renderValue(deal.associatedContact?.mobile || deal.associatedContact?.phone || deal.associatePhone)}
-                                                    </div>
-                                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                                        <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>
-                                                        {renderValue(deal.associatedContact?.email || deal.associateEmail)}
-                                                    </div>
-                                                </>
-                                            ) : (
-                                                <div style={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic' }}>--</div>
-                                            )}
-                                        </div>
-
-                                        {/* Col 8: Stage */}
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                            <DealStageChip stage={deal.stage || 'Open'} />
-                                            {deal.stageUpdatedAt && (
-                                                <div style={{ fontSize: '0.62rem', color: '#94a3b8' }}>
-                                                    <i className="fas fa-robot" style={{ marginRight: '3px', fontSize: '0.58rem' }} />
-                                                    Auto · {new Date(deal.stageUpdatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {/* Col 9: Interaction */}
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                            {deal.remarks ? (
-                                                <div className="address-clamp" style={{ fontSize: '0.78rem', color: '#1e293b', fontWeight: 600, borderLeft: '2px solid #3b82f6', paddingLeft: '6px' }}>
-                                                    {deal.remarks}
-                                                </div>
-                                            ) : (
-                                                <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>No Remarks</div>
-                                            )}
-
-                                            {deal.lastActivity ? (
-                                                <div style={{ background: '#f8fafc', padding: '6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                                                    <div style={{ fontSize: '0.65rem', color: '#6366f1', fontWeight: 800, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
-                                                        <i className="fas fa-history" style={{ fontSize: '0.6rem' }}></i>
-                                                        {renderValue(deal.lastActivity.type)}
-                                                    </div>
-                                                    <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 500 }}>
-                                                        {renderValue(deal.lastActivity.content)}
-                                                    </div>
-                                                    <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginTop: '2px' }}>
-                                                        {new Date(deal.lastActivity.performedAt).toLocaleDateString()} {new Date(deal.lastActivity.performedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <div style={{ fontSize: '0.7rem', color: '#cbd5e1' }}>No Recent Activity</div>
-                                            )}
-                                        </div>
-
-                                        {/* Col 10: Assignment */}
-                                        <div className="col-assignment" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
-                                                    {getInitials(getUserName(deal.assignedTo || deal.assigned))}
-                                                </div>
-                                                <div style={{ lineHeight: 1.2 }}>
-                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>
-                                                        {getUserName(deal.assignedTo || deal.assigned)}
-                                                    </div>
-                                                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
-                                                        {getTeamName(deal.team || deal.assignment?.team)}
-                                                    </div>
-                                                    <div style={{ fontSize: '0.62rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                                                        <i className="far fa-clock" style={{ fontSize: '0.6rem' }}></i>
-                                                        {new Date(deal.createdAt || deal.date || Date.now()).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                    <DealRow
+                                        key={deal._id || index}
+                                        deal={deal}
+                                        isSelected={selectedIds.includes(deal._id)}
+                                        toggleSelect={toggleSelect}
+                                        onNavigate={onNavigate}
+                                        dealScores={dealScores}
+                                        getLookupValue={getLookupValue}
+                                        getUserName={getUserName}
+                                        getTeamName={getTeamName}
+                                    />
                                 ))}
                             </div>
                         </div>
@@ -1023,7 +852,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                 selectedItems={selectedDealsForTags}
                 entityType="deals"
                 onSave={(updatedItems) => {
-                    const updatedIds = updatedItems.map(item => item.id);
+                    updatedItems.map(item => item.id);
                     setDeals(prev => prev.map(d => {
                         const updatedItem = updatedItems.find(item => item.id === d.id);
                         return updatedItem ? { ...d, tags: updatedItem.tags } : d;
@@ -1091,107 +920,219 @@ function DealsPage({ onNavigate, onAddActivity }) {
     );
 }
 
-// Helper Components for Pipeline Dashboard
-function PipelineItem({ label, value, percent }) {
+
+// --- MEMOIZED COMPONENTS FOR PERFORMANCE ---
+
+const DealRow = React.memo(function DealRow({
+    deal,
+    isSelected,
+    toggleSelect,
+    onNavigate,
+    dealScores,
+    getLookupValue,
+    getUserName,
+    getTeamName
+}) {
+    const s = dealScores[deal._id];
+    const scoreVal = s ? s.score : (deal.dealProbability || 0);
+    const scoreColor = s ? s.color : '#94a3b8';
+    const scoreLabel = s ? s.label : '';
+
     return (
-        <div className="pipeline-item">
-            <div className="pipeline-content-wrapper">
-                <div>
-                    <div className="pipeline-label">{label}</div>
-                    <div className="pipeline-value">{value}</div>
+        <div className="list-item deals-list-grid" style={{ padding: '18px 1.5rem', borderBottom: '1px solid #e2e8f0', transition: 'all 0.2s ease', background: '#fff', marginBottom: '2px' }}>
+            <input
+                type="checkbox"
+                className="item-check"
+                checked={isSelected}
+                onChange={() => toggleSelect(deal._id)}
+            />
+
+            {/* Col 1: Score */}
+            <div
+                title={scoreLabel ? `${scoreLabel} · Score: ${scoreVal}` : `Score: ${scoreVal}`}
+                style={{
+                    width: '40px', height: '40px', fontSize: '0.9rem',
+                    borderRadius: '50%', display: 'flex',
+                    alignItems: 'center', justifyContent: 'center',
+                    fontWeight: '800', cursor: 'default',
+                    background: scoreColor + '18',
+                    border: `2px solid ${scoreColor}`,
+                    color: scoreColor
+                }}
+            >
+                {scoreVal}
+            </div>
+
+            {/* Col 2: Property Details */}
+            <div className="super-cell">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                    <div
+                        onClick={() => onNavigate('deal-detail', deal._id)}
+                        className={`project-thumbnail ${deal.status === 'Open' ? 'thumb-active' : 'thumb-inactive'}`}
+                        style={{
+                            width: 'auto',
+                            minWidth: '60px',
+                            height: '28px',
+                            borderRadius: '6px',
+                            padding: '0 10px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        {renderValue(deal.unitNo, 'N/A')}
+                    </div>
+                    <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        {renderValue(deal.unitType || deal.corner, '')}
+                    </div>
                 </div>
-                <div className="pipeline-percent">{percent}</div>
+                <div style={{ paddingLeft: '2px' }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>
+                        {renderValue(getLookupValue('Category', deal.category) || getLookupValue('PropertyType', deal.propertyType), 'N/A')}
+                        {deal.subCategory ? ` - ${renderValue(getLookupValue('SubCategory', deal.subCategory))}` : ''}
+                    </div>
+                    <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {!(deal.sizeLabel || deal.unitSpecification?.sizeLabel || deal.sizeConfig) && renderValue(deal.size, 'N/A')}
+                        {(deal.sizeLabel || deal.unitSpecification?.sizeLabel || deal.sizeConfig) && (
+                            <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#4338ca', background: '#e0e7ff', padding: '2px 6px', borderRadius: '4px' }}>
+                                {getLookupValue('Size', deal.sizeLabel || deal.unitSpecification?.sizeLabel || (typeof deal.sizeConfig === 'object' ? deal.sizeConfig?.lookup_value : deal.sizeConfig))}
+                            </span>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Col 3: Location & Project */}
+            <div className="super-cell">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
+                    <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem' }}></i>
+                    <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{renderValue(getLookupValue('Locality', deal.location) || getLookupValue('Area', deal.location) || getLookupValue('Location', deal.location))}</span>
+                </div>
+                {deal.projectName && (
+                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px' }}>
+                        <i className="fas fa-building" style={{ marginRight: '4px', fontSize: '0.7rem' }}></i>
+                        {renderValue(deal.projectName)}
+                    </div>
+                )}
+                {deal.block && (
+                    <span className="verified-badge" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800 }}>BLOCK: {deal.block}</span>
+                )}
+            </div>
+
+            {/* Col 4: Match */}
+            <div style={{ lineHeight: 1.4, padding: '8px', background: '#f8fafc', borderRadius: '6px' }}>
+                <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', marginBottom: '4px' }}>{renderValue(getLookupValue('Intent', deal.intent))}</div>
+                <div style={{ fontSize: '0.7rem' }}>
+                    <span style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(102, 126, 234, 0.3)' }}>{deal.matched} Matches</span>
+                </div>
+            </div>
+
+            {/* Col 5: Expectation */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '8px', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', borderRadius: '6px' }}>
+                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#15803d' }}>{formatIndianCurrency(deal.price)}</div>
+                <div style={{ fontSize: '0.65rem', color: '#64748b', lineHeight: 1.2, fontStyle: 'italic' }}>
+                    {deal.priceInWords || deal.priceWord || numberToIndianWords(deal.price)}
+                </div>
+            </div>
+
+            {/* Col 6: Owner Details */}
+            <div className="super-cell" style={{ background: '#fefce8', padding: '8px', borderRadius: '6px', borderLeft: '3px solid #eab308' }}>
+                <div className="text-ellipsis" style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.8rem', marginBottom: '4px' }}>
+                    {renderValue(deal.owner?.name || deal.ownerName, 'Unknown')}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600, marginBottom: '2px' }}>
+                    <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>
+                    {renderValue(deal.owner?.phones?.[0]?.number || deal.owner?.mobile || deal.owner?.phone || deal.ownerPhone, 'N/A')}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                    <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>
+                    {renderValue(deal.owner?.emails?.[0]?.address || deal.owner?.email || deal.ownerEmail, 'N/A')}
+                </div>
+            </div>
+
+            {/* Col 7: Associate */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                {(deal.associatedContact?.name || deal.associateName) ? (
+                    <>
+                        <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.8rem' }}>
+                            {renderValue(deal.associatedContact?.name || deal.associateName)}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600 }}>
+                            <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>
+                            {renderValue(deal.associatedContact?.phones?.[0]?.number || deal.associatedContact?.mobile || deal.associatedContact?.phone || deal.associatePhone)}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                            <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>
+                            {renderValue(deal.associatedContact?.emails?.[0]?.address || deal.associatedContact?.email || deal.associateEmail)}
+                        </div>
+                    </>
+                ) : (
+                    <div style={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic' }}>--</div>
+                )}
+            </div>
+
+            {/* Col 8: Stage */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <DealStageChip stage={deal.stage || 'Open'} />
+                {deal.stageUpdatedAt && (
+                    <div style={{ fontSize: '0.62rem', color: '#94a3b8' }}>
+                        <i className="fas fa-robot" style={{ marginRight: '3px', fontSize: '0.58rem' }} />
+                        Auto · {new Date(deal.stageUpdatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    </div>
+                )}
+            </div>
+
+            {/* Col 9: Interaction */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {deal.remarks ? (
+                    <div className="address-clamp" style={{ fontSize: '0.78rem', color: '#1e293b', fontWeight: 600, borderLeft: '2px solid #3b82f6', paddingLeft: '6px' }}>
+                        {deal.remarks}
+                    </div>
+                ) : (
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>No Remarks</div>
+                )}
+
+                {deal.lastActivity ? (
+                    <div style={{ background: '#f8fafc', padding: '6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ fontSize: '0.65rem', color: '#6366f1', fontWeight: 800, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
+                            <i className="fas fa-history" style={{ fontSize: '0.6rem' }}></i>
+                            {renderValue(deal.lastActivity.type)}
+                        </div>
+                        <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 500 }}>
+                            {renderValue(deal.lastActivity.content)}
+                        </div>
+                        <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginTop: '2px' }}>
+                            {new Date(deal.lastActivity.performedAt).toLocaleDateString()} {new Date(deal.lastActivity.performedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                    </div>
+                ) : (
+                    <div style={{ fontSize: '0.7rem', color: '#cbd5e1' }}>No Recent Activity</div>
+                )}
+            </div>
+
+            {/* Col 10: Assignment */}
+            <div className="col-assignment" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
+                        {getInitials(getUserName(deal.assignedTo || deal.assigned))}
+                    </div>
+                    <div style={{ lineHeight: 1.2 }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>
+                            {getUserName(deal.assignedTo || deal.assigned)}
+                        </div>
+                        <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
+                            {getTeamName(deal.team || deal.assignment?.team)}
+                        </div>
+                        <div style={{ fontSize: '0.62rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                            <i className="far fa-clock" style={{ fontSize: '0.6rem' }}></i>
+                            {new Date(deal.createdAt || deal.date || Date.now()).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     );
-}
+});
+DealRow.displayName = 'DealRow';
 
-function ClosedPipelineItem() {
-    const [isOpen, setIsOpen] = useState(false);
-    const itemRef = useRef(null);
-    const [menuStyle, setMenuStyle] = useState({});
 
-    const handleMouseEnter = () => {
-        if (itemRef.current) {
-            const rect = itemRef.current.getBoundingClientRect();
-            setMenuStyle({
-                position: 'fixed',
-                top: `${rect.bottom}px`,
-                left: `${rect.left}px`,
-                width: `${rect.width}px`,
-                display: 'block',
-                zIndex: 1000
-            });
-            setIsOpen(true);
-        }
-    };
-
-    const handleMouseLeave = () => {
-        setIsOpen(false);
-    };
-
-    useEffect(() => {
-        const handleScroll = () => {
-            if (isOpen) setIsOpen(false);
-        };
-        if (isOpen) {
-            window.addEventListener('scroll', handleScroll, { passive: true });
-        }
-        return () => {
-            window.removeEventListener('scroll', handleScroll);
-        };
-    }, [isOpen]);
-
-    return (
-        <div
-            className="pipeline-item"
-            ref={itemRef}
-            onMouseEnter={handleMouseEnter}
-            onMouseLeave={handleMouseLeave}
-            style={{ cursor: 'pointer' }}
-        >
-            <div className="pipeline-content-wrapper">
-                <div>
-                    <div className="pipeline-label">CLOSED</div>
-                    <div className="pipeline-value">
-                        <i className="fas fa-chevron-down" style={{ fontSize: '0.8rem' }}></i>
-                    </div>
-                </div>
-                <div className="pipeline-percent">25%</div>
-            </div>
-            {isOpen && (
-                <div className="pipeline-sub-stages show" style={menuStyle}>
-                    <div className="sub-stage-item success">
-                        <div className="sub-label">Won</div>
-                        <div className="sub-stats">
-                            <span className="sub-val">2</span>
-                            <span className="sub-percent">20%</span>
-                        </div>
-                    </div>
-                    <div className="sub-stage-item danger">
-                        <div className="sub-label">Lost</div>
-                        <div className="sub-stats">
-                            <span className="sub-val">0</span>
-                            <span className="sub-percent">5%</span>
-                        </div>
-                    </div>
-                    <div className="sub-stage-item warning">
-                        <div className="sub-label">Reject</div>
-                        <div className="sub-stats">
-                            <span className="sub-val">0</span>
-                            <span className="sub-percent">0%</span>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
-
-const DealsPageWrapper = () => (
-    <>
-        <DealsPage />
-    </>
-);
 
 export default DealsPage;

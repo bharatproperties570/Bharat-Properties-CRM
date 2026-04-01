@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 import { validateEntity } from '../utils/fieldRuleEngine';
 import { fieldRulesAPI } from '../utils/api';
-import { STAGE_LABELS } from '../utils/stageEngine';
+
 
 const FieldRulesContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useFieldRules = () => {
     return useContext(FieldRulesContext);
 };
@@ -16,6 +17,11 @@ export const FieldRulesProvider = ({ children }) => {
     // Load rules from backend on mount
     useEffect(() => {
         const loadRules = async () => {
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                setIsLoading(false);
+                return;
+            }
             try {
                 const data = await fieldRulesAPI.getAll();
                 // Ensure data is always an array
@@ -151,7 +157,7 @@ export const FieldRulesProvider = ({ children }) => {
     };
 
     // --- ASYNC VALIDATION LAYER (Phase 2) ---
-    const checkUnique = async (field, value, module) => {
+    const checkUnique = async (field, value) => {
         // In a real app, this calls api.get(`/check-unique?module=${module}&field=${field}&value=${value}`)
         // Simulating API latency
         await new Promise(resolve => setTimeout(resolve, 600));
@@ -207,7 +213,7 @@ export const FieldRulesProvider = ({ children }) => {
             if (rule.field === 'email' && Array.isArray(value)) valToCheck = value[0]?.address;
 
             if (valToCheck) {
-                const isUnique = await checkUnique(rule.field, valToCheck, module);
+                const isUnique = await checkUnique(rule.field, valToCheck);
                 if (!isUnique) {
                     isValid = false;
                     errors[rule.field] = rule.message || `${rule.field} already exists in the system.`;

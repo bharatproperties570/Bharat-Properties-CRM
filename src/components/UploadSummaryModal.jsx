@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 const UploadSummaryModal = ({ isOpen, onClose, summaryData }) => {
     const [showDuplicates, setShowDuplicates] = useState(false);

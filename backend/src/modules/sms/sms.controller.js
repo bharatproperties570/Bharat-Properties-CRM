@@ -196,7 +196,7 @@ export const testSmsConnection = async (req, res, next) => {
  */
 export const sendSms = async (req, res, next) => {
     try {
-        const { channel, recipients, content, schedule } = req.body;
+        const { recipients, content, schedule } = req.body;
 
         if (!recipients || !recipients.length) {
             return res.status(400).json({ success: false, error: 'At least one recipient is required' });

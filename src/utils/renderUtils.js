@@ -6,15 +6,27 @@
  */
 export const renderValue = (val, emptyValue = '-', prefix = '') => {
     if (val === null || val === undefined || val === '') return emptyValue;
+    
+    // If it's an array, render it as a comma-separated string
+    if (Array.isArray(val)) {
+        if (val.length === 0) return emptyValue;
+        return val.map(item => renderValue(item, '', '')).filter(Boolean).join(', ') || emptyValue;
+    }
+
     let result = val;
     // If it's a non-primitive object, try to extract a string value
     if (typeof val === 'object') {
-        const extracted = val.lookup_value || val.fullName || val.name || val.title || val.label || val.value || val.displayName;
-        if (extracted && typeof extracted !== 'object') {
+        const extracted = val.lookup_value || val.fullName || val.name || val.title || val.label || val.value || val.displayName || val.code;
+        if (extracted !== undefined && extracted !== null && typeof extracted !== 'object') {
             result = extracted;
         } else {
             // Final fallback: string representation if safe, else empty string
-            result = typeof val.toString === 'function' && val.toString() !== '[object Object]' ? val.toString() : '';
+            try {
+                const str = String(val);
+                result = (str !== '[object Object]') ? str : '';
+            } catch (e) {
+                result = '';
+            }
         }
     }
     

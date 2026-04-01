@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import QuickInventoryForm from './common/QuickInventoryForm';
+import { renderValue } from '../utils/renderUtils';
 
 const QuickDealForm = ({
     currentItem,
@@ -21,7 +22,6 @@ const QuickDealForm = ({
     const [selectedProperty, setSelectedProperty] = useState(null);
     const [dealType, setDealType] = useState('Sell');
     const [dealPrice, setDealPrice] = useState('');
-    const [showAdvanced, setShowAdvanced] = useState(false);
     const [verificationStatus, setVerificationStatus] = useState(null); // null | 'confirmed' | 'follow-up' | 'not-interested'
 
     // Manual Property Addition State
@@ -44,41 +44,41 @@ const QuickDealForm = ({
         if (outcome === 'confirmed') {
             toast.success('✓ Owner verified via call');
         } else if (outcome.includes('follow')) {
-            toast.info('📅 Follow-up scheduled');
+            toast('📅 Follow-up scheduled');
         } else if (outcome.includes('not-interested')) {
             toast.error('❌ Owner not interested');
         }
     };
 
-    // Auto-selection on mount
+    // 1. Auto-select first contact as owner
     useEffect(() => {
-        // Auto-select first contact
-        if (detectedContacts && detectedContacts.length > 0 && !selectedOwner) {
+        if (detectedContacts?.length > 0 && !selectedOwner) {
             setSelectedOwner(detectedContacts[0]);
         }
+    }, [detectedContacts, selectedOwner]);
 
-        // Auto-select best property match (>80% confidence)
-        if (matchedInventory && matchedInventory.length > 0 && !selectedProperty) {
+    // 2. Auto-select best property match (>80% confidence)
+    useEffect(() => {
+        if (matchedInventory?.length > 0 && !selectedProperty) {
             const bestMatch = matchedInventory[0];
             if (bestMatch.score >= 80) {
                 setSelectedProperty(bestMatch.inventory);
             }
         }
+    }, [matchedInventory, selectedProperty]);
 
-        // Auto-detect deal type from intent or extracted req
-        if (intakeType === 'SELLER') {
-            setDealType('Sell');
-        } else if (intakeType === 'BUYER') {
-            setDealType('Buy');
-        } else if (extractedReq?.type) {
-            setDealType(extractedReq.type.includes('Rent') ? 'Rent' : 'Sell');
-        }
+    // 3. Auto-detect deal type from intake intent
+    useEffect(() => {
+        if (intakeType === 'SELLER') setDealType('Sell');
+        else if (intakeType === 'BUYER') setDealType('Buy');
+    }, [intakeType]);
 
-        // Auto-fill Price from extracted req
-        if (extractedReq?.budget && !dealPrice) {
+    // 4. Auto-fill Price from extracted req (Only when budget explicitly changes)
+    useEffect(() => {
+        if (extractedReq?.budget) {
             setDealPrice(extractedReq.budget);
         }
-    }, [detectedContacts, matchedInventory, intakeType, extractedReq]); // Added extractedReq dependency
+    }, [extractedReq?.budget]);
 
     const handleCreateDeal = () => {
         if (!selectedOwner) {
@@ -368,10 +368,10 @@ const QuickDealForm = ({
                             {/* Selected Property Display */}
                             <div style={{ background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: '8px', padding: '12px', marginBottom: '12px' }}>
                                 <div style={{ fontWeight: 700, color: '#6b21a8', marginBottom: '4px' }}>
-                                    Unit {selectedProperty.unitNo}
+                                    Unit {renderValue(selectedProperty.unitNo)}
                                 </div>
                                 <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '8px' }}>
-                                    {selectedProperty.location}
+                                    {renderValue(selectedProperty.location)}
                                 </div>
                                 {matchScore > 0 && (
                                     <div style={{
@@ -408,7 +408,7 @@ const QuickDealForm = ({
                                 >
                                     {matchedInventory.map((match, idx) => (
                                         <option key={idx} value={match.inventory.id}>
-                                            Unit {match.inventory.unitNo} - {match.inventory.location} ({match.score}%)
+                                            Unit {renderValue(match.inventory.unitNo)} - {renderValue(match.inventory.location)} ({match.score}%)
                                         </option>
                                     ))}
                                 </select>

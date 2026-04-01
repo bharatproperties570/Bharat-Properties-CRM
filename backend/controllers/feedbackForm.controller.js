@@ -1,6 +1,6 @@
 import FeedbackForm from "../models/FeedbackForm.js";
 import FeedbackSubmission from "../models/FeedbackSubmission.js";
-import Lead from "../models/Lead.js";
+
 
 export const createForm = async (req, res, next) => {
     try {
@@ -77,7 +77,7 @@ export const submitFeedback = async (req, res, next) => {
             submissionRating = Number(responses[ratingField.id]);
         }
 
-        const submission = await FeedbackSubmission.create({
+        await FeedbackSubmission.create({
             form: form._id,
             lead: leadId || null,
             responses,

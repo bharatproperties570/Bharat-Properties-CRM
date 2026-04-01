@@ -1,9 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { parsingRulesAPI } from '../utils/api';
 import toast from 'react-hot-toast';
 
 const ParsingContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useParsing = () => useContext(ParsingContext);
 
 // Initial Standard Data (Fallback)
@@ -26,6 +27,11 @@ export const ParsingProvider = ({ children }) => {
     const [customPatterns, setCustomPatterns] = useState(null);
 
     const fetchRules = useCallback(async () => {
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+            setLoading(false);
+            return;
+        }
         try {
             setLoading(true);
             const response = await parsingRulesAPI.getAll();

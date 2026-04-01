@@ -8,7 +8,7 @@ dotenv.config();
 async function cleanup() {
     try {
         await mongoose.connect(process.env.MONGODB_URI);
-        const db = mongoose.connection.db;
+
 
         console.log("--- CLEANING INVENTORY ---");
         // Clear owners array if it contains invalid strings/objects

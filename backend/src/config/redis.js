@@ -16,6 +16,7 @@ const redisConnection = new Redis({
     }
 });
 
+// eslint-disable-next-line no-unused-vars
 redisConnection.on('error', (err) => {
     // console.warn('⚠️ Redis Connection Error:', err.message);
 });

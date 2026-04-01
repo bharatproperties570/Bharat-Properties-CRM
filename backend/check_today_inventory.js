@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import Lookup from './models/Lookup.js';
+
 import Inventory from './models/Inventory.js';
 
 const __filename = fileURLToPath(import.meta.url);

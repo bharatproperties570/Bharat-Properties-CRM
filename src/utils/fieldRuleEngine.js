@@ -83,7 +83,7 @@ const evaluateConditions = (data, rule) => {
  * 
  * @returns {Object} { isValid: Boolean, errors: {}, hiddenFields: [], readonlyFields: [] }
  */
-export const validateEntity = (module, data, rules = [], context = null) => {
+export const validateEntity = (module, data, rules = []) => {
     const result = {
         isValid: true,
         errors: {}, // { fieldName: "Error message" }

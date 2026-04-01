@@ -298,7 +298,7 @@ export const checkReassignment = (entity, reassignmentPolicy, currentTime) => {
 /**
  * Validate assignment target
  */
-export const validateAssignment = (assignedTo, users, teams) => {
+export const validateAssignment = (assignedTo, users) => {
     // Check if user exists and is active
     const user = users.find(u => u.id === assignedTo);
     if (!user) return { valid: false, reason: 'User not found' };

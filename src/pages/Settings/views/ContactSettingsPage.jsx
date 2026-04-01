@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Toast from "../../../components/Toast";
 import { api } from "../../../utils/api";
 import Swal from "sweetalert2";
@@ -190,7 +190,7 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
 );
 
 const ContactSettingsPage = () => {
-  const [activeTab, setActiveTabTab] = useState("Professional");
+  const [activeTab, setActiveTab] = useState("Professional");
   const [notification, setNotification] = useState({ show: false, message: "", type: "success" });
 
   // HIERARCHY ID STATE
@@ -261,7 +261,7 @@ const ContactSettingsPage = () => {
     if (flatActiveSection) {
       fetchFlatItems();
     }
-  }, [flatActiveSection]);
+  }, [flatActiveSection, fetchFlatItems]);
 
   // ---------------- API CALLS ----------------
 
@@ -292,7 +292,7 @@ const ContactSettingsPage = () => {
     }
   };
 
-  const fetchFlatItems = async () => {
+  const fetchFlatItems = useCallback(async () => {
     if (!flatActiveSection) return;
     try {
       const res = await api.get("/lookups", {
@@ -305,7 +305,7 @@ const ContactSettingsPage = () => {
         setFlatItems(res.data.data);
       }
     } catch (err) { console.error(err); }
-  };
+  }, [flatActiveSection]);
 
   // ---------------- CUSTOM ADD/EDIT HANDLERS ----------------
 
@@ -532,7 +532,7 @@ const ContactSettingsPage = () => {
                   fetchHierarchyLevel(activeTab, index + 1, item._id);
                 }
               }}
-              onAdd={() => handleAdd(level, parentId, (newItem) => {
+              onAdd={() => handleAdd(level, parentId, () => {
                 fetchHierarchyLevel(activeTab, index, parentId);
               })}
               onDownload={() => handleExportHierarchy(hierarchyData[index] || [], level.title)}
@@ -554,7 +554,7 @@ const ContactSettingsPage = () => {
   };
 
   const renderFlatView = () => {
-    const activeType = FLAT_CONFIG[activeTab]?.find(s => s === flatActiveSection);
+
 
     return (
       <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e2e8f0", display: "flex", height: "calc(100vh - 200px)", minHeight: "500px", overflow: "hidden" }}>
@@ -679,7 +679,7 @@ const ContactSettingsPage = () => {
         {TABS.map((tab) => (
           <div
             key={tab.id}
-            onClick={() => setActiveTabTab(tab.id)}
+            onClick={() => setActiveTab(tab.id)}
             style={{
               padding: "12px 4px",
               fontSize: "0.95rem",

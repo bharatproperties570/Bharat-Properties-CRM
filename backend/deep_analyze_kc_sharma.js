@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import path from 'path';
+
 
 dotenv.config({ path: '/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/.env' });
 

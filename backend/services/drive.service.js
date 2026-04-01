@@ -18,9 +18,10 @@ export const getOrCreateFolder = async (folderName, parentId = process.env.GOOGL
     if (!driveService) return parentId;
 
     try {
+        const escapedFolderName = folderName.replace(/'/g, "\\'");
         // Search for existing folder
         const response = await driveService.files.list({
-            q: `name = '${folderName}' and '${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+            q: `name = '${escapedFolderName}' and '${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
             fields: 'files(id, name)',
             spaces: 'drive',
             supportsAllDrives: true,
@@ -100,7 +101,7 @@ export const uploadFileToDrive = async (file, options = {}) => {
             const ext = path.extname(file.originalname);
             finalFileName = `${docType} - ${entityName}${ext}`;
         } else if (docType) {
-            const ext = path.extname(file.originalname);
+
             finalFileName = `${docType} - ${file.originalname}`;
         }
 
@@ -157,7 +158,9 @@ export const uploadFileToDrive = async (file, options = {}) => {
         if (file.path && fs.existsSync(file.path)) {
             try {
                 fs.unlinkSync(file.path);
-            } catch (err) { }
+            } catch (err) {
+                // Ignore error as file might already be removed
+            }
         }
         throw error;
     }

@@ -1,0 +1,120 @@
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/App.jsx
+  123:18  error  This branch can never execute. Its condition is a duplicate or covered by previous conditions in the if-else-if chain  no-dupe-else-if
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/Activities/sections/CallActivitySection.jsx
+  15:44  error  Parsing error: Expected corresponding JSX closing tag for <FormLabel>
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/AddContactModal.jsx
+  644:56  error  'DIRECTION_OPTIONS' is not defined  no-undef
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/AddInventoryModal.jsx
+   23:67  error  Unnecessary escape character: \&  no-useless-escape
+   23:76  error  Unnecessary escape character: \&  no-useless-escape
+   23:78  error  Unnecessary escape character: \?  no-useless-escape
+  276:40  error  'prev' is not defined             no-undef
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/AddLeadModal.jsx
+  1852:29  error  Component definition is missing display name  react/display-name
+  2147:23  error  Component definition is missing display name  react/display-name
+  2237:28  error  Component definition is missing display name  react/display-name
+  2490:25  error  Component definition is missing display name  react/display-name
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/AddProjectModal.jsx
+  20:67  error  Unnecessary escape character: \&  no-useless-escape
+  20:76  error  Unnecessary escape character: \&  no-useless-escape
+  20:78  error  Unnecessary escape character: \?  no-useless-escape
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/AddUserModal.jsx
+  119:32  error  Unnecessary escape character: \[  no-useless-escape
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/ErrorBoundary.jsx
+  46:22  error  'process' is not defined  no-undef
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/components/UploadModal.jsx
+  9:67  error  Unnecessary escape character: \&  no-useless-escape
+  9:76  error  Unnecessary escape character: \&  no-useless-escape
+  9:78  error  Unnecessary escape character: \?  no-useless-escape
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/constants/templates.js
+   9:587  error  Unnecessary escape character: \'  no-useless-escape
+  19:455  error  Unnecessary escape character: \'  no-useless-escape
+  29:279  error  Unnecessary escape character: \'  no-useless-escape
+  29:613  error  Unnecessary escape character: \'  no-useless-escape
+  39:614  error  Unnecessary escape character: \'  no-useless-escape
+  49:47   error  Unnecessary escape character: \'  no-useless-escape
+  49:488  error  Unnecessary escape character: \'  no-useless-escape
+  59:628  error  Unnecessary escape character: \'  no-useless-escape
+  69:601  error  Unnecessary escape character: \'  no-useless-escape
+  79:708  error  Unnecessary escape character: \'  no-useless-escape
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/context/DistributionContext.jsx
+  184:17  error  Unexpected lexical declaration in case block  no-case-declarations
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/context/PropertyConfigContext.jsx
+  1776:37  error  'changes' is not defined  no-undef
+  1777:68  error  'changes' is not defined  no-undef
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/pages/Activities/ActivitiesPage.jsx
+  13:23  error  Component definition is missing display name  react/display-name
+  30:21  error  Component definition is missing display name  react/display-name
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/pages/Activities/components/ActivityFilterPanel.jsx
+  204:30  error  'users' is not defined  no-undef
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/pages/Contacts/ContactsPage.jsx
+   39:20   error  Component definition is missing display name  react/display-name
+  225:21   error  Component definition is missing display name  react/display-name
+  632:136  error  'totalCount' is not defined                   no-undef
+  722:62   error  'totalCount' is not defined                   no-undef
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/pages/Dashboard/components/DashboardKPIs.jsx
+  3:17  error  Component definition is missing display name  react/display-name
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/pages/Deals/DealsPage.jsx
+  1024:17  error  Component definition is missing display name  react/display-name
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/pages/Deals/views/DealIntakePage.jsx
+   100:13  error  'saveIntakeHistory' is not defined  no-undef
+   302:28  error  'dealIntakeData' is not defined     no-undef
+   317:28  error  'leadData' is not defined           no-undef
+   323:32  error  'inventoryData' is not defined      no-undef
+   328:28  error  'dealData' is not defined           no-undef
+   330:13  error  'inventoryData' is not defined      no-undef
+   334:25  error  'contactData' is not defined        no-undef
+   383:30  error  'inventoryData' is not defined      no-undef
+   403:31  error  'dealData' is not defined           no-undef
+   477:36  error  'apiRequest' is not defined         no-undef
+   592:23  error  'inventoryData' is not defined      no-undef
+   766:25  error  'leadData' is not defined           no-undef
+   841:23  error  'dealData' is not defined           no-undef
+  1034:80  error  'apiRequest' is not defined         no-undef
+  1453:90  error  'inventoryData' is not defined      no-undef
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/pages/Leads/LeadsPage.jsx
+  1148:18  error  Component definition is missing display name  react/display-name
+  1427:18  error  Component definition is missing display name  react/display-name
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/pages/Marketing/MarketingPage.jsx
+  606:9  error  Parsing error: Expected corresponding JSX closing tag for <section>
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/pages/Projects/ProjectDetailPage.jsx
+  12:54  error  Unnecessary escape character: \/  no-useless-escape
+
+/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/src/pages/Reports/ReportsPage.jsx
+   41:25  error  React Hook "useMemo" is called conditionally. React Hooks must be called in the exact same order in every component render. Did you accidentally call a React Hook after an early return?  react-hooks/rules-of-hooks
+  147:23  error  Component definition is missing display name                                                                                                                                               react/display-name
+  173:21  error  Component definition is missing display name                                                                                                                                               react/display-name
+  214:34  error  Component definition is missing display name                                                                                                                                               react/display-name
+  258:32  error  Component definition is missing display name                                                                                                                                               react/display-name
+  306:31  error  Component definition is missing display name                                                                                                                                               react/display-name
+  345:29  error  Component definition is missing display name                                                                                                                                               react/display-name
+  384:25  error  Component definition is missing display name                                                                                                                                               react/display-name
+  433:26  error  Component definition is missing display name                                                                                                                                               react/display-name
+  486:22  error  Component definition is missing display name                                                                                                                                               react/display-name
+  531:26  error  Component definition is missing display name                                                                                                                                               react/display-name
+  581:23  error  Component definition is missing display name                                                                                                                                               react/display-name
+  613:22  error  Component definition is missing display name                                                                                                                                               react/display-name
+
+✖ 73 problems (73 errors, 0 warnings)
+

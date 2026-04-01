@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 // PROJECTS_LIST import removed, using context instead
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import Toast from '../../../components/Toast';
@@ -43,7 +43,7 @@ const SizeItem = ({ size, onEdit, onDelete }) => (
 );
 
 const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, allProjects }) => {
-    const defaultState = {
+    const defaultState = useMemo(() => ({
         name: '',
         unitType: '',
         project: '',
@@ -60,7 +60,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
         totalArea: '',
         resultMetric: 'Sq Yd',
         description: ''
-    };
+    }), []);
 
     const [sizeData, setSizeData] = useState(defaultState);
 
@@ -81,7 +81,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                 });
             }
         }
-    }, [isOpen, initialData, propertyConfig]);
+    }, [isOpen, initialData, propertyConfig, defaultState]);
 
     const [availableBlocks, setAvailableBlocks] = useState([]);
 
@@ -345,18 +345,14 @@ const PropertySettingsPage = () => {
 
     const context = usePropertyConfig();
 
-    if (!context) {
-        return <div style={{ padding: '20px', color: 'red' }}>Error: PropertyConfigContext unavailable.</div>;
-    }
-
     const {
-        propertyConfig, updateConfig, masterFields, updateMasterFields,
-        sizes, addSize, updateSize, deleteSize, projects,
-        syncCategoryLookup, syncSubCategoryLookup, syncPropertyTypeLookup, syncBuiltupTypeLookup,
-        getLookupId
-    } = context;
+        propertyConfig = {}, updateConfig = () => {}, masterFields = {}, updateMasterFields = () => {},
+        sizes = [], addSize = () => {}, updateSize = () => {}, deleteSize = () => {}, projects = [],
+        syncCategoryLookup = () => {}, syncSubCategoryLookup = () => {}, syncPropertyTypeLookup = () => {}, syncBuiltupTypeLookup = () => {},
+        getLookupId = () => {}
+    } = context || {};
 
-    const safeProjects = React.useMemo(() => Array.isArray(projects) ? projects : [], [projects]);
+    const safeProjects = useMemo(() => Array.isArray(projects) ? projects : [], [projects]);
 
     const [configCategory, setConfigCategory] = useState(() => propertyConfig && Object.keys(propertyConfig).length > 0 ? Object.keys(propertyConfig)[0] : null);
 
@@ -369,6 +365,7 @@ const PropertySettingsPage = () => {
     const [configSubCategory, setConfigSubCategory] = useState(null);
     const [configType, setConfigType] = useState(null);
     const [activeOrientationField, setActiveOrientationField] = useState('facings');
+
 
     const [inputModal, setInputModal] = useState({
         isOpen: false,
@@ -400,6 +397,11 @@ const PropertySettingsPage = () => {
     };
 
     const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
+
+    if (!context) {
+        return <div style={{ padding: '20px', color: 'red' }}>Error: PropertyConfigContext unavailable.</div>;
+    }
+
 
     const showToast = (message, type = 'success') => {
         setNotification({ show: true, message, type });

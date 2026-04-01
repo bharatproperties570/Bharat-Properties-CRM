@@ -3,6 +3,7 @@ import fs from 'fs';
 import JSZip from 'jszip';
 import pdf from 'pdf-parse';
 import path from 'path';
+import { parseContent } from './intakeParser.js';
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(process.cwd(), 'uploads');
@@ -16,10 +17,25 @@ import Intake from '../../../models/Intake.js';
  */
 export const getIntakes = async (req, res) => {
     try {
-        const intakes = await Intake.find().sort({ receivedAt: -1 });
+        // Exclude 'content' to keep the list lightweight
+        const intakes = await Intake.find().select('-content').sort({ receivedAt: -1 }).limit(100);
         res.status(200).json({ success: true, data: intakes });
     } catch (error) {
         console.error("[Intake:Get Error]:", error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/**
+ * Get single intake record with full content
+ */
+export const getIntakeById = async (req, res) => {
+    try {
+        const intake = await Intake.findById(req.params.id);
+        if (!intake) return res.status(404).json({ success: false, message: 'Intake record not found' });
+        res.status(200).json({ success: true, data: intake });
+    } catch (error) {
+        console.error("[Intake:GetById Error]:", error);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -48,12 +64,18 @@ export const updateIntakeStatus = async (req, res) => {
 export const createIntake = async (req, res) => {
     try {
         const { source, content, campaignName } = req.body;
+        const parsed = await parseContent(content);
+
         const intake = await Intake.create({
             source: source || 'Manual',
             content,
             campaignName,
+            category: 'new',
             status: 'Raw Received',
-            receivedAt: new Date()
+            receivedAt: new Date(),
+            meta: {
+                parsedData: parsed
+            }
         });
         res.status(201).json({ success: true, data: intake });
     } catch (error) {
@@ -93,15 +115,19 @@ export const processOCR = async (req, res) => {
         const { data: { text } } = await worker.recognize(req.file.path);
         await worker.terminate();
 
+        const parsed = await parseContent(text);
+
         // Create Intake Record
         const intake = await Intake.create({
             source: 'Camera',
             content: text,
+            category: 'new',
             status: 'Raw Received',
             receivedAt: new Date(),
             meta: {
                 fileName: req.file.originalname,
-                mimeType: req.file.mimetype
+                mimeType: req.file.mimetype,
+                parsedData: parsed
             }
         });
 
@@ -152,6 +178,7 @@ export const processZIP = async (req, res) => {
                 extractedTexts.push({
                     filename,
                     content: text,
+                    size: text.length,
                     type: lowerName.endsWith('.csv') ? 'CSV' : 'TEXT'
                 });
             }
@@ -162,15 +189,18 @@ export const processZIP = async (req, res) => {
         // Consolidation is safer for "Importing WhatsApp Zip".
         const consolidatedContent = extractedTexts.map(t => `--- File: ${t.filename} ---\n${t.content}`).join('\n\n');
 
+        const parsedItems = await Promise.all(extractedTexts.map(t => parseContent(t.content)));
+
         const intake = await Intake.create({
             source: 'WhatsApp',
             content: consolidatedContent,
+            category: 'new',
             status: 'Raw Received',
             receivedAt: new Date(),
             meta: {
                 fileName: req.file.originalname,
                 mimeType: req.file.mimetype,
-                parsedData: extractedTexts
+                parsedData: parsedItems // Full parsed data for each file
             }
         });
 
@@ -204,17 +234,47 @@ export const processPDF = async (req, res) => {
         console.log(`[Intake:PDF] Processing PDF: ${req.file.filename}`);
         const dataBuffer = fs.readFileSync(req.file.path);
 
-        const data = await pdf(dataBuffer);
+        const data = await pdf(req.file.path);
+        const extractedText = data.text;
+        const metadata = data.info || {};
+        
+        // Combine text with useful metadata (Title, Author, Subject, Keywords) for better parsing
+        const metadataText = [
+            metadata.Title,
+            metadata.Author,
+            metadata.Subject,
+            metadata.Keywords
+        ].filter(Boolean).join(' ');
+
+        // Determine final content and if it's likely a scan
+        let finalContent = extractedText;
+        let isScanLikely = false;
+
+        // If extracted text is very short and metadata is also sparse, it's likely a scan or image-only PDF
+        if (extractedText.trim().length < 50 && metadataText.trim().length < 10) {
+            isScanLikely = true;
+            finalContent = `[SYSTEM NOTE: This PDF appears to be a scan or image-only file. Automatic text extraction was limited. Please use the 'Camera' intake for OCR processing if needed.]\n\n` + extractedText;
+        } else if (metadataText.trim().length > 0) {
+            // Prepend metadata if available and not a likely scan
+            finalContent = `${metadataText}\n\n${extractedText}`;
+        }
+
+
+        const parsed = await parseContent(finalContent);
 
         const intake = await Intake.create({
             source: 'Tribune',
-            content: data.text,
-            status: 'Raw Received',
+            content: finalContent,
+            category: 'new',
+            status: isScanLikely ? 'Needs Review' : 'Raw Received',
             receivedAt: new Date(),
             meta: {
                 fileName: req.file.originalname,
                 mimeType: req.file.mimetype,
-                info: data.info
+                info: data.info,
+                pages: data.numpages,
+                parsedData: parsed,
+                wasScanSynced: isScanLikely
             }
         });
 

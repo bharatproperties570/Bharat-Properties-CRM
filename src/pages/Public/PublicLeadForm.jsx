@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../../utils/api';
 import { toast, Toaster } from 'react-hot-toast';
 
@@ -113,15 +113,15 @@ const PublicLeadForm = ({ slug }) => {
 
     if (status === 'success') {
         return (
-            <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}>
-                <div style={{ textAlign: 'center', padding: '60px', background: '#fff', borderRadius: '32px', boxShadow: '0 20px 50px -12px rgba(0,0,0,0.1)', maxWidth: '500px' }}>
-                    <div style={{ width: '80px', height: '80px', background: '#dcfce7', color: '#10b981', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', margin: '0 auto 24px' }}>
+            <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#020617', padding: '20px' }}>
+                <div style={{ textAlign: 'center', padding: '60px', background: 'rgba(30, 41, 59, 0.5)', backdropFilter: 'blur(16px)', borderRadius: '32px', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)', maxWidth: '500px' }}>
+                    <div style={{ width: '80px', height: '80px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', margin: '0 auto 24px', boxShadow: '0 0 20px rgba(16, 185, 129, 0.2)' }}>
                         <i className="fas fa-check"></i>
                     </div>
-                    <h2 style={{ margin: 0, color: '#1e293b', fontSize: '1.75rem', fontWeight: 900 }}>Submission Sent!</h2>
-                    <p style={{ color: '#64748b', marginTop: '16px', lineHeight: '1.6', fontSize: '1.1rem' }}>{formConfig.settings.successMessage}</p>
+                    <h2 style={{ margin: 0, color: '#fff', fontSize: '1.75rem', fontWeight: 900, letterSpacing: '-0.02em' }}>Submission Sent!</h2>
+                    <p style={{ color: '#94a3b8', marginTop: '16px', lineHeight: '1.6', fontSize: '1.1rem' }}>{formConfig.settings.successMessage}</p>
                     {formConfig.settings.redirectUrl && (
-                        <p style={{ marginTop: '24px', color: '#94a3b8', fontSize: '0.9rem' }}>Redirecting you shortly...</p>
+                        <p style={{ marginTop: '24px', color: '#64748b', fontSize: '0.9rem' }}>Redirecting you shortly...</p>
                     )}
                 </div>
             </div>
@@ -129,15 +129,39 @@ const PublicLeadForm = ({ slug }) => {
     }
 
     return (
-        <div style={{ minHeight: '100vh', background: '#f8fafc', padding: '40px 20px' }}>
+        <div style={{ minHeight: '100vh', background: '#020617', padding: '60px 20px', fontFamily: "'Inter', sans-serif" }}>
             <Toaster position="top-right" />
-            <div style={{ maxWidth: '700px', margin: '0 auto', background: '#fff', borderRadius: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+            <style>{`
+                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+                body { margin: 0; padding: 0; }
+                .public-glass-card {
+                    background: rgba(30, 41, 59, 0.4);
+                    backdrop-filter: blur(12px);
+                    -webkit-backdrop-filter: blur(12px);
+                    border: 1px solid rgba(255,255,255,0.08);
+                    border-radius: 32px;
+                    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+                }
+                .form-input-premium {
+                    background: rgba(15, 23, 42, 0.6);
+                    border: 1px solid rgba(255,255,255,0.1);
+                    color: #f8fafc;
+                    transition: all 0.2s ease;
+                }
+                .form-input-premium:focus {
+                    border-color: #c9921a;
+                    box-shadow: 0 0 0 4px rgba(201, 146, 26, 0.15);
+                    outline: none;
+                }
+            `}</style>
+            
+            <div className="public-glass-card" style={{ maxWidth: '700px', margin: '0 auto', overflow: 'hidden' }}>
 
                 {/* Header */}
-                <div style={{ padding: '60px 40px', textAlign: 'center', background: `linear-gradient(135deg, ${formConfig.settings.theme?.primaryColor || '#10b981'}05 0%, #ffffff 100%)`, borderBottom: '1px solid #f1f5f9' }}>
-                    <h1 style={{ margin: 0, fontSize: '2.25rem', fontWeight: 900, color: '#1e293b' }}>{formConfig.name}</h1>
+                <div style={{ padding: '60px 40px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'linear-gradient(180deg, rgba(201,146,26,0.05) 0%, transparent 100%)' }}>
+                    <h1 style={{ margin: 0, fontSize: '2.5rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.03em' }}>{formConfig.name}</h1>
                     {formConfig.description && (
-                        <p style={{ margin: '16px 0 0', color: '#64748b', fontSize: '1.1rem', lineHeight: '1.6' }}>{formConfig.description}</p>
+                        <p style={{ margin: '16px 0 0', color: '#94a3b8', fontSize: '1.1rem', lineHeight: '1.6' }}>{formConfig.description}</p>
                     )}
                 </div>
 
@@ -145,15 +169,15 @@ const PublicLeadForm = ({ slug }) => {
                 <form onSubmit={handleSubmit} style={{ padding: '40px' }}>
                     {formConfig.sections.map(section => (
                         <div key={section.id} style={{ marginBottom: '40px' }}>
-                            <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1e293b', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <span style={{ width: '4px', height: '24px', background: formConfig.settings.theme?.primaryColor || '#10b981', borderRadius: '2px' }}></span>
+                            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#c9921a', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                <span style={{ width: '4px', height: '20px', background: '#c9921a', borderRadius: '2px', boxShadow: '0 0 10px #c9921a' }}></span>
                                 {section.title}
                             </h3>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '28px' }}>
                                 {section.fields.map(field => (
                                     <div key={field.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        <label style={{ fontSize: '0.95rem', fontWeight: 700, color: '#475569' }}>
+                                        <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                             {field.label}
                                             {field.required && <span style={{ color: '#ef4444', marginLeft: '4px' }}>*</span>}
                                         </label>
@@ -163,23 +187,23 @@ const PublicLeadForm = ({ slug }) => {
                                                 required={field.required}
                                                 multiple={field.type === 'multi-select'}
                                                 onChange={e => handleInputChange(field.id, field.type === 'multi-select' ? Array.from(e.target.selectedOptions, option => option.value) : e.target.value)}
-                                                style={{ padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '1rem', outline: 'none', transition: 'border-color 0.2s' }}
-                                                onFocus={e => e.target.style.borderColor = formConfig.settings.theme?.primaryColor || '#10b981'}
-                                                onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+                                                className="form-input-premium"
+                                                style={{ padding: '16px', borderRadius: '14px', fontSize: '1rem' }}
                                             >
-                                                <option value="">Select an option</option>
-                                                {field.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                                <option value="" style={{ background: '#1e293b' }}>Select an option</option>
+                                                {field.options.map(opt => <option key={opt} value={opt} style={{ background: '#1e293b' }}>{opt}</option>)}
                                             </select>
                                         ) : field.type === 'radio' ? (
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', marginTop: '4px' }}>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', marginTop: '4px' }}>
                                                 {field.options.map(opt => (
-                                                    <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.95rem' }}>
+                                                    <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '1rem', color: '#e2e8f0' }}>
                                                         <input
                                                             type="radio"
                                                             name={field.id}
                                                             value={opt}
                                                             onChange={e => handleInputChange(field.id, e.target.value)}
                                                             required={field.required}
+                                                            style={{ accentColor: '#c9921a' }}
                                                         />
                                                         {opt}
                                                     </label>
@@ -191,18 +215,11 @@ const PublicLeadForm = ({ slug }) => {
                                                 placeholder={field.placeholder}
                                                 required={field.required}
                                                 onChange={e => handleInputChange(field.id, e.target.value)}
-                                                style={{ padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '1rem', outline: 'none', transition: 'all 0.2s' }}
-                                                onFocus={e => {
-                                                    e.target.style.borderColor = formConfig.settings.theme?.primaryColor || '#10b981';
-                                                    e.target.style.boxShadow = `0 0 0 4px ${formConfig.settings.theme?.primaryColor || '#10b981'}10`;
-                                                }}
-                                                onBlur={e => {
-                                                    e.target.style.borderColor = '#e2e8f0';
-                                                    e.target.style.boxShadow = 'none';
-                                                }}
+                                                className="form-input-premium"
+                                                style={{ padding: '16px', borderRadius: '14px', fontSize: '1rem' }}
                                             />
                                         )}
-                                        {field.helpText && <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{field.helpText}</span>}
+                                        {field.helpText && <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{field.helpText}</span>}
                                     </div>
                                 ))}
                             </div>
@@ -214,17 +231,19 @@ const PublicLeadForm = ({ slug }) => {
                         disabled={status === 'submitting'}
                         style={{
                             width: '100%',
-                            padding: '18px',
+                            padding: '20px',
                             borderRadius: '16px',
                             border: 'none',
-                            background: formConfig.settings.theme?.primaryColor || '#10b981',
-                            color: '#fff',
+                            background: 'linear-gradient(135deg, #c9921a 0%, #b08014 100%)',
+                            color: '#020617',
                             fontWeight: 900,
-                            fontSize: '1.2rem',
+                            fontSize: '1.1rem',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
                             cursor: 'pointer',
                             marginTop: '20px',
-                            boxShadow: `0 15px 30px -10px ${formConfig.settings.theme?.primaryColor || '#10b981'}60`,
-                            transition: 'all 0.3s ease',
+                            boxShadow: '0 10px 25px -5px rgba(201, 146, 26, 0.4)',
+                            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -234,16 +253,16 @@ const PublicLeadForm = ({ slug }) => {
                         {status === 'submitting' ? (
                             <><i className="fas fa-spinner fa-spin"></i> Submitting...</>
                         ) : (
-                            'Submit Interest'
+                            <>Submit Interest <i className="fas fa-arrow-right"></i></>
                         )}
                     </button>
                 </form>
 
                 {/* Footer */}
-                <div style={{ padding: '24px 40px', background: '#f8fafc', borderTop: '1px solid #f1f5f9', textAlign: 'center' }}>
-                    <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                        <i className="fas fa-shield-alt"></i>
-                        Powered by Bharat Properties Secure Form Engine
+                <div style={{ padding: '30px 40px', background: 'rgba(0,0,0,0.2)', borderTop: '1px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
+                    <p style={{ margin: 0, color: '#64748b', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                        <i className="fas fa-shield-alt" style={{ color: '#c9921a' }}></i>
+                        Bharat Properties Secure Form Engine
                     </p>
                 </div>
             </div>

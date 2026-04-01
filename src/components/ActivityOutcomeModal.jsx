@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useActivities } from '../context/ActivityContext';
 import StageTransitionModal from './StageTransitionModal';

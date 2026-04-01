@@ -1,20 +1,18 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 // Mock data removed
-import { parseWhatsAppZip, parseTribunePdf } from '../../../utils/importParsers';
-import { parseDealContent, splitIntakeMessage } from '../../../utils/dealParser';
+import { splitIntakeMessage } from '../../../utils/dealParser';
 import toast from 'react-hot-toast';
 import { useParsing } from '../../../context/ParsingContext'; // Dynamic Parser
-import { useTriggers } from '../../../context/TriggersContext';
 import { useCall } from '../../../context/CallContext';
-import { useDistribution } from '../../../context/DistributionContext';
 import QuickInventoryForm from '../../../components/common/QuickInventoryForm';
 import AddProjectModal from '../../../components/modals/AddProjectModal';
 import AddBlockModal from '../../../components/modals/AddBlockModal';
 import AddSizeModal from '../../../components/modals/AddSizeModal';
-import AddContactModal from '../../../components/AddContactModal'; // Imported AddContactModal
+import AddContactModal from '../../../components/AddContactModal'; 
 import UploadSummaryModal from '../../../components/UploadSummaryModal';
 import QuickDealForm from '../../../components/QuickDealForm';
-import { intakeAPI } from '../../../utils/api';
+import { intakeAPI, api } from '../../../utils/api';
+import { renderValue } from '../../../utils/renderUtils';
 
 const DealIntakePage = () => {
     // Shared State
@@ -32,118 +30,73 @@ const DealIntakePage = () => {
     const [isImporting, setIsImporting] = useState(false);
     const [selectedFile, setSelectedFile] = useState(null); // New state for 2-step import
     const [newSourceContent, setNewSourceContent] = useState('');
-    const [newSourceType, setNewSourceType] = useState('WhatsApp');
+    const [newSourceType] = useState('WhatsApp');
 
     // Campaign Details State
     const [campaignName, setCampaignName] = useState('');
     const [campaignSource, setCampaignSource] = useState('WhatsApp');
-    const [campaignDate, setCampaignDate] = useState('');
+    // const [campaignDate, setCampaignDate] = useState('');
     const [contentInputMode, setContentInputMode] = useState('paste'); // 'paste' or 'import'
 
     // Call Outcome State (Strict Gating)
     const [ownerCallOutcome, setOwnerCallOutcome] = useState(null); // 'Confirmed' | 'Follow-up' etc.
 
     // Duplicate Detection & Data Retention State
-    const [intakeHistory, setIntakeHistory] = useState([]); // Last 30 days of all intakes
-    const [duplicateStats, setDuplicateStats] = useState({
-        new: 0,
-        repeat1x: 0,
-        repeat2x: 0,
-        repeat3x: 0,
-        repeat3plus: 0
-    });
     const [showUploadSummary, setShowUploadSummary] = useState(false);
-    const [uploadSummaryData, setUploadSummaryData] = useState(null);
-    const [categoryFilter, setCategoryFilter] = useState('all'); // 'all' | 'new' | 'repeat1x' | 'repeat2x' | 'repeat3x' | 'repeat3plus'
-    const [useQuickDeal, setUseQuickDeal] = useState(true); // Toggle for simplified workflow
+    const [uploadSummaryData] = useState(null);
+    const [categoryFilter, setCategoryFilter] = useState('all'); 
+    const [useQuickDeal] = useState(true);
 
-    // ... (existing code) ...
+    const [leadData, setLeadData] = useState([]);
+    const [inventoryData, setInventoryData] = useState([]);
+    const [dealData, setDealData] = useState([]);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [intakeLoadError, setIntakeLoadError] = useState(null);
+    // const [contactData, setContactData] = useState([]);
+
+    useEffect(() => {
+        const fetchSupportData = async () => {
+            try {
+                const [leads, inv, deals, contacts] = await Promise.all([
+                    api.get('/leads'),
+                    api.get('/inventory'),
+                    api.get('/deals'),
+                    api.get('/contacts')
+                ]);
+                if (leads.data && leads.data.success) setLeadData(leads.data.data || []);
+                if (inv.data && inv.data.success) setInventoryData(inv.data.data || []);
+                if (deals.data && deals.data.success) setDealData(deals.data.data || []);
+                if (contacts.data && contacts.data.success) {
+                    // setContactData(contacts.data.data || []);
+                }
+            } catch (err) {
+                console.error("Failed to fetch support data:", err);
+            }
+        };
+        fetchSupportData();
+    }, []);
+
 
     // ===== DUPLICATE DETECTION & DATA PERSISTENCE UTILITIES =====
 
-    // Extract phone number from content
-    const extractPhoneNumber = (content) => {
-        if (!content) return null;
-        // Match Indian phone numbers: 10 digits, optionally with +91 or 0 prefix
-        const phoneRegex = /(?:\+91|91|0)?[6-9]\d{9}/g;
-        const matches = content.match(phoneRegex);
-        if (!matches) return null;
-        // Normalize: remove +91, 91, 0 prefix and keep only 10 digits
-        const normalized = matches[0].replace(/^(\+91|91|0)/, '').slice(-10);
-        return normalized.length === 10 ? normalized : null;
-    };
-
     // Load intake history from backend
-    const loadIntakeHistory = async () => {
+    const loadIntakeHistory = useCallback(async () => {
         try {
             const response = await intakeAPI.getAll();
             if (response.success) {
                 setIntakeItems(response.data);
+                setIntakeLoadError(null);
             }
         } catch (error) {
             console.error('Error loading intake history:', error);
+            setIntakeLoadError(error.message);
             toast.error('Failed to load intake history');
         }
-    };
-
-    // Cleanup old intakes (older than 30 days)
-    const cleanupOldIntakes = () => {
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-        const filtered = intakeHistory.filter(item =>
-            new Date(item.receivedAt) > thirtyDaysAgo
-        );
-
-        if (filtered.length !== intakeHistory.length) {
-            setIntakeHistory(filtered);
-            saveIntakeHistory(filtered);
-        }
-    };
-
-    // Calculate string similarity (Levenshtein distance based)
-    const calculateSimilarity = (str1, str2) => {
-        if (!str1 || !str2) return 0;
-        const s1 = str1.toLowerCase().trim();
-        const s2 = str2.toLowerCase().trim();
-        if (s1 === s2) return 100;
-
-        // Simple similarity: count matching words
-        const words1 = s1.split(/\s+/);
-        const words2 = s2.split(/\s+/);
-        const allWords = new Set([...words1, ...words2]);
-        const matchingWords = words1.filter(w => words2.includes(w)).length;
-
-        return (matchingWords / allWords.size) * 100;
-    };
-
-    // Extract property details from parsed data
-    const extractPropertyDetails = (item) => {
-        // If item has rawParsed data (from dealParser), use that
-        if (item.rawParsed) {
-            return {
-                unitNumber: item.rawParsed.address?.unitNumber || '',
-                project: item.rawParsed.address?.project || '',
-                location: item.rawParsed.location || '',
-                category: item.rawParsed.category || '',
-                type: item.rawParsed.type || '',
-                city: item.rawParsed.address?.city || ''
-            };
-        }
-
-        // Otherwise try to extract from content
-        const content = item.content || '';
-        return {
-            unitNumber: content.match(/(?:unit|plot|house|flat|shop)\s*#?\s*(\d+[\w-]*)/i)?.[1] || '',
-            project: content.match(/(?:project|society|colony|scheme)\s*:?\s*([a-z0-9\s]+)/i)?.[1]?.trim() || '',
-            location: content.match(/(?:location|sector|area)\s*:?\s*([a-z0-9\s]+)/i)?.[1]?.trim() || '',
-            category: content.match(/(?:residential|commercial|industrial|agricultural|institutional)/i)?.[0] || '',
-            type: content.match(/(?:plot|house|flat|apartment|villa|shop|office|warehouse|farmhouse)/i)?.[0] || '',
-            city: content.match(/(?:chandigarh|mohali|panchkula|zirakpur|kharar)/i)?.[0] || ''
-        };
-    };
+    }, []);
 
     // Check if intake is duplicate based on property details (95% match)
+
+    /*
     const checkDuplicateAndFrequency = (newIntake, existingDeals = []) => {
         const newDetails = extractPropertyDetails(newIntake);
 
@@ -206,6 +159,7 @@ const DealIntakePage = () => {
             lastSeen: historyMatches.length > 0 ? historyMatches[0].receivedAt : null
         };
     };
+    */
 
     // Load history on component mount
     useEffect(() => {
@@ -214,7 +168,7 @@ const DealIntakePage = () => {
         // Run re-fetch periodically instead of cleanup (live sync)
         const fetchInterval = setInterval(loadIntakeHistory, 30000); // 30s
         return () => clearInterval(fetchInterval);
-    }, []);
+    }, [loadIntakeHistory]);
 
     // ===== END DUPLICATE DETECTION UTILITIES =====
 
@@ -287,76 +241,51 @@ const DealIntakePage = () => {
     const [buyerContact, setBuyerContact] = useState(null);
     const [isTemporaryLead, setIsTemporaryLead] = useState(false);
     const [extractedReq, setExtractedReq] = useState({ type: '', location: '', budget: '', size: '' });
-    const [leadId, setLeadId] = useState(null);
+    const [ , setLeadId] = useState(null);
     const [matchedDeals, setMatchedDeals] = useState([]);
     const [parsedDeals, setParsedDeals] = useState([]);
     const [activeDealIndex, setActiveDealIndex] = useState(0);
     const [duplicateStatus, setDuplicateStatus] = useState(null);
     const [visibleCount, setVisibleCount] = useState(50); // Pagination Limit
 
-    // Initialize with Expiry Logic (Mock: Filter > 30 days)
-    useEffect(() => {
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-        const validItems = dealIntakeData.filter(item => {
-            const received = new Date(item.receivedAt);
-            return received > thirtyDaysAgo;
-        });
-        setIntakeItems(validItems);
-    }, []);
 
-    // --- CONTACT USAGE ANALYTICS ---
-    const getContactUsageStats = (mobile, name) => {
-        if (!mobile) return null;
 
-        // Normalize
-        const cleanMobile = mobile.replace(/\D/g, '').slice(-10);
-
-        // 1. Leads
-        const leadsCount = leadData.filter(l =>
-            (l.mobile && l.mobile.includes(cleanMobile)) ||
-            (l.contactId && l.contactId.includes(cleanMobile))
-        ).length;
-
-        // 2. Inventory (Owner)
-        const inventoryCount = inventoryData.filter(i =>
-            (i.ownerPhone && i.ownerPhone.includes(cleanMobile))
-        ).length;
-
-        // 3. Deals (Owner or Requirements)
-        const dealsCount = dealData.filter(d =>
-            (d.requirements && d.requirements.includes(name)) || // Loose match by name for now as dealData mocks lack phone sometimes
-            inventoryData.find(inv => inv.id === d.inventoryId)?.ownerPhone?.includes(cleanMobile)
-        ).length;
-
-        // 4. Activities (In Contact Data)
-        const contact = contactData.find(c => c.mobile.includes(cleanMobile));
-        const activitiesCount = contact?.activities?.length || 0;
-
-        return {
-            leads: leadsCount,
-            inventory: inventoryCount,
-            deals: dealsCount,
-            activities: activitiesCount,
-            total: leadsCount + inventoryCount + dealsCount + activitiesCount
-        };
-    };
 
     // parseContacts Removed - Logic centralized in dealParser.js
 
     // --- LEGACY HELPERS REMOVED (Replaced by dealParser.js) ---
 
+    const [isLoadingFullItem, setIsLoadingFullItem] = useState(false);
+
     const handleSelectIntake = async (item) => {
-        setCurrentItem(item);
-
+        setIsLoadingFullItem(true);
         try {
-            // Update status to 'Processed' or similar if needed, or just leave as is
-            // For now, let's keep it 'Raw Received' until a deal is actually created.
+            // Fetch separate full content if not already present (due to list projection)
+            let fullItem = item;
+            if (!item.content) {
+                const response = await intakeAPI.getById(item._id);
+                if (response.success) {
+                    fullItem = response.data;
+                }
+            }
 
-            // Use Multi-Deal Splitter (With dynamic patterns)
-            const deals = splitIntakeMessage(item.content, customPatterns);
-            console.log("Parsed Deals:", deals); // Debug Log
+            setCurrentItem(fullItem);
+
+            // Use Backend Parsed Data if available, else fallback to frontend splitter
+            let deals = [];
+            if (fullItem.meta?.parsedData) {
+                // Backend returns a single object for PDF/OCR and an array for ZIP
+                if (Array.isArray(fullItem.meta.parsedData)) {
+                    deals = fullItem.meta.parsedData;
+                } else {
+                    deals = [fullItem.meta.parsedData];
+                }
+            } else {
+                deals = splitIntakeMessage(fullItem.content, customPatterns);
+            }
+
+            console.log("Parsed Deals:", deals); 
             setParsedDeals(deals);
             setActiveDealIndex(0);
 
@@ -365,7 +294,9 @@ const DealIntakePage = () => {
             }
         } catch (error) {
             console.error("Critical Parsing Error:", error);
-            toast.error("Error parsing deal content");
+            toast.error("Error loading intake details");
+        } finally {
+            setIsLoadingFullItem(false);
         }
     };
 
@@ -474,9 +405,10 @@ const DealIntakePage = () => {
             // Actually, I'll add a generic create endpoint to intake.controller.js.
 
             // For now, let's assume I'll add a 'create' method.
-            const response = await apiRequest('/intake', { method: 'POST', body: JSON.stringify(payload) });
+            const responseIntake = await intakeAPI.createIntake(payload);
+        const dataIntake = responseIntake;
 
-            if (response.success) {
+        if (dataIntake.success) {
                 toast.success('New Intake Added', { id: toastId });
                 setNewSourceContent('');
                 setCampaignName('');
@@ -490,44 +422,7 @@ const DealIntakePage = () => {
         }
     };
 
-    const handleFileUpload = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
 
-        setIsImporting(true);
-        const toastId = toast.loading('Uploading file to backend...');
-
-        try {
-            let response;
-            if (file.name.endsWith('.zip')) {
-                response = await intakeAPI.uploadZip(file);
-            } else if (file.name.endsWith('.pdf')) {
-                response = await intakeAPI.uploadPdf(file);
-            } else if (file.name.match(/\.(jpg|jpeg|png|gif)$/i)) {
-                response = await intakeAPI.uploadOcr(file);
-            } else {
-                throw new Error('Unsupported format. Please upload .zip, .pdf or image.');
-            }
-
-            if (response.success) {
-                toast.success('Successfully imported!', { id: toastId });
-                setIsAddModalOpen(false);
-                setCampaignName('');
-                setCampaignSource('WhatsApp');
-                setCampaignDate('');
-                setContentInputMode('paste');
-                loadIntakeHistory(); // Refresh
-            } else {
-                throw new Error(response.message || 'Import failed');
-            }
-
-        } catch (error) {
-            console.error(error);
-            toast.error(error.message, { id: toastId });
-        } finally {
-            setIsImporting(false);
-        }
-    };
 
     // Process selected file when Add Intake button is clicked
     const handleFileImport = async () => {
@@ -581,110 +476,95 @@ const DealIntakePage = () => {
     // --- INVENTORY MATCHING ENGINE ---
 
     const matchInventory = (text, owner) => {
-        // 1. Get Extracted Data (Already parsed in handleSelectIntake)
-        const parsed = extractedReq.rawParsed || {};
-        const pAddr = parsed.address || {};
-        const pSpecs = parsed.specs || {};
-        const rawTextLower = text.toLowerCase();
+        setIsProcessing(true);
+        // Delay processing slightly to allow UI to show loader if needed
+        setTimeout(() => {
+            try {
+                const parsed = extractedReq.rawParsed || {};
+                const pAddr = parsed.address || {};
+                const pSpecs = parsed.specs || {};
+                const rawTextLower = text.toLowerCase();
 
-        // REMOVED EARLY RETURN: Always attempt raw text fallback matching
+                // Pre-calculate search patterns to avoid RegExp creation in loop
+                const searchUnit = pAddr.unitNumber ? pAddr.unitNumber.toLowerCase() : null;
+                const searchUnitRegex = searchUnit ? new RegExp(`\\b${searchUnit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`) : null;
+                const searchSector = pAddr.sector ? pAddr.sector.toLowerCase() : null;
 
-        let matches = inventoryData.map(inv => {
-            let score = 0;
-            let reasons = [];
+                // PERFORMANCE: Limit the search if inventoryData is massive
+                const searchData = inventoryData.length > 2000 ? inventoryData.slice(0, 2000) : inventoryData;
 
-            const invUnit = (inv.unitNo || '').toLowerCase();
-            const invArea = (inv.area || '').toLowerCase(); // Found in Project/City field
-            const invLoc = (inv.location || '').toLowerCase(); // Found in Block/Location field
+                let matches = searchData.map(inv => {
+                    let score = 0;
+                    let reasons = [];
 
-            // A. UNIT NUMBER (Highest Priority)
-            if (invUnit) {
-                if (pAddr.unitNumber && invUnit === pAddr.unitNumber.toLowerCase()) {
-                    score += 50;
-                    reasons.push('Exact Unit Match (Parsed)');
-                } else {
-                    // Regex to find unit number as a whole word in raw text
-                    // Escaping special regex chars in unit number just in case
-                    const safeUnit = invUnit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    const regex = new RegExp(`\\b${safeUnit}\\b`);
+                    const invUnit = (inv.unitNo || '').toLowerCase();
+                    const invArea = (inv.area || '').toLowerCase();
+                    const invLoc = (inv.location || '').toLowerCase();
 
-                    if (regex.test(rawTextLower)) {
-                        score += 45; // Very strong signal
-                        reasons.push('Unit # Found in Text');
-                    } else if (rawTextLower.includes(invUnit) && invUnit.length > 2) {
-                        // Fallback for non-boundary matches (e.g. #7419)
-                        score += 30;
-                        reasons.push('Unit # Partial Match');
-                    }
-                }
-            }
+                    // A. UNIT NUMBER
+                    if (invUnit) {
+                        if (searchUnit && invUnit === searchUnit) {
+                            score += 50;
+                            reasons.push('Exact Unit Match (Parsed)');
+                        } else {
+                            const safeUnit = invUnit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                            const regex = new RegExp(`\\b${safeUnit}\\b`);
 
-            // B. BLOCK MATCH
-            // Handles "Block H", "H Block", "North Block"
-            if (invLoc) {
-                // If text contains the full block string
-                if (rawTextLower.includes(invLoc)) {
-                    score += 25;
-                    reasons.push('Full Block Match');
-                } else {
-                    // Try to extract just the code (e.g. "H" from "Block H")
-                    const blockCode = invLoc.replace(/block/g, '').trim();
-                    if (blockCode.length > 0) {
-                        if (rawTextLower.includes(`block ${blockCode}`) || rawTextLower.includes(`${blockCode} block`)) {
-                            score += 25;
-                            reasons.push('Block Code Match');
+                            if (regex.test(rawTextLower)) {
+                                score += 45;
+                                reasons.push('Unit # Found in Text');
+                            } else if (invUnit.length > 2 && rawTextLower.includes(invUnit)) {
+                                score += 30;
+                                reasons.push('Unit # Partial Match');
+                            }
                         }
                     }
-                }
-            }
 
-            // C. PROJECT / AREA / SECTOR MATCH
-            if (invArea) {
-                // 1. Prefer Parsed Sector Match
-                if (pAddr.sector && invArea.includes(pAddr.sector.toLowerCase())) {
-                    score += 30;
-                    reasons.push('Sector/Project Match');
-                }
-                // 2. Token Fallback for Raw Text
-                else {
-                    // Tokenize Inventory Area (e.g. "Sector 82, Aerocity") -> ["sector", "82", "aerocity"]
-                    const tokens = invArea.split(/[\s,()-]+/).filter(t => t.length > 2 && !['sector', 'phase', 'mohali', 'city'].includes(t));
-
-                    let tokenMatches = 0;
-                    tokens.forEach(token => {
-                        if (rawTextLower.includes(token)) tokenMatches++;
-                    });
-
-                    if (tokenMatches > 0) {
-                        score += (15 * tokenMatches);
-                        reasons.push(`Area Keywords (${tokenMatches})`);
+                    // B. BLOCK MATCH
+                    if (invLoc) {
+                        if (rawTextLower.includes(invLoc)) {
+                            score += 25;
+                            reasons.push('Full Block Match');
+                        } else {
+                            const blockCode = invLoc.replace(/block/g, '').trim();
+                            if (blockCode.length > 0 && (rawTextLower.includes(`block ${blockCode}`) || rawTextLower.includes(`${blockCode} block`))) {
+                                score += 25;
+                                reasons.push('Block Code Match');
+                            }
+                        }
                     }
-                }
+
+                    // C. PROJECT / AREA / SECTOR MATCH
+                    if (invArea) {
+                        if (searchSector && invArea.includes(searchSector)) {
+                            score += 30;
+                            reasons.push('Sector/Project Match');
+                        } else {
+                            const tokens = invArea.split(/[\s,()-]+/).filter(t => t.length > 2 && !['sector', 'phase', 'mohali', 'city'].includes(t));
+                            let tokenMatches = tokens.filter(token => rawTextLower.includes(token)).length;
+
+                            if (tokenMatches > 0) {
+                                score += (15 * tokenMatches);
+                                reasons.push(`Area Keywords (${tokenMatches})`);
+                            }
+                        }
+                    }
+
+                    // D. OWNER MATCH
+                    if (owner?.name && inv.ownerName?.toLowerCase().includes(owner.name.toLowerCase())) {
+                        score += 40;
+                        reasons.push('Owner Match');
+                    }
+
+                    return { inventory: inv, score: Math.min(score, 100), reasons };
+                });
+
+                matches = matches.filter(m => m.score >= 15).sort((a, b) => b.score - a.score);
+                setMatchedInventory(matches.slice(0, 5));
+            } finally {
+                setIsProcessing(false);
             }
-
-            // D. OWNER MATCH (Verification)
-            if (owner && inv.ownerName && owner.name && inv.ownerName.toLowerCase().includes(owner.name.toLowerCase())) {
-                score += 40;
-                reasons.push('Owner Match');
-            }
-
-            // E. SIZE HELPER
-            if (pSpecs.size && inv.size) {
-                const targetSize = pSpecs.size.replace(/\D/g, '');
-                const invSizeDig = inv.size.replace(/\D/g, '');
-                if (targetSize && invSizeDig && targetSize === invSizeDig) {
-                    score += 15;
-                    reasons.push('Size Match');
-                }
-            }
-
-            return { inventory: inv, score: Math.min(score, 100), reasons };
-        });
-
-        // Filter and Sort
-        // Reduced threshold to capture more potential candidates
-        matches = matches.filter(m => m.score >= 15).sort((a, b) => b.score - a.score);
-        setMatchedInventory(matches.slice(0, 5));
+        }, 10);
     };
 
     // New State for Quick Create
@@ -771,46 +651,77 @@ const DealIntakePage = () => {
 
     // --- QUICK DEAL HANDLERS ---
     const handleQuickDealCreate = async (dealData) => {
-        // Set owner and property from QuickDealForm
-        setSelectedOwner(dealData.owner);
-        setSelectedInventory(dealData.property);
+        setIsProcessing(true);
+        const toastId = toast.loading("Creating Deal & Updating Intake...");
 
-        // Set deal form data
-        setDealForm({
-            intent: dealData.type,
-            price: dealData.price,
-            status: 'Open',
-            verificationStatus: dealData.verificationStatus
-        });
+        try {
+            // 1. Prepare Deal Payload
+            const price = parseFloat(dealData.price?.toString().replace(/[^0-9.]/g, '')) || 0;
+            const dealPayload = {
+                owner: dealData.owner?._id || dealData.owner?.id,
+                inventoryId: dealData.property?._id || dealData.property?.id,
+                projectName: dealData.property?.projectName || dealData.property?.area?.split(',')[0],
+                block: dealData.property?.block || dealData.property?.location,
+                unitNo: dealData.property?.unitNo,
+                intent: dealData.type,
+                price: price,
+                status: 'Open',
+                source: dealData.source || 'Manual',
+                verificationStatus: dealData.verificationStatus || 'unverified'
+            };
 
-        // 1. Mark Intake as Processed in Backend
-        if (currentItem && (currentItem.id || currentItem._id)) {
-            try {
-                await intakeAPI.updateStatus(currentItem.id || currentItem._id, 'Processed');
-            } catch (err) {
-                console.error("Failed to update intake status:", err);
+            // 2. Create the Deal in Backend
+            const dealResponse = await api.post('/deals', dealPayload);
+            if (!dealResponse.data?.success) {
+                throw new Error("Failed to persist deal to database");
             }
+
+            // 3. Update Local State (Legacy UI logic)
+            setSelectedOwner(dealData.owner);
+            setSelectedInventory(dealData.property);
+            setDealForm({
+                intent: dealData.type,
+                price: dealData.price,
+                status: 'Open',
+                verificationStatus: dealData.verificationStatus
+            });
+
+            // 4. Mark Intake as Processed in Backend
+            if (currentItem && (currentItem.id || currentItem._id)) {
+                try {
+                    await intakeAPI.updateStatus(currentItem.id || currentItem._id, 'Processed');
+                } catch (err) {
+                    console.error("Failed to update intake status:", err);
+                    // Non-blocking for the deal creation success
+                }
+            }
+
+            const verificationBadge = dealData.verificationStatus === 'confirmed' ? '✓ Verified' :
+                dealData.verificationStatus === 'unverified' ? '⚠️ Unverified' : '';
+            toast.success(`Deal Created Successfully ${verificationBadge}`, { id: toastId });
+
+            // 5. Move to buyer matching stage
+            setStage(4);
+            matchBuyers();
+
+            // 6. Close workflow after brief delay
+            setTimeout(() => {
+                setCurrentItem(null);
+                setStage(0);
+                loadIntakeHistory(); // Refresh list to show updated status
+            }, 2000);
+
+        } catch (error) {
+            console.error("Quick Deal Creation Error:", error);
+            const errMsg = error.response?.data?.error || error.message || "Failed to create deal";
+            toast.error(errMsg, { id: toastId });
+        } finally {
+            setIsProcessing(false);
         }
-
-        // Show success message
-        const verificationBadge = dealData.verificationStatus === 'confirmed' ? '✓ Verified' :
-            dealData.verificationStatus === 'unverified' ? '⚠️ Unverified' : '';
-        toast.success(`Deal Created: ${dealData.type} - ₹${dealData.price} ${verificationBadge}`);
-
-        // Move to buyer matching stage
-        setStage(4);
-        matchBuyers();
-
-        // Close workflow after brief delay
-        setTimeout(() => {
-            setCurrentItem(null);
-            setStage(0);
-            loadIntakeHistory(); // Refresh list to show updated status
-        }, 2000);
     };
 
     const handleQuickDealSkip = () => {
-        toast.info('Deal creation skipped');
+        toast('Deal creation skipped');
         setCurrentItem(null);
         setStage(0);
     };
@@ -833,30 +744,32 @@ const DealIntakePage = () => {
     };
 
     const matchDeals = () => {
-        // Match Lead Requirements against Active Deals
-        // Logic: Location + Type + Budget
+        setIsProcessing(true);
+        setTimeout(() => {
+            try {
+                const req = extractedReq;
+                const searchLoc = req.location ? req.location.toLowerCase() : null;
+                const searchType = req.type || null;
 
-        const req = extractedReq;
+                // PERFORMANCE: Limit search
+                const searchData = dealData.length > 2000 ? dealData.slice(0, 2000) : dealData;
 
-        let matches = dealData.map(deal => {
-            let score = 0;
-            // Location
-            if (req.location && deal.location.toLowerCase().includes(req.location.toLowerCase())) score += 40;
+                let matches = searchData.map(deal => {
+                    let score = 0;
+                    if (searchLoc && deal.location.toLowerCase().includes(searchLoc)) score += 40;
+                    if (searchType && deal.type.includes(searchType)) score += 30;
+                    if (req.budget && deal.price.includes(req.budget)) score += 20;
+                    if (searchType && deal.description.toLowerCase().includes(searchType.toLowerCase())) score += 10;
 
-            // Type
-            if (req.type && deal.type.includes(req.type)) score += 30;
+                    return { deal, score: Math.min(score, 100) };
+                });
 
-            // Budget (Very simple text match for now)
-            if (req.budget && deal.price.includes(req.budget)) score += 20;
-
-            // Description fuzzy match
-            if (deal.description.toLowerCase().includes(req.type.toLowerCase())) score += 10;
-
-            return { deal, score: Math.min(score, 100) };
-        });
-
-        matches = matches.filter(m => m.score > 20).sort((a, b) => b.score - a.score);
-        setMatchedDeals(matches);
+                matches = matches.filter(m => m.score > 20).sort((a, b) => b.score - a.score);
+                setMatchedDeals(matches);
+            } finally {
+                setIsProcessing(false);
+            }
+        }, 10);
     };
 
 
@@ -893,7 +806,7 @@ const DealIntakePage = () => {
     // Filter intake items by category
     const filteredIntakeItems = useMemo(() => {
         if (categoryFilter === 'all') return intakeItems;
-        return intakeItems.filter(item => item.category === categoryFilter);
+        return intakeItems.filter(item => (item.category || 'new') === categoryFilter);
     }, [intakeItems, categoryFilter]);
 
     return (
@@ -909,6 +822,23 @@ const DealIntakePage = () => {
                         <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>Processing Queue: {intakeItems.length} items</p>
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                            onClick={loadIntakeHistory}
+                            title="Refresh Queue"
+                            style={{
+                                background: '#f1f5f9',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '50%',
+                                width: '32px',
+                                height: '32px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                        >
+                            <i className="fas fa-sync-alt" style={{ color: '#64748b' }}></i>
+                        </button>
                         <button
                             onClick={() => setIsAddModalOpen(true)}
                             title="Add Intake"
@@ -942,7 +872,7 @@ const DealIntakePage = () => {
                         ].map(filter => {
                             const count = filter.key === 'all'
                                 ? intakeItems.length
-                                : intakeItems.filter(item => item.category === filter.key).length;
+                                : intakeItems.filter(item => (item.category || 'new') === filter.key).length;
 
                             return (
                                 <button
@@ -980,10 +910,37 @@ const DealIntakePage = () => {
                 </div>
 
                 <div style={{ flex: 1, overflowY: 'auto' }}>
-                    {filteredIntakeItems.length === 0 && <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>
-                        {categoryFilter === 'all' ? 'queue is empty' : `No ${categoryFilter} intakes`}
-                    </div>}
-                    {filteredIntakeItems.slice(0, visibleCount).map(item => {
+                    {intakeLoadError ? (
+                        <div style={{ textAlign: 'center', padding: '40px 20px', color: '#ef4444' }}>
+                            <i className="fas fa-exclamation-triangle" style={{ fontSize: '3rem', opacity: 0.5, marginBottom: '10px' }}></i>
+                            <p style={{ fontWeight: 600 }}>Connection Error</p>
+                            <p style={{ fontSize: '0.8rem', opacity: 0.8 }}>{intakeLoadError}</p>
+                            <button 
+                                onClick={loadIntakeHistory}
+                                style={{
+                                    marginTop: '15px',
+                                    padding: '8px 16px',
+                                    background: '#3b82f6',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <i className="fas fa-sync-alt" style={{ marginRight: '8px' }}></i>
+                                Retry Connection
+                            </button>
+                        </div>
+                    ) : (!filteredIntakeItems || filteredIntakeItems.length === 0) ? (
+                        <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}>
+                            <i className="fas fa-inbox" style={{ fontSize: '3rem', opacity: 0.2, marginBottom: '10px' }}></i>
+                            <p>Queue is empty</p>
+                            <p style={{ fontSize: '0.75rem', marginTop: '4px', opacity: 0.8 }}>
+                                {categoryFilter === 'all' ? 'Great job! You\'ve processed all items.' : `No ${categoryFilter} items found.`}
+                            </p>
+                        </div>
+                    ) : (
+                        filteredIntakeItems.slice(0, visibleCount).map(item => {
                         const getCategoryColor = (category) => {
                             const colors = {
                                 new: '#10b981',
@@ -1011,16 +968,22 @@ const DealIntakePage = () => {
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                                         <span style={{ fontSize: '0.7rem', fontWeight: 800, color: item.source === 'WhatsApp' ? '#22c55e' : '#f59e0b', background: item.source === 'WhatsApp' ? '#dcfce7' : '#fef3c7', padding: '2px 8px', borderRadius: '4px' }}>{item.source}</span>
-                                        {item.category && item.category !== 'new' && (
+                                        {item.status === 'Needs Review' && (
+                                            <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#ef4444', background: '#fee2e2', padding: '2px 8px', borderRadius: '4px', border: '1px solid #fecaca' }}>
+                                                <i className="fas fa-exclamation-circle" style={{ marginRight: '4px' }}></i>
+                                                NEEDS REVIEW
+                                            </span>
+                                        )}
+                                        {(item.category || 'new') && (item.category || 'new') !== 'new' && (
                                             <span style={{
                                                 fontSize: '0.65rem',
                                                 fontWeight: 700,
                                                 color: '#fff',
-                                                background: getCategoryColor(item.category),
+                                                background: getCategoryColor(item.category || 'new'),
                                                 padding: '2px 6px',
                                                 borderRadius: '4px'
                                             }}>
-                                                {item.category.toUpperCase()}
+                                                {(item.category || 'new').toUpperCase()}
                                             </span>
                                         )}
                                     </div>
@@ -1031,8 +994,9 @@ const DealIntakePage = () => {
                                                 e.stopPropagation();
                                                 if (window.confirm("Remove this item from queue?")) {
                                                     try {
-                                                        const response = await apiRequest(`/intake/${item.id || item._id}`, { method: 'DELETE' });
-                                                        if (response.success) {
+                                                        const response = await api.delete(`/intake/${item.id || item._id}`);
+                                                        const data = response.data;
+                                                        if (data.success) {
                                                             toast.success('Item removed');
                                                             loadIntakeHistory();
                                                             if (currentItem?.id === item.id || currentItem?._id === item._id) setCurrentItem(null);
@@ -1055,7 +1019,7 @@ const DealIntakePage = () => {
                                 </div>
                             </div>
                         );
-                    })}
+                    }))}
 
                     {visibleCount < intakeItems.length && (
                         <div style={{ padding: '10px', textAlign: 'center' }}>
@@ -1081,7 +1045,21 @@ const DealIntakePage = () => {
             </div>
 
             {/* Right Panel: Workflow Stage View */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+                {isProcessing && (
+                    <div style={{
+                        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                        background: 'rgba(255, 255, 255, 0.7)', zIndex: 100,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexDirection: 'column', gap: '12px', backdropFilter: 'blur(2px)'
+                    }}>
+                        <div className="spinner" style={{ width: '40px', height: '40px', border: '4px solid #f3f3f3', borderTop: '4px solid #3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                        <div style={{ fontWeight: 700, color: '#1e293b' }}>Processing Deal Data...</div>
+                        <style>{`
+                            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                        `}</style>
+                    </div>
+                )}
                 {!currentItem ? (
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#cbd5e1', flexDirection: 'column' }}>
                         <i className="far fa-comments" style={{ fontSize: '3rem', marginBottom: '16px' }}></i>
@@ -1094,7 +1072,7 @@ const DealIntakePage = () => {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Intake #{currentItem.id}</h2>
+                                        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Intake #{renderValue(currentItem.id || currentItem._id)}</h2>
                                         <div style={{
                                             padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 800,
                                             background: intakeType === 'BUYER' ? '#f0fdf4' : '#eff6ff',
@@ -1146,7 +1124,7 @@ const DealIntakePage = () => {
                                     <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
                                         {parsedDeals.map((deal, idx) => (
                                             <button
-                                                key={idx}
+                                                key={`deal-switch-${idx}-${deal.location}`}
                                                 onClick={() => handleSwitchDeal(idx)}
                                                 style={{
                                                     padding: '6px 12px',
@@ -1175,7 +1153,7 @@ const DealIntakePage = () => {
                                     </div>
                                     <div style={{ flex: 1 }}>
                                         <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>Possible Duplicate Detected</div>
-                                        <div style={{ fontSize: '0.8rem', opacity: 0.9 }}>{duplicateStatus.message}</div>
+                                        <div style={{ fontSize: '0.8rem', opacity: 0.9 }}>{renderValue(duplicateStatus.message)}</div>
                                     </div>
                                     <button style={{ padding: '6px 12px', background: '#fff', border: '1px solid #fed7aa', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, color: '#c2410c', cursor: 'pointer' }}>
                                         View Existing
@@ -1190,23 +1168,31 @@ const DealIntakePage = () => {
                                     <div style={{ lineHeight: '1.6' }}>
                                         {(() => {
                                             try {
-                                                // Show the RAW content of the CURRENT SEGMENT, not the full message if split?
-                                                // Ideally yes, but currentItem.content is the full message.
-                                                // We should show the specific raw text for this deal if available used 'raw' from parser.
-                                                // If we use extractedReq.rawParsed.raw, that serves us better.
                                                 let text = extractedReq?.rawParsed?.raw || currentItem?.content || "";
                                                 if (!text) return null;
 
+                                                // PERFORMANCE: Truncate very large texts for the highlighter
+                                                const MAX_HIGHLIGHT_CHARS = 3000;
+                                                const isTruncated = text.length > MAX_HIGHLIGHT_CHARS;
+                                                const displayText = isTruncated ? text.substring(0, MAX_HIGHLIGHT_CHARS) + "..." : text;
+
                                                 // Enhanced Regex for Highlight
                                                 const phoneRegex = /([6-9][0-9\s-]{8,12}[0-9])/g;
-                                                // Safety check for split
-                                                const parts = text.split(phoneRegex);
-                                                return parts.map((part, i) => {
+                                                const parts = displayText.split(phoneRegex);
+                                                
+                                                // PERFORMANCE: Cap the number of highlighted parts to avoid DOM explosion
+                                                const renderedParts = parts.slice(0, 500); 
+                                                const result = renderedParts.map((part, i) => {
                                                     if (part && part.match(phoneRegex)) {
-                                                        return <span key={i} style={{ background: '#fef08a', color: '#854d0e', padding: '0 4px', borderRadius: '4px', fontWeight: 700 }}>{part}</span>
+                                                        return <span key={`phone-${i}`} style={{ background: '#fef08a', color: '#854d0e', padding: '0 4px', borderRadius: '4px', fontWeight: 700 }}>{part}</span>
                                                     }
                                                     return part;
                                                 });
+
+                                                if (isTruncated || parts.length > 500) {
+                                                    result.push(<span key="more" style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.8rem' }}> [Text truncated for performance]</span>);
+                                                }
+                                                return result;
                                             } catch (e) {
                                                 console.error("Render Error in ID Card:", e);
                                                 return <span>Error rendering text</span>;
@@ -1234,7 +1220,7 @@ const DealIntakePage = () => {
                                                         <i className={`fas ${field.icon}`} style={{ fontSize: '0.6rem' }}></i> {field.label.toUpperCase()}
                                                     </div>
                                                     <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a' }}>
-                                                        {field.value || '-'}
+                                                        {renderValue(field.value) || '-'}
                                                     </div>
                                                 </div>
                                             ))}
@@ -1504,8 +1490,8 @@ const DealIntakePage = () => {
                                                                         borderRadius: '8px', padding: '12px', marginBottom: '8px', cursor: 'pointer'
                                                                     }}
                                                                 >
-                                                                    <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>Unit {match.inventory.unitNo}</div>
-                                                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{match.inventory.location} - Score: {match.score}</div>
+                                                                    <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>Unit {renderValue(match.inventory.unitNo)}</div>
+                                                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{renderValue(match.inventory.location)} - Score: {match.score}</div>
                                                                 </div>
                                                             ))}
                                                             {matchedInventory.length === 0 && !isManualLinkOpen && (
@@ -1520,9 +1506,9 @@ const DealIntakePage = () => {
 
                                                                 {/* Auto-Linked Info */}
                                                                 <div style={{ padding: '10px', background: '#f0fdf4', borderRadius: '6px', display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                                                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#16a34a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{selectedInventory.unitNo}</div>
+                                                                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#16a34a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{renderValue(selectedInventory.unitNo)}</div>
                                                                     <div>
-                                                                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#14532d' }}>{selectedInventory.location}</div>
+                                                                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#14532d' }}>{renderValue(selectedInventory.location)}</div>
                                                                         <div style={{ fontSize: '0.75rem', color: '#15803d' }}>Linked to: {selectedOwner?.name}</div>
                                                                     </div>
                                                                 </div>
@@ -1597,7 +1583,7 @@ const DealIntakePage = () => {
                                                         <div style={{ marginTop: '20px', padding: '20px', background: '#dcfce7', borderRadius: '8px', textAlign: 'center' }}>
                                                             <h3>Deal Created!</h3>
                                                             <p>Found {matchedBuyers.length} Potential Buyers</p>
-                                                            {matchedBuyers.map((b, i) => <div key={i}>{b.name}</div>)}
+                                                            {matchedBuyers.map((b, i) => <div key={i}>{renderValue(b.name)}</div>)}
                                                         </div>
                                                     )}
                                                 </div>
@@ -1933,7 +1919,6 @@ const DealIntakePage = () => {
                                         setIsAddModalOpen(false);
                                         setCampaignName('');
                                         setCampaignSource('WhatsApp');
-                                        setCampaignDate('');
                                         setNewSourceContent('');
                                         setContentInputMode('paste');
                                     }}

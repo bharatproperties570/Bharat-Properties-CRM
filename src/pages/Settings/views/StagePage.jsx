@@ -1,15 +1,11 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { stageTransitionRulesAPI } from '../../../utils/api';
 import Toast from '../../../components/Toast';
 import {
-    STAGE_PIPELINE, STAGE_LABELS, flattenOutcomeMappings,
-    STAGE_STABILITY_CONFIG, getStageProbability
+    STAGE_PIPELINE, STAGE_LABELS
 } from '../../../utils/stageEngine';
-import {
-    DEFAULT_AGING_RULES, computeStageDensity,
-    detectCommissionLeakage, DEFAULT_STAGE_DENSITY_TARGETS
-} from '../../../utils/agingEngine';
+
 
 const REQUIRED_FORMS = [
     { value: 'Requirement Form', label: 'Requirement Form', short: 'Req', color: '#3b82f6' },
@@ -38,21 +34,7 @@ const StageChip = ({ stage }) => {
     );
 };
 
-const StagePill = ({ stage, size = 'md' }) => {
-    const info = STAGE_PIPELINE.find(s => s.label === stage);
-    if (!info) return <span>{stage}</span>;
-    const pad = size === 'lg' ? '8px 16px' : '4px 10px';
-    const fs = size === 'lg' ? '13px' : '11px';
-    return (
-        <div style={{
-            background: info.color + '20', border: `1px solid ${info.color}40`,
-            borderRadius: '6px', padding: pad, display: 'flex', alignItems: 'center', gap: '6px'
-        }}>
-            <i className={`fas ${info.icon}`} style={{ color: info.color, fontSize: fs }} />
-            <span style={{ color: info.color, fontWeight: 700, fontSize: fs }}>{info.label}</span>
-        </div>
-    );
-};
+
 
 // ─────────────────────────────────────────────
 // Form Chips: Multi-Form Required Form Selector
@@ -85,23 +67,7 @@ const FormChipsSelector = ({ value = [], onChange }) => {
 };
 
 /** Read-only chip display — used in Default Mappings table */
-const FormChipsDisplay = ({ value = [] }) => {
-    const forms = Array.isArray(value) ? value : (value ? [value] : []);
-    if (!forms.length) return <span style={{ fontSize: '11px', color: '#cbd5e1', fontStyle: 'italic' }}>None</span>;
-    return (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-            {forms.map(f => {
-                const info = REQUIRED_FORMS.find(x => x.value === f) || { short: f, color: '#6366f1' };
-                return (
-                    <span key={f} style={{
-                        padding: '2px 7px', borderRadius: '10px', fontSize: '11px', fontWeight: 700,
-                        background: info.color + '18', color: info.color, border: `1px solid ${info.color}40`
-                    }}>{info.short}</span>
-                );
-            })}
-        </div>
-    );
-};
+
 
 // ─────────────────────────────────────────────
 // Add Override Rule Modal
@@ -265,20 +231,15 @@ const AddRuleModal = ({ activityMasterFields, onSave, onClose }) => {
 
 const StagePage = () => {
     const {
-        activityMasterFields, updateOutcomeStage,
+        activityMasterFields,
         stageMappingRules, addStageMappingRule, updateStageMappingRule, deleteStageMappingRule,
-        syncRules, updateSyncRule, addSyncRule, deleteSyncRule,
-        sequenceConfig, updateSequenceConfig,
-        agingRules, updateAgingRule,
-        forecastConfig, updateForecastConfig,
-        dealHealthConfig, updateDealHealthConfig,
-        intentSignals, updateIntentSignal,
+        syncRules, updateSyncRule,
     } = usePropertyConfig();
 
     const [activeTab, setActiveTab] = useState('rules');
     const [search, setSearch] = useState('');
-    const [filterActivity, setFilterActivity] = useState('');
-    const [filterStage, setFilterStage] = useState('');
+    const [filterActivity] = useState('');
+    const [filterStage] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
     const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
     const [editingStageCell, setEditingStageCell] = useState(null);
@@ -351,61 +312,14 @@ const StagePage = () => {
         return matchSearch && matchActivity && matchStage;
     }), [backendRules, search, filterActivity, filterStage]);
 
-    const activityNames = [...new Set(backendRules.map(r => r.activityType).filter(Boolean))];
-    const stageCounts = useMemo(() => {
-        const counts = {};
-        STAGE_LABELS.forEach(s => counts[s] = 0);
-        backendRules.forEach(r => { if (r.newStage) counts[r.newStage] = (counts[r.newStage] || 0) + 1; });
-        return counts;
-    }, [backendRules]);
 
-    // Live Stage Density from Backend API
-    const [densityData, setDensityData] = useState([]);
-    const [densityLoading, setDensityLoading] = useState(false);
-    const [densityError, setDensityError] = useState(null);
 
-    const fetchDensity = useCallback(async () => {
-        setDensityLoading(true);
-        setDensityError(null);
-        try {
-            const res = await fetch('/api/stage-engine/density?entityType=lead');
-            const data = await res.json();
-            if (data.success) {
-                const merged = data.density.map(row => ({
-                    ...row,
-                    targetDays: DEFAULT_STAGE_DENSITY_TARGETS[row.stage] || 14,
-                    dropOffRate: row.conversionRate != null ? Math.max(0, 100 - row.conversionRate) : null,
-                    isBottleneck: row.isBottleneck || false
-                }));
-                setDensityData(merged);
-            } else {
-                setDensityError(data.error || 'Failed to fetch density data');
-            }
-        } catch (err) {
-            setDensityError(err.message);
-        } finally {
-            setDensityLoading(false);
-        }
-    }, []);
 
-    useEffect(() => {
-        if (activeTab === 'density') {
-            fetchDensity();
-        }
-    }, [activeTab, fetchDensity]);
 
     const tabs = [
         { id: 'rules', label: 'Rule Table', icon: 'fa-table' },
         { id: 'pipeline', label: 'Stage Pipeline', icon: 'fa-stream' },
-        { id: 'density', label: 'Stage Density', icon: 'fa-chart-bar' },
-        { id: 'stability', label: 'Stability Lock', icon: 'fa-lock' },
-        { id: 'status', label: 'Engine Status', icon: 'fa-cog' },
         { id: 'sync', label: 'Lead↔Deal Sync', icon: 'fa-sync-alt' },
-        { id: 'sequence', label: 'Sequence Guard', icon: 'fa-project-diagram' },
-        { id: 'aging', label: 'Ageing & Decay', icon: 'fa-hourglass-half' },
-        { id: 'forecast', label: 'Revenue Forecast', icon: 'fa-chart-line' },
-        { id: 'health', label: 'Deal Health', icon: 'fa-heartbeat' },
-        { id: 'intent', label: 'Intent Signals', icon: 'fa-brain' },
     ];
 
     return (
