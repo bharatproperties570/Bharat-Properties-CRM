@@ -67,8 +67,8 @@ const worker = new Worker('googleSyncQueue', async (job) => {
             }
 
             case 'processEmails': {
-                const { syncAndProcessEmails } = (await import('../../services/email.service.js')).default;
-                await syncAndProcessEmails();
+                const emailService = (await import('../../services/email.service.js')).default;
+                await emailService.syncAndProcessEmails();
                 break;
             }
 
