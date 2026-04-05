@@ -451,7 +451,24 @@ export const generateCSV = (data, columns) => {
     // Add Data Rows
     data.forEach(row => {
         const values = headers.map(header => {
-            const escaped = ('' + (row[header] || '')).replace(/"/g, '\\"');
+            const rawValue = row[header];
+            let displayValue = '';
+
+            if (rawValue === null || rawValue === undefined) {
+                displayValue = '';
+            } else if (typeof rawValue === 'object') {
+                // Intelligently handle populated MongoDB objects / Lookups
+                displayValue = rawValue.lookup_value || 
+                               rawValue.name || 
+                               rawValue.fullName || 
+                               rawValue.username || 
+                               (rawValue._id ? rawValue._id.toString() : JSON.stringify(rawValue));
+            } else {
+                displayValue = String(rawValue);
+            }
+
+            // CSV standard: escape double quotes by doubling them
+            const escaped = displayValue.replace(/"/g, '""');
             return `"${escaped}"`;
         });
         csvRows.push(values.join(','));

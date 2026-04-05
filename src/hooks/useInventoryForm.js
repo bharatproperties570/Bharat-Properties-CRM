@@ -110,6 +110,7 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 facing: getLookupValue('Facing', property.facing) || property.facing?.lookup_value || property.facing,
                 direction: getLookupValue('Direction', property.direction) || property.direction?.lookup_value || property.direction,
                 roadWidth: getLookupValue('Road Width', property.roadWidth) || property.roadWidth?.lookup_value || property.roadWidth,
+                builtupType: getLookupValue('BuiltupType', property.builtupType) || property.builtupType?.lookup_value || property.builtupType,
                 address: property.address || prev.address
             }));
         } else if (isOpen) {
@@ -446,7 +447,8 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 subCategory: getLookupId('SubCategory', payload.subCategory),
                 status: getLookupId('InventoryStatus', payload.status),
                 intent: getLookupId('Intent', payload.intent),
-                facing: getLookupId('Facing', payload.facing)
+                facing: getLookupId('Facing', payload.facing),
+                builtupType: getLookupId('BuiltupType', payload.builtupType)
             };
 
             let response;

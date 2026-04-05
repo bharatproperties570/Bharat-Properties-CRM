@@ -14,12 +14,25 @@ export const marketingAPI = {
     generateSocial: (dealId, platform) => api.post('/marketings/generate-social', { dealId, platform }).then(res => res.data),
     generateEmail: (dealId, audience) => api.post('/marketings/generate-email', { dealId, audience }).then(res => res.data),
     runAgent: () => api.post('/marketings/run-agent').then(res => res.data),
-    
+
+    // ── AI Model-Aware Generation (used by 4-agent hub in MarketingOverviewPage) ──
+    // provider: 'google' | 'openai'  |  model: 'gemini-1.5-pro' | 'gpt-4o' | 'gemini-1.5-flash'
+    generateWithModel: (payload) =>
+        api.post('/marketings/generate-with-model', payload).then(res => res.data),
+
+    // ── Campaign Launchers (Email / WhatsApp / SMS / RCS) ──
+    sendCampaign: (channel, data) =>
+        api.post('/marketings/send-campaign', { channel, ...data }).then(res => res.data),
+
+    // ── Drip / Sequence Activation ──
+    activateDrip: (leadId, sequenceId) =>
+        api.post('/marketings/activate-drip', { leadId, sequenceId }).then(res => res.data),
+
     // LinkedIn Integration
     getLinkedInAuthUrl: () => api.get('/marketings/linkedin/auth-url').then(res => res.data),
     handleLinkedInCallback: (code) => api.post('/marketings/linkedin/callback', { code }).then(res => res.data),
     getLinkedInStatus: () => api.get('/marketings/linkedin/status').then(res => res.data),
-    saveLinkedInConfig: (config) => api.post('/marketings/linkedin/config', config).then(res => res.data)
+    saveLinkedInConfig: (config) => api.post('/marketings/linkedin/config', config).then(res => res.data),
 };
 
 export const getNotifications = () => api.get('/notifications');

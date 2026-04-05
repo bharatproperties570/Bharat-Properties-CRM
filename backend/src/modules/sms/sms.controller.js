@@ -11,6 +11,32 @@ const SENSITIVE_KEYS = {
 };
 
 /**
+ * Get the active provider's status and balance
+ */
+export const getActiveProviderStatus = async (req, res, next) => {
+    try {
+        const activeProvider = await SmsProvider.findOne({ isActive: true });
+        if (!activeProvider) {
+            return res.status(200).json({ success: true, data: { status: 'Not Configured', provider: 'None' } });
+        }
+
+        const balanceData = await smsService.getBalance();
+        
+        res.status(200).json({
+            success: true,
+            data: {
+                provider: activeProvider.provider,
+                status: activeProvider.status || 'Connected',
+                lastTestedAt: activeProvider.lastTestedAt,
+                balance: balanceData?.balance || null
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
  * Get all providers (with masked sensitive fields)
  */
 export const getSmsProviders = async (req, res, next) => {

@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
 import { MODULE_CONFIG, generateCSV, downloadFile } from '../../../utils/dataManagementUtils';
 import toast from 'react-hot-toast';
+import { api } from '../../../utils/api';
 
 const ExportDataPage = () => {
     const [module, setModule] = useState('contacts');
     const [format, setFormat] = useState('csv');
     const [selectedColumns, setSelectedColumns] = useState([]);
+    const [exportData, setExportData] = useState([]);
+    const [isFetching, setIsFetching] = useState(false);
 
     // Config for the selected module
     const activeConfig = MODULE_CONFIG[module];
@@ -16,6 +19,32 @@ const ExportDataPage = () => {
         if (activeConfig) {
             setSelectedColumns(activeConfig.fields.map(f => f.key));
         }
+
+        // Fetch LIVE data for the selected module
+        const fetchData = async () => {
+            setIsFetching(true);
+            try {
+                // Determine API endpoint based on module ID
+                let endpoint = module;
+                if (module === 'propertyOwners') endpoint = 'contacts'; // Special case
+                
+                // Fetch all records for export (usually higher limit or specialized endpoint)
+                const response = await api.get(`${endpoint}?limit=5000`);
+                if (response.data && response.data.success) {
+                    setExportData(response.data.records || response.data.data || []);
+                } else {
+                    setExportData([]);
+                }
+            } catch (err) {
+                console.error(`Failed to fetch ${module} data:`, err);
+                toast.error(`Could not load ${module} data for export.`);
+                setExportData([]);
+            } finally {
+                setIsFetching(false);
+            }
+        };
+
+        fetchData();
     }, [module, activeConfig]);
 
     const toggleColumn = (key) => {
@@ -35,12 +64,21 @@ const ExportDataPage = () => {
             return;
         }
 
-        const dataToExport = activeConfig.data;
-        const csvContent = generateCSV(dataToExport, selectedColumns);
+        if (isFetching) {
+            toast.error('Data is still loading. Please wait.');
+            return;
+        }
+
+        if (exportData.length === 0) {
+            toast.error('No data available to export.');
+            return;
+        }
+
+        const csvContent = generateCSV(exportData, selectedColumns);
         const fileName = `${activeConfig.label}_Export_${new Date().toISOString().split('T')[0]}.csv`;
 
         downloadFile(csvContent, fileName);
-        toast.success(`Successfully exported ${dataToExport.length} records!`);
+        toast.success(`Successfully exported ${exportData.length} records!`);
     };
 
     return (

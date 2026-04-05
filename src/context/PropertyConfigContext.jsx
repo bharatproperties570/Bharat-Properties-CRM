@@ -1087,13 +1087,15 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [lookups, projects]);
 
     const typeValueMap = React.useMemo(() => {
-        const map = new Map(); // Map<normalizedType, Map<value, id>>
+        const map = new Map(); // Map<normalizedType, Map<standardizedValue, id>>
         Object.entries(lookups).forEach(([type, categoryLookups]) => {
             if (Array.isArray(categoryLookups)) {
                 const valToId = new Map();
                 categoryLookups.forEach(l => {
                     const id = l._id || l.id;
-                    if (id) valToId.set(l.lookup_value, id.toString());
+                    const val = l.lookup_value || '';
+                    // Standardize: Trim and Lowercase for robust matching
+                    if (id) valToId.set(val.trim().toLowerCase(), id.toString());
                 });
                 map.set(type, valToId);
             }
@@ -1108,10 +1110,18 @@ export const PropertyConfigProvider = ({ children }) => {
         // Standardize type (e.g. 'Property Type' -> 'PropertyType')
         const normalizedType = type ? type.replace(/\s+/g, '') : type;
 
+        // Standardize value: Trim and Lowercase
+        const standardizedValue = String(value).trim().toLowerCase();
+
         // O(1) Search in specific category Map
         const categoryMap = typeValueMap.get(normalizedType);
-        if (categoryMap && categoryMap.has(value)) {
-            return categoryMap.get(value);
+        if (categoryMap && categoryMap.has(standardizedValue)) {
+            return categoryMap.get(standardizedValue);
+        }
+
+        // Secondary Fallback: Search all categories if type is not strictly matched
+        for (const [cat, map] of typeValueMap.entries()) {
+            if (map.has(standardizedValue)) return map.get(standardizedValue);
         }
 
         // Fallback for case where value is already an ID (string matching)

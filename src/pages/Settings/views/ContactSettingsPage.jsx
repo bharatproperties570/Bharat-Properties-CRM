@@ -242,29 +242,7 @@ const ContactSettingsPage = () => {
     showToast("Export successful!");
   };
 
-  // ---------------- EFFECTS ----------------
-  useEffect(() => {
-    const tabConfig = TABS.find(t => t.id === activeTab);
-    if (tabConfig.type === "hierarchy") {
-      setHierarchyData({});
-      setSelectedPath([]);
-      fetchHierarchyLevel(activeTab, 0); // Fetch root level
-    } else {
-      const sections = FLAT_CONFIG[activeTab];
-      if (sections && sections.length > 0) {
-        setFlatActiveSection(sections[0]);
-      }
-    }
-  }, [activeTab]);
-
-  useEffect(() => {
-    if (flatActiveSection) {
-      fetchFlatItems();
-    }
-  }, [flatActiveSection, fetchFlatItems]);
-
   // ---------------- API CALLS ----------------
-
   const fetchHierarchyLevel = async (tabId, levelIndex, parentId = null) => {
     const levels = HIERARCHY_CONFIG[tabId];
     if (!levels[levelIndex]) return;
@@ -306,6 +284,27 @@ const ContactSettingsPage = () => {
       }
     } catch (err) { console.error(err); }
   }, [flatActiveSection]);
+
+  // ---------------- EFFECTS ----------------
+  useEffect(() => {
+    const tabConfig = TABS.find(t => t.id === activeTab);
+    if (tabConfig.type === "hierarchy") {
+      setHierarchyData({});
+      setSelectedPath([]);
+      fetchHierarchyLevel(activeTab, 0); // Fetch root level
+    } else {
+      const sections = FLAT_CONFIG[activeTab];
+      if (sections && sections.length > 0) {
+        setFlatActiveSection(sections[0]);
+      }
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (flatActiveSection) {
+      fetchFlatItems();
+    }
+  }, [flatActiveSection, fetchFlatItems]);
 
   // ---------------- CUSTOM ADD/EDIT HANDLERS ----------------
 

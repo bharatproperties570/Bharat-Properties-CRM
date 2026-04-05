@@ -24,6 +24,32 @@ const AiAgentsSettingsPage = () => {
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingAgent, setEditingAgent] = useState(null);
+    const [seeding, setSeeding] = useState(false);
+
+    const MARKETING_OS_AGENTS = [
+        { name: 'Metrics Manager', role: 'Analysis', provider: 'gemini', modelName: 'gemini-1.5-pro', isActive: true, useCases: ['social_media','lead_qualification'], memoryAccess: ['leads','deals','communications'], systemPrompt: 'You are a marketing analytics AI for Bharat Properties, Kurukshetra. Analyze social media performance, campaign metrics, and CRM data. RESPONSIBILITIES: 1) Analyze 7-30 day content performance (likes, saves, shares, leads, CTR). 2) Identify top-performing content types. 3) Enforce 70% real estate project content rule. 4) Generate weekly reports with action items. POWERED BY: Google Gemini 1.5 Pro via AI Studio API.' },
+        { name: 'Social Media Manager', role: 'Marketing', provider: 'openai', modelName: 'gpt-4o', isActive: true, useCases: ['social_media','email_drip'], memoryAccess: ['leads','inventory','deals'], systemPrompt: 'You are a social media content strategist for Bharat Properties, Kurukshetra. CONTENT RULES: 80% Project Posts, 10% Educational, 7% Trust, 3% Festival. CAPTION FORMULA: Hinglish hook + Location + Price + CTA + Hashtags. Platforms: Instagram, Facebook, WhatsApp, LinkedIn. Always inject property location, price point, and booking urgency. POWERED BY: OpenAI GPT-4o.' },
+        { name: 'Designer (Visual AI)', role: 'Marketing', provider: 'gemini', modelName: 'gemini-1.5-flash', isActive: true, useCases: ['social_media'], memoryAccess: ['inventory','deals'], systemPrompt: 'You are a visual design AI for Bharat Properties. Generate DALL-E 3 image prompts, Runway v3 video prompts, and Canva layout instructions. BRAND: Navy Blue + Gold, cinematic, premium Indian real estate, Kurukshetra context. OUTPUT: For each post: 1) DALL-E prompt (no text, golden hour) 2) Runway prompt (smooth 4K drone) 3) Canva layout (colors, typography, CTA). POWERED BY: Google Gemini Flash (Nano).' },
+        { name: 'Scheduling Manager', role: 'General', provider: 'gemini', modelName: 'gemini-1.5-pro', isActive: true, useCases: ['social_media','sms_automation','email_drip'], memoryAccess: ['leads','deals','communications'], systemPrompt: 'You are a scheduling optimization AI for Bharat Properties. Manage BullMQ content queue. TIMING RULES: Instagram ONLY 7-8:30 PM, WhatsApp 9 AM or 6 PM, Facebook 10 AM/3 PM/7 PM, LinkedIn 8:30 AM or 5:30 PM. QUEUE: BullMQ + Redis, 3 workers, retry 3x exponential backoff. OUTPUT: ISO timestamps, delay calculations, priority scores 1-10. POWERED BY: Google Gemini 1.5 Pro.' },
+    ];
+
+    const seedMarketingAgents = async () => {
+        setSeeding(true);
+        let created = 0, skipped = 0;
+        for (const agentDef of MARKETING_OS_AGENTS) {
+            try {
+                const exists = agents.some(a => a.name === agentDef.name);
+                if (exists) { skipped++; continue; }
+                await aiAgentsAPI.create(agentDef);
+                created++;
+                await new Promise(r => setTimeout(r, 200));
+            } catch(err) { console.error('Seed error:', err); }
+        }
+        await fetchData();
+        setSeeding(false);
+        if (created > 0) toast.success(`✅ ${created} Marketing OS agents created!`);
+        if (skipped > 0) toast(`ℹ️ ${skipped} agents already exist`, { icon: '⚙️' });
+    };
 
     const [formData, setFormData] = useState({
         name: '',
@@ -36,7 +62,7 @@ const AiAgentsSettingsPage = () => {
         modelName: 'gpt-4o'
     });
 
-    const [availableProviders, setAvailableProviders] = useState(['openai']);
+    const [availableProviders, setAvailableProviders] = useState(['openai', 'gemini']);
     const [availableChannels, setAvailableChannels] = useState([]);
 
     useEffect(() => {
@@ -283,6 +309,37 @@ const AiAgentsSettingsPage = () => {
                 </div>
             )}
 
+            
+            {/* ══ MARKETING OS AGENTS — Pre-seed section ══ */}
+            <div style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', borderRadius: '16px', padding: '24px', marginBottom: '28px', border: '1px solid rgba(66,133,244,0.2)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+                    <div>
+                        <div style={{ fontSize: '14px', fontWeight: 800, color: '#fff', marginBottom: '4px' }}>🤖 Marketing OS — AI Agent Configuration</div>
+                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>4 specialized agents with model assignments for the Marketing Overview page</div>
+                    </div>
+                    <button onClick={seedMarketingAgents} disabled={seeding} style={{ background: 'linear-gradient(135deg, #4285f4 0%, #3b82f6 100%)', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {seeding ? '⏳ Seeding...' : '⚡ Seed 4 Marketing Agents'}
+                    </button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+                    {[
+                        { id: 'metrics', n: 'Metrics Manager', model: 'gemini-1.5-pro', provider: 'Google Gemini', icon: '📊', color: '#4285f4', task: 'Analytics · Performance · ROI tracking' },
+                        { id: 'social', n: 'Social Media Manager', model: 'gpt-4o', provider: 'OpenAI GPT-4o', icon: '📅', color: '#10a37f', task: 'Content calendar · Hinglish captions · Strategy' },
+                        { id: 'designer', n: 'Designer (Visual AI)', model: 'gemini-1.5-flash', provider: 'Google Gemini Flash', icon: '🎨', color: '#fbbc04', task: 'DALL-E prompts · Runway video · Canva layouts' },
+                        { id: 'scheduler', n: 'Scheduling Manager', model: 'gemini-1.5-pro', provider: 'Google Gemini', icon: '⏱', color: '#ef4444', task: 'BullMQ queue · Timing optimization · Auto-publish' },
+                    ].map(a => (
+                        <div key={a.id} style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${a.color}30`, borderRadius: '10px', padding: '14px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                            <div style={{ width: '36px', height: '36px', background: `${a.color}20`, borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0 }}>{a.icon}</div>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff', marginBottom: '2px' }}>{a.n}</div>
+                                <div style={{ fontSize: '10px', color: a.color, fontWeight: 700, marginBottom: '4px' }}>{a.provider} · {a.model}</div>
+                                <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>{a.task}</div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
             {/* Agent Builder Modal */}
             {isModalOpen && (
                 <div style={{
@@ -363,7 +420,8 @@ const AiAgentsSettingsPage = () => {
                                     >
                                         {formData.provider === 'openai' && (
                                             <>
-                                                <option value="gpt-4o">GPT-4o</option>
+                                                <option value="gpt-4o">GPT-4o — Social Media / Content</option>
+                                                <option value="gpt-4o-mini">GPT-4o Mini — Fast & Efficient</option>
                                                 <option value="gpt-4-turbo">GPT-4 Turbo</option>
                                                 <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
                                             </>
@@ -377,10 +435,13 @@ const AiAgentsSettingsPage = () => {
                                         )}
                                         {formData.provider === 'gemini' && (
                                             <>
-                                                <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-                                                <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                                                <option value="gemini-1.5-pro">Gemini 1.5 Pro — Analytics / Scheduling</option>
+                                                <option value="gemini-1.5-flash">Gemini 1.5 Flash (Nano) — Visual Design</option>
+                                                <option value="gemini-2.0-flash">Gemini 2.0 Flash — Fastest</option>
+                                                <option value="gemini-2.0-pro">Gemini 2.0 Pro — Most Capable</option>
                                             </>
                                         )}
+                                        {formData.provider === 'openai' && formData.modelName === 'gpt-4o' && null}
                                     </select>
                                 </div>
                             </div>

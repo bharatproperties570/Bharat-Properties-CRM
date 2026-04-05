@@ -79,7 +79,7 @@ const InventorySchema = new mongoose.Schema({
         type: mongoose.Schema.Types.Mixed,
         ref: 'Lookup'
     },
-    builtupType: String,
+    builtupType: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup', index: true },
     ownership: String,
 
     builtUpArea: {
@@ -199,6 +199,12 @@ InventorySchema.pre('save', async function (next) {
             }));
         }
         if (this.status && !mongoose.Types.ObjectId.isValid(this.status)) this.status = await resolveLookupLocal('Status', this.status);
+        if (this.builtupType) {
+            if (typeof this.builtupType === 'object' && this.builtupType !== null && this.builtupType._id) this.builtupType = this.builtupType._id;
+            if (!mongoose.Types.ObjectId.isValid(this.builtupType)) {
+                this.builtupType = await resolveLookupLocal('BuiltupType', this.builtupType);
+            }
+        }
 
         // Address component resolution
         if (this.address) {
@@ -258,6 +264,14 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
                 if (typeof obj.status === 'object' && obj.status !== null && obj.status._id) obj.status = obj.status._id;
                 if (!mongoose.Types.ObjectId.isValid(obj.status)) {
                     obj.status = await resolveLookupLocal('Status', obj.status);
+                }
+            }
+
+            // Handle builtupType
+            if (obj.builtupType) {
+                if (typeof obj.builtupType === 'object' && obj.builtupType !== null && obj.builtupType._id) obj.builtupType = obj.builtupType._id;
+                if (!mongoose.Types.ObjectId.isValid(obj.builtupType)) {
+                    obj.builtupType = await resolveLookupLocal('BuiltupType', obj.builtupType);
                 }
             }
 

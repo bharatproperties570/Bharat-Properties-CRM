@@ -31,7 +31,7 @@ ssh -i "$KEY_PATH" ${SERVER_USER}@${SERVER_IP} "cd ${REMOTE_PATH} && bash script
 
 # 3. Post-Deployment Health Check
 echo -e "${GREEN}🩺 Running Professional Health Check...${NC}"
-HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://api.bharatproperties.co/api/v1/marketing/stats)
+HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://api.bharatproperties.co/api/health)
 
 if [ "$HEALTH_STATUS" == "200" ]; then
     echo -e "${GREEN}✅ Deployment verified! API is responding (Status: 200)${NC}"

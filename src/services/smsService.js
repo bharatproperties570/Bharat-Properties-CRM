@@ -19,6 +19,19 @@ const smsService = {
     },
 
     /**
+     * Get active provider status and balance
+     */
+    async getStatus() {
+        try {
+            const response = await axios.get(`${API_BASE_URL}/status`);
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching SMS status:', error);
+            throw error;
+        }
+    },
+
+    /**
      * Update configuration for a provider
      */
     async updateConfig(provider, config) {

@@ -8,10 +8,13 @@ import {
     upsertSmsTemplate,
     deleteSmsTemplate,
     getSmsLogs,
-    sendSms
+    sendSms,
+    getActiveProviderStatus
 } from './sms.controller.js';
 
 const router = express.Router();
+
+router.get('/status', getActiveProviderStatus);
 
 // Configuration
 router.get('/', getSmsProviders);

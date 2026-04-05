@@ -3,6 +3,7 @@ import Deal from "../models/Deal.js";
 import Lookup from "../models/Lookup.js";
 import Contact from "../models/Contact.js";
 import Inventory from "../models/Inventory.js";
+import MarketingService from "../services/MarketingService.js";
 
 
 
@@ -194,6 +195,12 @@ export const submitDealForm = async (req, res) => {
 
         // Create Deal
         const deal = await Deal.create(dealData);
+
+        // ⚡ [AUTO-PILOT]: Activate 360° Marketing Loop
+        // We don't await this to keep the form response fast
+        MarketingService.triggerAutoMarketing(deal._id).catch(err => {
+            console.error('[AUTO-MARKETING ERROR]: Failed to trigger loop for deal', deal._id, err);
+        });
 
         // Update Analytics
         form.analytics.submissions += 1;

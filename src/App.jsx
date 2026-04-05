@@ -72,7 +72,8 @@ const AppContent = () => {
         if (path === '/settings') return 'settings';
         if (path.startsWith('/settings/')) return 'settings';
         if (path.startsWith('/google-callback')) return 'google-callback';
-        if (path === '/marketing') return 'marketing';
+        if (path === '/marketings') return 'marketing-overview';
+        if (path === '/marketing') return 'marketing-overview';
         if (path === '/marketing-overview') return 'marketing-overview';
         if (path === '/activities') return 'activities';
         return 'dashboard';
@@ -119,7 +120,7 @@ const AppContent = () => {
         let url = '/';
         if (view === 'contacts') url = '/contacts';
         else if (view === 'inventory') url = '/inventory';
-        else if (view === 'marketings') url = '/marketings';
+        else if (view === 'marketing' || view === 'marketings' || view === 'marketing-overview') url = '/marketing-overview';
         else if (view === 'contact-detail' && contactId) url = `/contacts/${contactId}`;
         else if (view === 'inventory-detail' && contactId) url = `/inventory/${contactId}`;
         else if (view === 'deal-detail' && contactId) url = `/deals/${contactId}`;

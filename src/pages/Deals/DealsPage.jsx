@@ -755,7 +755,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                 {renderValue(deal.location)}
                                             </div>
                                             <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>
-                                                {renderValue(deal.propertyType)} - {renderValue(deal.size)}
+                                                {renderValue(deal.propertyType)}
                                             </div>
                                             <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#10b981' }}>
                                                 ₹{renderValue(deal.price)}
@@ -990,11 +990,12 @@ const DealRow = React.memo(function DealRow({
                         {deal.subCategory ? ` - ${renderValue(getLookupValue('SubCategory', deal.subCategory))}` : ''}
                     </div>
                     <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {!(deal.sizeLabel || deal.unitSpecification?.sizeLabel || deal.sizeConfig) && renderValue(deal.size, 'N/A')}
-                        {(deal.sizeLabel || deal.unitSpecification?.sizeLabel || deal.sizeConfig) && (
+                        {(deal.sizeLabel || deal.unitSpecification?.sizeLabel || deal.sizeConfig) ? (
                             <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#4338ca', background: '#e0e7ff', padding: '2px 6px', borderRadius: '4px' }}>
                                 {getLookupValue('Size', deal.sizeLabel || deal.unitSpecification?.sizeLabel || (typeof deal.sizeConfig === 'object' ? deal.sizeConfig?.lookup_value : deal.sizeConfig))}
                             </span>
+                        ) : (
+                            renderValue(deal.size, 'N/A')
                         )}
                     </div>
                 </div>

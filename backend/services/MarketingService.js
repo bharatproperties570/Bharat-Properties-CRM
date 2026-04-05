@@ -1,5 +1,8 @@
 import unifiedAIService from './UnifiedAIService.js';
 import AiAgent from '../models/AiAgent.js';
+import Deal from '../models/Deal.js';
+// Assuming CampaignEngine or a worker queue is available
+// import CampaignEngine from './CampaignEngine.js'; 
 
 /**
  * MarketingService.js
@@ -106,26 +109,44 @@ class MarketingService {
     }
 
     /**
-     * Generate WhatsApp/SMS hook
+     * Trigger Automated Marketing Loop (Auto-Pilot)
+     * @param {string} dealId - The created deal ID
      */
-    async generateShortHook(deal) {
-        if (!deal) throw new Error('Deal data is required for generation');
-        let provider = undefined;
-        let personaPrompt = '';
+    async triggerAutoMarketing(dealId) {
         try {
-            const agent = await AiAgent.findOne({ useCases: { $in: ['sms_automation', 'whatsapp_live'] }, isActive: true });
-            if (agent) {
-                personaPrompt = `[SYSTEM PERSONA]\n${agent.systemPrompt}\n\n`;
-                provider = agent.provider;
-            }
-        } catch(e) {}
+            const deal = await Deal.findById(dealId).populate('owner');
+            if (!deal) return console.error('[AUTO-MARKETING]: Deal not found', dealId);
 
-        const prompt = `
-            ${personaPrompt}
-            Generate a 160-character WhatsApp hook for: ${deal.unitNo || 'Premium Unit'} ${deal.projectName || ''}.
-            Must be punchy and include a call to action.
-        `;
-        return await unifiedAIService.generate(prompt, { provider });
+            console.log(`[AUTO-MARKETING]: Activating 360° Loop for Deal: ${deal.unitNo} @ ${deal.projectName}`);
+
+            // 1. Generate Platform Captions
+            const igPost = await this.generateSocialPost(deal, 'instagram');
+            const fbPost = await this.generateSocialPost(deal, 'facebook');
+
+            // 2. Generate Messaging Hooks
+            const msgHook = await this.generateShortHook(deal);
+
+            // 3. Queue for Peak Window (Logic: Next 7:15 PM slot)
+            const peakTime = new Date();
+            peakTime.setHours(19, 15, 0, 0);
+            if (peakTime < new Date()) peakTime.setDate(peakTime.getDate() + 1);
+
+            // Log automation trigger (In production, this would be a BullMQ push)
+            console.log(`[AUTO-MARKETING]: Content Generated. Queued for: ${peakTime.toLocaleString()}`);
+            
+            // Return automation payload (Can be picked up by Socket.io or Workers)
+            return {
+                success: true,
+                dealId,
+                campaigns: [
+                    { platform: 'Instagram', content: igPost, status: 'scheduled', time: peakTime },
+                    { platform: 'WhatsApp', content: msgHook, status: 'scheduled', time: 'immediate' }
+                ]
+            };
+        } catch (error) {
+            console.error('[AUTO-MARKETING ERROR]:', error);
+            throw error;
+        }
     }
 }
 

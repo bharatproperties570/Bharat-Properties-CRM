@@ -349,7 +349,7 @@ const PropertySettingsPage = () => {
         propertyConfig = {}, updateConfig = () => {}, masterFields = {}, updateMasterFields = () => {},
         sizes = [], addSize = () => {}, updateSize = () => {}, deleteSize = () => {}, projects = [],
         syncCategoryLookup = () => {}, syncSubCategoryLookup = () => {}, syncPropertyTypeLookup = () => {}, syncBuiltupTypeLookup = () => {},
-        getLookupId = () => {}
+        getLookupId = () => {}, findLookup = () => {}
     } = context || {};
 
     const safeProjects = useMemo(() => Array.isArray(projects) ? projects : [], [projects]);
@@ -440,13 +440,12 @@ const PropertySettingsPage = () => {
         setIsExportModalOpen(false);
     };
 
-    const handleExportConfigHierarchy = (items, type) => {
+    const handleExportConfigHierarchy = (items, type, context = {}) => {
         if (!items || items.length === 0) {
-            showToast("No items to export", "warning");
+            showToast(`No ${type.replace(/_/g, ' ')} to export`, "warning");
             return;
         }
 
-        // Map hierarchy level to backend lookup types
         const typeMap = {
             'Categories': 'Category',
             'Sub_Categories': 'SubCategory',
@@ -457,13 +456,23 @@ const PropertySettingsPage = () => {
         const lookupType = typeMap[type];
 
         const dataToExport = items.map(item => {
-            const name = typeof item === 'object' ? (item.name || item.lookup_value) : item;
+            const name = typeof item === 'object' ? (item.name || item.lookup_value) : String(item);
             let id = typeof item === 'object' && item.id ? item.id : name;
 
-            // Try to get actual MongoDB ID from context lookups
-            if (lookupType) {
-                const mongoId = getLookupId(lookupType, name);
-                if (mongoId) id = mongoId;
+            // Hierarchical resolution using findLookup (parent-aware)
+            if (lookupType && findLookup) {
+                let parentId = null;
+                if (type === 'Sub_Categories') parentId = context.categoryId;
+                else if (type === 'Types') parentId = context.subCategoryId;
+                else if (type === 'Builtup') parentId = context.typeId;
+
+                const match = findLookup(lookupType, name, parentId);
+                if (match) id = match._id || match.id;
+                else {
+                    // Fallback to general getLookupId if hierarchical find fails
+                    const generalId = getLookupId(lookupType, name);
+                    if (generalId) id = generalId;
+                }
             }
 
             return {
@@ -473,7 +482,8 @@ const PropertySettingsPage = () => {
         });
 
         const csvContent = generateCSV(dataToExport);
-        downloadFile(csvContent, `property_config_${type.toLowerCase()}_${new Date().toISOString().split('T')[0]}.csv`);
+        const timestamp = new Date().toISOString().split('T')[0];
+        downloadFile(csvContent, `property_config_${type.toLowerCase()}_${timestamp}.csv`);
         showToast("Export successful!");
     };
 
@@ -1140,7 +1150,7 @@ const PropertySettingsPage = () => {
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     Sub Category
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                        <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(propertyConfig[configCategory]?.subCategories || [], 'Sub_Categories')} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', opacity: configCategory ? 1 : 0.4 }} title="Download Sub Categories"></i>
+                                        <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(propertyConfig[configCategory]?.subCategories || [], 'Sub_Categories', { categoryId: getLookupId('Category', configCategory) })} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', opacity: configCategory ? 1 : 0.4 }} title="Download Sub Categories"></i>
                                         <button type="button" onClick={(e) => { e.preventDefault(); handleAddSubCategory(); }} disabled={!configCategory} style={{ border: 'none', background: configCategory ? '#e2e8f0' : '#f1f5f9', color: configCategory ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
                                     </div>
                                 </div>
@@ -1160,7 +1170,7 @@ const PropertySettingsPage = () => {
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     Size Type
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                        <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(propertyConfig[configCategory]?.subCategories.find(s => s.name === configSubCategory)?.types || [], 'Types')} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', opacity: configSubCategory ? 1 : 0.4 }} title="Download Size Types"></i>
+                                        <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(propertyConfig[configCategory]?.subCategories.find(s => s.name === configSubCategory)?.types || [], 'Types', { subCategoryId: getLookupId('SubCategory', configSubCategory) })} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', opacity: configSubCategory ? 1 : 0.4 }} title="Download Size Types"></i>
                                         <button type="button" onClick={(e) => { e.preventDefault(); handleAddType(); }} disabled={!configSubCategory} style={{ border: 'none', background: configSubCategory ? '#e2e8f0' : '#f1f5f9', color: configSubCategory ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
                                     </div>
                                 </div>
@@ -1177,7 +1187,7 @@ const PropertySettingsPage = () => {
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     Builtup
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                        <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(propertyConfig[configCategory]?.subCategories.find(s => s.name === configSubCategory)?.types.find(t => t.name === configType)?.builtupTypes || [], 'Builtup')} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', opacity: configType ? 1 : 0.4 }} title="Download Builtup Size Types"></i>
+                                        <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(propertyConfig[configCategory]?.subCategories.find(s => s.name === configSubCategory)?.types.find(t => t.name === configType)?.builtupTypes || [], 'Builtup', { typeId: getLookupId('PropertyType', configType) })} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', opacity: configType ? 1 : 0.4 }} title="Download Builtup Size Types"></i>
                                         <button type="button" onClick={(e) => { e.preventDefault(); handleAddBuiltupType(); }} disabled={!configType} style={{ border: 'none', background: configType ? '#e2e8f0' : '#f1f5f9', color: configType ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
                                     </div>
                                 </div>

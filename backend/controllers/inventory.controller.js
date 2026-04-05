@@ -45,7 +45,8 @@ const populateFields = [
     { path: "address.area" },
     { path: "address.location" },
     { path: "address.country" },
-    { path: "address.postOffice" }
+    { path: "address.postOffice" },
+    { path: "builtupType" }
 ];
 
 export const getInventory = async (req, res) => {
@@ -202,7 +203,8 @@ export const getInventory = async (req, res) => {
             { path: "address.state" },
             { path: "address.locality" },
             { path: "address.area" },
-            { path: "address.location" }
+            { path: "address.location" },
+            { path: "builtupType" }
         ];
 
         // Fetch counts for Active and InActive
@@ -352,6 +354,7 @@ export const addInventory = async (req, res) => {
         if (data.direction) data.direction = await resolveLookup('Direction', data.direction, false);
         if (data.orientation) data.orientation = await resolveLookup('Orientation', data.orientation, false);
         if (data.intent) data.intent = await resolveLookup('Intent', data.intent, false);
+        if (data.builtupType) data.builtupType = await resolveLookup('BuiltupType', data.builtupType, false);
         if (data.assignedTo) data.assignedTo = await resolveUser(data.assignedTo);
         if (data.team) data.team = await resolveTeam(data.team);
 
@@ -404,6 +407,7 @@ export const updateInventory = async (req, res) => {
         if (data.direction) data.direction = await resolveLookup('Direction', data.direction, false);
         if (data.orientation) data.orientation = await resolveLookup('Orientation', data.orientation, false);
         if (data.intent) data.intent = await resolveLookup('Intent', data.intent, false);
+        if (data.builtupType) data.builtupType = await resolveLookup('BuiltupType', data.builtupType, false);
         if (data.assignedTo) data.assignedTo = await resolveUser(data.assignedTo);
         if (data.team) data.team = await resolveTeam(data.team);
 
@@ -451,6 +455,7 @@ export const updateInventory = async (req, res) => {
             { path: "orientation" },
             { path: "sizeConfig" },
             { path: "roadWidth" },
+            { path: "builtupType" },
             { path: "assignedTo", select: "fullName" },
             { path: "history.author", select: "fullName name" }
         ]);
@@ -733,7 +738,7 @@ export const importInventory = async (req, res) => {
                     projectId: item.projectId,
                     unitNo: item.unitNo || item.unitNumber || item['Unit No'] || item['Unit No*'],
                     unitNumber: item.unitNo || item.unitNumber || item['Unit No'] || item['Unit No*'],
-                    builtupType: item.builtupType || item['Builtup Type'],
+                    builtupType: await resolveLookup('BuiltupType', item.builtupType || item['Builtup Type'], true),
 
                     price: {
                         value: parseFloat(item.price || item.value || item['Price'] || item['Asking Price'] || 0),

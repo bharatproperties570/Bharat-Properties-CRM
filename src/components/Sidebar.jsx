@@ -102,27 +102,11 @@ function Sidebar({ currentView, onNavigate }) {
                 </a>
                 <a
                     href="#"
-                    className={`sidebar-icon ${currentView === 'marketing' ? 'active' : ''}`}
-                    onClick={(e) => { e.preventDefault(); onNavigate('marketing'); }}
-                    title="Marketing"
+                    className={`sidebar-icon ${currentView === 'marketing' || currentView === 'marketing-overview' || currentView === 'marketings' ? 'active' : ''}`}
+                    onClick={(e) => { e.preventDefault(); onNavigate('marketing-overview'); }}
+                    title="Marketing OS"
                 >
                     <i className="fas fa-bullhorn"></i>
-                </a>
-                <a
-                    href="#"
-                    className={`sidebar-icon ${currentView === 'marketing-overview' ? 'active' : ''}`}
-                    onClick={(e) => { e.preventDefault(); onNavigate('marketing-overview'); }}
-                    title="Marketing Overview"
-                >
-                    <i className="fas fa-chart-pie"></i>
-                </a>
-                <a
-                    href="#"
-                    className={`sidebar-icon ${currentView === 'marketings' ? 'active' : ''}`}
-                    onClick={(e) => { e.preventDefault(); onNavigate('marketings'); }}
-                    title="Marketings"
-                >
-                    <i className="fas fa-bullseye"></i>
                 </a>
                 <a
                     href="#"

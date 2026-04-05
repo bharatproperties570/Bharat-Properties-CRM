@@ -13,9 +13,7 @@ const BookingPage = lazy(() => import('../pages/Booking/BookingPage'));
 const InventoryPage = lazy(() => import('../pages/Inventory/InventoryPage'));
 const InventoryDetailPage = lazy(() => import('../pages/Inventory/InventoryDetailPage'));
 const InventoryMatchingPage = lazy(() => import('../pages/Inventory/views/InventoryMatchingPage'));
-const MarketingPage = lazy(() => import('../pages/Marketing/MarketingPage'));
 const MarketingOverviewPage = lazy(() => import('../pages/Marketing/MarketingOverviewPage'));
-const MarketingsPage = lazy(() => import('../pages/Marketings/MarketingsPage'));
 const ProfilePage = lazy(() => import('../pages/Profile/ProfilePage'));
 const ProjectsPage = lazy(() => import('../pages/Projects/ProjectsPage'));
 const ReportsPage = lazy(() => import('../pages/Reports/ReportsPage'));
@@ -38,6 +36,7 @@ const NotificationSettingsPage = lazy(() => import('../pages/Settings/views/Noti
 const SalesGoalsSettingsPage = lazy(() => import('../pages/Settings/views/SalesGoalsSettingsPage'));
 const VoiceSettingsPage = lazy(() => import('../pages/Settings/views/VoiceSettingsPage'));
 const EnrichmentSettingsPage = lazy(() => import('../pages/Settings/views/EnrichmentSettingsPage'));
+const AiAgentsSettingsPage = lazy(() => import('../pages/Settings/views/AiAgentsSettingsPage'));
 
 const ContactDetail = lazy(() => import('../pages/Contacts/ContactDetail'));
 
@@ -99,13 +98,11 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
                     onAddActivity={onAddActivity}
                 />;
             case 'marketing':
-                return <MarketingPage onNavigate={onNavigate} />;
+            case 'marketings':
             case 'marketing-overview':
                 return <MarketingOverviewPage onNavigate={onNavigate} />;
-            case 'marketings':
-                return <MarketingsPage onNavigate={onNavigate} />;
             case 'wizard':
-                return <WizardPage onBack={() => onNavigate('marketing')} />;
+                return <WizardPage onBack={() => onNavigate('marketing-overview')} />;
             case 'projects':
                 return <ProjectsPage onNavigate={onNavigate} onAddProject={onAddProject} />;
             case 'project-detail':
@@ -161,6 +158,8 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
                 return <VoiceSettingsPage onBack={() => onNavigate('settings')} />;
             case 'settings-enrichment':
                 return <EnrichmentSettingsPage onBack={() => onNavigate('settings')} />;
+            case 'settings-ai-agents':
+                return <AiAgentsSettingsPage onBack={() => onNavigate('settings')} />;
             case 'google-callback':
                 return <GoogleCallback onNavigate={onNavigate} />;
 

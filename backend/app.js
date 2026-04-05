@@ -49,6 +49,8 @@ import marketingRoutes from "./routes/marketing.routes.js";
 import integrationSettingsRoutes from "./routes/integrationSettings.routes.js";
 import conversationRoutes from "./routes/conversation.routes.js";
 import aiAgentRoutes from "./routes/aiAgent.routes.js";
+import socialRoutes from "./routes/social.routes.js"; // Phase D: Instagram/Facebook Graph API
+
 
 const app = express();
 
@@ -170,6 +172,8 @@ app.use("/api/marketings", marketingRoutes); // Marketing Suite AI Agent Stats
 app.use("/api/settings/ai", integrationSettingsRoutes);
 app.use("/api/settings/ai-agents", aiAgentRoutes);
 app.use("/api/conversations", conversationRoutes);
+app.use("/api/social",        socialRoutes);          // Phase D: Instagram/Facebook/Webhook
+
 
 import fs from 'fs';
 import path from 'path';

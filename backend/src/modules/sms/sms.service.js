@@ -273,6 +273,57 @@ class SmsService {
     }
 
     /**
+     * Bulk SMS to an array of mobiles.
+     */
+    async bulkSend(mobiles, message, context = {}) {
+        const results = [];
+        let sent = 0, failed = 0;
+
+        for (const mobile of mobiles) {
+            try {
+                // Rate limit buffer (200ms per message)
+                await new Promise(r => setTimeout(r, 200)); 
+                const result = await this.sendSMS(mobile, message, context);
+                results.push({ mobile, ...result });
+                sent++;
+            } catch (error) {
+                results.push({ mobile, success: false, error: error.message });
+                failed++;
+            }
+        }
+
+        console.log(`[SMS Service] Bulk Send — Sent: ${sent}, Failed: ${failed}`);
+        return { sent, failed, results };
+    }
+
+    /**
+     * Get remaining SMS balance (if supported by provider)
+     */
+    async getBalance() {
+        const activeProvider = await SmsProvider.findOne({ isActive: true });
+        if (!activeProvider) return null;
+
+        const config = this._decryptConfig(activeProvider.config);
+        
+        if (activeProvider.provider === 'SMSGatewayHub') {
+            try {
+                const url = 'https://www.smsgatewayhub.com/api/mt/GetBalance';
+                const response = await axios.get(url, {
+                    params: { APIKey: config.apiKey },
+                    timeout: 5000
+                });
+                // Expected response: "1234" (string) or JSON
+                return { provider: 'SMSGatewayHub', balance: response.data };
+            } catch (error) {
+                console.error('[SMSGatewayHub Balance Error]', error.message);
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Helper to decrypt sensitive fields in config
      */
     _decryptConfig(config) {

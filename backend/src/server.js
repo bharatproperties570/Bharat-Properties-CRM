@@ -5,11 +5,13 @@ import fs from 'fs';
 import path from 'path';
 
 // Initialize BullMQ Queues and Workers
-import { cronQueue, googleSyncQueue } from "./queues/queueManager.js";
+import { cronQueue, googleSyncQueue, marketingQueue } from "./queues/queueManager.js";
 import "./workers/enrichmentWorker.js";
 import "./workers/cronWorker.js";
 import "./workers/googleSyncWorker.js";
+import "./workers/marketingWorker.js"; // Phase D: Marketing blast/drip/social jobs
 import NurtureBot from "../services/NurtureBot.js";
+
 
 const logStartup = (msg) => {
     const logPath = path.join(process.cwd(), 'startup.log');
@@ -82,8 +84,16 @@ async function startServer() {
                 // Silently ignore queue addition errors
             });
         } catch (queueErr) {
-            console.warn("⚠️  BullMQ/Redis not fully available locally.");
+            console.warn("⚠️  BullMQ/Redis not fully available locally. Queues inactive.");
         }
+
+        // ── Phase D: Marketing Queue Health Log ───────────────────────────────
+        // The marketingQueue processes blast/drip/social jobs when Redis is online.
+        // Gracefully skips if Redis is not running.
+        marketingQueue?.getJobCounts?.().then(counts => {
+            console.log(`[MarketingQueue] Job counts: waiting=${counts.waiting} active=${counts.active} failed=${counts.failed}`);
+        }).catch(() => { /* Redis offline — ignore */ });
+
 
         // --- 🤖 UNIVERSAL CRON FALLBACK (NurtureBot) ---
         // Runs every hour to advance leads through the Nurture Flow automatically.
