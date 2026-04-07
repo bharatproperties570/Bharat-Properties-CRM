@@ -32,7 +32,7 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
     logStartup(`❌ Unhandled Rejection: ${reason}`);
     if (process.env.NODE_ENV === 'production') {
-        process.exit(1);
+            // process.exit(1); // Do not crash the app for optional background services failing
     }
 });
 
