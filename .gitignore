@@ -156,3 +156,6 @@ prompting/
 *.log
 
 settings_dump.json
+dist.tar.gz
+*.log
+
