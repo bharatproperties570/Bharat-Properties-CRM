@@ -1637,24 +1637,34 @@ export const PropertyConfigProvider = ({ children }) => {
     const syncBuiltupTypeLookup = useCallback(async (categoryName, subCategoryName, typeName, builtupTypeName, mode = 'add', oldName = null) => {
         try {
             const category = findLookup('Category', categoryName);
-            if (!category) return;
+            if (!category) return null;
             const subCategory = findLookup('SubCategory', subCategoryName, category._id);
-            if (!subCategory) return;
+            if (!subCategory) return null;
             const propertyType = findLookup('PropertyType', typeName, subCategory._id);
-            if (!propertyType) return;
+            if (!propertyType) return null;
 
+            let result = null;
             if (mode === 'add') {
-                await lookupsAPI.create({ lookup_type: 'BuiltupType', lookup_value: builtupTypeName, parent_lookup_id: propertyType._id, is_active: true });
+                const res = await lookupsAPI.create({ lookup_type: 'BuiltupType', lookup_value: builtupTypeName, parent_lookup_id: propertyType._id, is_active: true });
+                result = res?.data;
             } else if (mode === 'update' && oldName) {
                 const existing = findLookup('BuiltupType', oldName, propertyType._id);
-                if (existing) await lookupsAPI.update(existing._id, { lookup_value: builtupTypeName });
+                if (existing) {
+                    const res = await lookupsAPI.update(existing._id, { lookup_value: builtupTypeName });
+                    result = res?.data;
+                }
             } else if (mode === 'delete') {
                 const existing = findLookup('BuiltupType', builtupTypeName, propertyType._id);
-                if (existing) await lookupsAPI.delete(existing._id);
+                if (existing) {
+                    await lookupsAPI.delete(existing._id);
+                    result = true;
+                }
             }
             await refreshLookups();
+            return result;
         } catch (error) {
             console.error('Failed to sync BuiltupType lookup:', error);
+            return null;
         }
     }, [findLookup, refreshLookups]);
 
