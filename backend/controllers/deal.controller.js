@@ -114,20 +114,21 @@ export const getDeals = async (req, res) => {
         if (inventoryId) query.inventoryId = inventoryId;
 
         if (req.query.contactId) {
-            const contactIds = req.query.contactId.split(',');
-            query.$or = query.$or || [];
+            const contactIds = req.query.contactId.split(',').filter(id => id && mongoose.Types.ObjectId.isValid(id));
             
-            // 1. Exact ID Matching
-            query.$or.push(
-                { owner: { $in: contactIds } },
-                { "partyStructure.owner": { $in: contactIds } },
-                { associatedContact: { $in: contactIds } },
-                { "partyStructure.buyer": { $in: contactIds } }
-            );
-
-            // 2. Smart Identity Matching (Phone/Email) for Legacy data or Cross-Entity links
-            const identities = await Promise.all(contactIds.map(async (id) => {
-                if (!mongoose.Types.ObjectId.isValid(id)) return null;
+            if (contactIds.length > 0) {
+                query.$or = query.$or || [];
+                
+                // 1. Exact ID Matching
+                query.$or.push(
+                    { owner: { $in: contactIds } },
+                    { "partyStructure.owner": { $in: contactIds } },
+                    { associatedContact: { $in: contactIds } },
+                    { "partyStructure.buyer": { $in: contactIds } }
+                );
+    
+                // 2. Smart Identity Matching (Phone/Email) for Legacy data or Cross-Entity links
+                const identities = await Promise.all(contactIds.map(async (id) => {
                 const [c, l] = await Promise.all([
                     Contact.findById(id).lean(),
                     Lead.findById(id).lean()
@@ -169,6 +170,7 @@ export const getDeals = async (req, res) => {
                 query.$or.push(...identityMatches);
             }
         }
+    }
 
         const populateFields = [
             { path: 'inventoryId' },

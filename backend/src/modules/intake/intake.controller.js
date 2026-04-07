@@ -108,44 +108,50 @@ export const processOCR = async (req, res) => {
             return res.status(400).json({ success: false, message: "No image file uploaded" });
         }
 
-        console.log(`[Intake:OCR] Processing image: ${req.file.filename}`);
-
         // Initialize Tesseract Worker
+        const start = Date.now();
+        console.log(`[Intake:OCR] Starting Tesseract worker for file ${req.file.filename}...`);
         const worker = await createWorker('eng');
-        const { data: { text } } = await worker.recognize(req.file.path);
-        await worker.terminate();
+        try {
+            const { data: { text } } = await worker.recognize(req.file.path);
+            const duration = ((Date.now() - start) / 1000).toFixed(2);
+            console.log(`[Intake:OCR] Recognition complete in ${duration}s. Text length: ${text.length}`);
+            
+            const parsed = await parseContent(text);
+            console.log(`[Intake:OCR] Logic parsing complete.`);
 
-        const parsed = await parseContent(text);
+            // Create Intake Record
+            const intake = await Intake.create({
+                source: 'Camera',
+                content: text,
+                category: 'new',
+                status: 'Raw Received',
+                receivedAt: new Date(),
+                meta: {
+                    fileName: req.file.originalname,
+                    mimeType: req.file.mimetype,
+                    parsedData: parsed
+                }
+            });
 
-        // Create Intake Record
-        const intake = await Intake.create({
-            source: 'Camera',
-            content: text,
-            category: 'new',
-            status: 'Raw Received',
-            receivedAt: new Date(),
-            meta: {
-                fileName: req.file.originalname,
-                mimeType: req.file.mimetype,
-                parsedData: parsed
+            // Cleanup uploaded file
+            if (fs.existsSync(req.file.path)) {
+                fs.unlinkSync(req.file.path);
             }
-        });
 
-        // Cleanup uploaded file
-        if (fs.existsSync(req.file.path)) {
-            fs.unlinkSync(req.file.path);
+            res.status(200).json({
+                success: true,
+                data: intake
+            });
+        } finally {
+            await worker.terminate();
         }
-
-        res.status(200).json({
-            success: true,
-            data: intake
-        });
     } catch (error) {
         console.error("[Intake:OCR Error]:", error);
         if (req.file && fs.existsSync(req.file.path)) {
             fs.unlinkSync(req.file.path);
         }
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: error.message || "OCR Processing Failed" });
     }
 };
 

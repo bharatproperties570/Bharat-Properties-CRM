@@ -456,11 +456,14 @@ const PropertySettingsPage = () => {
         const lookupType = typeMap[type];
 
         const dataToExport = items.map(item => {
-            const name = typeof item === 'object' ? (item.name || item.lookup_value) : String(item);
-            let id = typeof item === 'object' && item.id ? item.id : name;
+            const isObject = typeof item === 'object' && item !== null;
+            const name = isObject ? (item.name || item.lookup_value) : String(item);
+            
+            // Prioritize already stored ID for professional data consistency
+            let id = isObject && (item.id || item._id) ? (item.id || item._id) : null;
 
-            // Hierarchical resolution using findLookup (parent-aware)
-            if (lookupType && findLookup) {
+            // If no ID exists, attempt hierarchical resolution via findLookup
+            if (!id && lookupType && findLookup) {
                 let parentId = null;
                 if (type === 'Sub_Categories') parentId = context.categoryId;
                 else if (type === 'Types') parentId = context.subCategoryId;
@@ -469,14 +472,13 @@ const PropertySettingsPage = () => {
                 const match = findLookup(lookupType, name, parentId);
                 if (match) id = match._id || match.id;
                 else {
-                    // Fallback to general getLookupId if hierarchical find fails
-                    const generalId = getLookupId(lookupType, name);
-                    if (generalId) id = generalId;
+                    // Fallback to general getLookupId for legacy strings
+                    id = getLookupId(lookupType, name);
                 }
             }
 
             return {
-                Backend_ID: id,
+                Backend_ID: id || 'N/A',
                 Display_Value: name
             };
         });
@@ -710,10 +712,15 @@ const PropertySettingsPage = () => {
                         const exists = typeObj.builtupTypes.some(b => (typeof b === 'object' ? b.name : b) === name);
                         if (!exists) {
                             const res = await syncBuiltupTypeLookup(configCategory, configSubCategory, configType, name, 'add');
-                            const newId = res?._id || Date.now().toString();
-                            typeObj.builtupTypes.push({ id: newId, name: name });
-                            await updateConfig(newConfig);
-                            showToast(`Builtup Type '${name}' added`);
+                            if (res && (res._id || res.id)) {
+                                const newId = (res._id || res.id).toString();
+                                typeObj.builtupTypes.push({ id: newId, name: name });
+                                await updateConfig(newConfig);
+                                showToast(`Builtup Type '${name}' added`);
+                            } else {
+                                showToast("Failed to sync Builtup Type with Database. Configuration not saved.", "error");
+                                console.error("[PropertySettingsPage] Add failed: Server returned no ID", res);
+                            }
                         } else {
                             alert("Builtup Type already exists.");
                         }
@@ -734,11 +741,15 @@ const PropertySettingsPage = () => {
                     const existingItem = typeObj.builtupTypes[index];
                     const existingId = typeof existingItem === 'object' ? existingItem.id : undefined;
                     const res = await syncBuiltupTypeLookup(configCategory, configSubCategory, configType, newName, 'update', oldName);
-                    const newId = res?._id || existingId || Date.now().toString();
                     
-                    typeObj.builtupTypes[index] = { id: newId, name: newName };
-                    await updateConfig(newConfig);
-                    showToast(`Builtup Type updated to '${newName}'`);
+                    if (res && (res._id || res.id || existingId)) {
+                        const newId = (res._id || res.id || existingId).toString();
+                        typeObj.builtupTypes[index] = { id: newId, name: newName };
+                        await updateConfig(newConfig);
+                        showToast(`Builtup Type updated to '${newName}'`);
+                    } else {
+                        showToast("Failed to update Builtup Type in Database.", "error");
+                    }
                 }
             }
         });

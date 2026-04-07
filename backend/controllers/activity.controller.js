@@ -88,10 +88,17 @@ export const getActivities = async (req, res) => {
 
         const query = {};
 
-        if (entityId) query.entityId = entityId;
+        if (entityId && mongoose.Types.ObjectId.isValid(entityId)) query.entityId = entityId;
+        else if (entityId) return res.status(400).json({ success: false, error: "Invalid entityId format" });
         if (entityType) query.entityType = entityType;
         if (type) query.type = type;
-        if (status) query.status = status;
+        if (status) {
+            if (status === 'Pending') {
+                query.status = { $in: ['Pending', 'In Progress', 'Overdue'] };
+            } else {
+                query.status = status;
+            }
+        }
         if (assignedTo) query.assignedTo = assignedTo;
 
         // Date Range Filtering
@@ -156,6 +163,9 @@ export const getActivitiesByEntity = async (req, res) => {
     try {
         const { entityType, entityId } = req.params;
         const escapedEntityType = escapeRegExp(entityType);
+        if (!mongoose.Types.ObjectId.isValid(entityId)) {
+            return res.status(400).json({ success: false, error: "Invalid entityId format" });
+        }
         const activities = await Activity.find({
             entityType: { $regex: new RegExp(`^${escapedEntityType}$`, 'i') },
             entityId: entityId
@@ -186,6 +196,10 @@ export const getActivitiesByEntity = async (req, res) => {
 export const getUnifiedTimeline = async (req, res) => {
     try {
         const { entityId, entityType } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(entityId)) {
+            return res.status(400).json({ success: false, error: "Invalid entityId format" });
+        }
 
         // 1. Fetch Activities
         const activities = await Activity.find({

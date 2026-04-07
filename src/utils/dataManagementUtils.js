@@ -168,9 +168,12 @@ export const MODULE_CONFIG = {
             { key: 'unitNo', label: 'Unit Number', required: true },
             { key: 'unitType', label: 'Unit Type' },
             { key: 'category', label: 'Category' },
+            { key: 'category_id', label: 'Category ID (Backend)' },
             { key: 'subCategory', label: 'Sub Category' },
+            { key: 'subCategory_id', label: 'Sub Category ID (Backend)' },
             { key: 'sizeLabel', label: 'Size Label *', required: true },
             { key: 'builtupType', label: 'Builtup Type' },
+            { key: 'builtupType_id', label: 'Builtup Type ID (Backend)' },
             { key: 'block', label: 'Block' },
             { key: 'size', label: 'Size' },
             { key: 'direction', label: 'Direction / Orientation' },
@@ -206,8 +209,10 @@ export const MODULE_CONFIG = {
 
             // System Details
             { key: 'assignedTo', label: 'Assigned To' },
+            { key: 'assignedTo_id', label: 'Assigned To ID (Backend)' },
             { key: 'team', label: 'Team' },
             { key: 'status', label: 'Status' },
+            { key: 'status_id', label: 'Status ID (Backend)' },
             { key: 'visibleTo', label: 'Visible To' }
         ]
     },
@@ -451,18 +456,34 @@ export const generateCSV = (data, columns) => {
     // Add Data Rows
     data.forEach(row => {
         const values = headers.map(header => {
-            const rawValue = row[header];
+            let rawValue = row[header];
+            
+            // Professional ID Mapping: If header is *_id but data is missing exactly that key,
+            // try to extract _id from the base object (e.g. category_id -> row.category._id)
+            if (header.endsWith('_id') && (rawValue === undefined || rawValue === null)) {
+                const baseKey = header.replace('_id', '');
+                const baseObj = row[baseKey];
+                if (baseObj && typeof baseObj === 'object') {
+                    rawValue = baseObj._id || baseObj.id;
+                }
+            }
+
             let displayValue = '';
 
             if (rawValue === null || rawValue === undefined) {
                 displayValue = '';
-            } else if (typeof rawValue === 'object') {
+            } else if (typeof rawValue === 'object' && rawValue !== null) {
                 // Intelligently handle populated MongoDB objects / Lookups
-                displayValue = rawValue.lookup_value || 
-                               rawValue.name || 
-                               rawValue.fullName || 
-                               rawValue.username || 
-                               (rawValue._id ? rawValue._id.toString() : JSON.stringify(rawValue));
+                // If it's an ID column, prioritize ID
+                if (header.endsWith('_id')) {
+                    displayValue = rawValue._id || rawValue.id || JSON.stringify(rawValue);
+                } else {
+                    displayValue = rawValue.lookup_value || 
+                                   rawValue.name || 
+                                   rawValue.fullName || 
+                                   rawValue.username || 
+                                   (rawValue._id ? rawValue._id.toString() : JSON.stringify(rawValue));
+                }
             } else {
                 displayValue = String(rawValue);
             }
