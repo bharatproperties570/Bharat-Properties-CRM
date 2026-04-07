@@ -108,7 +108,7 @@ const DealSchema = new mongoose.Schema({
     status: { type: String, default: 'Open' },
 
 
-    dealType: { type: String, default: 'Warm' },
+    dealType: { type: String, default: 'Registry case' },
     transactionType: { type: String, default: 'Full White' },
 
     flexiblePercentage: { type: Number, default: 50 },

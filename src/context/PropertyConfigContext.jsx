@@ -241,7 +241,7 @@ export const PropertyConfigProvider = ({ children }) => {
     });
 
     const [dealMasterFields, setDealMasterFields] = useSystemSetting('dealMasterFields', {
-        dealTypes: ['Cold', 'Warm', 'Hot', 'Very Hot'],
+        dealTypes: ['Registry case', 'Transfer case', 'GPA', 'Society case', 'Lease/Rent', 'Other'],
         buyerTypes: ['Male', 'Female', 'Joint']
     });
 

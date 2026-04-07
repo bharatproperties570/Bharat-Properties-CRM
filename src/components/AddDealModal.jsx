@@ -67,7 +67,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         status: 'Open', // Open, Quote, Negotiation, Booked, Won, Lost
 
         // New Fields
-        dealType: 'Warm', // Hot, Warm, Cold
+        dealType: 'Registry case', // Registry case, Transfer case, GPA, Society case, Lease/Rent, Other
         transactionType: 'Full White', // Full White, Collector Rate, Flexible
         flexiblePercentage: 50, // Default 50% if Flexible
         source: 'Walk-in', // New paper, 99 acrer, social media, walkin, Cold calling, own website
@@ -510,6 +510,8 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 builtupDetails: formData.builtupDetails,
                 furnishing: formData.furnishing,
                 documents: formData.documents,
+                publishOn: formData.publishOn,
+                sendMatchedDeal: formData.sendMatchedDeal,
                 financialDetails: {
                     securityDeposit: formData.securityDeposit,
                     lockInMonths: formData.lockInMonths,
@@ -1030,63 +1032,80 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                         )}
                     </div>
 
-                    {/* Publish On Section */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                        <div style={sectionStyle}>
-                            <h4 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 700 }}>Publish On</h4>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '10px' }}>
-                                {[
-                                    { id: 'website', icon: 'fas fa-globe', label: 'Website', color: '#2563eb' },
-                                    { id: 'facebook', icon: 'fab fa-facebook', label: 'Facebook', color: '#1877f2' },
-                                    { id: 'instagram', icon: 'fab fa-instagram', label: 'Instagram', color: '#e4405f' },
-                                    { id: 'whatsapp', icon: 'fab fa-whatsapp', label: 'WhatsApp', color: '#25d366' },
-                                    { id: 'linkedin', icon: 'fab fa-linkedin', label: 'LinkedIn', color: '#0077b5' },
-                                    { id: 'x', icon: 'fab fa-twitter', label: 'X', color: '#000000' }
-                                ].map(platform => (
-                                    <button
-                                        key={platform.id}
-                                        onClick={() => handleNestedInputChange('publishOn', platform.id, !formData.publishOn[platform.id])}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', gap: '8px', padding: '10px',
-                                            borderRadius: '8px', border: `1px solid ${formData.publishOn[platform.id] ? platform.color : '#e2e8f0'}`,
-                                            background: formData.publishOn[platform.id] ? `${platform.color}15` : '#fff',
-                                            cursor: 'pointer', transition: 'all 0.2s',
-                                            color: formData.publishOn[platform.id] ? platform.color : '#64748b',
-                                            fontSize: '0.85rem'
-                                        }}
-                                    >
-                                        <i className={platform.icon}></i>
-                                        <span style={{ fontWeight: 600 }}>{platform.label}</span>
-                                    </button>
-                                ))}
+                    {/* Marketing Command Center Section */}
+                    <div style={{ marginBottom: '30px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
+                            <div style={{ background: '#EEF2FF', padding: '10px', borderRadius: '12px' }}>
+                                <i className="fas fa-rocket" style={{ color: '#6366f1', fontSize: '1.2rem' }}></i>
+                            </div>
+                            <div>
+                                <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Marketing Command Center</h4>
+                                <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>Select platforms to automatically publish this deal. Our AI engine will generate platform-specific content.</p>
                             </div>
                         </div>
 
-                        <div style={sectionStyle}>
-                            <h4 style={{ margin: '0 0 20px 0', fontSize: '1rem', fontWeight: 700 }}>Send Matched Deal</h4>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                                {[
-                                    { id: 'sms', icon: 'fas fa-comment-dots', label: 'SMS', color: '#6366f1' },
-                                    { id: 'whatsapp', icon: 'fab fa-whatsapp', label: 'WhatsApp', color: '#25d366' },
-                                    { id: 'email', icon: 'fas fa-envelope', label: 'Email', color: '#ef4444' },
-                                    { id: 'rcs', icon: 'fas fa-comment-alt', label: 'RCS', color: '#3b82f6' }
-                                ].map(option => (
-                                    <button
-                                        key={option.id}
-                                        onClick={() => handleNestedInputChange('sendMatchedDeal', option.id, !formData.sendMatchedDeal[option.id])}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', gap: '10px', padding: '12px',
-                                            borderRadius: '10px', border: `2px solid ${formData.sendMatchedDeal[option.id] ? option.color : '#e2e8f0'}`,
-                                            background: formData.sendMatchedDeal[option.id] ? `${option.color}10` : '#fff',
-                                            cursor: 'pointer', transition: 'all 0.2s',
-                                            color: formData.sendMatchedDeal[option.id] ? option.color : '#64748b'
-                                        }}
-                                    >
-                                        <i className={option.icon}></i>
-                                        <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{option.label}</span>
-                                        {formData.sendMatchedDeal[option.id] && <i className="fas fa-check-circle" style={{ marginLeft: 'auto' }}></i>}
-                                    </button>
-                                ))}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '20px' }}>
+                            <div style={sectionStyle}>
+                                <h5 style={{ margin: '0 0 12px 0', fontSize: '0.9rem', fontWeight: 700, color: '#334155' }}>📢 Publish On</h5>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '10px' }}>
+                                    {[
+                                        { id: 'website', icon: 'fas fa-globe', label: 'Website', color: '#2563eb' },
+                                        { id: 'facebook', icon: 'fab fa-facebook', label: 'Facebook', color: '#1877f2' },
+                                        { id: 'instagram', icon: 'fab fa-instagram', label: 'Instagram', color: '#e4405f' },
+                                        { id: 'whatsapp', icon: 'fab fa-whatsapp', label: 'WhatsApp', color: '#25d366' },
+                                        { id: 'linkedin', icon: 'fab fa-linkedin', label: 'LinkedIn', color: '#0077b5' },
+                                        { id: 'x', icon: 'fab fa-twitter', label: 'X', color: '#000000' }
+                                    ].map(platform => (
+                                        <button
+                                            key={platform.id}
+                                            type="button"
+                                            onClick={() => handleNestedInputChange('publishOn', platform.id, !formData.publishOn[platform.id])}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: '8px', padding: '10px',
+                                                borderRadius: '8px', border: `1px solid ${formData.publishOn[platform.id] ? platform.color : '#e2e8f0'}`,
+                                                background: formData.publishOn[platform.id] ? `${platform.color}15` : '#fff',
+                                                cursor: 'pointer', transition: 'all 0.2s',
+                                                color: formData.publishOn[platform.id] ? platform.color : '#64748b',
+                                                fontSize: '0.85rem'
+                                            }}
+                                        >
+                                            <i className={platform.icon}></i>
+                                            <span style={{ fontWeight: 600 }}>{platform.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div style={sectionStyle}>
+                                <div style={{ marginBottom: '12px' }}>
+                                    <h5 style={{ margin: '0 0 4px 0', fontSize: '0.9rem', fontWeight: 700, color: '#334155' }}>🎯 AI Lead Matching & Outreach</h5>
+                                    <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Automatically notify matching leads via selected channels upon deal creation.</p>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                    {[
+                                        { id: 'sms', icon: 'fas fa-comment-dots', label: 'SMS', color: '#6366f1' },
+                                        { id: 'whatsapp', icon: 'fab fa-whatsapp', label: 'WhatsApp', color: '#25d366' },
+                                        { id: 'email', icon: 'fas fa-envelope', label: 'Email', color: '#ef4444' },
+                                        { id: 'rcs', icon: 'fas fa-comment-alt', label: 'RCS', color: '#3b82f6' }
+                                    ].map(option => (
+                                        <button
+                                            key={option.id}
+                                            type="button"
+                                            onClick={() => handleNestedInputChange('sendMatchedDeal', option.id, !formData.sendMatchedDeal[option.id])}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: '10px', padding: '12px',
+                                                borderRadius: '10px', border: `2px solid ${formData.sendMatchedDeal[option.id] ? option.color : '#e2e8f0'}`,
+                                                background: formData.sendMatchedDeal[option.id] ? `${option.color}10` : '#fff',
+                                                cursor: 'pointer', transition: 'all 0.2s',
+                                                color: formData.sendMatchedDeal[option.id] ? option.color : '#64748b'
+                                            }}
+                                        >
+                                            <i className={option.icon}></i>
+                                            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{option.label}</span>
+                                            {formData.sendMatchedDeal[option.id] && <i className="fas fa-check-circle" style={{ marginLeft: 'auto' }}></i>}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     </div>

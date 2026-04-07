@@ -51,6 +51,7 @@ const populateFields = [
 
 export const getInventory = async (req, res) => {
     try {
+        console.log("[Backend] getInventory Query Params:", JSON.stringify(req.query, null, 2));
         const { page = 1, limit = 10, search = "", category, subCategory, unitType, status, project, block, location, area, contactId, statusCategory } = req.query;
 
         let query = {};
@@ -154,17 +155,58 @@ export const getInventory = async (req, res) => {
             }
         }
 
-        const resolveFilter = async (type, value) => {
-            if (!value) return null;
-            if (mongoose.Types.ObjectId.isValid(value)) return value;
-            const lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapeRegExp(value)}$`, 'i') } });
-            return lookup ? lookup._id : null;
+        const resolveMultiFilter = async (type, values) => {
+            if (!values) return null;
+            // Handle Axios array serialization (status, status[], etc.)
+            let vals = values;
+            if (!Array.isArray(vals)) {
+                vals = String(vals).split(',').map(s => s.trim()).filter(Boolean);
+            }
+            if (vals.length === 0) return null;
+
+            const resolved = await Promise.all(vals.map(async (v) => {
+                if (mongoose.Types.ObjectId.isValid(v)) return v;
+                const lookup = await Lookup.findOne({ 
+                    lookup_type: type, 
+                    lookup_value: { $regex: new RegExp(`^${escapeRegExp(v)}$`, 'i') } 
+                }).select('_id').lean();
+                return lookup ? lookup._id : null;
+            }));
+            const filtered = resolved.filter(Boolean);
+            return filtered.length > 0 ? { $in: filtered } : null;
         };
 
-        if (category) query.category = await resolveFilter('Category', category);
-        if (subCategory) query.subCategory = await resolveFilter('SubCategory', subCategory);
-        if (unitType) query.unitType = await resolveFilter('Size', unitType);
-        if (status) query.status = await resolveFilter('Status', status);
+        // Standardize multi-select keys (handle status vs status[])
+        const statusReq = status || req.query['status[]'];
+        const categoryReq = category || req.query['category[]'];
+        const subCategoryReq = subCategory || req.query['subCategory[]'];
+        const unitTypeReq = unitType || req.query['unitType[]'];
+
+        // Special handling for 'active' and 'inactive' status groups (Mobile CRM optimization)
+        const activeStatusNames = ['Available', 'Active', 'Interested / Warm', 'Interested / Hot', 'Request Call Back', 'Busy / Driving', 'Market Feedback', 'General Inquiry', 'Blocked', 'Booked', 'Interested'];
+        const inactiveStatusNames = ['Sold Out', 'Rented Out', 'Not Interested', 'Inactive', 'Wrong Number / Invalid', 'Switch Off / Unreachable'];
+
+        if (statusReq === 'active' || (Array.isArray(statusReq) && statusReq.includes('active'))) {
+            const activeStatusDocs = await Lookup.find({ lookup_type: 'Status', lookup_value: { $in: activeStatusNames } }).select('_id').lean();
+            const activeStatusIds = activeStatusDocs.map(d => d._id);
+            query.status = { $in: [...activeStatusIds, ...activeStatusIds.map(id => id.toString()), ...activeStatusNames] };
+        } else if (statusReq === 'inactive' || (Array.isArray(statusReq) && statusReq.includes('inactive'))) {
+            const inactiveStatusDocs = await Lookup.find({ lookup_type: 'Status', lookup_value: { $in: inactiveStatusNames } }).select('_id').lean();
+            const inactiveStatusIds = inactiveStatusDocs.map(d => d._id);
+            query.status = { $in: [...inactiveStatusIds, ...inactiveStatusIds.map(id => id.toString()), ...inactiveStatusNames] };
+        } else {
+            const statusFilter = await resolveMultiFilter('Status', statusReq);
+            if (statusFilter) query.status = statusFilter;
+        }
+
+        const categoryFilter = await resolveMultiFilter('Category', categoryReq);
+        if (categoryFilter) query.category = categoryFilter;
+
+        const subCategoryFilter = await resolveMultiFilter('SubCategory', subCategoryReq);
+        if (subCategoryFilter) query.subCategory = subCategoryFilter;
+
+        const unitTypeFilter = await resolveMultiFilter('Size', unitTypeReq);
+        if (unitTypeFilter) query.unitType = unitTypeFilter;
         if (project) {
             const projectConditions = [
                 { projectId: mongoose.Types.ObjectId.isValid(project) ? project : undefined },
@@ -207,14 +249,6 @@ export const getInventory = async (req, res) => {
             { path: "builtupType" }
         ];
 
-        // Fetch counts for Active and InActive
-        // Note: In a real production system, these "Active/InActive" rules would be lookups or business rules.
-        // For now, we define Active as 'Available' and InActive as 'Sold Out', 'Rented Out', 'Inactive'.
-
-        // Optimized Counters using Aggregation
-        const activeStatusNames = ['Available', 'Active', 'Interested / Warm', 'Interested / Hot', 'Request Call Back', 'Busy / Driving', 'Market Feedback', 'General Inquiry', 'Blocked', 'Booked', 'Interested'];
-        const inactiveStatusNames = ['Sold Out', 'Rented Out', 'Not Interested', 'Inactive', 'Wrong Number / Invalid', 'Switch Off / Unreachable'];
-
         const [activeStatusDocs, inactiveStatusDocs] = await Promise.all([
             Lookup.find({ lookup_type: 'Status', lookup_value: { $in: activeStatusNames } }).select('_id').lean(),
             Lookup.find({ lookup_type: 'Status', lookup_value: { $in: inactiveStatusNames } }).select('_id').lean()
@@ -222,6 +256,10 @@ export const getInventory = async (req, res) => {
 
         const activeStatusIds = activeStatusDocs.map(d => d._id);
         const inactiveStatusIds = inactiveStatusDocs.map(d => d._id);
+
+        // Robust matching: Include string IDs for data consistency fallback
+        const activeStatusIdStrings = activeStatusIds.map(id => id.toString());
+        const inactiveStatusIdStrings = inactiveStatusIds.map(id => id.toString());
 
         // Single aggregation for all stats
         // We need a separate query for category stats that ignores the category filter
@@ -234,11 +272,27 @@ export const getInventory = async (req, res) => {
                 {
                     $facet: {
                         active: [
-                            { $match: { $or: [{ status: { $in: activeStatusIds } }, { status: { $in: activeStatusNames } }] } },
+                            { 
+                                $match: { 
+                                    $or: [
+                                        { status: { $in: activeStatusIds } }, 
+                                        { status: { $in: activeStatusIdStrings } },
+                                        { status: { $in: activeStatusNames } }
+                                    ] 
+                                } 
+                            },
                             { $count: "count" }
                         ],
                         inactive: [
-                            { $match: { $or: [{ status: { $in: inactiveStatusIds } }, { status: { $in: inactiveStatusNames } }] } },
+                            { 
+                                $match: { 
+                                    $or: [
+                                        { status: { $in: inactiveStatusIds } }, 
+                                        { status: { $in: inactiveStatusIdStrings } },
+                                        { status: { $in: inactiveStatusNames } }
+                                    ] 
+                                } 
+                            },
                             { $count: "count" }
                         ]
                     }

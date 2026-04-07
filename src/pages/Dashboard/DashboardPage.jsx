@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import logo from '../../assets/logo.png';
 
 // Modular Components
 import DashboardKPIs from './components/DashboardKPIs';
@@ -104,14 +105,28 @@ const DashboardPage = ({ onNavigate }) => {
             {/* Futuristic Header */}
             <div style={{ position: 'sticky', top: 0, zIndex: 100, background: 'rgba(2, 6, 23, 0.8)', backdropFilter: 'blur(12px)', padding: '24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', marginBottom: '32px' }}>
                 <div>
-                    <h1 style={{ fontSize: '1.8rem', fontWeight: 900, letterSpacing: '-0.03em', margin: 0, background: 'linear-gradient(to right, #fff, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                        Neural Command Dashboard
-                    </h1>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '6px' }}>
-                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 10px #10b981' }}></div>
-                        <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>SYSTEMS ONLINE</span>
-                        <span style={{ color: 'rgba(255,255,255,0.1)' }}>|</span>
-                        <span style={{ fontSize: '0.8rem', color: '#64748b' }}>LAST SYNC: {lastRefresh ? lastRefresh.toLocaleTimeString() : '--:--'}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                        <img 
+                            src={logo} 
+                            alt="Bharat Properties Logo" 
+                            style={{ 
+                                width: '42px', 
+                                height: '42px', 
+                                objectFit: 'contain',
+                                filter: 'drop-shadow(0 0 8px rgba(99, 102, 241, 0.4))'
+                            }} 
+                        />
+                        <div>
+                            <h1 style={{ fontSize: '1.8rem', fontWeight: 900, letterSpacing: '-0.03em', margin: 0, background: 'linear-gradient(to right, #fff, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                                Neural Command Dashboard
+                            </h1>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '6px' }}>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 10px #10b981' }}></div>
+                                <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>SYSTEMS ONLINE</span>
+                                <span style={{ color: 'rgba(255,255,255,0.1)' }}>|</span>
+                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>LAST SYNC: {lastRefresh ? lastRefresh.toLocaleTimeString() : '--:--'}</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

@@ -119,9 +119,22 @@ export const getActivities = async (req, res) => {
 
         const total = await Activity.countDocuments(query);
 
+        // Enrichment: Process attribution fallbacks for older records
+        const enrichedActivities = activities.map(a => {
+            const act = { ...a };
+            if (!act.performedBy) {
+                if (act.assignedTo) {
+                    act.performedBy = act.assignedTo.fullName || act.assignedTo.name || "Staff User";
+                } else {
+                    act.performedBy = "Bharat Properties"; // Default System Admin
+                }
+            }
+            return act;
+        });
+
         res.json({
             success: true,
-            data: activities,
+            data: enrichedActivities,
             pagination: {
                 total,
                 page: Number(page),
@@ -148,7 +161,20 @@ export const getActivitiesByEntity = async (req, res) => {
             entityId: entityId
         }).populate('assignedTo', 'fullName name email').sort({ createdAt: -1 }).lean();
 
-        res.json({ success: true, data: activities });
+        // Enrichment: Process attribution fallbacks
+        const enrichedActivities = activities.map(a => {
+            const act = { ...a };
+            if (!act.performedBy) {
+                if (act.assignedTo) {
+                    act.performedBy = act.assignedTo.fullName || act.assignedTo.name || "Staff User";
+                } else {
+                    act.performedBy = "Bharat Properties";
+                }
+            }
+            return act;
+        });
+
+        res.json({ success: true, data: enrichedActivities });
     } catch (error) {
         if (error.name === "CastError") return res.status(400).json({ success: false, error: `Invalid ${error.path}: ${error.value}` });
         res.status(500).json({ success: false, error: error.message });
@@ -254,7 +280,14 @@ export const getActivityById = async (req, res) => {
 // @route   POST /api/activities
 export const addActivity = async (req, res) => {
     try {
-        const activity = await Activity.create(req.body);
+        const activityData = { ...req.body };
+        
+        // Auto-set performer name from authenticated user
+        if (req.user && !activityData.performedBy) {
+            activityData.performedBy = req.user.fullName || req.user.name || `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim();
+        }
+
+        const activity = await Activity.create(activityData);
 
         // Auto-run Enrichment if entity is a Lead
         if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
@@ -443,7 +476,8 @@ export const syncMobileCalls = async (req, res) => {
                     isMatched: !!match,
                     recordingUrl: call.recordingUrl || null
                 },
-                performedAt: new Date(call.timestamp)
+                performedAt: new Date(call.timestamp),
+                performedBy: req.user?.fullName || req.user?.name || "Mobile User"
             };
 
             const existing = await Activity.findOne({ "details.mobileId": call.id, "details.platform": 'Mobile' });
@@ -489,7 +523,8 @@ export const syncMobileCalls = async (req, res) => {
                     mobileId: msg.id || `${msg.address}_${msg.date}`,
                     isMatched: !!match
                 },
-                performedAt: new Date(msg.date)
+                performedAt: new Date(msg.date),
+                performedBy: req.user?.fullName || req.user?.name || "Mobile User"
             };
 
             const existing = await Activity.findOne({ 

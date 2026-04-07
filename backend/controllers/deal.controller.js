@@ -242,7 +242,11 @@ export const getDeals = async (req, res) => {
         const inventoryIdsToFetch = [...new Set(results.records.map(d => d.inventoryId?._id || d.inventoryId).filter(Boolean))];
         const inventoryMap = new Map();
         if (inventoryIdsToFetch.length > 0) {
-            const inventories = await Inventory.find({ _id: { $in: inventoryIdsToFetch } }).populate('owners').populate('associates.contact').lean();
+            const inventories = await Inventory.find({ _id: { $in: inventoryIdsToFetch } })
+                .populate('owners')
+                .populate('associates.contact')
+                .select('+sizeLabel +sizeConfig') // Ensure these are included if they were excluded by default
+                .lean();
             inventories.forEach(inv => inventoryMap.set(String(inv._id), inv));
         }
 
@@ -362,6 +366,7 @@ const sanitizeData = (data) => {
 };
 
 export const addDeal = async (req, res) => {
+    console.log('[DEBUG] Incoming Add Deal Payload:', JSON.stringify(req.body, null, 2));
     try {
         const sanitizedData = sanitizeData(req.body);
 
@@ -377,7 +382,7 @@ export const addDeal = async (req, res) => {
                 query.intent = sanitizedData.intent;
             }
 
-            const existingDeals = await Deal.find(query).populate('intent');
+            const existingDeals = await Deal.find(query);
 
             // 1. If any deal of this type is already 'Closed' or 'Won', lock the type permanently
             const hasClosed = existingDeals.some(d => ['Closed', 'Closed Won', 'Won'].includes(d.stage));
@@ -425,6 +430,18 @@ export const addDeal = async (req, res) => {
         });
 
         await syncInventoryStatus(deal);
+        
+        // 🌐 WEBSITE PUBLISHING: Auto-generate slug and metadata if requested
+        if (sanitizedData.publishOn?.website) {
+            const slugBase = `${deal.projectName || 'property'}-${deal.unitNo || deal._id.toString().slice(-6)}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+            await Deal.findByIdAndUpdate(deal._id, {
+                isPublished: true,
+                publishedAt: new Date(),
+                'websiteMetadata.slug': slugBase,
+                'websiteMetadata.title': deal.projectName || 'New Listing',
+                'websiteMetadata.description': deal.remarks || 'Check out this new property listing at Bharat Properties.'
+            });
+        }
 
         // Audit Log Deal Conversion
         if (sanitizedData.owner || sanitizedData.partyStructure?.buyer) {
@@ -439,14 +456,30 @@ export const addDeal = async (req, res) => {
             );
         }
 
-        // BUG D4 FIX: Use DLT-compliant SMS template instead of plain sendSMS
-        const dealWithConfig = await Deal.findById(deal._id).populate('owner associatedContact category');
-        const phone = dealWithConfig.owner?.phone || dealWithConfig.associatedContact?.phone;
-        if (phone) {
-            smsService.sendSMSWithTemplate(phone, 'deal_created', {
-                dealId: dealWithConfig.dealId || deal._id.toString().slice(-6).toUpperCase(),
-                projectName: dealWithConfig.projectName || 'the property'
-            }).catch(e => console.error('[SMS Trigger Error] New Deal failed:', e.message));
+        // BUG D4 FIX: Correctly extract phone from phones array (Contact model)
+        try {
+            // NOTE: 'category' is a Mixed field and 'intent' is a String; do not populate them as they have no 'ref'
+            const dealWithConfig = await Deal.findById(deal._id).populate('owner associatedContact');
+            
+            const extractPhone = (contact) => {
+                if (!contact) return null;
+                // If populated, it has a phones array. If mixed/other, check for phone/mobile field as fallback.
+                if (contact.phones && Array.isArray(contact.phones) && contact.phones.length > 0) {
+                    return contact.phones[0].number;
+                }
+                return contact.phone || contact.mobile || null;
+            };
+
+            const phone = extractPhone(dealWithConfig.owner) || extractPhone(dealWithConfig.associatedContact);
+            
+            if (phone) {
+                smsService.sendSMSWithTemplate(phone, 'deal_created', {
+                    dealId: dealWithConfig.dealId || deal._id.toString().slice(-6).toUpperCase(),
+                    projectName: dealWithConfig.projectName || 'the property'
+                }).catch(e => console.error('[SMS Trigger Error] New Deal failed:', e.message));
+            }
+        } catch (smsError) {
+            console.error('[Notification Error] SMS trigger isolated:', smsError.message);
         }
 
         // 🚀 AUTO-MARKETING: Fire campaign engine for new deal (fire-and-forget, non-blocking)
@@ -461,6 +494,7 @@ export const addDeal = async (req, res) => {
 };
 
 export const updateDeal = async (req, res) => {
+    console.log('[DEBUG] Incoming Update Deal Payload:', JSON.stringify(req.body, null, 2));
     try {
         const sanitizedData = sanitizeData(req.body);
 
@@ -514,19 +548,55 @@ export const updateDeal = async (req, res) => {
 
         await syncInventoryStatus(deal);
 
-        // BUG D4 FIX: Use DLT-compliant SMS template instead of plain sendSMS
+        // 🌐 WEBSITE PUBLISHING: Handle updates to publishing status
+        if (sanitizedData.publishOn?.website && !deal.isPublished) {
+            const slugBase = `${deal.projectName || 'property'}-${deal.unitNo || deal._id.toString().slice(-6)}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+            await Deal.findByIdAndUpdate(deal._id, {
+                isPublished: true,
+                publishedAt: new Date(),
+                'websiteMetadata.slug': slugBase,
+                'websiteMetadata.title': deal.projectName || 'Updated Listing',
+                'websiteMetadata.description': deal.remarks || 'Check out this updated property listing at Bharat Properties.'
+            });
+        } else if (sanitizedData.publishOn && sanitizedData.publishOn.website === false && deal.isPublished) {
+            await Deal.findByIdAndUpdate(deal._id, { isPublished: false });
+        }
+
+        // BUG D4 FIX: Correctly extract phone from phones array for stage updates
         if (sanitizedData.stage) {
-            const dealPop = await Deal.findById(deal._id).populate('owner associatedContact');
-            const phone = dealPop.owner?.phone || dealPop.associatedContact?.phone;
-            if (phone) {
-                smsService.sendSMSWithTemplate(phone, 'deal_stage_updated', {
-                    dealId: dealPop.dealId || deal._id.toString().slice(-6).toUpperCase(),
-                    stage: dealPop.stage
-                }).catch(e => console.error('[SMS Trigger Error] Deal stage failed:', e.message));
+            try {
+                const dealPop = await Deal.findById(deal._id).populate('owner associatedContact');
+                
+                const extractPhone = (contact) => {
+                    if (!contact) return null;
+                    if (contact.phones && Array.isArray(contact.phones) && contact.phones.length > 0) {
+                        return contact.phones[0].number;
+                    }
+                    return contact.phone || contact.mobile || null;
+                };
+
+                const phone = extractPhone(dealPop.owner) || extractPhone(dealPop.associatedContact);
+                
+                if (phone) {
+                    smsService.sendSMSWithTemplate(phone, 'deal_stage_updated', {
+                        dealId: dealPop.dealId || deal._id.toString().slice(-6).toUpperCase(),
+                        stage: dealPop.stage
+                    }).catch(e => console.error('[SMS Trigger Error] Deal stage failed:', e.message));
+                }
+            } catch (smsError) {
+                console.error('[Notification Error] Stage SMS trigger isolated:', smsError.message);
             }
         }
 
         res.json({ success: true, data: deal, deal: deal });
+        
+        // 🚀 AUTO-MARKETING: Fire campaign engine if publishing flags or stage changed
+        // This is non-blocking (fire-and-forget)
+        setTimeout(() => {
+            CampaignEngine.launch(deal._id).catch(err =>
+                console.error('[CampaignEngine] Auto-launch error for updated deal:', err.message)
+            );
+        }, 100);
     } catch (error) {
         console.error('Error in updateDeal:', error);
         res.status(500).json({ success: false, error: error.message, message: error.message });

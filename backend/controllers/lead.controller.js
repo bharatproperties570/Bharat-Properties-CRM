@@ -249,15 +249,116 @@ export const getLeads = async (req, res, next) => {
         }
 
         if (stage && mongoose.Types.ObjectId.isValid(stage)) query.stage = stage;
-        if (status && mongoose.Types.ObjectId.isValid(status)) query.status = status;
+        if (stage && mongoose.Types.ObjectId.isValid(stage)) query.stage = stage;
         if (teamId && mongoose.Types.ObjectId.isValid(teamId)) query['assignment.team'] = teamId;
         if (userId && mongoose.Types.ObjectId.isValid(userId)) {
             query.$or = query.$or || [];
             query.$or.push({ owner: userId }, { 'assignment.assignedTo': userId });
         }
 
+        // Support for 'status' keywords (fresh, hot, incoming, prospect, etc.)
+        if (status) {
+            let targetStages = [];
+            let isHotOrFresh = false;
+            if (status === 'fresh') { targetStages = ['New', 'Lead Created', 'Open', 'Prospect']; isHotOrFresh = true; }
+            else if (status === 'hot') { targetStages = ['Qualified', 'Opportunity', 'Negotiation', 'Booked', 'Closed Won']; isHotOrFresh = true; }
+            else if (status === 'incoming') targetStages = ['New', 'Lead Created', 'Open'];
+            else if (status === 'prospect') targetStages = ['Prospect', 'Qualified'];
+            else if (status === 'opportunity') targetStages = ['Opportunity'];
+            else if (status === 'negotiation') targetStages = ['Negotiation', 'Booked'];
+            else if (status === 'won') targetStages = ['Closed Won'];
+            else if (status === 'lost') targetStages = ['Closed Lost', 'Stalled'];
+
+            if (targetStages.length > 0) {
+                const stages = await Lookup.find({ 
+                    lookup_type: 'Stage', 
+                    lookup_value: { $in: targetStages.map(s => new RegExp(`^${s}$`, 'i')) } 
+                }).select('_id');
+                query.stage = { $in: stages.map(s => s._id) };
+            } else if (mongoose.Types.ObjectId.isValid(status)) {
+                query.status = status;
+            }
+        }
+
+        // Calculate Stats (Total, Today, Fresh, Hot)
+        const stats = await Lead.aggregate([
+            {
+                $facet: {
+                    total: [{ $count: "count" }],
+                    today: [
+                        { $match: { createdAt: { $gte: new Date(new Date().setHours(0,0,0,0)) } } },
+                        { $count: "count" }
+                    ],
+                    fresh: [
+                        { $lookup: { from: "lookups", localField: "stage", foreignField: "_id", as: "stageDoc" } },
+                        { $unwind: "$stageDoc" },
+                        { $match: { "stageDoc.lookup_value": { $regex: /^(New|Lead Created|Open|Prospect)$/i } } },
+                        { $count: "count" }
+                    ],
+                    hot: [
+                        { $lookup: { from: "lookups", localField: "stage", foreignField: "_id", as: "stageDoc" } },
+                        { $unwind: "$stageDoc" },
+                        { $match: { "stageDoc.lookup_value": { $regex: /^(Qualified|Opportunity|Negotiation|Booked|Closed Won)$/i } } },
+                        { $count: "count" }
+                    ],
+                    incoming: [
+                        { $lookup: { from: "lookups", localField: "stage", foreignField: "_id", as: "stageDoc" } },
+                        { $unwind: "$stageDoc" },
+                        { $match: { "stageDoc.lookup_value": { $regex: /^(New|Lead Created|Open)$/i } } },
+                        { $count: "count" }
+                    ],
+                    prospect: [
+                        { $lookup: { from: "lookups", localField: "stage", foreignField: "_id", as: "stageDoc" } },
+                        { $unwind: "$stageDoc" },
+                        { $match: { "stageDoc.lookup_value": { $regex: /^(Prospect|Qualified)$/i } } },
+                        { $count: "count" }
+                    ],
+                    opportunity: [
+                        { $lookup: { from: "lookups", localField: "stage", foreignField: "_id", as: "stageDoc" } },
+                        { $unwind: "$stageDoc" },
+                        { $match: { "stageDoc.lookup_value": { $regex: /^(Opportunity)$/i } } },
+                        { $count: "count" }
+                    ],
+                    negotiation: [
+                        { $lookup: { from: "lookups", localField: "stage", foreignField: "_id", as: "stageDoc" } },
+                        { $unwind: "$stageDoc" },
+                        { $match: { "stageDoc.lookup_value": { $regex: /^(Negotiation|Booked)$/i } } },
+                        { $count: "count" }
+                    ],
+                    won: [
+                        { $lookup: { from: "lookups", localField: "stage", foreignField: "_id", as: "stageDoc" } },
+                        { $unwind: "$stageDoc" },
+                        { $match: { "stageDoc.lookup_value": { $regex: /^(Closed Won)$/i } } },
+                        { $count: "count" }
+                    ],
+                    lost: [
+                        { $lookup: { from: "lookups", localField: "stage", foreignField: "_id", as: "stageDoc" } },
+                        { $unwind: "$stageDoc" },
+                        { $match: { "stageDoc.lookup_value": { $regex: /^(Closed Lost|Stalled)$/i } } },
+                        { $count: "count" }
+                    ]
+                }
+            }
+        ]);
+
+        const statsObj = {
+            total: stats[0]?.total[0]?.count || 0,
+            today: stats[0]?.today[0]?.count || 0,
+            fresh: stats[0]?.fresh[0]?.count || 0,
+            hot: stats[0]?.hot[0]?.count || 0,
+            pipeline: {
+                incoming: stats[0]?.incoming[0]?.count || 0,
+                prospect: stats[0]?.prospect[0]?.count || 0,
+                opportunity: stats[0]?.opportunity[0]?.count || 0,
+                negotiation: stats[0]?.negotiation[0]?.count || 0,
+                won: stats[0]?.won[0]?.count || 0,
+                lost: stats[0]?.lost[0]?.count || 0
+            }
+        };
+
         // Enable population for key fields
         const results = await paginate(Lead, query, Number(page), Number(limit), { updatedAt: -1 }, leadPopulateFields);
+        results.stats = statsObj;
 
         // Attach Interaction Data (Activity Counts & Recent Activities)
         if (results.records && results.records.length > 0) {

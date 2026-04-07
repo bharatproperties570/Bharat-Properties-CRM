@@ -3970,3 +3970,130 @@
   background: #EDF2F7;
   color: #4A5568;
 }
+/* ── NEURAL FUNNEL VISUALIZATION ── */
+.funnel-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+}
+
+.funnel-tier {
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  margin: 0 auto;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.funnel-tier:hover {
+  transform: scale(1.02);
+  filter: brightness(1.2);
+  z-index: 10;
+}
+
+.tier-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0 20px;
+  z-index: 2;
+}
+
+.tier-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--white);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-family: var(--font-serif);
+}
+
+.tier-stats {
+  text-align: right;
+}
+
+.tier-val {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--white);
+  font-family: var(--font-mono);
+}
+
+.tier-sub {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  display: block;
+}
+
+/* Funnel Tier Widths (Funnel Effect) */
+.tier-1 { width: 100%; background: linear-gradient(90deg, #1A365D, #2B6CB0); }
+.tier-2 { width: 90%; background: linear-gradient(90deg, #2B6CB0, #4299E1); }
+.tier-3 { width: 75%; background: linear-gradient(90deg, #4299E1, var(--gold)); }
+.tier-4 { width: 55%; background: linear-gradient(90deg, var(--gold), var(--gold2)); }
+.tier-5 { width: 35%; background: linear-gradient(90deg, var(--gold2), var(--gold-l)); }
+
+.conv-v-badge {
+  position: absolute;
+  left: 50%;
+  bottom: -12px;
+  transform: translateX(-50%);
+  background: var(--navy3);
+  border: 1px solid var(--gold);
+  border-radius: 20px;
+  padding: 2px 10px;
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--gold-l);
+  z-index: 5;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+}
+
+.funnel-yield-hub {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1.5rem;
+}
+
+.yield-stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1rem;
+}
+
+.yield-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text3);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.yield-val {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--gold-l);
+  font-family: var(--font-serif);
+}
+
+.yield-sub {
+  font-size: 11px;
+  color: var(--green);
+  font-weight: 600;
+  margin-top: 4px;
+}

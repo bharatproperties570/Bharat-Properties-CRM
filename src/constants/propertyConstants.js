@@ -17,7 +17,7 @@ export const PROPERTY_CATEGORIES = {
                 ]
             },
             {
-                name: "Independent House",
+                name: "House",
                 types: [
                     { name: "1 Kanal", builtupTypes: [] },
                     { name: "2 Kanal", builtupTypes: [] },

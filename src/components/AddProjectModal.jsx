@@ -195,6 +195,7 @@ const DEFAULT_FORM_DATA = {
 
 function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projectToEdit = null }) {
     const {
+        propertyConfig: propertyConfigFromContext,
         projectMasterFields: masterFieldsFromContext,
         projectAmenities,
         getLookupId,
@@ -365,14 +366,17 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
 
     const categories = Object.keys(PROPERTY_CATEGORIES);
 
-    // Dynamic Subcategories based on selected Categories
+    // Dynamic Subcategories based on selected Categories (Uses dynamic config from context)
     const getSubCategories = () => {
         if (!formData.category || formData.category.length === 0) return [];
 
+        const currentConfig = propertyConfigFromContext || projectMasterFieldsSafe?.propertyConfig || PROPERTY_CATEGORIES;
         let allSubCats = [];
+
         formData.category.forEach(cat => {
-            if (PROPERTY_CATEGORIES[cat] && PROPERTY_CATEGORIES[cat].subCategories) {
-                const subNames = PROPERTY_CATEGORIES[cat].subCategories.map(sc => sc.name);
+            const catConfig = currentConfig[cat];
+            if (catConfig && catConfig.subCategories) {
+                const subNames = catConfig.subCategories.map(sc => sc.name || sc);
                 allSubCats = [...allSubCats, ...subNames];
             }
         });
