@@ -288,8 +288,8 @@ const InventoryUnitSection = ({
                         >
                             <option value="">{formData.subCategory ? "Select Type" : "Select Sub-Category in Unit Details First"}</option>
                             {builtUpTypes.map(t => (
-                                <option key={typeof t === 'object' ? (t._id || t.id) : t} value={typeof t === 'object' ? (t._id || t.id) : t}>
-                                    {renderValue(t)}
+                                <option key={t._id || t.id || t.name} value={t._id || t.id || t.name}>
+                                    {t.name}
                                 </option>
                             ))}
                         </select>

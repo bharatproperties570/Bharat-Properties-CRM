@@ -6,40 +6,15 @@ import CreateActivityModal from '../../../components/CreateActivityModal';
 import AlgorithmSettingsModal from '../components/AlgorithmSettingsModal';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
-import { parseBudget, parseSizeSqYard, calculateMatch } from '../../../utils/matchingLogic';
+import { parseBudget, parseSizeSqYard } from '../../../utils/matchingLogic'; // Keeping for parsing utilities
 import { useActivities } from '../../../context/ActivityContext';
+import { renderValue } from '../../../utils/renderUtils';
 
 const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const { addActivity } = useActivities();
     const [lead, setLead] = useState(null);
     const [inventoryItems, setInventoryItems] = useState([]);
     const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                // Fetch specific lead
-                const leadRes = await api.get(`leads/${leadId}`);
-                if (leadRes.data && leadRes.data.success) {
-                    setLead(leadRes.data.data);
-                }
-
-                // Fetch all inventory for matching
-                const inventoryRes = await api.get('inventory', { params: { limit: 1000 } });
-                if (inventoryRes.data && inventoryRes.data.success) {
-                    setInventoryItems(inventoryRes.data.records || []);
-                }
-            } catch (error) {
-                console.error("Error fetching match data:", error);
-                toast.error("Failed to load match data");
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchData();
-    }, [leadId]);
 
     // Selection State
     const [selectedItems, setSelectedItems] = useState([]);
@@ -59,6 +34,50 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         size: 25
     });
 
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            const fetchData = async () => {
+                setLoading(true);
+                try {
+                    // 1. Fetch specific lead
+                    const leadRes = await api.get(`leads/${leadId}`);
+                    if (leadRes.data && leadRes.data.success) {
+                        setLead(leadRes.data.data);
+                    }
+
+                    // 2. Fetch professional matches from backend engine with dynamic params
+                    const matchRes = await api.get('deals/match', { 
+                        params: { 
+                            leadId, 
+                            budgetFlexibility, 
+                            sizeFlexibility, 
+                            weights: JSON.stringify(weights) 
+                        } 
+                    });
+                    
+                    if (matchRes.data && matchRes.data.success) {
+                        const mappedMatches = (matchRes.data.data || []).map(item => ({
+                            ...item,
+                            matchPercentage: item.score || 0,
+                            gaps: item.score < 100 ? ["Partial match on fine details"] : [],
+                            thumbnail: item.inventoryId?.images?.[0] || `https://picsum.photos/seed/${item._id}/200/150`
+                        }));
+                        setInventoryItems(mappedMatches);
+                    }
+                } catch (error) {
+                    console.error("Error fetching match data:", error);
+                    toast.error("Failed to load match data");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            fetchData();
+        }, 600); // 600ms debounce for sliders
+
+        return () => clearTimeout(timer);
+    }, [leadId, budgetFlexibility, sizeFlexibility, weights]);
+
     // Communication Modals State
     const [isMailOpen, setIsMailOpen] = useState(false);
     const [isMessageOpen, setIsMessageOpen] = useState(false);
@@ -70,47 +89,25 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const [mailAttachments, setMailAttachments] = useState([]);
     const [mailTemplateId, setMailTemplateId] = useState('');
 
-    // 2. Pre-parse Lead Context
+    // 2. Pre-parse Lead Context (Simplified for display only)
     const leadContext = useMemo(() => {
         if (!lead) return null;
 
-        // Ensure name is present for display
         if (!lead.name) {
             lead.name = lead.contactDetails?.name || (lead.firstName ? `${lead.salutation || ""} ${lead.firstName} ${lead.lastName || ""}`.trim() : (lead.name || "Unknown"));
         }
-        
-        // Ensure mobile is prioritized for display/communication
         lead.mobile = lead.contactDetails?.mobile || lead.mobile;
 
-        const requirementVal = lead.requirement?.lookup_value || (typeof lead.requirement === 'string' ? lead.requirement : "");
-        const locationVal = lead.location?.lookup_value || (typeof lead.location === 'string' ? lead.location : "");
-        const budgetVal = lead.budget?.lookup_value || (typeof lead.budget === 'string' ? lead.budget : "") || (lead.budgetMin || lead.budgetMax ? `₹${lead.budgetMin} - ₹${lead.budgetMax}` : "");
-        const sizeVal = lead.req?.size || `${lead.areaMin || ""}-${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim();
-
-        const baseBudget = parseBudget(budgetVal);
-        const leadSize = parseSizeSqYard(sizeVal);
-
         return {
-            baseBudget,
-            leadSize,
-            leadType: requirementVal.toLowerCase(),
-            leadLocation: locationVal.toLowerCase(),
-            leadLocationSectors: locationVal.toLowerCase().split(',').map(s => s.trim()).filter(Boolean)
+            leadType: (lead.requirement?.lookup_value || "").toLowerCase(),
+            leadLocation: (lead.location?.lookup_value || "").toLowerCase(),
         };
     }, [lead]);
 
-    // 3. Optimize regions with Centralized Logic
+    // 3. Centralized Logic moved to Server-Side
     const matchedItems = useMemo(() => {
-        if (!lead || inventoryItems.length === 0) return [];
-        return calculateMatch(lead, leadContext, weights, {
-            budgetFlexibility,
-            sizeFlexibility,
-            includeNearby,
-            isTypeFlexible,
-            isSizeFlexible,
-            minMatchScore
-        }, inventoryItems);
-    }, [lead, leadContext, budgetFlexibility, sizeFlexibility, includeNearby, isTypeFlexible, isSizeFlexible, minMatchScore, weights, inventoryItems]);
+        return inventoryItems; // Already fetched and mapped in useEffect
+    }, [inventoryItems]);
 
     // Progressive Rendering
     const [visibleCount, setVisibleCount] = useState(15);
@@ -284,13 +281,10 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                     </div>
                 </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
-                    <button
-                        className="btn-outline"
-                        style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff' }}
-                        onClick={() => setIsSettingsOpen(true)}
-                    >
-                        <i className="fas fa-cog"></i> Algorithm Settings
-                    </button>
+                    <div style={{ padding: '8px 16px', background: '#ecfdf5', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #b9f6ca' }}>
+                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></div>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#166534' }}>Strict AI Engine Active</span>
+                    </div>
                     <button
                         className="btn-primary"
                         style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
@@ -330,11 +324,11 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                                     <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '12px' }}>
                                         <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Size</label>
-                                        <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', margin: '2px 0' }}>{lead.req?.size}</p>
+                                        <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', margin: '2px 0' }}>{renderValue(lead.req?.size)}</p>
                                     </div>
                                     <div style={{ background: '#eff6ff', padding: '12px', borderRadius: '12px' }}>
                                         <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#2563eb', textTransform: 'uppercase' }}>Budget</label>
-                                        <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#2563eb', margin: '2px 0' }}>{lead.budget}</p>
+                                        <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#2563eb', margin: '2px 0' }}>{renderValue(lead.budget)}</p>
                                     </div>
                                 </div>
                             </div>
@@ -344,63 +338,67 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                     {/* Interactive Refinement */}
                     <div style={{ background: '#fff', borderRadius: '20px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', position: 'sticky', top: '24px' }}>
                         <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#64748b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            <i className="fas fa-filter" style={{ color: '#f59e0b' }}></i> Refine Search
+                            <i className="fas fa-shield-alt" style={{ color: '#10b981' }}></i> Match Controls
                         </h3>
 
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                            <div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b' }}>Budget Flexibility</label>
-                                    <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#3b82f6' }}>±{budgetFlexibility}%</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            {/* Flexibility Sliders */}
+                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                <div style={{ marginBottom: '16px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>Budget Flexibility</label>
+                                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#2563eb' }}>{budgetFlexibility}%</span>
+                                    </div>
+                                    <input 
+                                        type="range" 
+                                        min="0" max="50" 
+                                        value={budgetFlexibility} 
+                                        onChange={(e) => setBudgetFlexibility(parseInt(e.target.value))}
+                                        style={{ width: '100%', cursor: 'pointer' }}
+                                    />
                                 </div>
-                                <input
-                                    type="range"
-                                    min="0" max="50"
-                                    value={budgetFlexibility}
-                                    onChange={(e) => setBudgetFlexibility(parseInt(e.target.value))}
-                                    style={{ width: '100%', cursor: 'pointer', accentColor: '#3b82f6' }}
-                                />
-                                <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '4px' }}>Includes properties above lead budget.</p>
+                                <div style={{ marginBottom: '4px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>Size Flexibility</label>
+                                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#2563eb' }}>{sizeFlexibility}%</span>
+                                    </div>
+                                    <input 
+                                        type="range" 
+                                        min="0" max="50" 
+                                        value={sizeFlexibility} 
+                                        onChange={(e) => setSizeFlexibility(parseInt(e.target.value))}
+                                        style={{ width: '100%', cursor: 'pointer' }}
+                                    />
+                                </div>
                             </div>
 
-                            <div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b' }}>Size Flexibility</label>
-                                    <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#10b981' }}>±{sizeFlexibility}%</span>
-                                </div>
-                                <input
-                                    type="range"
-                                    min="0" max="50"
-                                    value={sizeFlexibility}
-                                    onChange={(e) => setSizeFlexibility(parseInt(e.target.value))}
-                                    style={{ width: '100%', cursor: 'pointer', accentColor: '#10b981' }}
-                                />
-                                <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '4px' }}>Includes properties within size range deviation.</p>
+                            {/* Scoring Weights */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>Engine Weighting</p>
+                                {[
+                                    { key: 'location', label: '📍 Location Weight', color: '#3b82f6' },
+                                    { key: 'type', label: '🏢 Type Symmetry', color: '#8b5cf6' },
+                                    { key: 'budget', label: '💰 Price Match', color: '#10b981' },
+                                    { key: 'size', label: '📐 Size/Specs', color: '#f59e0b' }
+                                ].map(w => (
+                                    <div key={w.key} style={{ background: '#fff', border: '1px solid #f1f5f9', borderRadius: '10px', padding: '10px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569' }}>{w.label}</span>
+                                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: w.color }}>{weights[w.key]}%</span>
+                                        </div>
+                                        <input 
+                                            type="range" min="0" max="100" 
+                                            value={weights[w.key]} 
+                                            onChange={(e) => setWeights({...weights, [w.key]: parseInt(e.target.value)})}
+                                            style={{ width: '100%', height: '4px' }}
+                                        />
+                                    </div>
+                                ))}
                             </div>
-
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f8fafc', padding: '12px', borderRadius: '12px' }}>
-                                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b' }}>Include Nearby Sectors</label>
-                                <input
-                                    type="checkbox"
-                                    checked={includeNearby}
-                                    onChange={(e) => setIncludeNearby(e.target.checked)}
-                                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                                />
-                            </div>
-
-                            <div>
-                                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b', display: 'block', marginBottom: '8px' }}>Min. Match Accuracy</label>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    {[20, 50, 75].map(score => (
-                                        <button
-                                            key={score}
-                                            onClick={() => setMinMatchScore(score)}
-                                            style={{ flex: 1, padding: '8px', borderRadius: '8px', border: '1px solid #e2e8f0', background: minMatchScore === score ? '#1e293b' : '#fff', color: minMatchScore === score ? '#fff' : '#64748b', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
-                                        >
-                                            {score}%+
-                                        </button>
-                                    ))}
-                                </div>
+                            
+                            <div style={{ background: '#ecfdf5', padding: '12px', borderRadius: '10px', border: '1px solid #b9f6ca', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <i className="fas fa-check-circle" style={{ color: '#10b981' }}></i>
+                                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#166534' }}>AI Backend Re-Syncing Live</span>
                             </div>
                         </div>
                     </div>
@@ -486,13 +484,33 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                         {item.unitNo || 'N/A'}
                                     </div>
                                     <span style={{ fontSize: '1rem', fontWeight: 800, color: '#10b981', background: '#ecfdf5', padding: '4px 12px', borderRadius: '100px', border: '1px solid #b9f6ca' }}>
-                                        ₹{item.price}
+                                        ₹{renderValue(item.price)}
                                     </span>
                                 </div>
 
-                                <p style={{ fontSize: '0.9rem', color: '#475569', margin: '8px 0', fontWeight: 500 }}>
-                                    <i className="fas fa-map-marker-alt" style={{ color: '#94a3b8' }}></i> {item.location} {item.projectName ? `| ${item.projectName}` : ''}
-                                </p>
+                                <div style={{ marginBottom: '12px' }}>
+                                    <p style={{ fontSize: '0.9rem', color: '#0f172a', margin: '0 0 4px 0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.8rem' }}></i>
+                                        {renderValue(item.inventoryId?.projectName || item.projectName || 'Premium Listing')}
+                                    </p>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                        {item.inventoryId?.sector && (
+                                            <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px' }}>
+                                                {item.inventoryId.sector}
+                                            </span>
+                                        )}
+                                        {item.inventoryId?.city && (
+                                            <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>
+                                                {item.inventoryId.city}
+                                            </span>
+                                        )}
+                                        {item.inventoryId?.address?.locality && (
+                                            <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#10b981', background: '#ecfdf5', padding: '2px 8px', borderRadius: '4px' }}>
+                                                {renderValue(item.inventoryId.address.locality)}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
 
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '10px', alignItems: 'center' }}>
                                     <div style={{ background: '#f1f5f9', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -502,20 +520,26 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     <span style={{ width: '1px', height: '14px', background: '#e2e8f0', margin: '0 4px' }}></span>
                                     <div style={{ background: '#f8fafc', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0' }}>
                                         <i className="fas fa-ruler-combined" style={{ color: '#94a3b8', fontSize: '0.7rem' }}></i>
-                                        Size: <span style={{ color: '#0f172a' }}>{item.size}</span>
+                                        Size: <span style={{ color: '#0f172a' }}>{renderValue(item.size)}</span>
                                     </div>
                                 </div>
 
-                                {/* Mismatch Reasoning */}
-                                {item.gaps.length > 0 && (
-                                    <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                        {item.gaps.slice(0, 2).map((gap, i) => (
-                                            <span key={i} style={{ fontSize: '0.65rem', fontWeight: 600, color: '#ef4444', background: '#fef2f2', padding: '2px 8px', borderRadius: '6px', border: '1px solid #fee2e2' }}>
-                                                <i className="fas fa-exclamation-triangle"></i> {gap}
+                                {/* Professional Match Logic Tags */}
+                                <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                    {(item.matchDetails || []).map((detail, i) => {
+                                        let tagBg = '#f1f5f9';
+                                        let tagColor = '#475569';
+                                        if (detail.includes("Budget")) { tagBg = '#dcfce7'; tagColor = '#166534'; }
+                                        if (detail.includes("Orientation")) { tagBg = '#fef3c7'; tagColor = '#92400e'; }
+                                        if (detail.includes("Unit") || detail.includes("Category")) { tagBg = '#e0f2fe'; tagColor = '#0369a1'; }
+                                        
+                                        return (
+                                            <span key={i} style={{ fontSize: '0.65rem', fontWeight: 800, color: tagColor, background: tagBg, padding: '2px 8px', borderRadius: '6px', border: `1px solid ${tagColor}30`, textTransform: 'uppercase' }}>
+                                                {detail}
                                             </span>
-                                        ))}
-                                    </div>
-                                )}
+                                        );
+                                    })}
+                                </div>
                             </div>
 
                             {/* Actions Column */}

@@ -5,7 +5,10 @@ const DEFAULT_CITIES = ['Chandigarh', 'Mohali', 'Zirakpur', 'Panchkula', 'Kharar
 const DEFAULT_LOCATIONS = ['Sector', 'Aerocity', 'IT City', 'Eco City', 'JLPL', 'TDP', 'Bestech', 'Homeland', 'Marbella', 'Green Lotus', 'Escon Arena'];
 const DEFAULT_TYPES = {
     'Residential': ['flat', 'apartment', 'bhk', 'penthouse', 'floor', 'builder floor', 'studio', 'duplex', 'simplex', 'villa', 'kothi', 'house', 'independent house', 'bungalow', 'mansion', 'residence', 'plot', 'land', 'gaz', 'sqyd', 'kanal', 'marla', 'bigha', 'acre'],
-    'Commercial': ['shop', 'showroom', 'booth', 'sco', 'scf', 'dss', 'bay shop', 'double storey', 'office', 'office space', 'retail', 'anchor store', 'food court', 'multiplex', 'hotel', 'restaurant', 'pub', 'bar', 'club', 'resort', 'commercial plot', 'commercial land', 'plaza', 'mall']
+    'Commercial': ['shop', 'showroom', 'booth', 'sco', 'scf', 'dss', 'bay shop', 'double storey', 'office', 'office space', 'retail', 'anchor store', 'food court', 'multiplex', 'hotel', 'restaurant', 'pub', 'bar', 'club', 'resort', 'commercial plot', 'commercial land', 'plaza', 'mall'],
+    'Industrial': ['factory', 'shed', 'warehouse', 'godown', 'storage', 'cold storage', 'industrial plot', 'industrial land', 'industrial shed', 'plant', 'manufacturing unit', 'industry'],
+    'Agricultural': ['farm', 'farm land', 'agricultural land', 'agriculture', 'khet', 'zameen', 'jameen', 'vadi', 'farmhouse', 'orchard', 'nursery'],
+    'Institutional': ['school', 'college', 'university', 'campus', 'institute', 'coaching centre', 'education', 'hospital', 'nursing home', 'clinic', 'dispensary', 'labs', 'pathology', 'institutional plot', 'religious', 'temple', 'mandir', 'gurudwara', 'church']
 };
 
 const GLOBAL_PATTERNS = {
@@ -87,7 +90,11 @@ export const parseContent = async (text) => {
     // 4. Intent
     const t = normalizedText;
     const isBuyer = /want|need|require|looking for|urgent|buy|budget/i.test(t) && !/available|sale|sell|inventory/i.test(t);
-    const intent = isBuyer ? 'BUYER' : 'SELLER';
+    let intent = isBuyer ? 'BUYER' : 'SELLER';
+
+    if (t.includes('want to sell')) intent = 'SELLER';
+    if (t.includes('available for rent') || t.includes('to let')) intent = 'LANDLORD';
+    if (t.includes('want to rent') || t.includes('on rent')) intent = 'TENANT';
 
     // 5. Structure & Type
     let propertyType = 'Unknown';

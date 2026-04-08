@@ -137,9 +137,12 @@ export const ContactConfigProvider = ({ children }) => {
             }
 
             // Combine Document-Category and Document-Type for hierarchy
+            // Supporting both hyphenated and non-hyphenated keys as they appear in the database
             const combinedDocs = [
                 ...(grouped['Document-Category'] || []),
-                ...(grouped['Document-Type'] || [])
+                ...(grouped['DocumentCategory'] || []),
+                ...(grouped['Document-Type'] || []),
+                ...(grouped['DocumentType'] || [])
             ];
             setDocumentConfig(buildDocHierarchy(combinedDocs));
 

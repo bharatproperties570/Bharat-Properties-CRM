@@ -6,12 +6,30 @@ import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
 import { useActivities } from '../../../context/ActivityContext';
 import { fixDriveUrl } from '../../../utils/helpers';
+import { renderValue } from '../../../utils/renderUtils';
+import { formatIndianCurrency } from '../../../utils/numberToWords';
 
 const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
     const { addActivity } = useActivities();
     const [inventory, setInventory] = useState(null);
     const [leads, setLeads] = useState([]);
     const [loading, setLoading] = useState(true);
+
+    // Matching Refinement State
+    const [budgetFlexibility, setBudgetFlexibility] = useState(10);
+    const [sizeFlexibility, setSizeFlexibility] = useState(10);
+    const [selectedLeads, setSelectedLeads] = useState([]);
+
+    // Communication & Activity Modals State
+    const [isMailOpen, setIsMailOpen] = useState(false);
+    const [isMessageOpen, setIsMessageOpen] = useState(false);
+    const [isActivityOpen, setIsActivityOpen] = useState(false);
+    const [selectedContactsForMail, setSelectedContactsForMail] = useState([]);
+    const [selectedContactsForMessage, setSelectedContactsForMessage] = useState([]);
+    const [activityInitialData, setActivityInitialData] = useState(null);
+    const [mailSubject, setMailSubject] = useState('');
+    const [mailBody, setMailBody] = useState('');
+    const [mailAttachments, setMailAttachments] = useState([]);
 
     const handleToggleInterest = useCallback(async (lead) => {
         try {
@@ -146,8 +164,8 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
         body += `<div>`;
         body += `<h2 style="margin: 0; color: #1e293b; font-size: 1.4rem;">🏠 ${inventory.propertyType}</h2>`;
         body += `<p style="margin: 6px 0; color: #64748b; font-size: 1rem;"><i class="fas fa-map-marker-alt"></i> ${inventory.location?.name || 'Location N/A'}</p>`;
-        body += `<p style="margin: 8px 0; color: #475569; font-size: 0.95rem;">📏 Size: <strong>${inventory.size || inventory.area}</strong></p>`;
-        body += `<p style="margin: 12px 0; color: #10b981; font-weight: 800; font-size: 1.5rem;">💰 Price: ₹${inventory.price || inventory.demand}</p>`;
+        body += `<p style="margin: 8px 0; color: #475569; font-size: 0.95rem;">📏 Size: <strong>${renderValue(inventory.size || inventory.area)}</strong></p>`;
+        body += `<p style="margin: 12px 0; color: #10b981; font-weight: 800; font-size: 1.5rem;">💰 Price: ${formatIndianCurrency(inventory.price || inventory.demand)}</p>`;
         body += `</div>`;
         body += `</div>`;
         body += `</div>`;
@@ -183,7 +201,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
     };
 
     const handleWhatsApp = (mobile, name) => {
-        const message = `Hi ${name}, checking if you are interested in this property: ${inventory.propertyType} at ${inventory.location?.name}. Price: ₹${inventory.price || inventory.demand}.`;
+        const message = `Hi ${name}, checking if you are interested in this property: ${renderValue(inventory.propertyType)} at ${renderValue(inventory.location?.name)}. Price: ${formatIndianCurrency(inventory.price || inventory.demand)}.`;
         window.open(`https://wa.me/91${mobile}?text=${encodeURIComponent(message)}`, '_blank');
     };
 
@@ -221,7 +239,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                         <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Inventory Match Center</h1>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
                             <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Matching leads for:</span>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>{inventory.propertyType} | {inventory.unitNo}</span>
+                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>{renderValue(inventory.propertyType)} | {renderValue(inventory.unitNo)}</span>
                         </div>
                     </div>
                 </div>
@@ -241,7 +259,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                         className="btn-primary"
                         style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
                         onClick={() => {
-                            const text = `*New Property Alert!* 🏠\n\n*${inventory.propertyType}* in *${inventory.location?.name || 'Prime Location'}*\nSize: ${inventory.size}\nPrice: ₹${inventory.price || inventory.demand}\n\nContact: ${inventory.assignedTo || 'Bharat Properties'}`;
+                            const text = `*New Property Alert!* 🏠\n\n*${renderValue(inventory.propertyType)}* in *${renderValue(inventory.location?.name || 'Prime Location')}*\nSize: ${renderValue(inventory.size)}\nPrice: ${formatIndianCurrency(inventory.price || inventory.demand)}\n\nContact: ${renderValue(inventory.assignedTo) || 'Bharat Properties'}`;
                             navigator.clipboard.writeText(text);
                             toast.success("Property details copied to clipboard!");
                         }}
@@ -262,18 +280,18 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                             <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px' }}>
                                 <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Property Info</label>
-                                <p style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', margin: '4px 0' }}>{inventory.propertyType}</p>
-                                <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>{inventory.location?.name}</p>
+                                <p style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', margin: '4px 0' }}>{renderValue(inventory.propertyType)}</p>
+                                <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>{renderValue(inventory.location?.name)}</p>
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                                 <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '12px' }}>
                                     <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Size</label>
-                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', margin: '2px 0' }}>{inventory.size || inventory.area}</p>
+                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', margin: '2px 0' }}>{renderValue(inventory.size || inventory.area)}</p>
                                 </div>
                                 <div style={{ background: '#ecfdf5', padding: '12px', borderRadius: '12px' }}>
                                     <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#059669', textTransform: 'uppercase' }}>Price</label>
-                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#059669', margin: '2px 0' }}>₹{inventory.price || inventory.demand}</p>
+                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#059669', margin: '2px 0' }}>{formatIndianCurrency(inventory.price || inventory.demand)}</p>
                                 </div>
                             </div>
                         </div>
@@ -439,25 +457,25 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                                 {/* Match Analysis Badges */}
                                 <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                                     <div
-                                        title={`Property: ${inventory.location?.name || 'N/A'} | Lead: ${lead.location}`}
+                                        title={`Property: ${renderValue(inventory.location?.name) || 'N/A'} | Lead: ${renderValue(lead.location)}`}
                                         style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.project)}`, color: getStatusColor(lead.matchDetails.project), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
                                     >
                                         <i className={`fas fa-${lead.matchDetails.project === 'match' ? 'check-circle' : 'circle'}`}></i> LOCATION
                                     </div>
                                     <div
-                                        title={`Property: ${inventory.propertyType} | Lead: ${lead.req?.type}`}
+                                        title={`Property: ${renderValue(inventory.propertyType)} | Lead: ${renderValue(lead.req?.type)}`}
                                         style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.type)}`, color: getStatusColor(lead.matchDetails.type), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
                                     >
                                         <i className={`fas fa-${lead.matchDetails.type === 'match' ? 'check-circle' : 'circle'}`}></i> TYPE
                                     </div>
                                     <div
-                                        title={`Property: ₹${inventory.price || inventory.demand} | Lead: ${lead.budget}`}
+                                        title={`Property: ${formatIndianCurrency(inventory.price || inventory.demand)} | Lead: ${formatIndianCurrency(lead.budget)}`}
                                         style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.budget)}`, color: getStatusColor(lead.matchDetails.budget), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
                                     >
                                         <i className={`fas fa-${lead.matchDetails.budget === 'match' ? 'check-circle' : 'circle'}`}></i> BUDGET
                                     </div>
                                     <div
-                                        title={`Property: ${inventory.size || inventory.area} | Lead: ${lead.req?.size}`}
+                                        title={`Property: ${renderValue(inventory.size || inventory.area)} | Lead: ${renderValue(lead.req?.size)}`}
                                         style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.size)}`, color: getStatusColor(lead.matchDetails.size), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
                                     >
                                         <i className={`fas fa-${lead.matchDetails.size === 'match' ? 'check-circle' : 'circle'}`}></i> SIZE

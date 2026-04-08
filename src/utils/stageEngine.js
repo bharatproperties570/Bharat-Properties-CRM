@@ -24,6 +24,7 @@ export const STAGE_PIPELINE = [
     { id: 'closed_won', label: 'Closed Won', color: '#059669', icon: 'fa-trophy', probability: 100 },
     { id: 'closed_lost', label: 'Closed Lost', color: '#ef4444', icon: 'fa-times-circle', probability: 0 },
     { id: 'stalled', label: 'Stalled', color: '#78716c', icon: 'fa-pause-circle', probability: 15 },
+    { id: 'dormant', label: 'Dormant', color: '#64748b', icon: 'fa-moon', probability: 0 },
 ];
 
 export const STAGE_LABELS = STAGE_PIPELINE.map(s => s.label);
@@ -54,11 +55,11 @@ export const STAGE_STABILITY_CONFIG = {
 // Stage priority order (higher index = more advanced stage)
 // 'Stalled' sits between Negotiation and Booked — it is a sideways/terminal state.
 // 'Closed Lost' is the lowest terminal. Moving FROM Stalled TO active stages is recovery (always allowed).
-const STAGE_ORDER = ['Closed Lost', 'New', 'Prospect', 'Qualified', 'Opportunity', 'Negotiation', 'Stalled', 'Booked', 'Closed Won'];
+const STAGE_ORDER = ['Closed Lost', 'Dormant', 'New', 'Prospect', 'Qualified', 'Opportunity', 'Negotiation', 'Stalled', 'Booked', 'Closed Won'];
 
 /** Returns true for terminal/sideways states that cannot be further downgraded. */
 export const isTerminalStage = (stageName) =>
-    stageName === 'Stalled' || stageName === 'Closed Lost' || stageName === 'Closed Won';
+    stageName === 'Stalled' || stageName === 'Closed Lost' || stageName === 'Closed Won' || stageName === 'Dormant';
 
 const getStageRank = (stageName) => {
     const idx = STAGE_ORDER.indexOf(stageName);

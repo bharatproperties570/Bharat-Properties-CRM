@@ -99,7 +99,7 @@ const InventorySpecsPanel = ({ inventory, getLookupValue, handleToggleIntent, ha
                     <SpecItem label="Unit Type" value={renderValue(getLookupValue('UnitType', inventory.unitType))} icon="shapes" />
                     <SpecItem label="Direction" value={renderValue(getLookupValue('Orientation', inventory.direction || inventory.orientation))} icon="location-arrow" />
                     <SpecItem label="Facing" value={renderValue(getLookupValue('Facing', inventory.facing))} icon="expand-arrows-alt" />
-                    <SpecItem label="Road Width" value={renderValue(getLookupValue('RoadWidth', inventory.roadWidth)) || (inventory.roadWidth ? `${inventory.roadWidth} Mtr.` : '-')} icon="road" />
+                    <SpecItem label="Road Width" value={renderValue(getLookupValue('RoadWidth', inventory.roadWidth)) || renderValue(inventory.roadWidth) || '-'} icon="road" />
                     <SpecItem label="Ownership" value={renderValue(inventory.ownership)} icon="id-card" />
                 </div>
 
@@ -128,13 +128,13 @@ const InventorySpecsPanel = ({ inventory, getLookupValue, handleToggleIntent, ha
                     <div style={{ flex: 1 }}>
                         <p style={{ margin: '0 0 4px 0', fontSize: '0.6rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Width</p>
                         <p style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#1e293b' }}>
-                            {inventory.frontage || inventory.width ? `${inventory.frontage || inventory.width} Mtr.` : '-'}
+                            {renderValue(inventory.frontage || inventory.width) || '-'}
                         </p>
                     </div>
                     <div style={{ flex: 1 }}>
                         <p style={{ margin: '0 0 4px 0', fontSize: '0.6rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Length</p>
                         <p style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#1e293b' }}>
-                            {inventory.depth || inventory.length ? `${inventory.depth || inventory.length} Mtr.` : '-'}
+                            {renderValue(inventory.depth || inventory.length) || '-'}
                         </p>
                     </div>
                 </div>

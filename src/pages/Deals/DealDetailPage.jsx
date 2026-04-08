@@ -11,6 +11,8 @@ import { useUserContext } from '../../context/UserContext';
 import AddNoteModal from '../../components/AddNoteModal';
 import UploadModal from '../../components/UploadModal';
 import AddQuoteModal from '../../components/AddQuoteModal';
+import AddBookingModal from '../../components/AddBookingModal';
+import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { renderValue } from '../../utils/renderUtils';
 import { getInitials, fixDriveUrl, getYoutubeId } from '../../utils/helpers';

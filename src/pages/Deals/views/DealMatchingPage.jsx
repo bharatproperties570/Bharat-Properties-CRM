@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
 import { useActivities } from '../../../context/ActivityContext';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
+import { formatIndianCurrency } from '../../../utils/numberToWords';
 
 
 const DealMatchingPage = ({ onNavigate, dealId }) => {
@@ -105,6 +106,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             if (resolved) return resolved;
         }
         if (typeof v === 'object') {
+            if (v.value !== undefined && v.unit !== undefined) return `${v.value} ${v.unit}`;
             return v.lookup_value || v.name || v.label || v.value || JSON.stringify(v);
         }
         // If it's a string, try to resolve it against common types if no type provided
@@ -297,8 +299,8 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
         body += `<div>`;
         body += `<h2 style="margin: 0; color: #1e293b; font-size: 1.4rem;">🏠 ${renderVal(deal.propertyType, 'PropertyType')}</h2>`;
         body += `<p style="margin: 6px 0; color: #64748b; font-size: 1rem;"><i class="fas fa-map-marker-alt"></i> ${renderVal(deal.location, 'Locality')} ${deal.projectName ? `| ${renderVal(deal.projectName)}` : ''}</p>`;
-        body += `<p style="margin: 8px 0; color: #475569; font-size: 0.95rem;">📏 Size: <strong>${deal.size}</strong></p>`;
-        body += `<p style="margin: 12px 0; color: #10b981; font-weight: 800; font-size: 1.5rem;">💰 Price: ₹${deal.price}</p>`;
+        body += `<p style="margin: 8px 0; color: #475569; font-size: 0.95rem;">📏 Size: <strong>${renderVal(deal.size)}</strong></p>`;
+        body += `<p style="margin: 12px 0; color: #10b981; font-weight: 800; font-size: 1.5rem;">💰 Price: ${formatIndianCurrency(deal.price)}</p>`;
         body += `</div>`;
         body += `</div>`;
         body += `</div>`;
@@ -335,7 +337,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     };
 
     const handleWhatsApp = (mobile, name) => {
-        const message = `Hi ${name}, I have a property that perfectly matches your requirement: ${renderVal(deal.propertyType, 'PropertyType')} at ${renderVal(deal.location, 'Locality')}. Price: ₹${deal.price}. Let me know if you are interested!`;
+        const message = `Hi ${name}, I have a property that perfectly matches your requirement: ${renderVal(deal.propertyType, 'PropertyType')} at ${renderVal(deal.location, 'Locality')}. Price: ${formatIndianCurrency(deal.price)}. Let me know if you are interested!`;
         window.open(`https://wa.me/91${mobile}?text=${encodeURIComponent(message)}`, '_blank');
     };
 
@@ -393,7 +395,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                         className="btn-primary"
                         style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
                         onClick={() => {
-                            const text = `*New Deal Alert!* 🏠\n\n*${renderVal(deal.propertyType, 'PropertyType')}* in *${renderVal(deal.location, 'Locality')}*\nSize: ${deal.size}\nPrice: ₹${deal.price}\n\nContact: ${renderVal(deal.assignedTo || deal.assigned || 'Bharat Properties Team')}`;
+                            const text = `*New Deal Alert!* 🏠\n\n*${renderVal(deal.propertyType, 'PropertyType')}* in *${renderVal(deal.location, 'Locality')}*\nSize: ${renderVal(deal.size)}\nPrice: ${formatIndianCurrency(deal.price)}\n\nContact: ${renderVal(deal.assignedTo || deal.assigned || 'Bharat Properties Team')}`;
                             navigator.clipboard.writeText(text);
                             toast.success("Deal details copied to clipboard!");
                         }}
@@ -425,7 +427,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                 </div>
                                 <div style={{ background: '#ecfdf5', padding: '12px', borderRadius: '12px' }}>
                                     <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#059669', textTransform: 'uppercase' }}>Price</label>
-                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#059669', margin: '2px 0' }}>₹{deal.price}</p>
+                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#059669', margin: '2px 0' }}>{formatIndianCurrency(deal.price)}</p>
                                 </div>
                             </div>
 
@@ -597,7 +599,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                         <i className={`fas fa-${lead.matchDetails.type === 'match' ? 'check-circle' : 'circle'}`}></i> TYPE
                                     </div>
                                     <div
-                                        title={`Deal: ₹${deal.price} | Lead: ${renderVal(lead.budget, 'Budget')}`}
+                                        title={`Deal: ${formatIndianCurrency(deal.price)} | Lead: ${renderVal(lead.budget, 'Budget')}`}
                                         style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.budget)}`, color: getStatusColor(lead.matchDetails.budget), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
                                     >
                                         <i className={`fas fa-${lead.matchDetails.budget === 'match' ? 'check-circle' : 'circle'}`}></i> BUDGET

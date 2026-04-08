@@ -11,6 +11,7 @@ import {
     getGoogleReviews
 } from "../controllers/public.controller.js";
 import { verifyApiKey } from "../middleware/apiKey.middleware.js";
+import * as parsingRuleController from '../src/modules/parsing/parsingRule.controller.js';
 
 const router = express.Router();
 

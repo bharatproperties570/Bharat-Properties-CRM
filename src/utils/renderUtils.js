@@ -17,6 +17,17 @@ export const renderValue = (val, emptyValue = '-', prefix = '') => {
     // If it's a non-primitive object, try to extract a string value
     if (typeof val === 'object') {
         const extracted = val.lookup_value || val.fullName || val.name || val.title || val.label || val.value || val.displayName || val.code;
+
+        // A. Handle Measurement Objects { value, unit }
+        if (extracted === undefined && val.value !== undefined && val.unit !== undefined) {
+             return `${val.value} ${val.unit}`;
+        }
+
+        // B. Handle Property Config Objects { _id, name } or { id, name }
+        if (extracted === undefined && val.name && (val._id || val.id)) {
+            return val.name;
+        }
+
         if (extracted !== undefined && extracted !== null && typeof extracted !== 'object') {
             result = extracted;
         } else {

@@ -16,44 +16,191 @@ const _lookupResolveCache = new Map();
 
 export const matchDeals = async (req, res) => {
     try {
-        const { leadId } = req.query;
+        const { 
+            leadId, 
+            budgetFlexibility = 20, 
+            sizeFlexibility = 20,
+            weights: weightsParam 
+        } = req.query;
+
         if (!leadId) {
             return res.status(400).json({ success: false, error: "leadId is required" });
         }
 
-        const lead = await Lead.findById(leadId).lean();
+        // Parse weights (default if missing)
+        let weights = { location: 30, type: 20, budget: 25, size: 25 };
+        if (weightsParam) {
+            try {
+                weights = typeof weightsParam === 'string' ? JSON.parse(weightsParam) : weightsParam;
+            } catch (e) {
+                console.error("Error parsing weights:", e);
+            }
+        }
+
+        const bFlex = parseFloat(budgetFlexibility) / 100;
+        const sFlex = parseFloat(sizeFlexibility) / 100;
+
+        const lead = await Lead.findById(leadId)
+            .populate('requirement', 'lookup_value')
+            .populate('propertyType', 'lookup_value')
+            .populate('subType', 'lookup_value')
+            .populate('facing', 'lookup_value')
+            .populate('direction', 'lookup_value')
+            .populate('roadWidth', 'lookup_value')
+            .populate('location', 'lookup_value')
+            .lean();
+
         if (!lead) {
             return res.status(404).json({ success: false, error: "Lead not found" });
         }
 
+        const leadReq = String(lead.requirement?.lookup_value || lead.requirement || "").toLowerCase();
+        const leadCats = (Array.isArray(lead.propertyType) ? lead.propertyType : [])
+            .map(c => String(c?.lookup_value || c || "").toLowerCase());
+
+        // 1. Fetch potential deals
         const query = {
             isVisible: { $ne: false },
-            stage: { $ne: "Cancelled" }, // Don't show cancelled deals
-            $or: []
+            stage: { $nin: ["Cancelled", "Closed Lost", "Sold Out"] }
         };
 
-        if (lead.project) query.$or.push({ projectId: lead.project }, { projectName: lead.project });
-        if (lead.requirement) query.$or.push({ category: lead.requirement });
-        if (lead.location) query.$or.push({ location: lead.location });
-
-        if (query.$or.length === 0) {
-            return res.status(200).json({ success: true, count: 0, data: [] });
-        }
-
-        const populateFields = [
-            { path: 'projectId' },
-            { path: 'category', select: 'lookup_value' },
-            { path: 'status', select: 'lookup_value' }
-        ];
-
         const deals = await Deal.find(query)
-            .populate(populateFields)
-            .limit(50)
-            .sort({ createdAt: -1 })
+            .populate('inventoryId')
+            .populate('projectId')
+            .populate('category', 'lookup_value')
+            .populate('intent', 'lookup_value')
+            .populate('subCategory', 'lookup_value')
             .lean();
 
-        return res.status(200).json({ success: true, count: deals.length, data: deals });
+        // 2. Filter and Score
+        const matchingDeals = deals.filter(deal => {
+            // --- STAGE 1: HARD FILTERS ---
+            const dealIntent = String(deal.intent?.lookup_value || deal.intent || "").toLowerCase();
+            const dealCategory = String(deal.category?.lookup_value || deal.category || "").toLowerCase();
+
+            // A. Intent Symmetry
+            let intentMatched = false;
+            if (dealIntent.includes("sell") && (leadReq.includes("buy") || leadReq.includes("purchase"))) intentMatched = true;
+            else if (dealIntent.includes("rent") && (leadReq.includes("rent") || leadReq.includes("lease"))) intentMatched = true;
+            else if (dealIntent.includes("lease") && (leadReq.includes("lease") || leadReq.includes("rent"))) intentMatched = true;
+            else if ((dealIntent.includes("buy") || dealIntent.includes("purchase")) && leadReq.includes("sell")) intentMatched = true;
+
+            if (!intentMatched) return false;
+
+            // B. Category Alignment
+            let catMatched = false;
+            if (dealCategory.includes("res") && leadCats.some(c => c.includes("res"))) catMatched = true;
+            else if (dealCategory.includes("comm") && leadCats.some(c => c.includes("comm"))) catMatched = true;
+            else if (dealCategory.includes("ind") && leadCats.some(c => c.includes("ind"))) catMatched = true;
+            else if (!dealCategory || (leadCats.length === 0)) catMatched = true;
+
+            if (!catMatched) return false;
+
+            return true;
+        }).map(deal => {
+            // --- STAGE 2: WEIGHTED SCORING ---
+            let score = 0;
+            const matchDetails = [];
+
+            // 1. Sub-Category / Type (Weight: type)
+            const dealSub = (deal.subCategory?.lookup_value || "").toLowerCase();
+            const leadSubs = (lead.subType || []).filter(Boolean).map(s => String(s.lookup_value || s || "").toLowerCase());
+            if (dealSub && leadSubs.some(s => s.includes(dealSub))) {
+                score += (weights.type || 20);
+                matchDetails.push("Unit Type Match");
+            }
+
+            // 2. Budget / Price (Weight: budget)
+            const dealPrice = deal.price || deal.quotePrice || 0;
+            if (dealPrice > 0) {
+                const min = lead.budgetMin || 0;
+                const max = lead.budgetMax || Infinity;
+                if (dealPrice >= min && dealPrice <= max) {
+                    score += (weights.budget || 25);
+                    matchDetails.push("Budget Match");
+                } else if (dealPrice >= min * (1 - bFlex) && dealPrice <= max * (1 + bFlex)) {
+                    score += (weights.budget || 25) * 0.6;
+                    matchDetails.push("Approximate Budget Match");
+                }
+            }
+
+            // 3. Location (Weight: location)
+            const dealLoc = (deal.location || deal.projectName || "").toLowerCase();
+            const leadLocArea = (lead.locArea || "").toLowerCase();
+            const leadSelectedLoc = (lead.location?.lookup_value || "").toLowerCase();
+            const leadCity = (lead.locCity || "").toLowerCase();
+            const leadSector = (lead.sector || "").toLowerCase();
+            const leadProjects = Array.isArray(lead.projectName) ? lead.projectName : [];
+
+            let locScore = 0;
+            const locWeight = (weights.location || 30);
+
+            // Tier 1: Project/ProjectName Match (Highest)
+            if (deal.projectName && leadProjects.some(p => deal.projectName.toLowerCase().includes(p.toLowerCase()))) {
+                locScore = locWeight;
+                matchDetails.push("Exact Project Match");
+            } 
+            // Tier 2: General Area Match
+            else if ((leadLocArea && dealLoc.includes(leadLocArea)) || (leadSelectedLoc && dealLoc.includes(leadSelectedLoc))) {
+                locScore = locWeight;
+                matchDetails.push("Location Match");
+            }
+            else {
+                // Tier 3: Granular Address Matching
+                let addressPoints = 0;
+                
+                // Check Sector
+                const dealSector = (deal.inventoryId?.sector || "").toLowerCase();
+                if (leadSector && (dealSector.includes(leadSector) || leadSector.includes(dealSector))) {
+                    addressPoints += locWeight * 0.7;
+                    matchDetails.push("Sector Correlation");
+                }
+                
+                // Check City
+                const dealCity = (deal.inventoryId?.city || "").toLowerCase();
+                if (leadCity && (dealCity.includes(leadCity) || leadCity.includes(dealCity))) {
+                    addressPoints += locWeight * 0.3;
+                    matchDetails.push("City match");
+                }
+                
+                locScore = Math.min(addressPoints, locWeight);
+            }
+            
+            score += locScore;
+
+            // 4. Orientation / Size / Specs (Weight: size/orientation/specs)
+            // For now, mapping orientation/specs/size under the 'size' weight for UI consistency
+            let extraMatchPoints = 0;
+            const sizeWeight = (weights.size || weights.orientation || 25);
+
+            if (deal.inventoryId) {
+                const inv = deal.inventoryId;
+                const lFacing = (lead.facing || []).filter(Boolean).map(f => String(f._id || f));
+                const lDir = (lead.direction || []).filter(Boolean).map(d => String(d._id || d));
+                
+                if (lFacing.includes(String(inv.facing))) extraMatchPoints += 5;
+                if (lDir.includes(String(inv.direction))) extraMatchPoints += 5;
+                
+                // Transaction Type / Ownership match
+                if (lead.transactionType && inv.ownership && lead.transactionType === inv.ownership) extraMatchPoints += 5;
+            }
+            
+            if (extraMatchPoints > 0) {
+                score += Math.min(extraMatchPoints, sizeWeight);
+                matchDetails.push("Orientation & Specs Correlation");
+            }
+
+            return {
+                ...deal,
+                score: Math.min(score, 100),
+                matchDetails
+            };
+        });
+
+        const sorted = matchingDeals.sort((a,b) => b.score - a.score).slice(0, 50);
+        return res.status(200).json({ success: true, count: sorted.length, data: sorted });
     } catch (error) {
+        console.error("[matchDeals Error]:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

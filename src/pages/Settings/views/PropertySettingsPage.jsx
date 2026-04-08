@@ -457,7 +457,8 @@ const PropertySettingsPage = () => {
 
         const dataToExport = items.map(item => {
             const isObject = typeof item === 'object' && item !== null;
-            const name = isObject ? (item.name || item.lookup_value) : String(item);
+            let name = isObject ? (item.name || item.lookup_value || item.lookup_value) : String(item);
+            name = name ? name.trim() : name;
             
             // Prioritize already stored ID for professional data consistency
             let id = isObject && (item.id || item._id) ? (item.id || item._id) : null;
@@ -469,10 +470,18 @@ const PropertySettingsPage = () => {
                 else if (type === 'Types') parentId = context.subCategoryId;
                 else if (type === 'Builtup') parentId = context.typeId;
 
+                // A. Try strict hierarchical lookup
                 const match = findLookup(lookupType, name, parentId);
                 if (match) id = match._id || match.id;
-                else {
-                    // Fallback to general getLookupId for legacy strings
+                
+                // B. Fallback: Search globally within the lookup type (ignore parent if match failed)
+                if (!id) {
+                    const globalMatch = findLookup(lookupType, name);
+                    if (globalMatch) id = globalMatch._id || globalMatch.id;
+                }
+
+                // C. Final Fallback: Use getLookupId (covers case-insensitivity and global mapping)
+                if (!id && getLookupId) {
                     id = getLookupId(lookupType, name);
                 }
             }
@@ -714,7 +723,7 @@ const PropertySettingsPage = () => {
                             const res = await syncBuiltupTypeLookup(configCategory, configSubCategory, configType, name, 'add');
                             if (res && (res._id || res.id)) {
                                 const newId = (res._id || res.id).toString();
-                                typeObj.builtupTypes.push({ id: newId, name: name });
+                                typeObj.builtupTypes.push({ _id: newId, name: name });
                                 await updateConfig(newConfig);
                                 showToast(`Builtup Type '${name}' added`);
                             } else {
@@ -744,7 +753,7 @@ const PropertySettingsPage = () => {
                     
                     if (res && (res._id || res.id || existingId)) {
                         const newId = (res._id || res.id || existingId).toString();
-                        typeObj.builtupTypes[index] = { id: newId, name: newName };
+                        typeObj.builtupTypes[index] = { _id: newId, name: newName };
                         await updateConfig(newConfig);
                         showToast(`Builtup Type updated to '${newName}'`);
                     } else {
@@ -760,7 +769,7 @@ const PropertySettingsPage = () => {
             const newConfig = JSON.parse(JSON.stringify(propertyConfig));
             const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
             const typeObj = newConfig[configCategory].subCategories[subIndex].types.find(t => t.name === configType);
-            typeObj.builtupTypes = typeObj.builtupTypes.filter(b => (typeof b === 'object' ? b.name : b) !== name);
+            typeObj.builtupTypes = typeObj.builtupTypes.filter(b => (typeof b === 'object' ? (b._id || b.id || b.name) : b) !== name);
             await updateConfig(newConfig);
             await syncBuiltupTypeLookup(configCategory, configSubCategory, configType, name, 'delete');
             showToast(`Builtup Type '${name}' deleted`);

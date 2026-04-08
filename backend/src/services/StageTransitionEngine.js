@@ -113,7 +113,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Introduction / First Contact',
         outcome: 'Not Interested',
         reason: 'Not Looking',
-        newStage: 'Stalled',
+        newStage: 'Dormant',
         requiredForms: [],
         priority: 11,
         active: true
@@ -181,7 +181,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Follow Up',
         outcome: 'Not Interested',
         reason: 'Budget Issue',
-        newStage: 'Stalled',
+        newStage: 'Dormant',
         requiredForms: [],
         priority: 16,
         active: true
@@ -203,7 +203,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Follow Up',
         outcome: 'Not Interested',
         reason: '*',
-        newStage: 'Stalled',
+        newStage: 'Dormant',
         requiredForms: [],
         priority: 15,
         active: true
@@ -274,7 +274,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Product Presentation',
         outcome: 'Not Interested',
         reason: '*',
-        newStage: 'Stalled',
+        newStage: 'Dormant',
         requiredForms: [],
         priority: 20,
         active: true
@@ -318,7 +318,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Negotiation Meeting',
         outcome: 'Not Interested',
         reason: 'Price High',
-        newStage: 'Stalled',
+        newStage: 'Dormant',
         requiredForms: [],
         priority: 31,
         active: true
@@ -367,7 +367,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Property Tour',
         outcome: 'Not Interested',
         reason: 'Price High',
-        newStage: 'Stalled',
+        newStage: 'Dormant',
         requiredForms: [],
         priority: 26,
         active: true
@@ -378,7 +378,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Property Tour',
         outcome: 'Not Interested',
         reason: 'Location Mismatch',
-        newStage: 'Stalled',
+        newStage: 'Dormant',
         requiredForms: [],
         priority: 26,
         active: true
@@ -389,7 +389,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Property Tour',
         outcome: 'Not Interested',
         reason: 'Budget Mismatch',
-        newStage: 'Stalled',
+        newStage: 'Dormant',
         requiredForms: [],
         priority: 26,
         active: true
@@ -503,6 +503,18 @@ export const DEFAULT_STAGE_RULES = [
         priority: 50,
         active: true,
         description: 'Any Activity → Lost to Competitor → Closed Lost'
+    },
+    {
+        id: 'any_not_interested_global',
+        activityType: '*',
+        purpose: '*',
+        outcome: 'Not Interested',
+        reason: '*',
+        newStage: 'Dormant',
+        requiredForms: [],
+        priority: 9, // Lowest among specific Not Interested rules, but acts as catch-all
+        active: true,
+        description: 'System Rule: Any Activity with Not Interested outcome moves to Dormant'
     }
 ];
 

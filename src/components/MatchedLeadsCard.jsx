@@ -42,7 +42,7 @@ const MatchedLeadsCard = ({ matchingLeads, onNavigate, entityId, entityType = 'd
                     <span style={{ color: '#166534' }}>Top Matched Leads</span>
                 </h3>
                 <button
-                    onClick={() => onNavigate('inventory-matching', entityId)}
+                    onClick={() => onNavigate(entityType === 'deal' ? 'deal-matching' : 'inventory-matching', entityId)}
                     style={{ fontSize: '0.7rem', fontWeight: 800, color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.05em', cursor: 'pointer', background: 'none', border: 'none' }}
                 >
                     Match Centre →

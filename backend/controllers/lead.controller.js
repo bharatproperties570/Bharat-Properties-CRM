@@ -916,41 +916,144 @@ export const matchLeads = async (req, res) => {
             return res.status(400).json({ success: false, error: "dealId is required" });
         }
 
-        const deal = await Deal.findById(dealId).lean();
+        const deal = await Deal.findById(dealId)
+            .populate('category', 'lookup_value')
+            .populate('intent', 'lookup_value')
+            .populate('subCategory', 'lookup_value')
+            .populate('inventoryId')
+            .lean();
+            
         if (!deal) {
             return res.status(404).json({ success: false, error: "Deal not found" });
         }
 
-        const query = {
-            isVisible: { $ne: false },
-            $or: []
-        };
+        const dealIntent = String(deal.intent?.lookup_value || deal.intent || "").toLowerCase();
+        const dealCategory = String(deal.category?.lookup_value || deal.category || "").toLowerCase();
 
-        if (deal.projectId) query.$or.push({ project: deal.projectId }, { projectName: deal.projectName });
-        if (deal.category) query.$or.push({ requirement: deal.category });
-        if (deal.location) query.$or.push({ location: deal.location });
-
-        if (query.$or.length === 0) {
-            return res.status(200).json({ success: true, count: 0, data: [] });
-        }
-
-        const leads = await Lead.find(query)
-            .populate('requirement location status contactDetails')
-            .limit(50)
-            .sort({ createdAt: -1 })
+        // 1. Fetch potential leads (Broad initial query to ensure we have enough candidates)
+        const leads = await Lead.find({ status: { $nin: ["Lost", "Closed", "Rejected"] } })
+            .populate('requirement', 'lookup_value')
+            .populate('propertyType', 'lookup_value')
+            .populate('subType', 'lookup_value')
+            .populate('facing', 'lookup_value')
+            .populate('direction', 'lookup_value')
+            .populate('roadWidth', 'lookup_value')
+            .populate('location', 'lookup_value')
             .lean();
 
-        // Simple scoring based on how many fields match
-        const scoredLeads = leads.map(lead => {
-            let score = 50;
-            if (lead.project?.toString() === deal.projectId?.toString()) score += 20;
-            if (lead.requirement?._id?.toString() === deal.category?.toString() || lead.requirement?.toString() === deal.category?.toString()) score += 20;
-            if (lead.location?._id?.toString() === deal.location?.toString() || lead.location?.toString() === deal.location?.toString()) score += 10;
-            return { ...lead, score: Math.min(score, 100) };
+        // 2. Filter and Score
+        const matchingLeads = leads.filter(lead => {
+            // --- STAGE 1: HARD FILTERS ---
+            const leadReq = String(lead.requirement?.lookup_value || lead.requirement || "").toLowerCase();
+            const leadCats = (Array.isArray(lead.propertyType) ? lead.propertyType : [])
+                .map(c => String(c?.lookup_value || c || "").toLowerCase());
+
+            // A. Intent Symmetry (Buy <-> Sell, Rent <-> Rent, Lease <-> Lease)
+            let intentMatched = false;
+            if (dealIntent.includes("sell") && leadReq.includes("buy")) intentMatched = true;
+            else if (dealIntent.includes("rent") && leadReq.includes("rent")) intentMatched = true;
+            else if (dealIntent.includes("lease") && leadReq.includes("lease")) intentMatched = true;
+            else if (dealIntent.includes("buy") && leadReq.includes("seller")) intentMatched = true; // For leads looking to sell
+
+            if (!intentMatched) return false;
+
+            // B. Category Alignment (Residential, Commercial, Industrial)
+            let catMatched = false;
+            if (dealCategory.includes("res") && leadCats.some(c => c.includes("res"))) catMatched = true;
+            else if (dealCategory.includes("comm") && leadCats.some(c => c.includes("comm"))) catMatched = true;
+            else if (dealCategory.includes("ind") && leadCats.some(c => c.includes("ind"))) catMatched = true;
+            else if (!dealCategory || (leadCats.length === 0)) catMatched = true; // Be permissive if data is missing
+
+            if (!catMatched) return false;
+
+            return true;
+        }).map(lead => {
+            // --- STAGE 2: WEIGHTED SCORING ---
+            let score = 0;
+            const matchDetails = [];
+
+            // Sub-Category (20%)
+            const dealSub = (deal.subCategory?.lookup_value || "").toLowerCase();
+            const leadSubs = (lead.subType || []).filter(Boolean).map(s => String(s.lookup_value || s || "").toLowerCase());
+            if (dealSub && leadSubs.some(s => s.includes(dealSub))) {
+                score += 20;
+                matchDetails.push("Unit Type Match");
+            }
+
+            // Budget (25%)
+            const dealPrice = deal.price || deal.quotePrice || 0;
+            if (dealPrice > 0) {
+                const min = lead.budgetMin || 0;
+                const max = lead.budgetMax || Infinity;
+                if (dealPrice >= min && dealPrice <= max) {
+                    score += 25;
+                    matchDetails.push("Budget Match");
+                } else if (dealPrice >= min * 0.8 && dealPrice <= max * 1.2) {
+                    score += 15;
+                    matchDetails.push("Partial Budget Match");
+                }
+            }
+
+            // Dual Location (20%)
+            const dealLoc = (deal.location || deal.projectName || "").toLowerCase();
+            const leadLocArea = (lead.locArea || "").toLowerCase();
+            const leadSelectedLoc = (lead.location?.lookup_value || "").toLowerCase();
+            if ((leadLocArea && dealLoc.includes(leadLocArea)) || (leadSelectedLoc && dealLoc.includes(leadSelectedLoc))) {
+                score += 20;
+                matchDetails.push("Location Match");
+            }
+
+            // Orientation Matrix (20%) - road, direction, facing, ownership
+            let orientCount = 0;
+            if (deal.inventoryId) {
+                const inv = deal.inventoryId;
+                const lFacing = (lead.facing || []).filter(Boolean).map(f => String(f._id || f));
+                const lDir = (lead.direction || []).filter(Boolean).map(d => String(d._id || d));
+                const lRoad = (lead.roadWidth || []).filter(Boolean).map(r => String(r._id || r));
+                
+                if (lFacing.includes(String(inv.facing))) orientCount++;
+                if (lDir.includes(String(inv.direction))) orientCount++;
+                if (lRoad.includes(String(inv.roadWidth))) orientCount++;
+                if (lead.transactionType && inv.ownership && lead.transactionType === inv.ownership) orientCount++;
+            }
+            if (orientCount > 0) {
+                score += Math.min(orientCount * 7, 20);
+                matchDetails.push(`${orientCount} Orientation Fields Matched`);
+            }
+
+            // Specs & Built-up Status (15%)
+            let specsMatch = 0;
+            if (lead.transactionType && deal.transactionType && lead.transactionType === deal.transactionType) specsMatch += 5;
+            if (lead.furnishing && deal.inventoryId?.furnishType && lead.furnishing === deal.inventoryId.furnishType) specsMatch += 5;
+            
+            // Timeline vs Possession (Built-up Type)
+            if (lead.timeline && deal.inventoryId?.possessionStatus) {
+                const lTimeline = lead.timeline.toLowerCase();
+                const dPoss = deal.inventoryId.possessionStatus.toLowerCase();
+                if ((lTimeline.includes('immediate') && dPoss.includes('ready')) || 
+                    (lTimeline.includes('months') && dPoss.includes('construction')) ||
+                    (lTimeline === dPoss)) {
+                    specsMatch += 5;
+                }
+            }
+
+            if (specsMatch > 0) {
+                score += specsMatch;
+                matchDetails.push("Spec & Built-up Match");
+            }
+
+            return {
+                ...lead,
+                name: `${lead.firstName} ${lead.lastName || ""}`.trim(),
+                score: Math.min(score, 100),
+                matchDetails
+            };
         });
 
-        return res.status(200).json({ success: true, count: scoredLeads.length, data: scoredLeads });
+        const sorted = matchingLeads.sort((a,b) => b.score - a.score).slice(0, 50);
+        return res.status(200).json({ success: true, count: sorted.length, data: sorted });
     } catch (error) {
+        console.error("[matchLeads Error]:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

@@ -133,7 +133,7 @@ export const getActivities = async (req, res) => {
                 if (act.assignedTo) {
                     act.performedBy = act.assignedTo.fullName || act.assignedTo.name || "Staff User";
                 } else {
-                    act.performedBy = "Bharat Properties"; // Default System Admin
+                    act.performedBy = "System"; // Default System attribution
                 }
             }
             return act;
@@ -178,7 +178,7 @@ export const getActivitiesByEntity = async (req, res) => {
                 if (act.assignedTo) {
                     act.performedBy = act.assignedTo.fullName || act.assignedTo.name || "Staff User";
                 } else {
-                    act.performedBy = "Bharat Properties";
+                    act.performedBy = "System";
                 }
             }
             return act;

@@ -26,7 +26,7 @@ import useDebounce from '../../hooks/useDebounce';
 
 import LeadFilterPanel from './components/LeadFilterPanel';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
-import { parseBudget, parseSizeSqYard, calculateMatch } from '../../utils/matchingLogic';
+import { parseBudget, parseSizeSqYard } from '../../utils/matchingLogic';
 import { useUserContext } from '../../context/UserContext';
 import { renderValue } from '../../utils/renderUtils';
 import { useCallback } from 'react';
@@ -145,6 +145,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const [selectedLeadsForTags, setSelectedLeadsForTags] = useState([]);
 
     const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+    const [previewMatches, setPreviewMatches] = useState([]);
+    const [loadingMatches, setLoadingMatches] = useState(false);
     const [selectedLeadsForAssign, setSelectedLeadsForAssign] = useState([]);
 
 
@@ -176,6 +178,36 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         setToastMessage(msg);
         setTimeout(() => setToastMessage(null), 3000);
     };
+
+    // --- Professional Match Fetching ---
+    useEffect(() => {
+        if (!activeMatchPopover) {
+            setPreviewMatches([]);
+            return;
+        }
+
+        const fetchMatches = async () => {
+            setLoadingMatches(true);
+            try {
+                const lead = leads.find(l => l.name === activeMatchPopover.name);
+                if (!lead) return;
+                const res = await api.get('deals/match', { params: { leadId: lead._id } });
+                if (res.data && res.data.success) {
+                    setPreviewMatches((res.data.data || []).slice(0, 5).map(m => ({
+                        ...m,
+                        matchPercentage: m.score,
+                        thumbnail: m.inventoryId?.images?.[0] || `https://picsum.photos/seed/${m._id}/200/150`
+                    })));
+                }
+            } catch (err) {
+                console.error("Match fetch error:", err);
+            } finally {
+                setLoadingMatches(false);
+            }
+        };
+
+        fetchMatches();
+    }, [activeMatchPopover, leads]);
 
     // Server-side Pagination & Search
     useEffect(() => {
@@ -1036,24 +1068,11 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
             )}
 
 
-            {/* Top Matches Popover */}
+            {/* Top Matches Popover (Professional Engine) */}
             {
                 activeMatchPopover && (() => {
                     const currentLead = leads.find(l => l.name === activeMatchPopover.name);
                     if (!currentLead) return null;
-
-                    const baseBudget = parseBudget(currentLead.budget);
-                    const leadContext = {
-                        baseBudget,
-                        leadSize: currentLead.req?.size ? parseSizeSqYard(currentLead.req.size) : 0,
-                        leadType: currentLead.req?.type ? currentLead.req.type.toLowerCase() : '',
-                        leadLocation: currentLead.location ? currentLead.location.toLowerCase() : '',
-                        leadLocationSectors: (currentLead.location ? currentLead.location.toLowerCase() : '').split(',').map(s => s.trim()).filter(Boolean)
-                    };
-
-                    const topMatches = calculateMatch(currentLead, leadContext, {
-                        location: 30, type: 20, budget: 25, size: 25
-                    }, { includeNearby: true, minMatchScore: 10 }).slice(0, 5);
 
                     return (
                         <div
@@ -1061,41 +1080,50 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             onMouseLeave={() => setActiveMatchPopover(null)}
                         >
                             <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px', display: 'flex', justifyContent: 'space-between' }}>
-                                <span>Top 5 Property Matches</span>
-                                <span style={{ color: 'var(--primary-color)' }}>{topMatches.length} Found</span>
+                                <span>Top 5 Matches (AI Engine)</span>
+                                {loadingMatches ? <span className="loading-dots">Updating</span> : <span style={{ color: 'var(--primary-color)' }}>{previewMatches.length} Found</span>}
                             </div>
 
-                            {topMatches.map((item, i) => (
-                                <div
-                                    key={i}
-                                    className="match-item-hover"
-                                    onClick={() => onNavigate('lead-matching', currentLead._id)}
-                                    style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '8px', borderRadius: '8px', marginBottom: '4px', cursor: 'pointer', transition: 'all 0.2s' }}
-                                >
-                                    <div style={{ width: '50px', height: '40px', borderRadius: '6px', overflow: 'hidden', background: '#f1f5f9', flexShrink: 0 }}>
-                                        <img src={item.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                    </div>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontWeight: 800, fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.propertyType} at {item.location}</div>
-                                        <div style={{ fontSize: '0.65rem', color: '#64748b' }}>₹{item.price} • {item.size}</div>
-                                    </div>
-                                    <div style={{ background: item.matchPercentage > 80 ? '#dcfce7' : '#fef3c7', color: item.matchPercentage > 80 ? '#166534' : '#92400e', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 900, flexShrink: 0 }}>
-                                        {item.matchPercentage}%
-                                    </div>
-                                </div>
-                            ))}
-
-                            {topMatches.length === 0 && (
+                            {loadingMatches ? (
                                 <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>
-                                    No direct matches found. Try adjusting criteria.
+                                    <div className="loading-spinner" style={{ margin: '0 auto 10px' }}></div>
+                                    Syncing with engine...
                                 </div>
+                            ) : (
+                                <>
+                                    {previewMatches.map((item, i) => (
+                                        <div
+                                            key={i}
+                                            className="match-item-hover"
+                                            onClick={() => onNavigate('lead-matching', currentLead._id)}
+                                            style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '8px', borderRadius: '8px', marginBottom: '4px', cursor: 'pointer', transition: 'all 0.2s' }}
+                                        >
+                                            <div style={{ width: '50px', height: '40px', borderRadius: '6px', overflow: 'hidden', background: '#f1f5f9', flexShrink: 0 }}>
+                                                <img src={item.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            </div>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ fontWeight: 800, fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.propertyType || item.type} at {item.location}</div>
+                                                <div style={{ fontSize: '0.65rem', color: '#64748b' }}>₹{renderValue(item.price)} • {renderValue(item.size)}</div>
+                                            </div>
+                                            <div style={{ background: item.matchPercentage > 80 ? '#dcfce7' : '#fef3c7', color: item.matchPercentage > 80 ? '#166534' : '#92400e', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 900, flexShrink: 0 }}>
+                                                {item.matchPercentage}%
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {previewMatches.length === 0 && (
+                                        <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>
+                                            No direct matches found. Try adjusting lead criteria.
+                                        </div>
+                                    )}
+                                </>
                             )}
 
                             <button
                                 onClick={() => onNavigate('lead-matching', currentLead._id)}
                                 style={{ width: '100%', marginTop: '10px', padding: '10px', background: 'var(--primary-color)', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', boxShadow: '0 4px 6px rgba(59, 130, 246, 0.2)' }}
                             >
-                                View All Matches Center
+                                Open Professional Matching Center
                             </button>
                             <style>{`.match-item-hover:hover { background: #f8fafc; transform: translateX(4px); }`}</style>
                         </div>

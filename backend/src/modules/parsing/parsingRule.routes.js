@@ -4,9 +4,11 @@ import { protect } from '../../../middleware/auth.js';
 
 const router = express.Router();
 
-router.use(protect);
-
+// Publicly accessible for rule detection on mobile/web startup
 router.get('/', parsingRuleController.getRules);
+
+// Protected mutation routes
+router.use(protect);
 router.post('/', parsingRuleController.addRule);
 router.post('/bulk', parsingRuleController.bulkAddRules);
 router.delete('/:id', parsingRuleController.deleteRule);

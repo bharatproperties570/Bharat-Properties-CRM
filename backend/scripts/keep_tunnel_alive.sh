@@ -2,7 +2,7 @@
 
 # Configuration
 PORT=4000
-SUBDOMAIN="bharat-crm-stable-api"
+SUBDOMAIN="bharat-crm-api-stable"
 LOGFILE="localtunnel_monitor.log"
 
 echo "Starting tunnel monitor for $SUBDOMAIN on port $PORT..." | tee -a $LOGFILE

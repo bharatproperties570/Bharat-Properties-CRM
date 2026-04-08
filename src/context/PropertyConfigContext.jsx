@@ -383,7 +383,7 @@ export const PropertyConfigProvider = ({ children }) => {
                             { label: 'Still Interested', score: 10, stage: 'Prospect' },
                             { label: 'Ready for Visit', score: 20, stage: 'Opportunity' },
                             { label: 'Negotiation Mode', score: 12, stage: 'Negotiation' },
-                            { label: 'Lost Interest', score: -10, stage: 'New' },
+                            { label: 'Lost Interest', score: -10, stage: 'Dormant' },
                             { label: 'No Response', score: -5, stage: 'New' },
                         ]
                     },
@@ -593,7 +593,7 @@ export const PropertyConfigProvider = ({ children }) => {
                         outcomes: [
                             { label: 'Very Interested', score: 30, stage: 'Opportunity' },
                             { label: 'Somewhat Interested', score: 15, stage: 'Qualified' },
-                            { label: 'Not Interested', score: -20, stage: 'New' },
+                            { label: 'Not Interested', score: -20, stage: 'Dormant' },
                             { label: 'Price Issue', score: -10, stage: 'Qualified' },
                         ]
                     },
@@ -1229,11 +1229,14 @@ export const PropertyConfigProvider = ({ children }) => {
 
     const findLookup = useCallback((type, value, parentId = null) => {
         const normalizedType = type ? type.replace(/\s+/g, '') : type;
-        if (!lookups[normalizedType]) return null;
-        return lookups[normalizedType].find(l =>
-            l.lookup_value === value &&
-            (!parentId || l.parent_lookup_id === parentId)
-        );
+        if (!lookups[normalizedType] || !value) return null;
+        
+        const standardizedValue = String(value).trim().toLowerCase();
+        
+        return lookups[normalizedType].find(l => {
+            const lValue = String(l.lookup_value || l.name || l.label || '').trim().toLowerCase();
+            return lValue === standardizedValue && (!parentId || l.parent_lookup_id === parentId);
+        });
     }, [lookups]);
 
     const refreshLookups = useCallback(async () => {
