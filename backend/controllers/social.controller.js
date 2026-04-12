@@ -127,46 +127,36 @@ export const likeComment = async (req, res) => {
 /**
  * GET /api/social/webhook
  * Meta Webhook Verification (hub.challenge handshake).
- * 
- * HOW IT WORKS:
- * 1. Meta sends: hub.mode=subscribe, hub.verify_token=YOUR_TOKEN, hub.challenge=RANDOM_STRING
- * 2. We verify hub.verify_token matches what we expect
- * 3. We respond with ONLY the hub.challenge string (plain text, no JSON)
- * 
- * VERIFY TOKEN TO USE IN META PORTAL: bharat-properties-webhook-2026
+ * MUST respond within 5 seconds. 100% synchronous — no DB, no async.
+ * VERIFY TOKEN: bharat-properties-webhook-2026
  */
-export const verifyWebhook = async (req, res) => {
-    // Professional Fix: Support BOTH nested objects and flat dot-notation keys
-    // Some Express configurations parse 'hub.mode' as hub: { mode: ... }
-    // Others parse it as a flat string key 'hub.mode'
-    const mode      = req.query['hub.mode']      || req.query.hub?.mode;
-    const token     = req.query['hub.verify_token'] || req.query.hub?.verify_token;
-    const challenge = req.query['hub.challenge']  || req.query.hub?.challenge;
+export const verifyWebhook = (req, res) => {
+    // Express qs parser converts hub.mode → nested object req.query.hub.mode
+    const hub      = req.query.hub || {};
+    const mode      = hub.mode      || req.query['hub.mode'];
+    const token     = hub.verify_token || req.query['hub.verify_token'];
+    const challenge = hub.challenge  || req.query['hub.challenge'];
 
-    console.log(`[Webhook] hub object:`, JSON.stringify(hub));
-    console.log(`[Webhook] mode="${mode}" token="${token}" challenge="${challenge}"`);
+    console.log(`[Webhook] VERIFY | mode="${mode}" token="${token}" challenge="${challenge}" | raw: ${JSON.stringify(req.query)}`);
 
-    if (!mode || !token) {
-        return res.status(400).send('Bad Request: Missing hub.mode or hub.verify_token');
+    if (mode === 'subscribe') {
+        const ACCEPTED = [
+            'bharat-properties-webhook-2026',
+            'BharatCRM2024',
+            process.env.FB_WEBHOOK_VERIFY_TOKEN,
+        ].filter(Boolean);
+
+        if (ACCEPTED.includes(token)) {
+            console.log(`[Webhook] ✅ Sending challenge: "${challenge}"`);
+            res.setHeader('Content-Type', 'text/plain');
+            return res.status(200).send(challenge);
+        }
+
+        console.warn(`[Webhook] ❌ Token mismatch: got="${token}", expected one of ${JSON.stringify(ACCEPTED)}`);
+        return res.status(403).send('Token mismatch');
     }
 
-    if (mode !== 'subscribe') {
-        return res.status(403).send('Forbidden: mode must be subscribe');
-    }
-
-    const ACCEPTED_TOKENS = [
-        process.env.FB_WEBHOOK_VERIFY_TOKEN,
-        'bharat-properties-webhook-2026',
-        'BharatCRM2024',
-    ].filter(Boolean);
-
-    if (ACCEPTED_TOKENS.includes(token)) {
-        console.log(`[Webhook] ✅ Verified! Returning challenge: "${challenge}"`);
-        return res.status(200).send(challenge);
-    }
-
-    console.warn(`[Webhook] ❌ Token mismatch — got: "${token}", accepted: ${JSON.stringify(ACCEPTED_TOKENS)}`);
-    return res.status(403).send('Verification token mismatch');
+    return res.status(400).send('Invalid mode');
 };
 
 /**
