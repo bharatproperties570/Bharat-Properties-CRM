@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { activitiesAPI, usersAPI } from '../../utils/api';
+import whatsappService from '../../services/whatsappService';
 import RecordingPlayer from './RecordingPlayer';
 import { useActivities } from '../../context/ActivityContext';
 import './UnifiedActivitySection.css';
@@ -20,6 +21,11 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
     const [composerTab, setComposerTab] = useState('note');
     const [composerContent, setComposerContent] = useState('');
     const [composerLoading, setComposerLoading] = useState(false);
+
+    // WhatsApp Specific States
+    const [whatsappTemplates, setWhatsappTemplates] = useState([]);
+    const [selectedTemplateId, setSelectedTemplateId] = useState('');
+    const [isTemplatesLoading, setIsTemplatesLoading] = useState(false);
 
     const [timelineFilter, setTimelineFilter] = useState('all');
     const [userFilter, setUserFilter] = useState('all');
@@ -43,6 +49,27 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
             console.error("Error fetching users:", error);
         }
     }, []);
+
+    const fetchWhatsAppTemplates = useCallback(async () => {
+        setIsTemplatesLoading(true);
+        try {
+            const res = await whatsappService.getTemplates();
+            setWhatsappTemplates(res.data || []);
+        } catch (error) {
+            console.error("Error fetching WhatsApp templates:", error);
+        } finally {
+            setIsTemplatesLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (composerTab === 'whatsapp' && whatsappTemplates.length === 0) {
+            fetchWhatsAppTemplates();
+        }
+    }, [composerTab, whatsappTemplates.length, fetchWhatsAppTemplates]);
+
+    // Stabilize the dependency to prevent infinite render loops when parent passes inline arrays
+    const relatedEntitiesKey = JSON.stringify(relatedEntities);
 
     const fetchUnifiedTimeline = useCallback(async () => {
         const entitiesToFetch = relatedEntities.length > 0 
@@ -71,22 +98,22 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                 })
             );
 
-            // Merge and Deduplicate by _id
+            // Merge and Deduplicate by string ID to ensure consistency
             const merged = [];
             const seenIds = new Set();
             
             results.flat().forEach(item => {
-                const id = item._id || item.id;
+                const id = String(item._id || item.id);
                 if (!seenIds.has(id)) {
                     seenIds.add(id);
                     merged.push(item);
                 }
             });
 
-            // Sort by createdAt descending
+            // Sort by timestamp descending (Professional Consistency)
             const sorted = merged.sort((a, b) => {
-                const dateA = new Date(a.createdAt || a.date).getTime();
-                const dateB = new Date(b.createdAt || b.date).getTime();
+                const dateA = new Date(a.timestamp || a.createdAt || a.date || 0).getTime();
+                const dateB = new Date(b.timestamp || b.createdAt || b.date || 0).getTime();
                 return dateB - dateA;
             });
 
@@ -105,7 +132,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
         } finally {
             setLoadingTimeline(false);
         }
-    }, [entityId, entityType, relatedEntities]);
+    }, [entityId, entityType, relatedEntitiesKey]);
 
     useEffect(() => {
         fetchUsers();
@@ -165,6 +192,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                 relatedTo: [{ id: entityId, name: entityData?.name || entityData?.fullName || entityData?.unitNo || 'Unknown', model: entityType }],
                 participants: (entityType === 'Contact' || entityType === 'Lead') ? [{ id: entityId, name: entityData?.name || entityData?.fullName || 'Unknown', model: entityType }] : [],
                 description: composerContent,
+                dueDate: new Date(),
                 details: {
                     purpose: composerTab,
                     content: composerContent
@@ -185,6 +213,30 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                 }));
                 backendData.subject = tasksToSave.length === 1 ? tasksToSave[0].subject : `New Tasks (${tasksToSave.length})`;
                 backendData.status = 'Pending'; // Tasks are usually pending
+            }
+
+            // If WhatsApp Tab, send real message first
+            if (composerTab === 'whatsapp') {
+                try {
+                    const mobile = entityData?.mobile || 
+                                   entityData?.phone || 
+                                   (entityData?.phones && entityData.phones[0]?.number) ||
+                                   (entityData?.contactInfo && entityData.contactInfo[0]?.value);
+                    if (!mobile) throw new Error("No phone number found for this entity.");
+
+                    const waRes = await whatsappService.sendMessage({
+                        mobile: mobile,
+                        message: composerContent,
+                        templateId: selectedTemplateId
+                    });
+
+                    if (!waRes.success) throw new Error(waRes.error || "Failed to dispatch WhatsApp message via Meta.");
+                } catch (waError) {
+                    console.error("WhatsApp Dispatch Error:", waError);
+                    toast.error(`WhatsApp Dispatch Failed: ${waError.message}`);
+                    setComposerLoading(false);
+                    return; // Stop if real dispatch fails
+                }
             }
 
             const res = await addActivity(backendData);
@@ -223,8 +275,14 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
 
             {/* 1. Activity Composer */}
             {!hideComposer && (
-                <div className="glass-card" style={{ borderRadius: '16px', overflow: 'hidden' }}>
-                    <div style={{ borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', background: 'rgba(248, 250, 252, 0.3)' }}>
+                <div style={{ 
+                    borderRadius: '12px', 
+                    overflow: 'hidden', 
+                    border: '1px solid #eef2f6',
+                    background: '#fff',
+                    boxShadow: '0 2px 10px rgba(0,0,0,0.02)'
+                }}>
+                    <div style={{ borderBottom: '1px solid #f1f5f9', display: 'flex', background: '#f8fafc' }}>
                         {[
                             { id: 'email', icon: 'envelope', label: 'Email' },
                             { id: 'whatsapp', icon: 'whatsapp', label: 'WhatsApp', isBrand: true },
@@ -258,6 +316,33 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                     </div>
 
                     <div style={{ padding: '20px' }}>
+                        {composerTab === 'whatsapp' && (
+                            <div style={{ marginBottom: '16px' }}>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '8px', display: 'block' }}>
+                                    Select Meta Template (Optional)
+                                </label>
+                                <select
+                                    value={selectedTemplateId}
+                                    onChange={(e) => setSelectedTemplateId(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px',
+                                        borderRadius: '10px',
+                                        border: '1px solid #e2e8f0',
+                                        fontSize: '0.85rem',
+                                        outline: 'none',
+                                        marginBottom: '10px'
+                                    }}
+                                    disabled={isTemplatesLoading}
+                                >
+                                    <option value="">-- {isTemplatesLoading ? 'Loading Templates...' : 'Direct Message (No Template)'} --</option>
+                                    {whatsappTemplates.map(t => (
+                                        <option key={t.id || t.name} value={t.name}>{t.name} ({t.language})</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
                         {composerTab === 'task' ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 {pendingTasks.map((task) => (

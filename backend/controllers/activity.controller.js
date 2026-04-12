@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import AuditLog from "../models/AuditLog.js";
 import Lead from "../models/Lead.js";
 import Deal from "../models/Deal.js";
+import Conversation from "../models/Conversation.js";
 import { enrichmentQueue, googleSyncQueue } from "../src/queues/queueManager.js";
 
 import StageTransitionEngine from "../src/services/StageTransitionEngine.js";
@@ -10,6 +11,8 @@ import LeadScoringService from "../src/services/LeadScoringService.js";
 import { autoAssign } from "../src/services/DistributionService.js";
 import { createNotification } from "./notification.controller.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
+import { normalizePhone } from "../utils/normalization.js";
+import Contact from "../models/Contact.js";
 
 /**
  * Bug 6 Fix: Auto-trigger stage change when a completed activity is saved for a lead.
@@ -207,10 +210,44 @@ export const getUnifiedTimeline = async (req, res) => {
         }
 
         const visibilityFilter = await getVisibilityFilter(req.user);
-        // 1. Fetch Activities
+        const objId = new mongoose.Types.ObjectId(entityId);
+
+        // 0. Authorize Entity Access (Entity-Based Authorization)
+        // If the user has access to the parent entity, they see ALL its history.
+        const ModelMap = { 
+            leads: Lead, 
+            lead: Lead,
+            contact: Contact, 
+            contacts: Contact,
+            deal: Deal, 
+            deals: Deal,
+            project: mongoose.model('Project'),
+            inventory: mongoose.model('Inventory')
+        };
+        const ParentModel = ModelMap[entityType.toLowerCase()];
+        
+        if (ParentModel) {
+            const parentExists = await ParentModel.findOne({ _id: objId, ...visibilityFilter }).select('_id').lean();
+            if (!parentExists) {
+                return res.status(403).json({ success: false, error: "Access Denied: You do not have permission to view this record's history." });
+            }
+        }
+
+        // 0.1 Fetch Entity Mobile for wider conversation matching
+        let mobileForLookup = null;
+        if (entityType.toLowerCase() === 'lead') {
+            const leadDoc = await Lead.findById(objId).select('mobile').lean();
+            if (leadDoc?.mobile) mobileForLookup = normalizePhone(leadDoc.mobile);
+        } else if (entityType.toLowerCase() === 'contact') {
+            const contactDoc = await Contact.findById(objId).select('phones').lean();
+            if (contactDoc?.phones && contactDoc.phones.length > 0) {
+                mobileForLookup = normalizePhone(contactDoc.phones[0].number);
+            }
+        }
+
+        // 1. Fetch Activities (Unrestricted for authorized parent view)
         const activities = await Activity.find({
-            ...visibilityFilter,
-            entityId,
+            entityId: objId,
             entityType: { $regex: new RegExp(`^${escapeRegExp(entityType)}$`, 'i') }
         })
             .populate('assignedTo', 'fullName name')
@@ -228,16 +265,32 @@ export const getUnifiedTimeline = async (req, res) => {
         const targetType = targetTypeMap[entityType.toLowerCase()] || entityType.toLowerCase();
 
         const auditLogs = await AuditLog.find({
-            targetId: entityId,
+            targetId: objId,
             targetType
         }).lean();
 
-        // 3. Normalize and Combine
+        // 3. Fetch WhatsApp Conversations (Match by ID OR Phone Number)
+        const conversationQuery = {
+            $or: [
+                { lead: objId },
+                { 'metadata.entityId': entityId },
+                { 'metadata.entityId': objId.toString() }
+            ],
+            channel: 'whatsapp'
+        };
+
+        if (mobileForLookup) {
+            conversationQuery.$or.push({ phoneNumber: mobileForLookup });
+        }
+
+        const conversations = await Conversation.find(conversationQuery).lean();
+
+        // 4. Normalize and Combine
         const timeline = [
             ...activities.map(a => ({
                 _id: a._id,
                 source: 'activity',
-                type: a.type.toLowerCase(),
+                type: a.type?.toLowerCase() === 'whatsapp' ? 'whatsapp' : a.type.toLowerCase(),
                 timestamp: a.completedAt || a.performedAt || a.createdAt || a.dueDate,
                 title: a.subject,
                 description: a.description,
@@ -245,6 +298,8 @@ export const getUnifiedTimeline = async (req, res) => {
                 actor: a.performedBy || (a.assignedTo ? (a.assignedTo.fullName || a.assignedTo.name) : 'System'),
                 isStarred: a.isStarred || false,
                 tags: a.tags || [],
+                createdAt: a.completedAt || a.performedAt || a.createdAt || a.dueDate, // Fallback
+                date: a.completedAt || a.performedAt || a.createdAt || a.dueDate, // Fallback
                 metadata: {
                     details: a.details,
                     completionResult: a.completionResult,
@@ -260,14 +315,34 @@ export const getUnifiedTimeline = async (req, res) => {
                 description: l.eventType.replace(/_/g, ' ').toUpperCase(),
                 status: 'Completed',
                 actor: l.actorName || 'System',
+                createdAt: l.timestamp, // Fallback
+                date: l.timestamp, // Fallback
                 metadata: {
                     changes: l.changes,
                     eventType: l.eventType
                 }
-            }))
+            })),
+            ...conversations.flatMap(c => (c.messages || []).map(m => ({
+                _id: m._id || `${c._id}_${m.timestamp}`,
+                source: 'conversation',
+                type: 'whatsapp',
+                timestamp: m.timestamp,
+                title: m.role === 'user' ? 'Inbound WhatsApp' : 'AI Bot Response',
+                description: m.content,
+                status: 'Completed',
+                actor: m.role === 'user' ? (entityType === 'Lead' ? 'Lead' : 'Contact') : 'AI Nurture Bot',
+                isStarred: false,
+                createdAt: m.timestamp, // Fallback
+                date: m.timestamp, // Fallback
+                details: {
+                    direction: m.role === 'user' ? 'incoming' : 'outgoing',
+                    platform: 'whatsapp',
+                    role: m.role
+                }
+            })))
         ];
 
-        // 4. Sort by timestamp descending
+        // 5. Sort by timestamp descending
         timeline.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
         res.json({
@@ -617,6 +692,78 @@ export const syncMobileCalls = async (req, res) => {
 
     } catch (error) {
         console.error("Sync error:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * @desc    Get all messaging records (Activity + Conversation) for Communication Hub
+ * @route   GET /api/activities/messaging
+ */
+export const getMessagingActivities = async (req, res) => {
+    try {
+        const visibilityFilter = await getVisibilityFilter(req.user);
+
+        // 1. Fetch Messaging Activities (SMS, WhatsApp manual)
+        const activities = await Activity.find({
+            ...visibilityFilter,
+            type: { $in: ['Messaging', 'WhatsApp'] }
+        })
+        .sort({ createdAt: -1 })
+        .limit(200)
+        .populate('entityId') // Populate to check for "Real" Lead status
+        .lean();
+
+        // 2. Fetch AI Conversations
+        const conversations = await Conversation.find({})
+            .sort({ updatedAt: -1 })
+            .limit(100)
+            .populate('lead')
+            .lean();
+
+        // 3. Unify and apply Matched/Unmatched logic
+        const unified = [
+            ...activities.map(a => ({
+                _id: a._id,
+                type: a.type,
+                subject: a.subject,
+                description: a.description,
+                timestamp: a.createdAt,
+                entityType: a.entityType,
+                entityId: a.entityId?._id || a.entityId,
+                actor: a.actor || 'System',
+                isMatched: !!(a.entityId && a.entityId.firstName !== 'WhatsApp' && a.entityId.firstName !== 'WhatsApp Lead'),
+                details: a.details,
+                platform: a.details?.platform || 'Direct'
+            })),
+            ...conversations.map(c => {
+                const lastMsg = c.messages?.[c.messages.length - 1];
+                return {
+                    _id: c._id,
+                    type: 'WhatsApp',
+                    subject: 'AI Bot Conversation',
+                    description: lastMsg?.content || 'Conversation started',
+                    timestamp: c.updatedAt,
+                    entityType: 'Lead',
+                    entityId: c.lead?._id || c.lead,
+                    participantName: c.lead?.fullName || c.lead?.firstName || 'Unknown',
+                    participantMobile: c.phoneNumber || c.lead?.mobile || '',
+                    direction: lastMsg?.role === 'user' ? 'Incoming' : 'Outgoing',
+                    platform: 'WhatsApp Bot',
+                    isMatched: !!(c.lead && c.lead.source !== 'AI Bot WhatsApp' && c.lead.firstName !== 'WhatsApp')
+                };
+            })
+        ];
+
+        // 4. Sort and return
+        unified.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        res.json({
+            success: true,
+            data: unified
+        });
+    } catch (error) {
+        console.error("[ActivityController] getMessagingActivities error:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { normalizePhone } from "../utils/normalization.js";
 
 const ContactSchema = new mongoose.Schema({
     title: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
@@ -154,6 +155,13 @@ const escapeRegExp = (string) => {
 ContactSchema.pre("save", async function (next) {
     try {
         sanitizeData(this);
+
+        // Normalize all phone numbers
+        if (Array.isArray(this.phones)) {
+            this.phones.forEach(p => {
+                if (p.number) p.number = normalizePhone(p.number);
+            });
+        }
 
         const Lookup = mongoose.model('Lookup');
         const resolveLookupLocal = async (type, value) => {

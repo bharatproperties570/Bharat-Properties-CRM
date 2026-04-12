@@ -48,7 +48,7 @@ function CommunicationPage() {
     useEffect(() => {
         const fetchActivities = async () => {
             try {
-                const response = await activitiesAPI.getAll();
+                const response = await activitiesAPI.getMessagingStream();
                 if (response && response.success) {
                     // Map backend Activity to UI format
                     const mappedData = response.data.map(act => {
@@ -79,8 +79,8 @@ function CommunicationPage() {
                             duration: act.details?.duration || '',
                             associatedDeals: associatedDeals,
                             date: new Date(act.dueDate || act.createdAt).toLocaleDateString(),
-                            platform: act.details?.platform || 'Direct',
-                            isMatched: act.entityId ? true : (act.details?.isMatched ?? false)
+                            platform: act.details?.platform || (act.platform === 'WhatsApp Bot' ? 'AI Bot' : 'Direct'),
+                            isMatched: act.isMatched ?? (act.entityId ? true : (act.details?.isMatched ?? false))
                         };
                     });
                     setActivities(mappedData);
@@ -158,7 +158,7 @@ function CommunicationPage() {
         } else {
             data = activities.filter(item => {
                 if (activeTab === 'Calls') return item.via === 'CALL';
-                if (activeTab === 'Messaging') return item.via === 'MESSAGE';
+                if (activeTab === 'Messaging') return ['MESSAGE', 'WHATSAPP'].includes(item.via);
                 return true;
             });
         }

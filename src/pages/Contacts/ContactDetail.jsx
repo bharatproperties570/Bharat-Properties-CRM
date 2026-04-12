@@ -582,9 +582,6 @@ const ContactDetail = ({ contactId, onBack }) => {
                 <div className="detail-main-content" style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
 
-                    {/* LEFT COLUMN - Primary */}
-                    <div className="detail-left-col no-scrollbar" style={{ flex: '1.5', overflowY: 'auto', padding: '1.5rem 2rem', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-
                         {/* 1. Unified Profile 360° Dashboard */}
                         <ContactCoreInfo 
                             contact={contact}
@@ -606,8 +603,12 @@ const ContactDetail = ({ contactId, onBack }) => {
                             />
                         )}
 
-                        {/* 3. Unified Activities Section */}
-                        <div className="glass-card" style={{ borderRadius: '16px', flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                        {/* 3. Unified Activities Section (Interaction Intelligence) - Moved below requirements */}
+                        <div className="glass-card activity-timeline-container" style={{ borderRadius: '16px', flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                            <div style={{ padding: '12px 16px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-bolt" style={{ color: '#4f46e5' }}></i>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Interaction Intelligence</span>
+                            </div>
                             <UnifiedActivitySection
                                 entityId={contactId}
                                 entityType={recordType.charAt(0).toUpperCase() + recordType.slice(1)}
@@ -618,8 +619,6 @@ const ContactDetail = ({ contactId, onBack }) => {
                                 }}
                             />
                         </div>
-
-                    </div>
 {/* End detail-left-col */}
 
                     {/* RIGHT COLUMN - Secondary Dashboard */}

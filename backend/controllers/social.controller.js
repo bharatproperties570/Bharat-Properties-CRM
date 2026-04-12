@@ -35,6 +35,69 @@ export const saveSocialConfig = async (req, res) => {
 };
 
 /**
+ * POST /api/social/whatsapp/send
+ * Enterprise message dispatch with Activity logging
+ */
+export const sendWhatsAppMessage = async (req, res) => {
+    try {
+        const { mobile, message, type = 'text', mediaUrl, filename, caption } = req.body;
+        
+        if (!mobile || (!message && !mediaUrl)) {
+            return res.status(400).json({ success: false, error: 'Mobile and message/media are required' });
+        }
+
+        const WhatsAppService = (await import('../services/WhatsAppService.js')).default;
+        const Activity = (await import('../models/Activity.js')).default;
+        const Lead = (await import('../models/Lead.js')).default;
+
+        // 1. Dispatch via Service
+        let result;
+        if (type === 'text') {
+            result = await WhatsAppService.sendMessage(mobile, message);
+        } else {
+            result = await WhatsAppService.sendMedia(mobile, type, mediaUrl, caption || message, filename);
+        }
+
+        if (result.success) {
+            // 2. Normalize mobile for Lead lookup
+            const cleanPhone = mobile.replace(/\D/g, '').slice(-10);
+            const lead = await Lead.findOne({ mobile: { $regex: new RegExp(cleanPhone + '$') } });
+
+            // 3. Log as Activity for Timeline visibility
+            await Activity.create({
+                type: 'WhatsApp',
+                subject: `Sent WhatsApp to ${mobile}`,
+                entityType: lead ? 'Lead' : 'System',
+                entityId: lead ? lead._id : null,
+                description: message || `Sent ${type} media`,
+                status: 'Completed',
+                performedBy: req.user?.fullName || 'System',
+                details: {
+                    platform: 'whatsapp',
+                    direction: 'outgoing',
+                    recipient: mobile,
+                    message: message,
+                    mediaUrl: mediaUrl,
+                    type: type,
+                    messageId: result.messageId
+                },
+                dueDate: new Date()
+            });
+
+            if (lead) {
+                lead.lastActivityAt = new Date();
+                await lead.save();
+            }
+        }
+
+        res.json(result);
+    } catch (err) {
+        console.error('[SocialController] sendWhatsAppMessage error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+/**
  * GET /api/social/ig/media
 ... (keep existing exports)
 ... (keep existing exports)
@@ -251,7 +314,7 @@ export const getSocialStatus = async (req, res) => {
  */
 export const getWhatsAppTemplates = async (req, res) => {
     try {
-        const WhatsAppService = (await import('../services/whatsapp/WhatsAppService.js')).default;
+        const WhatsAppService = (await import('../services/WhatsAppService.js')).default;
         const templates = await WhatsAppService.getTemplates();
         res.json({ success: true, templates });
     } catch (err) {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTriggers } from '../context/TriggersContext';
 import smsService from '../services/smsService';
+import whatsappService from '../services/whatsappService';
 
 const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], initialProperty = null }) => {
     const { fireEvent } = useTriggers();
@@ -24,6 +25,10 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
     // SMS Templates State
     const [smsTemplates, setSmsTemplates] = useState([]);
     const [isLoadingSms, setIsLoadingSms] = useState(false);
+
+    // WhatsApp Templates State
+    const [whatsappTemplates, setWhatsappTemplates] = useState([]);
+    const [isLoadingWhatsApp, setIsLoadingWhatsApp] = useState(false);
 
     // Real Data for References (Passed from parent or fetched)
     const [propertyRefs, setPropertyRefs] = useState([]);
@@ -97,6 +102,18 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
             console.error('Failed to load SMS templates', err);
         } finally {
             setIsLoadingSms(false);
+        }
+    };
+
+    const loadWhatsAppTemplates = async () => {
+        setIsLoadingWhatsApp(true);
+        try {
+            const res = await whatsappService.getTemplates();
+            setWhatsappTemplates(res.data || []);
+        } catch (err) {
+            console.error('Failed to load WhatsApp templates', err);
+        } finally {
+            setIsLoadingWhatsApp(false);
         }
     };
 
@@ -191,8 +208,20 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
         };
 
         try {
-            // Optional: Show loading toast here if needed
-            const res = await smsService.sendMessage(data);
+            let res;
+            if (channel === 'WHATSAPP') {
+                res = await whatsappService.sendMessage({
+                    mobile: recipients[0], // WhatsApp currently supports 1-to-1 from this modal
+                    message: messageBody,
+                    templateId,
+                    mediaUrl: attachment?.url,
+                    filename: attachment?.name,
+                    type: attachment?.type || 'text'
+                });
+            } else {
+                res = await smsService.sendMessage(data);
+            }
+
             if (res && res.success) {
                 // If the parent provided an onSend callback, tell it we succeeded
                 if (onSend) onSend(data, res);
@@ -202,10 +231,10 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
 
                 onClose();
             } else {
-                throw new Error("Failed to send message: Success flag false");
+                throw new Error(res?.error || "Failed to send message: Success flag false");
             }
         } catch (error) {
-            console.error("SMS Sending Error:", error);
+            console.error(`${channel} Sending Error:`, error);
             alert(`Failed to send message: ${error.message}`);
         }
     };
@@ -308,7 +337,7 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
                             <button type="button" onClick={() => setChannel('SMS')} style={channelBtnStyle(channel === 'SMS')}>
                                 <i className="fas fa-comment-alt"></i> SMS
                             </button>
-                            <button type="button" onClick={() => setChannel('WHATSAPP')} style={channelBtnStyle(channel === 'WHATSAPP')}>
+                            <button type="button" onClick={() => { setChannel('WHATSAPP'); loadWhatsAppTemplates(); }} style={channelBtnStyle(channel === 'WHATSAPP')}>
                                 <i className="fab fa-whatsapp"></i> WhatsApp
                             </button>
                             <button type="button" onClick={() => setChannel('RCS')} style={channelBtnStyle(channel === 'RCS')}>
@@ -433,11 +462,12 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
                                         value={templateId}
                                         onChange={handleTemplateChange}
                                         style={inputStyle}
+                                        disabled={isLoadingWhatsApp}
                                     >
-                                        <option value="">-- Choose a Template --</option>
-                                        <option value="welcome">Welcome Message</option>
-                                        <option value="property_alert">Property Alert</option>
-                                        <option value="meeting_confirm">Meeting Confirmation</option>
+                                        <option value="">-- {isLoadingWhatsApp ? 'Loading...' : 'Choose a WhatsApp Template'} --</option>
+                                        {whatsappTemplates.map(t => (
+                                            <option key={t.id || t.name} value={t.name}>{t.name} ({t.language})</option>
+                                        ))}
                                     </select>
                                 </div>
 

@@ -362,6 +362,7 @@ export const contactsAPI = {
 // Activities API
 export const activitiesAPI = {
     getAll: (params) => apiRequest('/activities', { params }),
+    getMessagingStream: (params) => apiRequest('/activities/messaging', { params }),
     getById: (id) => apiRequest(`/activities/${id}`),
     getUnified: (type, id) => apiRequest(`/activities/unified/${type}/${id}`),
     create: (data) => apiRequest('/activities', { method: 'POST', body: JSON.stringify(data) }),

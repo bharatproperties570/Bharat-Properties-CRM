@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { invalidateDashboardCache } from "../src/config/redis.js";
+import { normalizePhone } from "../utils/normalization.js";
 
 const LeadSchema = new mongoose.Schema({
     salutation: { type: String, default: "Mr." },
@@ -160,7 +161,11 @@ export const resolveLeadLookup = async (type, value) => {
 
 // Middleware to resolve lookup names to IDs before saving
 LeadSchema.pre('save', async function (next) {
-    // Lead Duplicate Prevention & Merge Strategy
+    // Normalize mobile number
+    if (this.mobile) {
+        this.mobile = normalizePhone(this.mobile);
+    }
+
     if (this.isNew) {
         const queries = [{ mobile: this.mobile }];
         if (this.email) {

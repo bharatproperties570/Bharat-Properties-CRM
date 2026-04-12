@@ -22,6 +22,8 @@ import mongoose from 'mongoose';
 import { generateBotResponse } from '../services/aiBot.service.js';
 import axios from 'axios';
 import IntegrationSettings from '../models/IntegrationSettings.js';
+import { normalizePhone } from '../utils/normalization.js';
+import Contact from '../models/Contact.js';
 
 // ── POST /api/webhooks/lead ───────────────────────────────────────────────────
 export const captureLeadWebhook = async (req, res) => {
@@ -123,7 +125,7 @@ export const whatsAppReplyWebhook = async (req, res) => {
 
         if (!mobile) return res.status(400).json({ success: false });
 
-        const normalizedMobile = mobile.replace(/^91/, ''); // Strip country code
+        const normalizedMobile = normalizePhone(mobile); // Professional normalization
         const isPositive = /yes|haan|ha|interested|visit|book/i.test(message);
 
         if (isPositive) {
@@ -196,11 +198,22 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
 
                 if (!messageText) return res.sendStatus(200);
 
-                const normalizedMobile = fromNumber.replace(/^91/, '');
+                const normalizedMobile = normalizePhone(fromNumber);
 
-                // 1. Find or Create Lead
+                // 1. Find or Create Identity (Lead or Contact)
                 let lead = await Lead.findOne({ mobile: normalizedMobile });
+                let contact = null;
+
                 if (!lead) {
+                    // Check if they exist as a Contact
+                    contact = await Contact.findOne({ 'phones.number': normalizedMobile });
+                    if (!contact) {
+                        // Fallback search for contact with regex (fuzzy matching for formatted numbers)
+                        contact = await Contact.findOne({ 'phones.number': { $regex: new RegExp(`${normalizedMobile}$`) } });
+                    }
+                }
+
+                if (!lead && !contact) {
                     const sourceId = await resolveLeadLookup('Source', 'AI Bot WhatsApp');
                     lead = await Lead.create({
                         firstName: 'WhatsApp',
@@ -212,15 +225,31 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                     });
                 }
 
+                const entityId = lead?._id || contact?._id;
+                const entityType = lead ? 'Lead' : 'Contact';
+
                 // 2. Find or Create Conversation
-                let conversation = await Conversation.findOne({ lead: lead._id, status: 'active' });
+                let conversation = await Conversation.findOne({ 
+                    $or: [
+                        { lead: lead?._id },
+                        { metadata: { entityId: contact?._id } },
+                        { phoneNumber: normalizedMobile }
+                    ],
+                    status: 'active' 
+                });
+
                 if (!conversation) {
                     conversation = await Conversation.create({
-                        lead: lead._id,
+                        lead: lead?._id || new mongoose.Types.ObjectId(), // Required field in schema, but we'll use metadata for Contacts
                         channel: 'whatsapp',
-                        phoneNumber: fromNumber,
+                        phoneNumber: normalizedMobile,
                         status: 'active',
-                        messages: []
+                        messages: [],
+                        metadata: {
+                            entityId: entityId,
+                            entityType: entityType,
+                            isContact: !!contact
+                        }
                     });
                 }
 
