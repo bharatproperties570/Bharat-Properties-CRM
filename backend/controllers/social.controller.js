@@ -143,6 +143,7 @@ export const verifyWebhook = (req, res) => {
         const ACCEPTED = [
             'bharat-properties-webhook-2026',
             'BharatCRM2024',
+            'Bharat123',
             process.env.FB_WEBHOOK_VERIFY_TOKEN,
         ].filter(Boolean);
 
