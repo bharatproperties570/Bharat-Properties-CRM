@@ -88,7 +88,10 @@ app.use(cors({
 app.use(compression());
 app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser());
-app.use(mongoSanitize());
+app.use(mongoSanitize({
+    allowDots: true,      // REQUIRED: Meta sends hub.mode, hub.verify_token as dot-notation query params
+    replaceWith: '_',     // Replace $ signs instead of stripping
+}));
 
 // Trust proxy for rate limiting behind reverse proxies (like Vercel)
 app.set('trust proxy', 1);
