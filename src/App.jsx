@@ -237,16 +237,19 @@ const AppContent = () => {
     }
 
     return (
-        <MainLayout currentView={currentView} onNavigate={handleNavigate}>
-            {(modalHandlers) => (
-                <AppRouter
-                    currentView={currentView}
-                    currentContactId={currentContactId}
-                    onNavigate={handleNavigate}
-                    {...modalHandlers}
-                />
-            )}
-        </MainLayout>
+        <>
+            <MainLayout currentView={currentView} onNavigate={handleNavigate}>
+                {(modalHandlers) => (
+                    <AppRouter
+                        currentView={currentView}
+                        currentContactId={currentContactId}
+                        onNavigate={handleNavigate}
+                        {...modalHandlers}
+                    />
+                )}
+            </MainLayout>
+            <CallModalWrapper />
+        </>
     );
 };
 
@@ -269,7 +272,6 @@ function App() {
                                                             containerStyle={{ zIndex: 999999 }}
                                                         />
                                                         <AppContent />
-                                                        <CallModalWrapper />
                                                     </CallProvider>
                                                 </UserProvider>
                                             </TriggersProvider>

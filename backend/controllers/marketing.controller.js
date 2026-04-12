@@ -9,13 +9,20 @@
  *   - activateDrip:  Now enqueues a real BullMQ 'drip' job.
  *   - getJobStatus:  New endpoint — polls BullMQ job state for UI progress tracking.
  */
+console.log('--- MARKETING CONTROLLER LOADED v3 ---');
 
 import marketingService from '../services/MarketingService.js';
+import marketingPublishingService from '../services/MarketingPublishingService.js';
 import geminiService    from '../services/GeminiService.js';
 import openAIService    from '../services/OpenAIService.js';
-import Deal  from '../models/Deal.js';
+import publishService from '../services/PublishService.js';
+import Deal from '../models/Deal.js';
+import Project from '../models/Project.js';
 import Lead  from '../models/Lead.js';
+import MarketingContent from '../models/MarketingContent.js';
 import NurtureBot from '../services/NurtureBot.js';
+import fs from 'fs';
+import path from 'path';
 
 // Lazy-import the marketing queue (avoids Redis connection at module load
 // if Redis is not yet running)
@@ -103,11 +110,29 @@ export const generateSocialContent = async (req, res) => {
 
         const content = await marketingService.generateSocialPost(deal, platform.toLowerCase());
 
+        // ── PERSIST DRAFT (Phase D Integration) ──────────────────────────
+        // Save to Database immediately so it appears on the calendar
+        const post = await MarketingContent.create({
+            title: `${deal.unitNo || 'Property'} ${platform} Post`,
+            content: content,
+            platform: platform.charAt(0).toUpperCase() + platform.slice(1),
+            type: 'ct-project',
+            date: new Date().toISOString().split('T')[0],
+            status: 'draft',
+            dealId: deal._id,
+            author: req.user?.id,
+            metadata: {
+                provider: 'unified',
+                model: 'auto'
+            }
+        });
+
         res.json({
             success: true,
             platform,
             content,
             dealTitle: deal.unitNo,
+            postId: post._id
         });
     } catch (error) {
         console.error('[MarketingController] generateSocialContent Error:', error.message);
@@ -404,5 +429,136 @@ export const getJobStatus = async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+
+// ── Marketing Content CRUD (Neural Persistence) ───────────────────────────────
+
+/**
+ * GET /api/marketing/content
+ * Fetch all persistent marketing content (for Calendar/List).
+ */
+export const getMarketingContent = async (req, res) => {
+    try {
+        const { platform, status, date } = req.query;
+        const query = {};
+        if (platform) query.platform = platform;
+        if (status) query.status = status;
+        if (date) query.date = date;
+
+        const content = await MarketingContent.find(query)
+            .sort({ date: 1, time: 1 })
+            .populate('dealId', 'unitNo projectName')
+            .lean();
+
+        res.json({ success: true, data: content });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * POST /api/marketing/content
+ * Create or Update marketing content.
+ */
+export const saveMarketingContent = async (req, res) => {
+    try {
+        const { id, ...data } = req.body;
+        
+        // Ensure date format is correct
+        if (data.date && data.date.includes('T')) {
+            data.date = data.date.split('T')[0];
+        }
+
+        let content;
+        if (id) {
+            content = await MarketingContent.findByIdAndUpdate(id, data, { new: true });
+        } else {
+            content = await MarketingContent.create({
+                ...data,
+                author: req.user?.id
+            });
+        }
+
+        res.json({ success: true, data: content });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * DELETE /api/marketing/content/:id
+ */
+export const deleteMarketingContent = async (req, res) => {
+    try {
+        await MarketingContent.findByIdAndDelete(req.params.id);
+        res.json({ success: true, message: 'Content deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * POST /api/marketing/publish
+ * Deploy content to external platforms (IG/FB/WA).
+ */
+export const publishMarketingContent = async (req, res) => {
+    try {
+        const { contentId, phoneNumber } = req.body;
+        if (!contentId) return res.status(400).json({ success: false, error: 'contentId is required' });
+
+        const content = await MarketingContent.findById(contentId);
+        if (!content) return res.status(404).json({ success: false, error: 'Content not found' });
+
+        let result;
+        if (content.platform?.toLowerCase() === 'whatsapp') {
+            if (!phoneNumber) return res.status(400).json({ success: false, error: 'Phone number required for WhatsApp' });
+            result = await marketingPublishingService.publishToWhatsApp(contentId, phoneNumber);
+        } else {
+            result = await marketingPublishingService.publishToSocial(contentId);
+        }
+
+        res.json({ 
+            success: true, 
+            message: result.message || 'Content successfully deployed',
+            mode: result.mode
+        });
+    } catch (error) {
+        console.error('[MarketingController] publish Error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Broadcast a Property or Deal to multiple platforms
+ */
+export const broadcastToHub = async (req, res) => {
+    try {
+        const { id, type, platforms, privacy } = req.body;
+        console.log('[BroadcastHub] Broadcasting:', { id, type, platforms });
+
+        // Fetch the actual data
+        const Model = type === 'deal' ? Deal : Project;
+        const data = await Model.findById(id).lean();
+
+        if (!data) {
+            console.error('[BroadcastHub] Item not found in DB:', { id, type });
+            return res.status(404).json({ success: false, message: 'Item not found in database' });
+        }
+
+        const results = await publishService.publish(data, {
+            platforms,
+            privacy,
+            itemType: type
+        });
+
+        res.json({
+            success: true,
+            message: 'Broadcast task processed',
+            results
+        });
+    } catch (error) {
+        console.error('[BroadcastHub] Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+}
 
 

@@ -1,5 +1,6 @@
-import jwt from "jsonwebtoken";
 import BlacklistedToken from "../models/BlacklistedToken.js";
+import User from "../models/User.js";
+import jwt from "jsonwebtoken";
 
 export const protect = async (req, res, next) => {
     let token;
@@ -18,7 +19,17 @@ export const protect = async (req, res, next) => {
         }
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = decoded;
+        
+        // 🚀 USER HYDRATION: Fetch full profile for Visibility Engine
+        const user = await User.findById(decoded.id).populate('role teams').lean();
+        if (!user) {
+            return res.status(401).json({ success: false, message: "User account no longer exists" });
+        }
+        if (!user.isActive) {
+            return res.status(403).json({ success: false, message: "User account is suspended" });
+        }
+
+        req.user = user;
         next();
     } catch (err) {
         return res.status(401).json({ success: false, message: "Invalid token" });

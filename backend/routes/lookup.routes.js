@@ -1,7 +1,12 @@
 import express from "express";
 import { getLookups, addLookup, updateLookup, deleteLookup, importLookups, checkDuplicatesImport } from "../controllers/lookup.controller.js";
+import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
+
+// Apply authentication to all routes
+router.use(authenticate);
+
 // Handle generic lookups
 router.get("/", getLookups);
 router.post("/import", importLookups);

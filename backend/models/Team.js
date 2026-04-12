@@ -47,7 +47,7 @@ TeamSchema.index({ manager: 1 });
 TeamSchema.virtual('members', {
     ref: 'User',
     localField: '_id',
-    foreignField: 'team'
+    foreignField: 'teams'
 });
 
 export default mongoose.model("Team", TeamSchema);

@@ -8,10 +8,10 @@ const DealSchema = new mongoose.Schema({
     unitNo: String,
     unitType: String,
     propertyType: String,
-    category: { type: mongoose.Schema.Types.Mixed },
-    subCategory: { type: mongoose.Schema.Types.Mixed },
+    category: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+    subCategory: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
     location: String,
-    intent: String,
+    intent: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
 
     // Size & Specs
     size: mongoose.Schema.Types.Mixed,
@@ -38,6 +38,7 @@ const DealSchema = new mongoose.Schema({
         enum: ['Open', 'Quote', 'Negotiation', 'Booked', 'Closed', 'Cancelled', 'Closed Won', 'Closed Lost', 'Stalled'],
         default: 'Open'
     },
+    status: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
     dealProbability: { type: Number, default: 50 },
     dealScore: { type: Number, default: 0, min: 0, max: 100 },
 
@@ -138,8 +139,14 @@ const DealSchema = new mongoose.Schema({
     owner: { type: mongoose.Schema.Types.Mixed, ref: 'Contact' },
     associatedContact: { type: mongoose.Schema.Types.Mixed, ref: 'Contact' },
 
+    teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    assignment: {
+        assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        team: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
+        visibleTo: { type: String, enum: ['Everyone', 'Team', 'Private'], default: 'Everyone' }
+    },
     visibleTo: { type: String, default: "Public" },
     
     // Website Integration
@@ -201,6 +208,79 @@ const DealSchema = new mongoose.Schema({
     latitude: { type: String },
     longitude: { type: String }
 }, { timestamps: true, strict: false });
+
+DealSchema.pre("save", function (next) {
+    // --- Assignment & Visibility Synchronization ---
+    const primaryRM = this.assignedTo || this.assignment?.assignedTo;
+    if (primaryRM) {
+        const primaryRMId = (typeof primaryRM === 'string' && mongoose.Types.ObjectId.isValid(primaryRM))
+            ? new mongoose.Types.ObjectId(primaryRM)
+            : primaryRM;
+
+        this.assignedTo = primaryRMId;
+        if (!this.assignment) this.assignment = {};
+        this.assignment.assignedTo = primaryRMId;
+    }
+
+    // Standardize Multi-Team visibility
+    const primaryTeams = this.teams || this.team || this.assignment?.team;
+    if (primaryTeams) {
+        let castedTeams = [];
+        if (Array.isArray(primaryTeams)) {
+            castedTeams = primaryTeams.map(t => (typeof t === 'string' && mongoose.Types.ObjectId.isValid(t)) ? new mongoose.Types.ObjectId(t) : t);
+        } else {
+            const t = (typeof primaryTeams === 'string' && mongoose.Types.ObjectId.isValid(primaryTeams)) ? new mongoose.Types.ObjectId(primaryTeams) : primaryTeams;
+            castedTeams = [t];
+        }
+
+        if (castedTeams.length > 0) {
+            this.teams = castedTeams;
+            this.team = castedTeams[0];
+            if (!this.assignment) this.assignment = {};
+            this.assignment.team = castedTeams;
+        }
+    }
+
+    next();
+});
+
+DealSchema.pre('findOneAndUpdate', async function (next) {
+    const update = this.getUpdate();
+    if (!update) return next();
+
+    // Sync assignment fields in updates
+    const primaryRM = update.assignedTo || (update.assignment && update.assignment.assignedTo) || (update['assignment.assignedTo']);
+    if (primaryRM) {
+        const primaryRMId = (typeof primaryRM === 'string' && mongoose.Types.ObjectId.isValid(primaryRM))
+            ? new mongoose.Types.ObjectId(primaryRM)
+            : primaryRM;
+
+        update.assignedTo = primaryRMId;
+        if (update.assignment) update.assignment.assignedTo = primaryRMId;
+        update['assignment.assignedTo'] = primaryRMId;
+    }
+
+    // Sync team fields in updates
+    const primaryTeams = update.teams || update.team || (update.assignment && update.assignment.team) || update['assignment.team'];
+    if (primaryTeams) {
+        let castedTeams = [];
+        if (Array.isArray(primaryTeams)) {
+            castedTeams = primaryTeams.map(t => (typeof t === 'string' && mongoose.Types.ObjectId.isValid(t)) ? new mongoose.Types.ObjectId(t) : t);
+        } else {
+            const t = (typeof primaryTeams === 'string' && mongoose.Types.ObjectId.isValid(primaryTeams)) ? new mongoose.Types.ObjectId(primaryTeams) : primaryTeams;
+            castedTeams = [t];
+        }
+
+        if (castedTeams.length > 0) {
+            update.teams = castedTeams;
+            update.team = castedTeams[0];
+            if (update.assignment) update.assignment.team = castedTeams;
+            update['assignment.team'] = castedTeams;
+        }
+    }
+
+    next();
+});
 
 DealSchema.post('save', invalidateDashboardCache);
 DealSchema.post('findOneAndUpdate', invalidateDashboardCache);

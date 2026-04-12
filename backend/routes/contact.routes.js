@@ -1,7 +1,11 @@
 import express from "express";
 import { getContacts, createContact, updateContact, deleteContact, bulkDeleteContacts, getContact, searchDuplicates, importContacts, checkDuplicatesImport, getContactUsage, syncAllContacts } from "../controllers/contact.controller.js";
+import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
+
+// Apply authentication to all routes
+router.use(authenticate);
 
 router.get("/", getContacts);
 router.get("/search/duplicates", searchDuplicates);

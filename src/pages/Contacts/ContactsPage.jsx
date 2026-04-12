@@ -366,7 +366,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
         limit: recordsPerPage,
         search: debouncedSearchTerm,
       });
+      console.log("[Contacts Audit] Fetching contacts with params:", queryParams.toString());
       const response = await api.get(`contacts?${queryParams.toString()}`);
+      console.log("[Contacts Audit] Response received Success:", response.data?.success, "Count:", response.data?.records?.length);
+      
       if (response.data && response.data.success) {
         setContacts(response.data.records || []);
         setTotalRecords(response.data.totalCount || 0);

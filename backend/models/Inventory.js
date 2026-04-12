@@ -124,6 +124,7 @@ const InventorySchema = new mongoose.Schema({
     }],
 
     // System
+    teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
     visibleTo: String,
@@ -206,16 +207,20 @@ InventorySchema.pre('save', async function (next) {
             }
         }
 
-        // Address component resolution
-        if (this.address) {
-            if (this.address.city && !mongoose.Types.ObjectId.isValid(this.address.city)) this.address.city = await resolveLookupLocal('City', this.address.city);
-            if (this.address.tehsil && !mongoose.Types.ObjectId.isValid(this.address.tehsil)) this.address.tehsil = await resolveLookupLocal('Tehsil', this.address.tehsil);
-            if (this.address.state && !mongoose.Types.ObjectId.isValid(this.address.state)) this.address.state = await resolveLookupLocal('State', this.address.state);
-            if (this.address.postOffice && !mongoose.Types.ObjectId.isValid(this.address.postOffice)) this.address.postOffice = await resolveLookupLocal('PostOffice', this.address.postOffice);
-            if (this.address.country && !mongoose.Types.ObjectId.isValid(this.address.country)) this.address.country = await resolveLookupLocal('Country', this.address.country);
-            if (this.address.locality && !mongoose.Types.ObjectId.isValid(this.address.locality)) this.address.locality = await resolveLookupLocal('Area', this.address.locality);
-            if (this.address.area && !mongoose.Types.ObjectId.isValid(this.address.area)) this.address.area = await resolveLookupLocal('Area', this.address.area);
-            if (this.address.location && !mongoose.Types.ObjectId.isValid(this.address.location)) this.address.location = await resolveLookupLocal('Area', this.address.location);
+        // --- Assignment & Visibility Synchronization ---
+        if (this.assignedTo) {
+            this.assignedTo = (typeof this.assignedTo === 'string' && mongoose.Types.ObjectId.isValid(this.assignedTo))
+                ? new mongoose.Types.ObjectId(this.assignedTo)
+                : this.assignedTo;
+        }
+
+        // Standardize Multi-Team visibility
+        if (this.team && (!this.teams || this.teams.length === 0)) {
+            this.teams = [this.team];
+        }
+        if (this.teams?.length > 0) {
+            this.teams = this.teams.map(t => (typeof t === 'string' && mongoose.Types.ObjectId.isValid(t)) ? new mongoose.Types.ObjectId(t) : t);
+            if (!this.team) this.team = this.teams[0];
         }
 
         next();
@@ -244,6 +249,30 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
         // Robust Resolver for both top-level and $set/atomic updates
         const processUpdate = async (obj) => {
             if (!obj) return;
+
+            // Sync assignment fields
+            if (obj.assignedTo) {
+                obj.assignedTo = (typeof obj.assignedTo === 'string' && mongoose.Types.ObjectId.isValid(obj.assignedTo))
+                    ? new mongoose.Types.ObjectId(obj.assignedTo)
+                    : obj.assignedTo;
+            }
+
+            // Sync team fields
+            const primaryTeams = obj.teams || obj.team;
+            if (primaryTeams) {
+                let castedTeams = [];
+                if (Array.isArray(primaryTeams)) {
+                    castedTeams = primaryTeams.map(t => (typeof t === 'string' && mongoose.Types.ObjectId.isValid(t)) ? new mongoose.Types.ObjectId(t) : t);
+                } else {
+                    const t = (typeof primaryTeams === 'string' && mongoose.Types.ObjectId.isValid(primaryTeams)) ? new mongoose.Types.ObjectId(primaryTeams) : primaryTeams;
+                    castedTeams = [t];
+                }
+
+                if (castedTeams.length > 0) {
+                    obj.teams = castedTeams;
+                    obj.team = castedTeams[0];
+                }
+            }
 
             // Handle intent
             if (obj.intent) {

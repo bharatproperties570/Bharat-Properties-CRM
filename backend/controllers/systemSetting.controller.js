@@ -1,4 +1,4 @@
-import SystemSetting from "../models/SystemSetting.js";
+import SystemSetting from "../src/modules/systemSettings/system.model.js";
 import geminiService from "../services/GeminiService.js";
 import openaiService from "../services/OpenAIService.js";
 import claudeService from "../services/ClaudeService.js";

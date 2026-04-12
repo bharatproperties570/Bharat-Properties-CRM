@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import Deal from '../models/Deal.js';
 import CollectorRate from '../models/CollectorRate.js';
-import SystemSetting from '../models/SystemSetting.js';
+import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import Lookup from '../models/Lookup.js';
 
 // --- Helpers for Senior Professional Logic ---

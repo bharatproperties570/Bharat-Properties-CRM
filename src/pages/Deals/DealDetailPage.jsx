@@ -7,6 +7,7 @@ import AddOwnerModal from '../../components/AddOwnerModal';
 import UnifiedActivitySection from '../../components/Activities/UnifiedActivitySection';
 import { useCall } from '../../context/CallContext';
 import { useUserContext } from '../../context/UserContext';
+import PublishModal from '../../components/Marketing/PublishModal';
 
 import AddNoteModal from '../../components/AddNoteModal';
 import UploadModal from '../../components/UploadModal';
@@ -62,6 +63,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
     const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
+    const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
     const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
     const [isActivityOpen, setIsActivityOpen] = useState(false);
@@ -148,71 +150,6 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
             setLoading(false);
         }
     }, [dealId]);
-
-    const handleTogglePublish = async () => {
-        const newStatus = !deal.isPublished;
-        let shareUnitNumber = deal.websiteMetadata?.shareUnitNumber || false;
-        let shareLocation = deal.websiteMetadata?.shareLocation || false;
-
-        if (newStatus) {
-            const unitResult = await Swal.fire({
-                title: 'Unit Number Privacy',
-                text: "Do you want to share the Unit Number publicly on the website?",
-                icon: 'question',
-                showCancelButton: true,
-                showDenyButton: true,
-                confirmButtonColor: '#3b82f6',
-                denyButtonColor: '#64748b',
-                confirmButtonText: 'Yes, Share Unit No',
-                denyButtonText: 'No, Keep Confidential',
-                cancelButtonText: 'Cancel Toggle'
-            });
-
-            if (unitResult.isDismissed && !unitResult.isDenied) return;
-            shareUnitNumber = unitResult.isConfirmed;
-
-            const locationResult = await Swal.fire({
-                title: 'Location Privacy',
-                text: "Do you want to share the exact House/Plot Number and Street publicly?",
-                icon: 'question',
-                showCancelButton: true,
-                showDenyButton: true,
-                confirmButtonColor: '#3b82f6',
-                denyButtonColor: '#64748b',
-                confirmButtonText: 'Yes, Share Location',
-                denyButtonText: 'No, Keep Confidential',
-                cancelButtonText: 'Cancel Toggle'
-            });
-
-            if (locationResult.isDismissed && !locationResult.isDenied) return;
-            shareLocation = locationResult.isConfirmed;
-        }
-
-        try {
-            const payload = {
-                isPublished: newStatus,
-                publishedAt: newStatus ? new Date() : null,
-                websiteMetadata: {
-                    ...deal.websiteMetadata,
-                    shareUnitNumber: shareUnitNumber,
-                    shareLocation: shareLocation
-                }
-            };
-
-            const res = await api.put(`deals/${dealId}`, payload);
-            if (res.data && (res.data.success || res.data.status === 'success')) {
-                setDeal(prev => ({ 
-                    ...prev, 
-                    isPublished: newStatus,
-                    websiteMetadata: payload.websiteMetadata
-                }));
-                toast.success(newStatus ? 'Listing published to Website!' : 'Listing removed from Website');
-            }
-        } catch (error) {
-            console.error("Error toggling publication:", error);
-            toast.error('Error updating publication status');
-        }
-    };
 
     const handleMarkAsLost = async (reasons = null) => {
         if (!reasons && !isMarkingLost) {
@@ -349,7 +286,6 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 liveScoreData={liveScoreData} 
                 stageAlerts={stageAlerts}
                 onBack={onBack}
-                handleTogglePublish={handleTogglePublish}
                 setIsMarkingLost={setIsMarkingLost}
                 isMarkingLost={isMarkingLost}
                 setIsCallModalOpen={(val) => {
@@ -467,6 +403,13 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
 
                 {/* RIGHT COLUMN */}
                 <div className="no-scrollbar" style={{ flex: '1', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px', padding: '24px', background: '#fff', borderLeft: '1px solid #e2e8f0' }}>
+                    <button 
+                        className="hover:shadow-sm"
+                        onClick={() => setIsPublishModalOpen(true)}
+                    >
+                        <i className={`fas fa-paper-plane ${deal.isPublished ? 'text-blue-500' : 'text-slate-400'}`}></i>
+                        {deal.isPublished ? 'Live on Website' : 'Publish to Hub'}
+                    </button>
                     <DealAnalysis 
                         deal={deal} 
                         isMarkingLost={isMarkingLost} 
@@ -714,6 +657,13 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                         setIsOwnerModalOpen(false);
                     }
                 }}
+            />
+            <PublishModal 
+                isOpen={isPublishModalOpen}
+                onClose={() => setIsPublishModalOpen(false)}
+                data={deal}
+                type="deal"
+                onPublishSuccess={fetchDealDetails}
             />
         </div>
     );

@@ -1,7 +1,7 @@
 import nodemailer from 'nodemailer';
 import { ImapFlow } from 'imapflow';
 import { google } from 'googleapis';
-import SystemSetting from '../models/SystemSetting.js';
+import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import LeadParsingService from './LeadParsingService.js';
 import LeadIngestionService from './LeadIngestionService.js';
 import Lead from '../models/Lead.js';

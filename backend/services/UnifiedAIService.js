@@ -1,7 +1,7 @@
 import openAIService from './OpenAIService.js';
 import geminiService from './GeminiService.js';
 import claudeService from './ClaudeService.js';
-import SystemSetting from '../models/SystemSetting.js';
+import SystemSetting from '../src/modules/systemSettings/system.model.js';
 
 /**
  * UnifiedAIService.js

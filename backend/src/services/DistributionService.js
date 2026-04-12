@@ -83,36 +83,47 @@ const pickLocationBased = async (agentIds, lead) => {
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
 /**
- * Auto-assign a lead based on active DistributionRules.
- * @param {Object} lead - Mongoose lead document (pre-populated or plain object)
- * @returns {Promise<{ assignedTo: string, ruleName: string } | null>}
+ * Auto-assign an entity based on active DistributionRules.
+ * @param {Object} doc - Mongoose document or plain object
+ * @param {string} entityType - 'lead', 'contact', 'deal', 'inventory', etc.
+ * @returns {Promise<{ assignedTo: string, teams: string[], ruleName: string } | null>}
  */
-export const autoAssign = async (lead) => {
+export const autoAssign = async (doc, entityType = 'lead') => {
     try {
-        const rules = await DistributionRule.find({ isActive: true, entity: 'lead' })
+        const rules = await DistributionRule.find({ isActive: true, entity: entityType })
             .populate('assignedAgents', '_id fullName email')
+            .populate('assignedTeams', '_id name')
             .lean();
 
         if (!rules.length) return null;
 
-        // Flatten lead for condition evaluation
-        const leadData = {
-            ...lead,
-            source: lead.source?.lookup_value || lead.source?.toString() || lead.source,
-            stage: lead.stage?.lookup_value || lead.stage?.toString() || lead.stage,
-            location: lead.location?.lookup_value || lead.location?.toString() || lead.location,
-            budget: lead.budget?.lookup_value || lead.budget?.toString() || lead.budget,
-            requirement: lead.requirement?.lookup_value || lead.requirement?.toString() || lead.requirement,
-            campaign: lead.campaign?.lookup_value || lead.campaign?.toString() || lead.campaign,
+        // Flatten document for condition evaluation
+        const data = {
+            ...doc,
+            source: doc.source?.lookup_value || doc.source?.toString() || doc.source,
+            stage: doc.stage?.lookup_value || doc.stage?.toString() || doc.stage,
+            location: doc.location?.lookup_value || doc.location?.toString() || doc.location,
+            budget: doc.budget?.lookup_value || doc.budget?.toString() || doc.budget,
+            requirement: doc.requirement?.lookup_value || doc.requirement?.toString() || doc.requirement,
+            campaign: doc.campaign?.lookup_value || doc.campaign?.toString() || doc.campaign,
         };
 
         // Find first matching rule
         for (const rule of rules) {
-            const conditionsMet = evaluateConditions(rule.conditions, leadData, rule.matchType || 'AND');
+            const conditionsMet = evaluateConditions(rule.conditions, data, rule.matchType || 'AND');
             if (!conditionsMet) continue;
 
-            const agentIds = rule.assignedAgents.map(a => a._id.toString());
-            if (!agentIds.length) continue;
+            // Resolve all potential agents (Direct + Teams)
+            let agentIds = (rule.assignedAgents || []).map(a => a._id.toString());
+            const teamIds = (rule.assignedTeams || []).map(t => t._id.toString());
+            
+            if (teamIds.length > 0) {
+                const teamUsers = await User.find({ teams: { $in: teamIds }, status: 'Active' }).select('_id');
+                const teamUserIds = teamUsers.map(u => u._id.toString());
+                agentIds = [...new Set([...agentIds, ...teamUserIds])];
+            }
+            
+            if (!agentIds.length && !teamIds.length) continue;
 
             let assignedTo = null;
 
@@ -154,8 +165,13 @@ export const autoAssign = async (lead) => {
                 assignedTo = rule.fallbackAgent.toString();
             }
 
-            if (assignedTo) {
-                return { assignedTo, ruleName: rule.name, ruleId: rule._id.toString() };
+            if (assignedTo || teamIds.length > 0) {
+                return { 
+                    assignedTo: assignedTo || null, 
+                    teams: teamIds, 
+                    ruleName: rule.name, 
+                    ruleId: rule._id.toString() 
+                };
             }
         }
 

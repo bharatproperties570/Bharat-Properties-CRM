@@ -8,8 +8,12 @@ import {
     runMarginDetection,
     getEnrichmentLogs
 } from "./enrichment.controller.js";
+import { authenticate } from "../../../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
+
+// Apply authentication to all routes
+router.use(authenticate);
 
 router.get("/rules", getEnrichmentRules);
 router.post("/rules/keyword", saveKeywordRule);

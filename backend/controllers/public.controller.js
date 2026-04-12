@@ -6,7 +6,7 @@ import Activity from "../models/Activity.js";
 import Lookup from "../models/Lookup.js";
 import Inventory from "../models/Inventory.js";
 import SocialReview from '../models/SocialReview.js';
-import SystemSetting from "../models/SystemSetting.js";
+import SystemSetting from "../src/modules/systemSettings/system.model.js";
 import mongoose from "mongoose";
 import axios from "axios";
 import fs from "fs";

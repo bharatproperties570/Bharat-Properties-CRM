@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import RevivalModal from '../RevivalModal';
 
 const ContactDetailHeader = React.memo(function ContactDetailHeader({
     contact,
@@ -22,6 +23,7 @@ const ContactDetailHeader = React.memo(function ContactDetailHeader({
     setIsAssignModalOpen,
     setIsActivityModalOpen
 }) {
+    const [isRevivalModalOpen, setIsRevivalModalOpen] = useState(false);
     return (
         <header style={{
             background: 'rgba(255, 255, 255, 0.8)',
@@ -173,6 +175,22 @@ const ContactDetailHeader = React.memo(function ContactDetailHeader({
                 <button className="action-btn" title="Message" onClick={() => setIsMessageModalOpen(true)}><i className="fas fa-comment-alt" style={{ color: '#3b82f6' }}></i> Message</button>
                 <button className="action-btn" title="Email" onClick={() => setIsEmailModalOpen(true)}><i className="fas fa-envelope" style={{ color: '#8b5cf6' }}></i> Email</button>
 
+                {/* Lead Revival Button */}
+                {recordType === 'lead' && (contact.stage?.lookup_value === 'Dormant' || contact.stage === 'Dormant') && (
+                    <button
+                        className="action-btn"
+                        onClick={() => setIsRevivalModalOpen(true)}
+                        style={{
+                            background: 'linear-gradient(to right, #8b5cf6, #7c3aed)',
+                            color: '#fff',
+                            border: 'none',
+                            boxShadow: '0 4px 6px -1px rgba(124, 58, 237, 0.3)'
+                        }}
+                    >
+                        <i className="fas fa-sync-alt"></i> Revive Lead
+                    </button>
+                )}
+
                 <div style={{ position: 'relative' }}>
                     <button className="action-btn" title="More" onClick={() => setShowMoreMenu(!showMoreMenu)}><i className="fas fa-ellipsis-v"></i></button>
                     {showMoreMenu && (
@@ -284,6 +302,16 @@ const ContactDetailHeader = React.memo(function ContactDetailHeader({
                     </div>
                 </div>
             </div>
+
+            <RevivalModal 
+                isOpen={isRevivalModalOpen} 
+                onClose={() => setIsRevivalModalOpen(false)} 
+                lead={contact}
+                onRevived={(newStage) => {
+                    showNotification(`Lead successfully revived to ${newStage.toUpperCase()}`);
+                    window.location.reload();
+                }}
+            />
         </header>
     );
 });

@@ -1,8 +1,9 @@
+import { AppError } from "./error.middleware.js";
+import User from "../../models/User.js";
 import jwt from "jsonwebtoken";
 import config from "../config/env.js";
-import { AppError } from "./error.middleware.js";
 
-export const authenticate = (req, res, next) => {
+export const authenticate = async (req, res, next) => {
     try {
         const token = req.headers.authorization?.split(" ")[1];
 
@@ -11,7 +12,17 @@ export const authenticate = (req, res, next) => {
         }
 
         const decoded = jwt.verify(token, config.jwtSecret);
-        req.user = decoded;
+        
+        // 🚀 USER HYDRATION: Fetch full profile for Visibility Engine
+        const user = await User.findById(decoded.id).populate('role teams').lean();
+        if (!user) {
+            throw new AppError("User account no longer exists", 401);
+        }
+        if (!user.isActive) {
+            throw new AppError("User account is suspended", 403);
+        }
+
+        req.user = user;
         next();
     } catch (error) {
         if (error.name === "JsonWebTokenError") {

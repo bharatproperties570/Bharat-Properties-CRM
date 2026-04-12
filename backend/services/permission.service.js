@@ -183,46 +183,59 @@ export const getDataScopeFilter = async (user, resourceOwnerId = 'assignedTo') =
     const User = (await import('../models/User.js')).default;
     const cacheService = await import('./cache.service.js');
 
+    const userId = user._id;
+    const userTeams = Array.isArray(user.teams) ? user.teams : (user.team ? [user.team] : []);
+
     switch (permissions.dataScope) {
         case 'assigned':
-            // Only see own data
-            return { [resourceOwnerId]: user._id };
+            // Strict isolation: Assigned to me, Owned by me, or Public
+            return {
+                $or: [
+                    { [resourceOwnerId]: userId },
+                    { owner: userId },
+                    { 'assignment.assignedTo': userId },
+                    { visibleTo: { $in: ['Everyone', 'Public'] } }
+                ]
+            };
 
         case 'team': {
-            // See own data + team members' data
-            // Try cache first
-            let teamIds = await cacheService.getCachedTeamMembers(user._id.toString());
-
-            if (!teamIds) {
-                const teamMembers = await User.find({ reportingTo: user._id }).select('_id');
-                teamIds = [user._id, ...teamMembers.map(m => m._id)];
-                await cacheService.cacheTeamMembers(user._id.toString(), teamIds);
-            }
-
-            return { [resourceOwnerId]: { $in: teamIds } };
+            // Collaborative Visibility: Any of my teams
+            return {
+                $or: [
+                    { [resourceOwnerId]: userId },
+                    { owner: userId },
+                    { 'assignment.assignedTo': userId },
+                    { teams: { $in: userTeams } },
+                    { team: { $in: userTeams } },
+                    { 'assignment.team': { $in: userTeams } },
+                    { visibleTo: { $in: ['Everyone', 'Public', 'Team'] } }
+                ]
+            };
         }
 
         case 'department': {
-            // See all data in department
-            // Try cache first
+            // Department-wide visibility
             let deptIds = await cacheService.getCachedDepartmentUsers(user.department);
-
             if (!deptIds) {
                 const deptUsers = await User.find({ department: user.department }).select('_id');
                 deptIds = deptUsers.map(u => u._id);
                 await cacheService.cacheDepartmentUsers(user.department, deptIds);
             }
 
-            return { [resourceOwnerId]: { $in: deptIds } };
+            return {
+                $or: [
+                    { [resourceOwnerId]: { $in: deptIds } },
+                    { owner: { $in: deptIds } },
+                    { teams: { $exists: true } } // Department users usually see all within department
+                ]
+            };
         }
 
         case 'all':
-            // See all data
             return {};
 
         default:
-            // Default to assigned only
-            return { [resourceOwnerId]: user._id };
+            return { [resourceOwnerId]: userId };
     }
 };
 

@@ -8,31 +8,47 @@ export const API_BASE_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : '
 
 // Notification APIs
 export const marketingAPI = {
-    getStats: () => api.get('/marketings/stats').then(res => res.data),
-    getCampaignHistory: () => api.get('/marketings/campaign-runs').then(res => res.data),
-    getRecentDeals: () => api.get('/marketings/recent-deals').then(res => res.data),
-    generateSocial: (dealId, platform) => api.post('/marketings/generate-social', { dealId, platform }).then(res => res.data),
-    generateEmail: (dealId, audience) => api.post('/marketings/generate-email', { dealId, audience }).then(res => res.data),
-    runAgent: () => api.post('/marketings/run-agent').then(res => res.data),
+    getStats: () => api.get('/marketing/stats').then(res => res.data),
+    getCampaignHistory: () => api.get('/marketing/campaign-runs').then(res => res.data),
+    getRecentDeals: () => api.get('/marketing/recent-deals').then(res => res.data),
+    generateSocial: (dealId, platform) => api.post('/marketing/generate-social', { dealId, platform }).then(res => res.data),
+    generateEmail: (dealId, audience) => api.post('/marketing/generate-email', { dealId, audience }).then(res => res.data),
+    runAgent: () => api.post('/marketing/run-agent').then(res => res.data),
 
     // ── AI Model-Aware Generation (used by 4-agent hub in MarketingOverviewPage) ──
     // provider: 'google' | 'openai'  |  model: 'gemini-1.5-pro' | 'gpt-4o' | 'gemini-1.5-flash'
     generateWithModel: (payload) =>
-        api.post('/marketings/generate-with-model', payload).then(res => res.data),
+        api.post('/marketing/generate-with-model', payload).then(res => res.data),
 
     // ── Campaign Launchers (Email / WhatsApp / SMS / RCS) ──
     sendCampaign: (channel, data) =>
-        api.post('/marketings/send-campaign', { channel, ...data }).then(res => res.data),
+        api.post('/marketing/send-campaign', { channel, ...data }).then(res => res.data),
 
     // ── Drip / Sequence Activation ──
     activateDrip: (leadId, sequenceId) =>
-        api.post('/marketings/activate-drip', { leadId, sequenceId }).then(res => res.data),
+        api.post('/marketing/activate-drip', { leadId, sequenceId }).then(res => res.data),
 
     // LinkedIn Integration
-    getLinkedInAuthUrl: () => api.get('/marketings/linkedin/auth-url').then(res => res.data),
-    handleLinkedInCallback: (code) => api.post('/marketings/linkedin/callback', { code }).then(res => res.data),
-    getLinkedInStatus: () => api.get('/marketings/linkedin/status').then(res => res.data),
-    saveLinkedInConfig: (config) => api.post('/marketings/linkedin/config', config).then(res => res.data),
+    getLinkedInAuthUrl: () => api.get('/marketing/linkedin/auth-url').then(res => res.data),
+    handleLinkedInCallback: (code) => api.post('/marketing/linkedin/callback', { code }).then(res => res.data),
+    getLinkedInStatus: () => api.get('/marketing/linkedin/status').then(res => res.data),
+    saveLinkedInConfig: (config) => api.post('/marketing/linkedin/config', config).then(res => res.data),
+
+    // ── Neural Persistence (Content CRUD) ──
+    getContent: (params) => api.get('/marketing/content', { params }).then(res => res.data),
+    saveContent: (data) => api.post('/marketing/content', data).then(res => res.data),
+    deleteContent: (id) => api.delete(`/marketing/content/${id}`).then(res => res.data),
+    publishContent: (contentId, phoneNumber) => api.post('/marketing/publish', { contentId, phoneNumber }).then(res => res.data),
+    triggerLinkedInSync: () => api.post('/marketing/linkedin/trigger-sync').then(res => res.data),
+};
+
+export const socialAPI = {
+    getStatus: () => api.get('/social/status').then(res => res.data),
+    saveConfig: (platform, config) => api.post('/social/config/enterprise', { platform, config }).then(res => res.data),
+    getUnifiedStatus: () => api.get('/social/status/unified').then(res => res.data),
+    // WhatsApp Meta Cloud API (Isolated Route for Reliability)
+    saveWhatsAppConfig: (config) => api.post('/whatsapp-config/save', config).then(res => res.data),
+    getWhatsAppTemplates: () => api.get('/whatsapp-config/templates').then(res => res.data),
 };
 
 export const getNotifications = () => api.get('/notifications');
@@ -68,7 +84,8 @@ api.interceptors.response.use(
         if (error.response?.status === 401) {
             console.warn('Unauthorized request detected. Clearing session...');
             localStorage.removeItem('authToken');
-            // Do not force reload/redirect here; let UserContext handle the state change
+            // Dispatch custom event to notify listeners (like UserContext)
+            window.dispatchEvent(new CustomEvent('unauthorized-token'));
         }
         return Promise.reject(error);
     }
@@ -125,6 +142,7 @@ const apiRequest = async (endpoint, options = {}) => {
                 if (response.status === 401) {
                     console.warn('Unauthorized fetch request detected.');
                     localStorage.removeItem('authToken');
+                    window.dispatchEvent(new CustomEvent('unauthorized-token'));
                     throw new Error('Unauthorized access');
                 }
 
@@ -133,7 +151,6 @@ const apiRequest = async (endpoint, options = {}) => {
                     error.status = 429;
                     throw error;
                 }
-
                 let errorMessage = 'API request failed';
                 if (isJson) {
                     const errorData = await response.json();
@@ -477,5 +494,6 @@ export default {
     intake: intakeAPI,
     googleSettings: googleSettingsAPI,
     aiSettings: aiSettingsAPI,
-    conversations: conversationAPI
+    conversations: conversationAPI,
+    social: socialAPI
 };

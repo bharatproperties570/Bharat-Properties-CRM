@@ -7,6 +7,7 @@ import Contact from "../models/Contact.js";
 import Team from "../models/Team.js";
 import { paginate } from "../utils/pagination.js";
 import mongoose from "mongoose";
+import { getVisibilityFilter } from "../utils/visibility.js";
 
 import DuplicationRule from "../models/DuplicationRule.js";
 import { syncDocumentsToContact } from "../utils/sync.js";
@@ -46,15 +47,37 @@ const populateFields = [
     { path: "address.location" },
     { path: "address.country" },
     { path: "address.postOffice" },
-    { path: "builtupType" }
+    { path: "builtupType" },
+    { path: "team", select: "name" },
+    { path: "teams", select: "name" }
 ];
 
 export const getInventory = async (req, res) => {
     try {
-        console.log("[Backend] getInventory Query Params:", JSON.stringify(req.query, null, 2));
-        const { page = 1, limit = 10, search = "", category, subCategory, unitType, status, project, block, location, area, contactId, statusCategory } = req.query;
+        const { 
+            page = 1, limit = 10, search = "", 
+            category, subCategory, unitType, status, 
+            project, block, location, area, contactId, 
+            statusCategory, ownerPhone 
+        } = req.query;
+        const visibilityFilter = await getVisibilityFilter(req.user);
 
-        let query = {};
+        // 🛠️ SENIOR DIAGNOSTIC LOG (Harden for potential undefined user)
+        if (req.user) {
+            console.log(`[VISIBLE_AUDIT] User: ${req.user.email}, Scope: ${req.user.dataScope}, Teams: ${JSON.stringify(req.user.teams?.map(t => t._id || t))}`);
+        } else {
+            console.log(`[VISIBLE_AUDIT] Anonymous request - Visibility restricted to public data.`);
+        }
+        console.log(`[VISIBLE_AUDIT] Generated Filter: ${JSON.stringify(visibilityFilter, null, 2)}`);
+
+        let query = { ...visibilityFilter };
+
+        if (ownerPhone) {
+            query.$or = [
+                { ownerPhone: { $regex: new RegExp(`${ownerPhone}$`) } },
+                { owners: { $in: await Contact.find({ "phones.number": { $regex: new RegExp(`${ownerPhone}$`) } }).select('_id') } }
+            ];
+        }
 
         // Support for block/location filtering
         if (block || location) {
@@ -246,7 +269,9 @@ export const getInventory = async (req, res) => {
             { path: "address.locality" },
             { path: "address.area" },
             { path: "address.location" },
-            { path: "builtupType" }
+            { path: "builtupType" },
+            { path: "team", select: "name" },
+            { path: "teams", select: "name" }
         ];
 
         const [activeStatusDocs, inactiveStatusDocs] = await Promise.all([
@@ -410,7 +435,8 @@ export const addInventory = async (req, res) => {
         if (data.intent) data.intent = await resolveLookup('Intent', data.intent, false);
         if (data.builtupType) data.builtupType = await resolveLookup('BuiltupType', data.builtupType, false);
         if (data.assignedTo) data.assignedTo = await resolveUser(data.assignedTo);
-        if (data.team) data.team = await resolveTeam(data.team);
+        if (data.teams) data.teams = await resolveTeam(data.teams);
+        else if (data.team) data.team = await resolveTeam(data.team);
 
         if (data.owners) data.owners = sanitizeIds(data.owners);
         if (data.associates) {
@@ -463,7 +489,8 @@ export const updateInventory = async (req, res) => {
         if (data.intent) data.intent = await resolveLookup('Intent', data.intent, false);
         if (data.builtupType) data.builtupType = await resolveLookup('BuiltupType', data.builtupType, false);
         if (data.assignedTo) data.assignedTo = await resolveUser(data.assignedTo);
-        if (data.team) data.team = await resolveTeam(data.team);
+        if (data.teams) data.teams = await resolveTeam(data.teams);
+        else if (data.team) data.team = await resolveTeam(data.team);
 
         if (data.owners) data.owners = sanitizeIds(data.owners);
         if (data.associates) {
@@ -667,7 +694,7 @@ const resolveLookup = async (type, value, createIfMissing = true) => {
         return await resolveLookup(type, value.split(',').map(v => v.trim()).filter(Boolean), createIfMissing);
     }
 
-    if (mongoose.Types.ObjectId.isValid(value)) return value;
+    if (mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value.toString());
 
     const cacheKey = `${type}:${value.toLowerCase()}`;
     if (lookupCache.has(cacheKey)) return lookupCache.get(cacheKey);
@@ -730,7 +757,7 @@ export const resolveSizeLookup = async (value, projectName, blockName) => {
 // Helper to resolve User (By Name or Email)
 const resolveUser = async (identifier) => {
     if (!identifier) return null;
-    if (mongoose.Types.ObjectId.isValid(identifier)) return identifier;
+    if (mongoose.Types.ObjectId.isValid(identifier)) return new mongoose.Types.ObjectId(identifier.toString());
 
     const escapedIdentifier = escapeRegExp(identifier);
     const user = await User.findOne({
@@ -743,10 +770,16 @@ const resolveUser = async (identifier) => {
     return user ? user._id : null;
 };
 
-// Helper to resolve Team (By Name)
+// Helper to resolve Team (By Name or ID)
 const resolveTeam = async (identifier) => {
     if (!identifier) return null;
-    if (mongoose.Types.ObjectId.isValid(identifier)) return identifier;
+    
+    // Handle array of teams
+    if (Array.isArray(identifier)) {
+        return await Promise.all(identifier.map(id => resolveTeam(id)));
+    }
+
+    if (mongoose.Types.ObjectId.isValid(identifier)) return new mongoose.Types.ObjectId(identifier.toString());
 
     const escapedIdentifier = escapeRegExp(identifier);
     const team = await Team.findOne({
@@ -763,10 +796,13 @@ const resolveTeam = async (identifier) => {
  */
 export const importInventory = async (req, res) => {
     try {
-        const { data } = req.body;
+        const { data, teams: bodyTeams } = req.body;
         if (!data || !Array.isArray(data)) {
             return res.status(400).json({ success: false, error: "Invalid data provided" });
         }
+
+        // Professional Multi-Team Support: Resolve teams from body or individual items
+        const globalTeams = Array.isArray(bodyTeams) ? bodyTeams : (bodyTeams ? [bodyTeams] : []);
 
         console.log(`[IMPORT] Received ${data.length} items for import`);
         
@@ -856,6 +892,7 @@ export const importInventory = async (req, res) => {
                     ownerEmail: item.ownerEmail || item['Owner Email'],
                     ownerAddress: item.ownerAddress || item['Owner Address'],
 
+                    teams: item.teams || globalTeams,
                     team: await resolveTeam(item.team || item['Team']),
                     visibleTo: item.visibleTo || item['Visible To'] || 'Everyone'
                 };

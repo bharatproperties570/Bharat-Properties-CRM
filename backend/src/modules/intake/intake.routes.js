@@ -1,8 +1,12 @@
 import express from 'express';
 import { uploadImageOnly, uploadZipOnly, uploadPdfOnly } from '../../middlewares/upload.middleware.js';
 import { processOCR, processZIP, processPDF, getIntakes, getIntakeById, updateIntakeStatus, createIntake, deleteIntake } from './intake.controller.js';
+import { authenticate } from "../../../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
+
+// Apply authentication to all routes
+router.use(authenticate);
 
 /**
  * @route   GET /api/intake

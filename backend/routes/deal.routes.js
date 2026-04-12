@@ -1,6 +1,11 @@
 import express from "express";
-const router = express.Router();
 import { getDeals, matchDeals, getDealById, addDeal, updateDeal, deleteDeal, bulkDeleteDeals, importDeals, closeDeal } from "../controllers/deal.controller.js";
+import { authenticate } from "../src/middlewares/auth.middleware.js";
+
+const router = express.Router();
+
+// Apply authentication to all routes
+router.use(authenticate);
 
 router.get("/", getDeals);
 router.get("/match", matchDeals);

@@ -30,6 +30,7 @@ import Lookup from '../../models/Lookup.js';
 
 import SystemSetting from '../modules/systemSettings/system.model.js';
 import AuditLog from '../../models/AuditLog.js';
+import RevivalSyncService from './RevivalSyncService.js';
 
 // ─── DEFAULT RULES (seed data — admin can override via settings page) ─────────
 export const DEFAULT_STAGE_RULES = [
@@ -102,7 +103,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Introduction / First Contact',
         outcome: 'Not Interested',
         reason: 'Busy/No Time',
-        newStage: 'New',
+        newStage: 'Dormant',
         requiredForms: [],
         priority: 11,
         active: true
@@ -192,7 +193,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Follow Up',
         outcome: 'Not Interested',
         reason: 'Bought Elsewhere',
-        newStage: 'Closed Lost',
+        newStage: 'Dormant',
         requiredForms: [],
         priority: 16,
         active: true
@@ -515,6 +516,20 @@ export const DEFAULT_STAGE_RULES = [
         priority: 9, // Lowest among specific Not Interested rules, but acts as catch-all
         active: true,
         description: 'System Rule: Any Activity with Not Interested outcome moves to Dormant'
+    },
+    // ══════════════════════════════════════════════════════════
+    //  REVIVAL RULES (Dormant → Prospect)
+    // ══════════════════════════════════════════════════════════
+    {
+        id: 'revival_generic_action',
+        activityType: '*',
+        purpose: '*',
+        outcome: 'Connected', 
+        reason: '*',
+        newStage: 'Prospect',
+        priority: 1, // Lowest priority, acts as a fallback for any connection
+        active: true,
+        description: 'Auto-Revival: Any "Connected" activity moves lead out of Dormant status'
     }
 ];
 
@@ -711,6 +726,13 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
             `Stage: "${prevStageName}" → "${newStageName}" via ${activityType} [${outcome}${reason ? ` / ${reason}` : ''}] (${triggeredBy})`
         );
     } catch (_) { /* Non-critical */ }
+
+    // 🚀 LEAD REVIVAL AUTOMATION
+    if (prevStageName.toLowerCase() === 'dormant' && newStageName.toLowerCase() === 'prospect') {
+        RevivalSyncService.processRevivalActions(leadId, triggeredByUser).catch(err => {
+            console.error('[StageTransitionEngine] Revival automation trigger failed:', err.message);
+        });
+    }
 
     return { success: true, prevStage: prevStageName, newStage: newStageName };
 };

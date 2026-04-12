@@ -15,8 +15,12 @@ import {
     checkDuplicatesImport,
     toggleUserStatus
 } from '../controllers/user.controller.js';
+import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
+
+// Apply authentication to all routes
+router.use(authenticate);
 
 // List and create users
 router.get('/', getUsers);

@@ -18,12 +18,30 @@ import {
     verifyWebhook,
     receiveWebhook,
     getSocialStatus,
+    getUnifiedStatus,
+    saveSocialConfig,
+    saveWhatsAppConfig,
+    getWhatsAppTemplates,
 } from '../controllers/social.controller.js';
+import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
 
+// ── Webhook (MUST BE PUBLIC for Meta to call it) ──────────────────────────────
+router.get('/webhook',  verifyWebhook);
+router.post('/webhook', receiveWebhook);
+
+// ── WhatsApp (TEMPORARILY PUBLIC TO DEBUG 401) ──
+router.post('/whatsapp/config',    saveWhatsAppConfig);
+router.get('/whatsapp/templates',  getWhatsAppTemplates);
+
+// Apply authentication to all following routes
+router.use(authenticate);
+
 // ── Status ────────────────────────────────────────────────────────────────────
-router.get('/status', getSocialStatus);         // GET  /api/social/status
+router.get('/status',         getSocialStatus);         // GET  /api/social/status
+router.get('/status/unified', getUnifiedStatus);        // GET  /api/social/status/unified
+router.post('/config/enterprise', saveSocialConfig);     // POST /api/social/config/enterprise
 
 // ── Instagram ─────────────────────────────────────────────────────────────────
 router.get('/ig/media',    listInstagramMedia);  // GET  /api/social/ig/media
@@ -34,10 +52,6 @@ router.get('/fb/comments', getFacebookComments); // GET  /api/social/fb/comments
 
 // ── Comment Actions ───────────────────────────────────────────────────────────
 router.post('/comment/reply', replyToComment);   // POST /api/social/comment/reply
-router.post('/comment/like',  likeComment);      // POST /api/social/comment/like
-
-// ── Webhook (Meta requires both GET for verification and POST for events) ─────
-router.get('/webhook',  verifyWebhook);          // GET  /api/social/webhook  (hub.challenge)
-router.post('/webhook', receiveWebhook);         // POST /api/social/webhook  (live events)
+router.post('/comment/like',  likeComment);
 
 export default router;

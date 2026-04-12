@@ -1,10 +1,12 @@
 import Project from "../models/Project.js";
 import mongoose from "mongoose";
+import { getVisibilityFilter } from "../utils/visibility.js";
 
 const projectPopulateFields = [
     { path: 'owner', select: 'fullName email name' },
     { path: 'assign', select: 'fullName email name' },
     { path: 'team', select: 'name lookup_value' },
+    { path: 'teams', select: 'name lookup_value' },
     { path: 'category' },
     { path: 'subCategory' },
     { path: 'status' },
@@ -14,7 +16,8 @@ const projectPopulateFields = [
 
 export const getProjects = async (req, res) => {
     try {
-        const projects = await Project.find().populate(projectPopulateFields).sort({ updatedAt: -1 }).lean();
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const projects = await Project.find({ ...visibilityFilter }).populate(projectPopulateFields).sort({ updatedAt: -1 }).lean();
         res.json({ success: true, data: projects });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

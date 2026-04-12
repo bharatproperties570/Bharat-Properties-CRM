@@ -12,6 +12,8 @@ import { runFullLeadEnrichment } from "../src/utils/enrichmentEngine.js";
 import { autoAssign } from "../src/services/DistributionService.js";
 import { createNotification } from "./notification.controller.js";
 import { syncDocumentsToInventory } from "../utils/sync.js";
+import { getVisibilityFilter } from "../utils/visibility.js";
+import Project from "../models/Project.js"; // Added for [matchLeads] consistency
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -26,7 +28,7 @@ const LOOKUP_CACHE_MAX = 500;
 // Helper to resolve lookup (Find or Create)
 const resolveLookup = async (type, value, createIfMissing = true) => {
     if (!value) return null;
-    if (mongoose.Types.ObjectId.isValid(value)) return value;
+    if (mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value.toString());
 
     const cacheKey = `${type}:${String(value).toLowerCase()}`;
     if (_lookupResolveCache.has(cacheKey)) return _lookupResolveCache.get(cacheKey);
@@ -50,7 +52,7 @@ const resolveLookup = async (type, value, createIfMissing = true) => {
 // Helper to resolve User (By Name or Email)
 const resolveUser = async (identifier) => {
     if (!identifier) return null;
-    if (mongoose.Types.ObjectId.isValid(identifier)) return identifier;
+    if (mongoose.Types.ObjectId.isValid(identifier)) return new mongoose.Types.ObjectId(identifier.toString());
 
     const escapedIdentifier = escapeRegExp(identifier);
     const user = await User.findOne({
@@ -125,24 +127,27 @@ const resolveAllReferenceFields = async (doc) => {
     }
 
     // Handle Team resolution (from ID or Name)
-    if (doc.team) {
+    const teamsToResolve = Array.isArray(doc.teams) ? doc.teams : (doc.team ? [doc.team] : []);
+    if (teamsToResolve.length > 0) {
         const Team = mongoose.model('Team');
-        let teamId = doc.team;
-        if (typeof teamId === 'object' && teamId._id) teamId = teamId._id;
+        const resolvedTeams = await Promise.all(teamsToResolve.map(async (t) => {
+            let teamId = t;
+            if (typeof teamId === 'object' && teamId?._id) teamId = teamId._id;
+            
+            if (mongoose.Types.ObjectId.isValid(teamId)) {
+                const teamDoc = await Team.findById(teamId).select('_id');
+                return teamDoc?._id;
+            } else if (typeof teamId === 'string' && teamId.trim() !== "") {
+                const teamDoc = await Team.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(teamId)}$`, 'i') } }).select('_id');
+                return teamDoc?._id;
+            }
+            return null;
+        }));
 
-        let teamDoc;
-        if (mongoose.Types.ObjectId.isValid(teamId)) {
-            teamDoc = await Team.findById(teamId);
-        } else {
-            // Find by name if not a valid ID
-            teamDoc = await Team.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(teamId)}$`, 'i') } });
-        }
-
-        if (teamDoc) {
+        doc.teams = resolvedTeams.filter(Boolean);
+        if (doc.teams.length > 0) {
             if (!doc.assignment) doc.assignment = {};
-            doc.assignment.team = [teamDoc._id];
-        } else {
-            console.log(`[WARN] Team not found: ${teamId}`);
+            doc.assignment.team = doc.teams;
         }
     }
 
@@ -223,6 +228,7 @@ const leadPopulateFields = [
     },
     { path: 'assignment.assignedTo', select: 'fullName email name' },
     { path: 'assignment.team', select: 'name' },
+    { path: 'teams', select: 'name' },
     { path: 'documents.documentCategory', select: 'lookup_value' },
     { path: 'documents.documentName', select: 'lookup_value' },
     { path: 'documents.documentType', select: 'lookup_value' },
@@ -235,17 +241,41 @@ const leadPopulateFields = [
  */
 export const getLeads = async (req, res, next) => {
     try {
-        const { page = 1, limit = 25, search = "", stage, status, teamId, userId } = req.query;
+        const { page = 1, limit = 25, search = "", stage, status, teamId, userId, mobile, showDormant } = req.query;
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        
+        // 🛠️ SENIOR DIAGNOSTIC LOG (Harden for potential undefined user)
+        if (req.user) {
+            console.log(`[VISIBLE_AUDIT] User: ${req.user.email}, Scope: ${req.user.dataScope}, Teams: ${JSON.stringify(req.user.teams?.map(t => t._id || t))}`);
+        } else {
+            console.log(`[VISIBLE_AUDIT] Anonymous request - Visibility restricted to public data.`);
+        }
+        console.log(`[VISIBLE_AUDIT] Generated Filter: ${JSON.stringify(visibilityFilter, null, 2)}`);
 
-        let query = {};
+        let query = { ...visibilityFilter };
+
+        if (mobile) {
+            query.mobile = { $regex: new RegExp(`${mobile}$`) }; 
+        }
 
         if (search) {
-            query.$or = [
-                { firstName: { $regex: search, $options: "i" } },
-                { lastName: { $regex: search, $options: "i" } },
-                { mobile: { $regex: search, $options: "i" } },
-                { email: { $regex: search, $options: "i" } }
-            ];
+            const searchFilter = {
+                $or: [
+                    { firstName: { $regex: search, $options: "i" } },
+                    { lastName: { $regex: search, $options: "i" } },
+                    { mobile: { $regex: search, $options: "i" } },
+                    { email: { $regex: search, $options: "i" } }
+                ]
+            };
+            
+            // Merge security filter with search filter using $and
+            if (query.$or) {
+                const securityOr = query.$or;
+                delete query.$or;
+                query.$and = [{ $or: securityOr }, searchFilter];
+            } else {
+                query.$or = searchFilter.$or;
+            }
         }
 
         if (stage && mongoose.Types.ObjectId.isValid(stage)) query.stage = stage;
@@ -279,9 +309,35 @@ export const getLeads = async (req, res, next) => {
                 query.status = status;
             }
         }
+        
+        // --- 💤 DORMANT EXCLUSION (Hide by default) ---
+        if (showDormant !== "true") {
+            const dormantLookups = await Lookup.find({ 
+                lookup_value: { $regex: /^Dormant$/i } 
+            }).select('_id');
+            const dormantIds = dormantLookups.map(l => l._id);
+            
+            if (dormantIds.length > 0) {
+                const exclusionFilter = { 
+                    $and: [
+                        { stage: { $nin: dormantIds } },
+                        { status: { $nin: dormantIds } }
+                    ]
+                };
+                
+                if (query.$and) {
+                    query.$and.push(exclusionFilter);
+                } else {
+                    // Extract existing fields from query and wrap them with exclusionFilter in a new $and
+                    const baseQuery = { ...query };
+                    query = { $and: [baseQuery, exclusionFilter] };
+                }
+            }
+        }
 
         // Calculate Stats (Total, Today, Fresh, Hot)
         const stats = await Lead.aggregate([
+            { $match: visibilityFilter },
             {
                 $facet: {
                     total: [{ $count: "count" }],
@@ -492,17 +548,27 @@ export const addLead = async (req, res, next) => {
         // ─── Auto-Assign via DistributionService ───────────────────────────────────
         let assignedAgent = null;
         try {
-            const assignment = await autoAssign(lead.toObject());
-            if (assignment?.assignedTo) {
-                await Lead.findByIdAndUpdate(lead._id, {
-                    owner: assignment.assignedTo,
-                    'assignment.assignedTo': assignment.assignedTo
-                });
+            const assignment = await autoAssign(lead.toObject(), 'lead');
+            if (assignment) {
+                const updatePayload = {};
+                if (assignment.assignedTo) {
+                    updatePayload.owner = assignment.assignedTo;
+                    updatePayload.assignedTo = assignment.assignedTo;
+                    updatePayload['assignment.assignedTo'] = assignment.assignedTo;
+                }
+                if (assignment.teams && assignment.teams.length > 0) {
+                    updatePayload.teams = assignment.teams;
+                    updatePayload['assignment.team'] = assignment.teams;
+                }
+
+                await Lead.findByIdAndUpdate(lead._id, { $set: updatePayload });
+                
                 assignedAgent = {
                     userId: assignment.assignedTo,
+                    teams: assignment.teams,
                     ruleName: assignment.ruleName
                 };
-                console.log(`[DISTRIBUTION] Lead ${lead._id} auto-assigned to ${assignment.assignedTo} via rule "${assignment.ruleName}"`);
+                console.log(`[DISTRIBUTION] Lead ${lead._id} auto-assigned via rule "${assignment.ruleName}"`);
                 
                 // Create Notification for auto-assignment
                 await createNotification(
@@ -911,10 +977,29 @@ export const checkDuplicatesImport = async (req, res, next) => {
 
 export const matchLeads = async (req, res) => {
     try {
-        const { dealId } = req.query;
+        const { 
+            dealId,
+            budgetFlexibility = 20, 
+            sizeFlexibility = 20,
+            weights: weightsParam 
+        } = req.query;
+
         if (!dealId) {
             return res.status(400).json({ success: false, error: "dealId is required" });
         }
+
+        // Parse weights (default if missing)
+        let weights = { location: 30, type: 20, budget: 25, size: 25 };
+        if (weightsParam) {
+            try {
+                weights = typeof weightsParam === 'string' ? JSON.parse(weightsParam) : weightsParam;
+            } catch (e) {
+                console.error("Error parsing weights:", e);
+            }
+        }
+
+        const bFlex = parseFloat(budgetFlexibility) / 100;
+        const sFlex = parseFloat(sizeFlexibility) / 100;
 
         const deal = await Deal.findById(dealId)
             .populate('category', 'lookup_value')
@@ -930,8 +1015,15 @@ export const matchLeads = async (req, res) => {
         const dealIntent = String(deal.intent?.lookup_value || deal.intent || "").toLowerCase();
         const dealCategory = String(deal.category?.lookup_value || deal.category || "").toLowerCase();
 
-        // 1. Fetch potential leads (Broad initial query to ensure we have enough candidates)
-        const leads = await Lead.find({ status: { $nin: ["Lost", "Closed", "Rejected"] } })
+        // 1. Fetch potential leads
+        const excludedStatusNames = ["Lost", "Closed", "Rejected", "Dormant"];
+        // Resolve statuses to IDs to avoid CastError (since status is an ObjectId ref)
+        const excludedStatusIds = await Promise.all(
+            excludedStatusNames.map(name => resolveLookup('Status', name, false))
+        );
+        const validExclusions = excludedStatusIds.filter(Boolean);
+
+        const leads = await Lead.find({ status: { $nin: validExclusions } })
             .populate('requirement', 'lookup_value')
             .populate('propertyType', 'lookup_value')
             .populate('subType', 'lookup_value')
@@ -946,23 +1038,24 @@ export const matchLeads = async (req, res) => {
             // --- STAGE 1: HARD FILTERS ---
             const leadReq = String(lead.requirement?.lookup_value || lead.requirement || "").toLowerCase();
             const leadCats = (Array.isArray(lead.propertyType) ? lead.propertyType : [])
-                .map(c => String(c?.lookup_value || c || "").toLowerCase());
+                .map(c => String(c?.lookup_value || c || "").toLowerCase())
+                .filter(Boolean);
 
-            // A. Intent Symmetry (Buy <-> Sell, Rent <-> Rent, Lease <-> Lease)
+            // A. Intent Symmetry
             let intentMatched = false;
-            if (dealIntent.includes("sell") && leadReq.includes("buy")) intentMatched = true;
-            else if (dealIntent.includes("rent") && leadReq.includes("rent")) intentMatched = true;
-            else if (dealIntent.includes("lease") && leadReq.includes("lease")) intentMatched = true;
-            else if (dealIntent.includes("buy") && leadReq.includes("seller")) intentMatched = true; // For leads looking to sell
+            if (dealIntent.includes("sell") && (leadReq.includes("buy") || leadReq.includes("purchase"))) intentMatched = true;
+            else if (dealIntent.includes("rent") && (leadReq.includes("rent") || leadReq.includes("lease"))) intentMatched = true;
+            else if (dealIntent.includes("lease") && (leadReq.includes("lease") || leadReq.includes("rent"))) intentMatched = true;
+            else if ((dealIntent.includes("buy") || dealIntent.includes("purchase")) && leadReq.includes("sell")) intentMatched = true;
 
             if (!intentMatched) return false;
 
-            // B. Category Alignment (Residential, Commercial, Industrial)
+            // B. Category Alignment
             let catMatched = false;
-            if (dealCategory.includes("res") && leadCats.some(c => c.includes("res"))) catMatched = true;
-            else if (dealCategory.includes("comm") && leadCats.some(c => c.includes("comm"))) catMatched = true;
-            else if (dealCategory.includes("ind") && leadCats.some(c => c.includes("ind"))) catMatched = true;
-            else if (!dealCategory || (leadCats.length === 0)) catMatched = true; // Be permissive if data is missing
+            if (dealCategory.includes("res") && leadCats.some(c => c && c.includes("res"))) catMatched = true;
+            else if (dealCategory.includes("comm") && leadCats.some(c => c && c.includes("comm"))) catMatched = true;
+            else if (dealCategory.includes("ind") && leadCats.some(c => c && c.includes("ind"))) catMatched = true;
+            else if (!dealCategory || (leadCats.length === 0)) catMatched = true;
 
             if (!catMatched) return false;
 
@@ -972,74 +1065,83 @@ export const matchLeads = async (req, res) => {
             let score = 0;
             const matchDetails = [];
 
-            // Sub-Category (20%)
+            // 1. Sub-Category / Type (Weight: type)
             const dealSub = (deal.subCategory?.lookup_value || "").toLowerCase();
             const leadSubs = (lead.subType || []).filter(Boolean).map(s => String(s.lookup_value || s || "").toLowerCase());
-            if (dealSub && leadSubs.some(s => s.includes(dealSub))) {
-                score += 20;
+            if (dealSub && leadSubs.some(s => s && s.includes(dealSub))) {
+                score += (weights.type || 20);
                 matchDetails.push("Unit Type Match");
             }
 
-            // Budget (25%)
+            // 2. Budget / Price (Weight: budget)
             const dealPrice = deal.price || deal.quotePrice || 0;
             if (dealPrice > 0) {
                 const min = lead.budgetMin || 0;
                 const max = lead.budgetMax || Infinity;
                 if (dealPrice >= min && dealPrice <= max) {
-                    score += 25;
+                    score += (weights.budget || 25);
                     matchDetails.push("Budget Match");
-                } else if (dealPrice >= min * 0.8 && dealPrice <= max * 1.2) {
-                    score += 15;
-                    matchDetails.push("Partial Budget Match");
+                } else if (dealPrice >= min * (1 - bFlex) && dealPrice <= max * (1 + bFlex)) {
+                    score += (weights.budget || 25) * 0.6;
+                    matchDetails.push("Approximate Budget Match");
                 }
             }
 
-            // Dual Location (20%)
+            // 3. Location (Weight: location)
             const dealLoc = (deal.location || deal.projectName || "").toLowerCase();
             const leadLocArea = (lead.locArea || "").toLowerCase();
             const leadSelectedLoc = (lead.location?.lookup_value || "").toLowerCase();
-            if ((leadLocArea && dealLoc.includes(leadLocArea)) || (leadSelectedLoc && dealLoc.includes(leadSelectedLoc))) {
-                score += 20;
+            const leadCity = (lead.locCity || "").toLowerCase();
+            const leadSector = (lead.sector || "").toLowerCase();
+            const leadProjects = Array.isArray(lead.projectName) ? lead.projectName : [];
+
+            let locScore = 0;
+            const locWeight = (weights.location || 30);
+
+            // Tier 1: Project Match
+            if (deal.projectName && typeof deal.projectName === 'string' && leadProjects.some(p => p && typeof p === 'string' && deal.projectName.toLowerCase().includes(p.toLowerCase()))) {
+                locScore = locWeight;
+                matchDetails.push("Exact Project Match");
+            } 
+            // Tier 2: Area Match
+            else if ((leadLocArea && dealLoc.includes(leadLocArea)) || (leadSelectedLoc && dealLoc.includes(leadSelectedLoc))) {
+                locScore = locWeight;
                 matchDetails.push("Location Match");
             }
+            else {
+                // Tier 3: Sector/City Match
+                let addressPoints = 0;
+                const dealSector = (deal.inventoryId?.sector || "").toLowerCase();
+                if (leadSector && (dealSector.includes(leadSector) || leadSector.includes(dealSector))) {
+                    addressPoints += locWeight * 0.7;
+                    matchDetails.push("Sector Correlation");
+                }
+                const dealCity = (deal.inventoryId?.city || "").toLowerCase();
+                if (leadCity && (dealCity.includes(leadCity) || leadCity.includes(dealCity))) {
+                    addressPoints += locWeight * 0.3;
+                    matchDetails.push("City match");
+                }
+                locScore = Math.min(addressPoints, locWeight);
+            }
+            score += locScore;
 
-            // Orientation Matrix (20%) - road, direction, facing, ownership
-            let orientCount = 0;
+            // 4. Orientation / Size / Specs (Weight: size)
+            let extraMatchPoints = 0;
+            const sizeWeight = (weights.size || 25);
+
             if (deal.inventoryId) {
                 const inv = deal.inventoryId;
                 const lFacing = (lead.facing || []).filter(Boolean).map(f => String(f._id || f));
                 const lDir = (lead.direction || []).filter(Boolean).map(d => String(d._id || d));
-                const lRoad = (lead.roadWidth || []).filter(Boolean).map(r => String(r._id || r));
                 
-                if (lFacing.includes(String(inv.facing))) orientCount++;
-                if (lDir.includes(String(inv.direction))) orientCount++;
-                if (lRoad.includes(String(inv.roadWidth))) orientCount++;
-                if (lead.transactionType && inv.ownership && lead.transactionType === inv.ownership) orientCount++;
+                if (lFacing.includes(String(inv.facing))) extraMatchPoints += 5;
+                if (lDir.includes(String(inv.direction))) extraMatchPoints += 5;
+                if (lead.transactionType && inv.ownership && lead.transactionType === inv.ownership) extraMatchPoints += 5;
             }
-            if (orientCount > 0) {
-                score += Math.min(orientCount * 7, 20);
-                matchDetails.push(`${orientCount} Orientation Fields Matched`);
-            }
-
-            // Specs & Built-up Status (15%)
-            let specsMatch = 0;
-            if (lead.transactionType && deal.transactionType && lead.transactionType === deal.transactionType) specsMatch += 5;
-            if (lead.furnishing && deal.inventoryId?.furnishType && lead.furnishing === deal.inventoryId.furnishType) specsMatch += 5;
             
-            // Timeline vs Possession (Built-up Type)
-            if (lead.timeline && deal.inventoryId?.possessionStatus) {
-                const lTimeline = lead.timeline.toLowerCase();
-                const dPoss = deal.inventoryId.possessionStatus.toLowerCase();
-                if ((lTimeline.includes('immediate') && dPoss.includes('ready')) || 
-                    (lTimeline.includes('months') && dPoss.includes('construction')) ||
-                    (lTimeline === dPoss)) {
-                    specsMatch += 5;
-                }
-            }
-
-            if (specsMatch > 0) {
-                score += specsMatch;
-                matchDetails.push("Spec & Built-up Match");
+            if (extraMatchPoints > 0) {
+                score += Math.min(extraMatchPoints, sizeWeight);
+                matchDetails.push("Orientation & Specs Correlation");
             }
 
             return {

@@ -1,5 +1,10 @@
+import fs from "fs";
+
 // eslint-disable-next-line no-unused-vars
 export const errorHandler = (err, req, res, next) => {
+    const errorLog = `[${new Date().toISOString()}] ${req.method} ${req.url}\nError: ${err.message}\nStack: ${err.stack}\n\n`;
+    fs.appendFileSync("/tmp/crm_crash.log", errorLog);
+    
     console.error("Error Stack:", err.stack);
 
     const statusCode = err.statusCode || 500;

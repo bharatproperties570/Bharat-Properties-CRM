@@ -16,8 +16,12 @@ import {
     getLeadScores,
     getDealScores
 } from '../controllers/stage.controller.js';
+import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
+
+// Apply authentication to all routes
+router.use(authenticate);
 
 // ── Lead Stage ──────────────────────────────────────────────────────────────
 // GET /api/stage-engine/leads/scores  ← MUST be before /:id routes

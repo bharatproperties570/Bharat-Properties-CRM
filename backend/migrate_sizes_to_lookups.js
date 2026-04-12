@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import Lookup from './models/Lookup.js';
-import SystemSetting from './models/SystemSetting.js';
+import SystemSetting from './src/modules/systemSettings/system.model.js';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';

@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import Lookup from '../models/Lookup.js';
-import SystemSetting from '../models/SystemSetting.js';
+import SystemSetting from '../src/modules/systemSettings/system.model.js';
 
 dotenv.config();
 

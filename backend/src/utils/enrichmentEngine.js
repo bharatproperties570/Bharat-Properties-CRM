@@ -5,6 +5,8 @@ import ProspectEnrichmentRule from "../../models/ProspectEnrichmentRule.js";
 import EnrichmentLog from "../../models/EnrichmentLog.js";
 import AuditLog from "../../models/AuditLog.js";
 import LeadScoringService from "../services/LeadScoringService.js";
+import Activity from "../../models/Activity.js";
+import unifiedAIService from "../../services/UnifiedAIService.js";
 
 /**
  * STEP 1: Calculate formula-based Intent Index from STATIC signals only.
@@ -235,6 +237,68 @@ export const detectMarginOpportunity = async (dealId) => {
 };
 
 /**
+ * STEP 4: AI Deep Intent Analysis (LLM-based)
+ * Analyzes activity history and notes to provide a human-like summary and probability.
+ */
+export const generateAIDeepIntent = async (leadId) => {
+    const lead = await Lead.findById(leadId);
+    if (!lead) return;
+
+    // Fetch last 15 interactions
+    const activities = await Activity.find({ entityId: leadId })
+        .sort({ createdAt: -1 })
+        .limit(15)
+        .lean();
+
+    const notes = lead.notes || '';
+    const interactionText = activities.map(a => 
+        `[${new Date(a.createdAt).toLocaleDateString()}] ${a.type}: ${a.subject} (${a.completionResult || 'No Result'})`
+    ).join('\n');
+
+    const prompt = `
+        You are a Real Estate Transaction Strategist. 
+        Analyze the following prospect data and interaction history for a property lead.
+        
+        LEAD PROFILE:
+        - Budget: ${lead.budgetMin} - ${lead.budgetMax}
+        - Description: ${lead.description || 'N/A'}
+        - Enrichment Tags: ${lead.intent_tags?.join(', ') || 'None'}
+        - Current Notes: ${notes}
+        
+        RECENT INTERACTIONS:
+        ${interactionText || 'No recent interactions logged.'}
+        
+        TASK:
+        1. Summarize the prospect's "Deep Intent". Are they genuinely looking to close, or just exploring?
+        2. Assign a "Closing Probability" (0 to 100) based on their engagement and requirement clarity.
+        
+        Return exactly in JSON format:
+        {
+            "summary": "Short 2-sentence professional analysis of intent",
+            "probability": 85
+        }
+    `;
+
+    try {
+        const response = await unifiedAIService.generate(prompt);
+        // Find JSON block in response
+        const jsonMatch = response.match(/\{[\s\S]*\}/);
+        const data = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+
+        if (data) {
+            await Lead.findByIdAndUpdate(leadId, {
+                ai_intent_summary: data.summary,
+                ai_closing_probability: data.probability
+            });
+            return data;
+        }
+    } catch (err) {
+        console.error(`[AI_INTENT_ERROR] Lead ${leadId}:`, err.message);
+    }
+    return null;
+};
+
+/**
  * Full enrichment pipeline for a lead.
  * CORRECT ORDER:
  *   Step 1: calculateIntentIndex() — static formula (no activities)
@@ -249,7 +313,10 @@ export const runFullLeadEnrichment = async (leadId) => {
         await scanKeywords(leadId);           // Step 2: keyword boost → intent_index (formula + keywords)
         await classifyLead(leadId);           // Step 3: classify using final intent_index
         
-        // Step 4: Final Unified Scoring Recalculation (Backend v3 Engine)
+        // Step 4: [NEW] AI Deep Intent Analysis (LLM-based)
+        await generateAIDeepIntent(leadId);
+        
+        // Step 5: Final Unified Scoring Recalculation (Backend v3 Engine)
         await LeadScoringService.computeAndSave(leadId, { triggeredBy: 'enrichment_completion' });
 
         return { success: true };

@@ -1,5 +1,5 @@
 import IntegrationSettings from '../models/IntegrationSettings.js';
-import SystemSetting from '../models/SystemSetting.js';
+import SystemSetting from '../src/modules/systemSettings/system.model.js';
 
 export const getSettings = async (req, res) => {
     try {

@@ -10,6 +10,7 @@ import { createContactSchema, updateContactSchema } from "../validations/contact
 import { syncDocumentsToInventory } from "../utils/sync.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
 import { googleSyncQueue } from "../src/queues/queueManager.js";
+import { getVisibilityFilter } from "../utils/visibility.js";
 
 const populateFields = [
     { path: 'title', select: 'lookup_value' },
@@ -20,8 +21,9 @@ const populateFields = [
     { path: 'source', select: 'lookup_value' },
     { path: 'subSource', select: 'lookup_value' },
     { path: 'campaign', select: 'lookup_value' },
-    { path: 'team', select: 'name' },
     { path: 'owner', select: 'fullName email name' },
+    { path: 'team', select: 'name' },
+    { path: 'teams', select: 'name' },
     { path: 'assignment.assignedTo', select: 'fullName email name' },
     { path: 'assignment.team', select: 'name' },
     { path: 'personalAddress.country', select: 'lookup_value' },
@@ -52,13 +54,25 @@ const populateFields = [
 
 export const getContacts = async (req, res, next) => {
     try {
-        const { page = 1, limit = 10, search = "" } = req.query;
+        const { page = 1, limit = 10, search = "", phone } = req.query;
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        
+        // 🛠️ SENIOR DIAGNOSTIC LOG (Harden for potential undefined user)
+        if (req.user) {
+            console.log(`[VISIBLE_AUDIT] User: ${req.user.email}, Scope: ${req.user.dataScope}, Teams: ${JSON.stringify(req.user.teams?.map(t => t._id || t))}`);
+        } else {
+            console.log(`[VISIBLE_AUDIT] Anonymous request - Visibility restricted to public data.`);
+        }
+        console.log(`[VISIBLE_AUDIT] Generated Filter: ${JSON.stringify(visibilityFilter, null, 2)}`);
 
-        console.log(`[DEBUG] getContacts called with page=${page}, limit=${limit}, search=${search}`);
+        let query = { ...visibilityFilter };
 
-        let query = {};
+        if (phone) {
+            query["phones.number"] = { $regex: new RegExp(`${phone}$`) };
+        }
+
         if (search) {
-            query = {
+            const searchFilter = {
                 $or: [
                     { name: { $regex: search, $options: "i" } },
                     { description: { $regex: search, $options: "i" } },
@@ -66,6 +80,14 @@ export const getContacts = async (req, res, next) => {
                     { "emails.address": { $regex: search, $options: "i" } }
                 ]
             };
+            // CORRECTED MERGE: Ensure top-level query keys are preserved while wrapping $or
+            if (query.$or) {
+                const securityOr = query.$or;
+                delete query.$or;
+                query.$and = (query.$and || []).concat([{ $or: securityOr }, searchFilter]);
+            } else {
+                Object.assign(query, searchFilter);
+            }
         }
 
         // Wait, paginate utility handles call. 
@@ -255,7 +277,7 @@ const resolveAllReferenceFields = async (obj) => {
                 'requirement', 'budget', 'location', 'country', 'state', 'city',
                 'tehsil', 'postOffice', 'education', 'degree', 'loanType',
                 'bank', 'platform', 'incomeType', 'documentCategory',
-                'documentType', 'documentName'
+                'documentType', 'documentName', 'teams', 'team'
             ];
 
             if (value._id && refFields.includes(key)) {
@@ -284,7 +306,12 @@ const resolveAllReferenceFields = async (obj) => {
     }
     if (obj.team && (!obj.assignment || !obj.assignment.team)) {
         if (!obj.assignment) obj.assignment = {};
-        obj.assignment.team = [obj.team];
+        obj.assignment.team = Array.isArray(obj.team) ? obj.team : [obj.team];
+    }
+    
+    // Sync plural 'teams' to legacy 'team' for backward compatibility if logic expects singular
+    if (obj.teams && Array.isArray(obj.teams) && obj.teams.length > 0 && !obj.team) {
+        obj.team = obj.teams[0];
     }
 };
 
@@ -620,7 +647,7 @@ const resolveLookup = async (type, value) => {
         if (mongoose.Types.ObjectId.isValid(value._id)) return value._id;
     }
 
-    if (mongoose.Types.ObjectId.isValid(value)) return value;
+    if (mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value.toString());
 
     // Check Cache First
     const cacheKey = `${type}:${value}`;
@@ -650,7 +677,7 @@ const escapeRegExp = (string) => {
 
 const resolveUser = async (identifier) => {
     if (!identifier) return null;
-    if (mongoose.Types.ObjectId.isValid(identifier)) return identifier;
+    if (mongoose.Types.ObjectId.isValid(identifier)) return new mongoose.Types.ObjectId(identifier.toString());
 
     const escapedIdentifier = escapeRegExp(identifier);
     const user = await User.findOne({

@@ -24,12 +24,11 @@ let whatsAppService, emailService, smsService, marketingService, nurtureBot;
 
 const loadServices = async () => {
     if (!whatsAppService) {
-        const [wa, em, sms, mkt, nb] = await Promise.all([
+        const [wa, em, mkt, nb] = await Promise.all([
             import('../../services/WhatsAppService.js'),
             import('../../services/email.service.js'),
-            import('../../services/SmsService.js'),
             import('../../services/MarketingService.js'),
-            import('../../services/NurtureBot.js'),
+            import('../../services/NurtureBot.js')
         ]);
         whatsAppService  = wa.default;
         emailService     = em.default;
@@ -137,6 +136,18 @@ const processMarketingJob = async (job) => {
         await job.updateProgress(100);
         console.log(`[MarketingWorker] ✅ AI generation complete (${provider})`);
         return { content, provider, model, completedAt: new Date().toISOString() };
+    }
+
+    // ─── LINKEDIN-LEAD-SYNC: Background sync ──────────────────────────────
+    if (name === 'linkedin-lead-sync') {
+        const { default: leadSyncService } = await import('../../services/LinkedInLeadSyncService.js');
+        await job.log('Starting LinkedIn lead sync...');
+        
+        const count = await leadSyncService.syncAllLeads();
+        
+        await job.updateProgress(100);
+        await job.log(`Sync complete. ${count} leads processed.`);
+        return { synced: count, completedAt: new Date().toISOString() };
     }
 
     throw new Error(`Unknown marketing job type: ${name}`);

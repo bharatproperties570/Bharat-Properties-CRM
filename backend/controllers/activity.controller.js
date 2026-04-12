@@ -7,7 +7,9 @@ import { enrichmentQueue, googleSyncQueue } from "../src/queues/queueManager.js"
 
 import StageTransitionEngine from "../src/services/StageTransitionEngine.js";
 import LeadScoringService from "../src/services/LeadScoringService.js";
+import { autoAssign } from "../src/services/DistributionService.js";
 import { createNotification } from "./notification.controller.js";
+import { getVisibilityFilter } from "../utils/visibility.js";
 
 /**
  * Bug 6 Fix: Auto-trigger stage change when a completed activity is saved for a lead.
@@ -59,7 +61,7 @@ const autoTriggerStageChange = async (activity, userId = null) => {
         );
 
         // 2. Recalculate Lead Score (unified scoring engine)
-        await LeadScoringService.computeAndSave(leadId, { triggeredBy: 'activity_completion' });
+        await LeadScoringService.computeAndSave(leadId, { triggeredBy: 'activity_completion', triggeredByUserId: userId });
 
         if (transition.stageChanged) {
             console.log(`[StageAlignment] Lead ${leadId} moved: ${transition.prevStage} → ${transition.newStage}`);
@@ -86,7 +88,8 @@ export const getActivities = async (req, res) => {
             limit = 100
         } = req.query;
 
-        const query = {};
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const query = { ...visibilityFilter };
 
         if (entityId && mongoose.Types.ObjectId.isValid(entityId)) query.entityId = entityId;
         else if (entityId) return res.status(400).json({ success: false, error: "Invalid entityId format" });
@@ -166,7 +169,9 @@ export const getActivitiesByEntity = async (req, res) => {
         if (!mongoose.Types.ObjectId.isValid(entityId)) {
             return res.status(400).json({ success: false, error: "Invalid entityId format" });
         }
+        const visibilityFilter = await getVisibilityFilter(req.user);
         const activities = await Activity.find({
+            ...visibilityFilter,
             entityType: { $regex: new RegExp(`^${escapedEntityType}$`, 'i') },
             entityId: entityId
         }).populate('assignedTo', 'fullName name email').sort({ createdAt: -1 }).lean();
@@ -201,8 +206,10 @@ export const getUnifiedTimeline = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid entityId format" });
         }
 
+        const visibilityFilter = await getVisibilityFilter(req.user);
         // 1. Fetch Activities
         const activities = await Activity.find({
+            ...visibilityFilter,
             entityId,
             entityType: { $regex: new RegExp(`^${escapeRegExp(entityType)}$`, 'i') }
         })
@@ -235,7 +242,7 @@ export const getUnifiedTimeline = async (req, res) => {
                 title: a.subject,
                 description: a.description,
                 status: a.status,
-                actor: a.assignedTo ? (a.assignedTo.fullName || a.assignedTo.name) : (a.performedBy || 'System'),
+                actor: a.performedBy || (a.assignedTo ? (a.assignedTo.fullName || a.assignedTo.name) : 'System'),
                 isStarred: a.isStarred || false,
                 tags: a.tags || [],
                 metadata: {
@@ -297,8 +304,27 @@ export const addActivity = async (req, res) => {
         const activityData = { ...req.body };
         
         // Auto-set performer name from authenticated user
-        if (req.user && !activityData.performedBy) {
+        if (req.user) {
             activityData.performedBy = req.user.fullName || req.user.name || `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim();
+            // Default teams to user's teams if no inheritance happens later
+            if (!activityData.teams || activityData.teams.length === 0) {
+                activityData.teams = Array.isArray(req.user.teams) ? req.user.teams : (req.user.team ? [req.user.team] : []);
+            }
+        }
+
+        // 🚀 Team Inheritance from Parent Entity
+        if (activityData.entityType && activityData.entityId && mongoose.Types.ObjectId.isValid(activityData.entityId)) {
+            const ModelMap = { leads: Lead, contact: mongoose.model('Contact'), deal: Deal, project: mongoose.model('Project'), company: mongoose.model('Company') };
+            const ParentModel = ModelMap[activityData.entityType.toLowerCase() + 's'] || ModelMap[activityData.entityType.toLowerCase()];
+            if (ParentModel) {
+                const parent = await ParentModel.findById(activityData.entityId).select('teams assignment.team').lean();
+                if (parent) {
+                    const inheritedTeams = parent.teams || parent.assignment?.team || [];
+                    if (inheritedTeams.length > 0) {
+                        activityData.teams = inheritedTeams;
+                    }
+                }
+            }
         }
 
         const activity = await Activity.create(activityData);
@@ -341,7 +367,7 @@ export const addActivity = async (req, res) => {
 
         // Bug 6 Fix: Auto-trigger stage change based on activity outcome mapping
         if (activity.entityType?.toLowerCase() === 'lead' && activity.status?.toLowerCase() === 'completed') {
-            await autoTriggerStageChange(activity, req.body.assignedTo || null);
+            await autoTriggerStageChange(activity, req.user?.id || req.user?._id || activity.assignedTo || null);
         }
 
         // Create Notification if assigned to a user
@@ -369,9 +395,16 @@ export const addActivity = async (req, res) => {
 // @route   PUT /api/activities/:id
 export const updateActivity = async (req, res) => {
     try {
+        const updateData = { ...req.body };
+        
+        // If status is changing to Completed, ensure performedBy is set
+        if (updateData.status === 'Completed' && req.user) {
+            updateData.performedBy = req.user.fullName || req.user.name || `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim();
+        }
+
         const activity = await Activity.findByIdAndUpdate(
             req.params.id,
-            req.body,
+            updateData,
             { new: true, runValidators: true }
         );
 
@@ -391,7 +424,7 @@ export const updateActivity = async (req, res) => {
 
         // Bug 6 Fix: Auto-trigger stage change based on activity outcome mapping
         if (activity.entityType?.toLowerCase() === 'lead' && activity.status?.toLowerCase() === 'completed') {
-            await autoTriggerStageChange(activity, req.body.assignedTo || null);
+            await autoTriggerStageChange(activity, req.user?.id || req.user?._id || activity.assignedTo || null);
         }
 
         // Sync to Google Calendar
@@ -491,8 +524,14 @@ export const syncMobileCalls = async (req, res) => {
                     recordingUrl: call.recordingUrl || null
                 },
                 performedAt: new Date(call.timestamp),
-                performedBy: req.user?.fullName || req.user?.name || "Mobile User"
+                performedBy: req.user?.fullName || req.user?.name || "Mobile User",
+                teams: match ? (match.entity.teams || match.entity.assignment?.team || []) : []
             };
+            
+            // Fallback for unmatched calls: Creator's teams
+            if ((!activityData.teams || activityData.teams.length === 0) && req.user) {
+                activityData.teams = Array.isArray(req.user.teams) ? req.user.teams : (req.user.team ? [req.user.team] : []);
+            }
 
             const existing = await Activity.findOne({ "details.mobileId": call.id, "details.platform": 'Mobile' });
             if (!existing) {
@@ -538,8 +577,14 @@ export const syncMobileCalls = async (req, res) => {
                     isMatched: !!match
                 },
                 performedAt: new Date(msg.date),
-                performedBy: req.user?.fullName || req.user?.name || "Mobile User"
+                performedBy: req.user?.fullName || req.user?.name || "Mobile User",
+                teams: match ? (match.entity.teams || match.entity.assignment?.team || []) : []
             };
+
+            // Fallback for unmatched SMS: Creator's teams
+            if ((!activityData.teams || activityData.teams.length === 0) && req.user) {
+                activityData.teams = Array.isArray(req.user.teams) ? req.user.teams : (req.user.team ? [req.user.team] : []);
+            }
 
             const existing = await Activity.findOne({ 
                 "details.mobileId": activityData.details.mobileId, 

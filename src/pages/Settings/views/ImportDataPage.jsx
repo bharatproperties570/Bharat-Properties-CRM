@@ -19,6 +19,9 @@ const ImportDataPage = () => {
     const [duplicates, setDuplicates] = useState([]);
     const [importSummary, setImportSummary] = useState({ newItems: 0, updateItems: 0 });
     const [updateDuplicates, setUpdateDuplicates] = useState(true);
+    const [teams, setTeams] = useState([]);
+    const [selectedTeams, setSelectedTeams] = useState([]);
+    const [fetchingTeams, setFetchingTeams] = useState(false);
 
     const fileInputRef = useRef(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -34,6 +37,24 @@ const ImportDataPage = () => {
         const project = projects.find(p => p._id === projectId);
         setBlocks(project?.blocks || []);
     };
+
+    const fetchTeams = async () => {
+        setFetchingTeams(true);
+        try {
+            const res = await api.get('/teams');
+            if (res.data.success) {
+                setTeams(res.data.data || []);
+            }
+        } catch (err) {
+            console.error('Error fetching teams:', err);
+        } finally {
+            setFetchingTeams(false);
+        }
+    };
+
+    useState(() => {
+        fetchTeams();
+    }, []);
 
     // --- Handlers ---
 
@@ -227,7 +248,8 @@ const ImportDataPage = () => {
             let endpoint = `/${module}/import`;
             let payload = {
                 data: transformedData,
-                updateDuplicates: updateDuplicates
+                updateDuplicates: updateDuplicates,
+                teams: selectedTeams
             };
 
             // Special case for sizes
@@ -389,6 +411,44 @@ const ImportDataPage = () => {
                                         <option value="">-- Choose Block --</option>
                                         {blocks.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}
                                     </select>
+                                </div>
+                                <div style={{ gridColumn: 'span 2', marginTop: '16px' }}>
+                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Assign to Team(s) <span style={{ color: '#64748b', fontWeight: 400 }}>(Multiple selection supported)</span></label>
+                                    <div style={{ 
+                                        border: '1px solid #e2e8f0', 
+                                        borderRadius: '8px', 
+                                        padding: '12px', 
+                                        background: '#fff',
+                                        maxHeight: '150px',
+                                        overflowY: 'auto',
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(2, 1fr)',
+                                        gap: '8px'
+                                    }}>
+                                        {fetchingTeams ? (
+                                            <div style={{ gridColumn: 'span 2', textAlign: 'center', padding: '10px', color: '#94a3b8' }}>
+                                                <i className="fas fa-spinner fa-spin"></i> Loading Teams...
+                                            </div>
+                                        ) : teams.length === 0 ? (
+                                            <div style={{ gridColumn: 'span 2', textAlign: 'center', padding: '10px', color: '#94a3b8' }}>No teams found. Ensure teams are created in User Management.</div>
+                                        ) : teams.map(t => (
+                                            <label key={t._id} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '4px 8px', borderRadius: '4px', background: selectedTeams.includes(t._id) ? '#eff6ff' : 'transparent', transition: 'all 0.2s' }}>
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={selectedTeams.includes(t._id)}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) setSelectedTeams([...selectedTeams, t._id]);
+                                                        else setSelectedTeams(selectedTeams.filter(id => id !== t._id));
+                                                    }}
+                                                    style={{ width: '16px', height: '16px' }}
+                                                />
+                                                <span style={{ fontSize: '0.85rem', fontWeight: selectedTeams.includes(t._id) ? 600 : 400, color: selectedTeams.includes(t._id) ? '#2563eb' : '#475569' }}>{t.name}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                    <p style={{ marginTop: '8px', fontSize: '0.75rem', color: '#64748b' }}>
+                                        <i className="fas fa-info-circle" style={{ marginRight: '4px' }}></i> Selected teams will have full visibility and management access to this inventory.
+                                    </p>
                                 </div>
                             </div>
                         )}

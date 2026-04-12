@@ -41,6 +41,7 @@ const ActivitySchema = new mongoose.Schema({
 
     tags: [{ type: String }],
     isStarred: { type: Boolean, default: false },
+    teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
     googleEventId: { type: String, index: true },
 
 }, { timestamps: true });
@@ -55,6 +56,8 @@ ActivitySchema.index({ dueDate: 1, status: 1 });
 ActivitySchema.index({ type: 1, createdAt: -1 });
 // entityType + entityId: used in all entity-specific lookups
 ActivitySchema.index({ entityType: 1, entityId: 1 });
+// teams + dueDate: covers team-filtered activities for dashboard
+ActivitySchema.index({ teams: 1, dueDate: 1, status: 1 });
 
 ActivitySchema.post('save', invalidateDashboardCache);
 ActivitySchema.post('findOneAndUpdate', invalidateDashboardCache);

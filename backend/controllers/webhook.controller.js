@@ -234,12 +234,17 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                 const aiResult = await generateBotResponse(messageText, chatHistoryContext);
 
                 if (aiResult.success && aiResult.reply) {
-                    // 5. Send strictly to WhatsApp Meta API
-                    const creds = await IntegrationSettings.findOne();
-                    if (creds && creds.whatsappToken && creds.whatsappPhoneNumberId) {
+                    // 5. Send strictly to WhatsApp Meta API (Standardized via SystemSetting)
+                    const setting = await mongoose.model('SystemSetting').findOne({ key: 'meta_wa_config' }).lean();
+                    const config = setting?.value;
+                    
+                    const token = config?.token || config?.apiKey;
+                    const phoneId = config?.phoneId;
+
+                    if (token && phoneId) {
                         try {
                             await axios.post(
-                                `https://graph.facebook.com/v19.0/${creds.whatsappPhoneNumberId}/messages`,
+                                `https://graph.facebook.com/v19.0/${phoneId}/messages`,
                                 {
                                     messaging_product: "whatsapp",
                                     recipient_type: "individual",
@@ -249,7 +254,7 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                                 },
                                 {
                                     headers: {
-                                        'Authorization': `Bearer ${creds.whatsappToken}`,
+                                        'Authorization': `Bearer ${token}`,
                                         'Content-Type': 'application/json'
                                     }
                                 }
@@ -267,7 +272,7 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                             console.error('[WhatsApp Live Bot] Failed to send reply via Meta API:', waError.response?.data || waError.message);
                         }
                     } else {
-                        console.error('[WhatsApp Live Bot] Missing WhatsApp credentials in settings.');
+                        console.error('[WhatsApp Live Bot] Missing WhatsApp credentials in SystemSettings (meta_wa_config).');
                     }
                 }
             }

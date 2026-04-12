@@ -16,7 +16,7 @@
  */
 
 import axios from 'axios';
-import SystemSetting from '../models/SystemSetting.js';
+import SystemSetting from '../src/modules/systemSettings/system.model.js';
 
 const GRAPH_BASE = 'https://graph.facebook.com';
 
@@ -194,6 +194,38 @@ class SocialCommentService {
      * @param {Object} payload  Raw webhook body
      * @returns {Array}         Normalized comment events
      */
+    /**
+     * Get unified status of all social connections
+     */
+    async getUnifiedStatus() {
+        const config = await this._getConfig();
+        const lnSetting = await SystemSetting.findOne({ key: 'linkedin_integration' }).lean();
+        
+        return {
+            success: true,
+            whatsapp: {
+                connected: !!(process.env.WHATSAPP_PHONE_ID || config.whatsappPhoneId),
+                health: 'HEALTHY'
+            },
+            messenger: {
+                connected: !!config.pageAccessToken,
+                health: config.pageAccessToken ? 'HEALTHY' : 'DISCONNECTED'
+            },
+            facebook: {
+                connected: !!config.pageAccessToken,
+                health: config.pageAccessToken ? 'HEALTHY' : 'DISCONNECTED'
+            },
+            instagram: {
+                connected: !!config.igUserId,
+                health: config.igUserId ? 'HEALTHY' : 'DISCONNECTED'
+            },
+            linkedin: {
+                connected: lnSetting?.value?.status === 'Connected',
+                health: lnSetting?.value?.health || 'DISCONNECTED'
+            }
+        };
+    }
+
     processWebhookPayload(payload) {
         const events = [];
         try {

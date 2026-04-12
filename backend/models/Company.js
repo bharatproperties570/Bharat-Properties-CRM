@@ -33,6 +33,7 @@ const CompanySchema = new mongoose.Schema({
     campaign: String,
     source: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     subSource: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
     owner: { type: mongoose.Schema.Types.Mixed, ref: 'User' },
     visibleTo: { type: String, default: "Everyone" },

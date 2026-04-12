@@ -9,8 +9,12 @@ import {
     cloneRole,
     getRoleUsers
 } from '../controllers/role.controller.js';
+import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
+
+// Apply authentication to all routes
+router.use(authenticate);
 
 // List and create roles
 router.get('/', getRoles);

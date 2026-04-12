@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { googleSettingsAPI, systemSettingsAPI, marketingAPI } from '../../../utils/api';
+import { googleSettingsAPI, systemSettingsAPI, marketingAPI, socialAPI } from '../../../utils/api';
 import { toast } from 'react-hot-toast';
 
 import smsService from '../../../services/smsService';
 import contactSyncManager from '../../../services/contactSyncManager';
 
-const ConnectionModal = ({ type, onClose, onConnect }) => {
+const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
     const [smsProvider, setSmsProvider] = useState('Twilio');
     const [config, setConfig] = useState({
         sid: '',
@@ -22,7 +22,11 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
         headers: '{}',
         bodyTemplate: '',
         entityId: '',
-        route: 'clickhere'
+        route: 'clickhere',
+        clientId: '',
+        clientSecret: '',
+        redirectUri: 'http://localhost:4000/api/marketing/linkedin/callback',
+        orgId: '42752175'
     });
 
     const [testing, setTesting] = useState(false);
@@ -35,18 +39,24 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
     useEffect(() => {
         if (type === 'twilio') {
             loadConfig();
-        } else if (['openai', 'gemini', 'claude', 'knowlarity', 'gupshup', 'linkedin'].includes(type)) {
+        } else if (['openai', 'gemini', 'claude', 'knowlarity', 'gupshup', 'linkedin', 'whatsapp'].includes(type)) {
             loadAiConfig();
         }
     }, [type]);
 
     const loadAiConfig = async () => {
         try {
-            const configKey = `ai_${type}_config`;
+            const configKey = type === 'linkedin' ? 'linkedin_integration' : (type === 'whatsapp' ? 'meta_wa_config' : `ai_${type}_config`);
             const res = await systemSettingsAPI.getByKey(configKey);
             if (res && res.data && res.data.value) {
-                setConfig(prev => ({ ...prev, ...res.data.value }));
-                setLastKnownStatus('Connected');
+                const loadedConfig = res.data.value;
+                setConfig(prev => ({ 
+                    ...prev, 
+                    ...loadedConfig, 
+                    token: loadedConfig.token || loadedConfig.apiKey || '',
+                    redirectUri: loadedConfig.redirectUri || 'http://localhost:4000/api/marketing/linkedin/callback' 
+                }));
+                setLastKnownStatus(type === 'linkedin' && connectionData?.health === 'EXPIRED' ? 'Expired' : 'Connected');
             }
         } catch (err) {
             console.error(`Failed to load ${type} config`, err);
@@ -72,12 +82,37 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
         setIsSaving(true);
         setTestResult(null);
         try {
-            if (['openai', 'gemini', 'claude', 'knowlarity', 'gupshup', 'linkedin'].includes(type)) {
-                const configKey = type === 'linkedin' ? 'linkedin_integration' : `ai_${type}_config`;
-                await systemSettingsAPI.upsert(configKey, { value: config });
-                setLastKnownStatus('Connected');
-                setTestResult({ success: true, message: `${type.toUpperCase()} configuration saved successfully!` });
-                if (type === 'linkedin' && onConnect) onConnect();
+            const configKey = type === 'linkedin' ? 'linkedin_integration' : `ai_${type}_config`;
+            if (['openai', 'gemini', 'claude', 'knowlarity', 'gupshup', 'linkedin', 'facebook', 'instagram', 'whatsapp'].includes(type)) {
+                if (type === 'linkedin') {
+                    // ── Senior Professional Fix ──────────────────────────────────────────
+                    // Strip out empty SMS fields to prevent leaking garbage into LinkedIn config
+                    const { sid, token, from, apiKey, senderId, baseUrl, url, method, headers, bodyTemplate, entityId, route, ...linkedInOnlyConfig } = config;
+                    
+                    await marketingAPI.saveLinkedInConfig(linkedInOnlyConfig);
+                    toast.success('LinkedIn credentials saved. Now click Step 2 to authorize.');
+                } else if (['facebook', 'instagram', 'whatsapp'].includes(type)) {
+                    if (type === 'whatsapp') {
+                        // Normalize token/apiKey for Meta
+                        const whatsappPayload = {
+                            token: config.token || config.apiKey,
+                            phoneId: config.phoneId,
+                            businessId: config.businessId || config.wabaId
+                        };
+                        await socialAPI.saveWhatsAppConfig(whatsappPayload);
+                    } else {
+                        await socialAPI.saveConfig(type, config);
+                    }
+                    setLastKnownStatus('Connected');
+                    toast.success(`${type.charAt(0).toUpperCase() + type.slice(1)} configuration updated successfully!`);
+                } else {
+                    const payload = { value: config };
+                    await systemSettingsAPI.upsert(configKey, payload);
+                    setLastKnownStatus('Connected');
+                    toast.success(`${type.toUpperCase()} configuration saved successfully!`);
+                }
+                
+                if (onConnect) onConnect();
             } else {
                 await smsService.updateConfig(smsProvider, config);
                 await smsService.activateProvider(smsProvider);
@@ -187,14 +222,15 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
         switch (type) {
             case 'whatsapp':
                 return {
-                    title: 'WhatsApp Business API',
+                    title: 'WhatsApp Business API (Cloud)',
                     icon: 'fab fa-whatsapp',
                     color: '#25D366',
                     steps: [
                         'Go to Meta Business Suite > WhatsApp Manager.',
-                        'Create a Business App and get your Permanent Access Token.',
-                        'Copy your WhatsApp Business Account ID.',
-                        'Verify your sender phone number.'
+                        'Create a Business App and generate a **Permanent System User Token**.',
+                        'Copy your **Phone Number ID** (from API Setup).',
+                        'Copy your **WhatsApp Business Account ID** (WABA ID).',
+                        'Configure the Webhook URL below for real-time status updates.'
                     ],
                     showWebhook: true
                 };
@@ -211,8 +247,33 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                     ],
                     showWebhook: true
                 };
-            // ... rest of cases kept compressed for brevity but unchanged logic ...
             case 'rcs': return { title: 'Google RCS Business', icon: 'fas fa-comment-dots', color: '#4285F4', steps: ['Register with a Google RBM partner.', 'Create your Business Profile.', 'Get your RBM Agent API credentials.', 'Enable high-fidelity media messaging.'], showWebhook: true };
+            case 'facebook':
+                return {
+                    title: 'Facebook Page Setup',
+                    icon: 'fab fa-facebook',
+                    color: '#1877F2',
+                    steps: [
+                        'Go to Meta for Developers Console.',
+                        'Create or select your Facebook App.',
+                        'Add the Messenger product to your app.',
+                        'Link your Facebook Page and generate an Access Token.'
+                    ],
+                    showWebhook: true
+                };
+            case 'instagram':
+                return {
+                    title: 'Instagram Business Setup',
+                    icon: 'fab fa-instagram',
+                    color: '#E4405F',
+                    steps: [
+                        'Convert your Instagram to a Business Account.',
+                        'Link it to your verified Facebook Page.',
+                        'Get your Instagram User ID from Meta Suite.',
+                        'Ensure you have permissions: instagram_basic, instagram_manage_comments.'
+                    ],
+                    showWebhook: true
+                };
             case 'messenger': return { title: 'Facebook Messenger', icon: 'fab fa-facebook-messenger', color: '#006AFF', steps: ['Go to Meta for Developers Console.', 'Create or select your Facebook App.', 'Add the Messenger product to your app.', 'Link your Facebook Page and generate an Access Token.'], showWebhook: true };
             case 'google_calendar': return { title: 'Google Calendar API', icon: 'fab fa-google', color: '#4285F4', steps: ['Go to Google Cloud Console and create a project.', 'Enable the "Google Calendar API" for your project.', 'Configure OAuth Credentials.', 'Copy Client ID and Secret.'] };
             case 'apple_calendar': return { title: 'iCloud Calendar (CalDAV)', icon: 'fab fa-apple', color: '#000000', steps: ['Log in to appleid.apple.com', 'Create App-Specific Password.', 'Copy the 16-character code.'], showWebhook: false };
@@ -255,6 +316,46 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                     ],
                     showWebhook: false
                 };
+            case 'linkedin':
+                return {
+                    title: 'LinkedIn Business Integration',
+                    icon: 'fab fa-linkedin',
+                    color: '#0077b5',
+                    steps: [
+                        'Go to LinkedIn Developer Portal and create a new App.',
+                        'Enable "Lead Gen Forms" and "Sign In with LinkedIn" products.',
+                        'Configure Redirect URI: http://localhost:4000/api/marketing/linkedin/callback',
+                        'Step 1: Save Client ID/Secret below.',
+                        'Step 2: Click "Connect LinkedIn via OAuth" button.'
+                    ],
+                    showWebhook: false
+                };
+            case 'knowlarity':
+                return {
+                    title: 'Knowlarity Voice (SR)',
+                    icon: 'fas fa-phone-volume',
+                    color: '#f37021',
+                    steps: [
+                        'Log in to your Knowlarity SuperReceptionist portal.',
+                        'Go to Settings > Plan Settings to find your API Key.',
+                        'Ensure your Virtual Number (SR Number) is active.',
+                        'Map your CRM agents to Knowlarity extensions.'
+                    ],
+                    showWebhook: false
+                };
+            case 'gupshup':
+                return {
+                    title: 'Gupshup Messaging',
+                    icon: 'fas fa-comment-dots',
+                    color: '#00aed9',
+                    steps: [
+                        'Register a Business Account on Gupshup.',
+                        'Create a new project/app in the dashboard.',
+                        'Get your API Key from the App Settings.',
+                        'Configure the source number and app name below.'
+                    ],
+                    showWebhook: true
+                };
             case 'webhook': return { title: 'Inbound Webhook', icon: 'fas fa-code', color: '#1e293b', steps: ['Define external API endpoint.', 'Generate API Secret Key.', 'Map incoming data fields.'], showWebhook: true };
             default: return {};
         }
@@ -275,7 +376,7 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                     <p style={{ fontSize: '0.9rem', color: '#64748b', marginTop: '8px', lineHeight: '1.5' }}>Follow steps to connect your account.</p>
 
                     <div style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        {guide.steps.map((step, idx) => (
+                        {(guide.steps || []).map((step, idx) => (
                             <div key={idx} style={{ display: 'flex', gap: '12px' }}>
                                 <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', color: guide.color, border: `2px solid ${guide.color}40`, fontSize: '0.75rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '2px' }}>{idx + 1}</div>
                                 <div style={{ fontSize: '0.85rem', color: '#475569', lineHeight: '1.4' }}>{step}</div>
@@ -298,7 +399,7 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                     <div style={{ marginTop: 'auto', paddingTop: '30px' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '16px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: lastKnownStatus === 'Connected' ? '#10b981' : (lastKnownStatus === 'Error' ? '#ef4444' : '#94a3b8') }}></div>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: lastKnownStatus === 'Connected' ? '#10b981' : (lastKnownStatus === 'Expired' || lastKnownStatus === 'Error' ? '#ef4444' : '#94a3b8') }}></div>
                                 <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>
                                     Gateway Status: {lastKnownStatus}
                                 </span>
@@ -516,6 +617,32 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                             </>
                         )}
 
+                        {type === 'facebook' && (
+                            <>
+                                <div className="card-input-group">
+                                    <label>Page Access Token (Long-lived)</label>
+                                    <input type="password" placeholder="EAA..." value={config.pageAccessToken || ''} onChange={e => setConfig({ ...config, pageAccessToken: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Facebook Page ID</label>
+                                    <input type="text" placeholder="102345..." value={config.pageId || ''} onChange={e => setConfig({ ...config, pageId: e.target.value })} />
+                                </div>
+                            </>
+                        )}
+
+                        {type === 'instagram' && (
+                            <>
+                                <div className="card-input-group">
+                                    <label>Instagram Business User ID</label>
+                                    <input type="text" placeholder="1784..." value={config.igUserId || ''} onChange={e => setConfig({ ...config, igUserId: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Linked Page Access Token</label>
+                                    <input type="password" placeholder="EAA..." value={config.pageAccessToken || ''} onChange={e => setConfig({ ...config, pageAccessToken: e.target.value })} />
+                                </div>
+                            </>
+                        )}
+
                         {type === 'claude' && (
                             <>
                                 <div className="card-input-group">
@@ -545,8 +672,22 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                         {/* Legacy forms kept simple */}
                         {type === 'whatsapp' && (
                             <>
-                                <div className="card-input-group"><label>Access Token</label><input type="password" value={config.apiKey} onChange={e => setConfig({ ...config, apiKey: e.target.value })} /></div>
-                                <div className="card-input-group"><label>Business Account ID</label><input type="text" value={config.businessId} onChange={e => setConfig({ ...config, businessId: e.target.value })} /></div>
+                                <div className="card-input-group">
+                                    <label>Permanent Access Token</label>
+                                    <input type="password" placeholder="EAA..." value={config.token || ''} onChange={e => setConfig({ ...config, token: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Phone Number ID (REQUIRED)</label>
+                                    <input type="text" placeholder="123456789..." value={config.phoneId || ''} onChange={e => setConfig({ ...config, phoneId: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>WhatsApp Business Account ID</label>
+                                    <input type="text" placeholder="WABA ID..." value={config.businessId || ''} onChange={e => setConfig({ ...config, businessId: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Webhook Verify Token (Optional)</label>
+                                    <input type="text" placeholder="my_secret_token" value={config.verifyToken} onChange={e => setConfig({ ...config, verifyToken: e.target.value })} />
+                                </div>
                             </>
                         )}
                         {type === 'linkedin' && (
@@ -560,19 +701,26 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                                     <input type="password" placeholder="LinkedIn App Client Secret" value={config.clientSecret || ''} onChange={e => setConfig({ ...config, clientSecret: e.target.value })} />
                                 </div>
                                 <div className="card-input-group">
-                                    <label>Redirect URI</label>
-                                    <input type="text" placeholder="https://your-crm.com/api/marketings/linkedin/callback" value={config.redirectUri || ''} onChange={e => setConfig({ ...config, redirectUri: e.target.value })} />
+                                    <label>Redirect URI (Standardized)</label>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <input type="text" readOnly value={config.redirectUri || 'http://localhost:4000/api/marketing/linkedin/callback'} style={{ background: '#f8fafc', color: '#64748b', cursor: 'not-allowed' }} />
+                                        <button onClick={() => { navigator.clipboard.writeText(config.redirectUri); toast.success('Copied!'); }} style={{ padding: '0 12px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer' }}><i className="far fa-copy"></i></button>
+                                    </div>
                                 </div>
                                 <div className="card-input-group">
                                     <label>Organization ID</label>
                                     <input type="text" placeholder="e.g. 42752175" value={config.orgId || '42752175'} onChange={e => setConfig({ ...config, orgId: e.target.value })} />
                                 </div>
-                                <div style={{ fontSize: '0.75rem', color: '#64748b', background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', marginTop: '10px' }}>
-                                    <i className="fas fa-info-circle" style={{ color: '#0077b5' }}></i> Step 1: Save Client ID/Secret. Step 2: Click Connect to authorize.
+                                <div style={{ fontSize: '0.75rem', color: '#64748b', background: '#eff6ff', padding: '12px', borderRadius: '10px', border: '1px solid #bfdbfe', marginTop: '10px', display: 'flex', gap: '8px' }}>
+                                    <i className="fas fa-info-circle" style={{ color: '#3b82f6', marginTop: '2px' }}></i>
+                                    <div>
+                                        <strong style={{ color: '#1e40af' }}>Two-Step Setup:</strong><br/>
+                                        1. Click <b>Save Configuration</b> first.<br/>
+                                        2. Then click <b>Connect via OAuth</b> to authorize access.
+                                    </div>
                                 </div>
                             </>
                         )}
-                        {/* ... telegram, calendar etc omitted from snippet for brevity but follow same pattern ... */}
                     </div>
 
                     <style>{`
@@ -587,6 +735,59 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                         input:checked + .slider { background-color: var(--primary-color); }
                         input:checked + .slider:before { transform: translateX(22px); }
                     `}</style>
+
+
+                        {type === 'linkedin' && connectionData?.status === 'connected' && (
+                            <div style={{ marginTop: '16px', padding: '12px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Connection Health</span>
+                                    <span style={{ fontSize: '0.7rem', color: connectionData?.health === 'EXPIRED' ? '#f59e0b' : '#10b981', fontWeight: 800 }}>
+                                        {connectionData?.health === 'EXPIRED' ? 'EXPIRED (NEEDS RE-AUTH)' : 'EXCELLENT'}
+                                    </span>
+                                </div>
+                                <div style={{ fontSize: '0.75rem', color: '#1e293b', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>Token Refresh:</span>
+                                        <strong>Every 60 Days (Auto)</strong>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>Permanent Auth:</span>
+                                        <strong>Active (Permanent)</strong>
+                                    </div>
+                                    {connectionData.expiresAt && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', borderTop: '1px dashed #e2e8f0', paddingTop: '4px' }}>
+                                            <span>Session Expiry:</span>
+                                            <span>{new Date(connectionData.expiresAt).toLocaleDateString()}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {type === 'linkedin' && connectionData?.status === 'connected' && (
+                            <div style={{ marginTop: '20px', padding: '16px', borderRadius: '12px', background: '#eff6ff', border: '1px solid #bfdbfe', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <h4 style={{ margin: 0, fontSize: '0.85rem', color: '#1e40af' }}>Lead Generation</h4>
+                                    <p style={{ margin: '4px 0 0', fontSize: '0.7rem', color: '#3b82f6' }}>Automated Lead Sync is <strong>Active</strong></p>
+                                </div>
+                                <button
+                                    onClick={async () => {
+                                        try {
+                                            toast.info('Syncing leads from LinkedIn...');
+                                            const res = await marketingAPI.triggerLinkedInSync();
+                                            if (res.success) {
+                                                toast.success(`Sync Complete: ${res.syncedCount} leads imported.`);
+                                            }
+                                        } catch (err) {
+                                            toast.error('Sync Failed: ' + err.message);
+                                        }
+                                    }}
+                                    style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: '#3b82f6', color: '#fff', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', boxShadow: '0 4px 10px rgba(59, 130, 246, 0.2)' }}
+                                >
+                                    <i className="fas fa-sync-alt"></i> Sync Now
+                                </button>
+                            </div>
+                        )}
 
                         {type === 'linkedin' && (
                             <div style={{ marginTop: '20px', borderTop: '1px solid #e2e8f0', paddingTop: '20px' }}>
@@ -605,10 +806,12 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                                     }}
                                     style={{ width: '100%', padding: '14px', borderRadius: '12px', border: 'none', background: '#0077b5', color: '#fff', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '15px' }}
                                 >
-                                    <i className="fab fa-linkedin"></i> Connect LinkedIn via OAuth
+                                    <i className="fab fa-linkedin"></i> {connectionData?.status === 'connected' ? 'Re-Authorize LinkedIn' : (connectionData?.health === 'EXPIRED' ? 'Reconnect LinkedIn' : 'Connect LinkedIn via OAuth')}
                                 </button>
                                 <p style={{ fontSize: '0.75rem', color: '#64748b', textAlign: 'center' }}>
-                                    Authorize the CRM to post on your company page.
+                                    {connectionData?.status === 'connected' 
+                                        ? 'Step 2: Re-Authorize to refresh your active permanent session.' 
+                                        : 'Step 2: Connect to LinkedIn via OAuth after saving credentials.'}
                                 </p>
                             </div>
                         )}
@@ -629,8 +832,8 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
                                 disabled={isSaving}
                                 style={{ flex: 2, padding: '14px', borderRadius: '12px', border: 'none', background: 'var(--primary-color)', color: '#fff', fontWeight: 800, cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', transition: '0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                             >
-                                {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check-circle"></i>}
-                                {type === 'linkedin' ? 'Save Configuration' : 'Save & Validate Gateway'}
+                                {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save"></i>}
+                                {type === 'linkedin' ? 'Step 1: Save Configuration' : 'Save & Validate Gateway'}
                             </button>
                         </div>
                 </div>
@@ -642,19 +845,22 @@ const ConnectionModal = ({ type, onClose, onConnect }) => {
 const IntegrationsSettingsPage = () => {
     const [activeModal, setActiveModal] = useState(null);
     const [connections, setConnections] = useState({
-        openai: { status: 'disconnected', label: 'ChatGPT (OpenAI)', icon: 'fas fa-robot', color: '#74aa9c' },
-        gemini: { status: 'disconnected', label: 'Google Gemini', icon: 'fab fa-google', color: '#4285f4' },
-        claude: { status: 'disconnected', label: 'Claude (Anthropic)', icon: 'fas fa-brain', color: '#d97757' },
-        twilio: { status: 'disconnected', label: 'Twilio (Voice & SMS)', icon: 'fas fa-sms', color: '#F22F46' },
-        knowlarity: { status: 'disconnected', label: 'Knowlarity (Voice)', icon: 'fas fa-phone-volume', color: '#f37021' },
-        gupshup: { status: 'disconnected', label: 'Gupshup (Omnichannel)', icon: 'fas fa-comment-dots', color: '#00aed9' },
-        whatsapp: { status: 'connected', label: 'WhatsApp Meta', icon: 'fab fa-whatsapp', color: '#25D366' },
-        telegram: { status: 'disconnected', label: 'Telegram Bot', icon: 'fab fa-telegram', color: '#0088cc' },
-        rcs: { status: 'disconnected', label: 'Google RCS', icon: 'fas fa-comment-dots', color: '#4285F4' },
-        messenger: { status: 'disconnected', label: 'FB Messenger', icon: 'fab fa-facebook-messenger', color: '#006AFF' },
-        linkedin: { status: 'disconnected', label: 'LinkedIn Business', icon: 'fab fa-linkedin', color: '#0077b5' },
-        google_calendar: { status: 'disconnected', label: 'Google Calendar (Legacy)', icon: 'fab fa-google', color: '#4285F4' },
-        apple_calendar: { status: 'disconnected', label: 'iCloud Calendar', icon: 'fab fa-apple', color: '#94a3b8' }
+        openai: { category: 'AI Intelligence', status: 'disconnected', label: 'ChatGPT (OpenAI)', icon: 'fas fa-robot', color: '#74aa9c' },
+        gemini: { category: 'AI Intelligence', status: 'disconnected', label: 'Google Gemini', icon: 'fab fa-google', color: '#4285f4' },
+        claude: { category: 'AI Intelligence', status: 'disconnected', label: 'Claude (Anthropic)', icon: 'fas fa-brain', color: '#d97757' },
+        twilio: { category: 'Communication Channels', status: 'disconnected', label: 'Twilio (Voice & SMS)', icon: 'fas fa-sms', color: '#F22F46' },
+        knowlarity: { category: 'Voice & Telephony', status: 'disconnected', label: 'Knowlarity (Voice)', icon: 'fas fa-phone-volume', color: '#f37021' },
+        gupshup: { category: 'Communication Channels', status: 'disconnected', label: 'Gupshup (Omnichannel)', icon: 'fas fa-comment-dots', color: '#00aed9' },
+        whatsapp: { category: 'Communication Channels', status: 'connected', label: 'WhatsApp Meta', icon: 'fab fa-whatsapp', color: '#25D366' },
+        telegram: { category: 'Communication Channels', status: 'disconnected', label: 'Telegram Bot', icon: 'fab fa-telegram', color: '#0088cc' },
+        rcs: { category: 'Communication Channels', status: 'disconnected', label: 'Google RCS', icon: 'fas fa-comment-dots', color: '#4285F4' },
+        facebook: { category: 'Social Marketing', status: 'disconnected', label: 'Facebook Page', icon: 'fab fa-facebook', color: '#1877F2' },
+        instagram: { category: 'Social Marketing', status: 'disconnected', label: 'Instagram Business', icon: 'fab fa-instagram', color: '#E4405F' },
+        messenger: { category: 'Social Marketing', status: 'disconnected', label: 'FB Messenger', icon: 'fab fa-facebook-messenger', color: '#006AFF' },
+        linkedin: { category: 'Social Marketing', status: 'disconnected', label: 'LinkedIn Business', icon: 'fab fa-linkedin', color: '#0077b5' },
+        google_calendar: { category: 'Connectivity & Productivity', status: 'disconnected', label: 'Google Calendar (Legacy)', icon: 'fab fa-google', color: '#4285F4' },
+        apple_calendar: { category: 'Connectivity & Productivity', status: 'disconnected', label: 'iCloud Calendar', icon: 'fab fa-apple', color: '#94a3b8' },
+        webhook: { category: 'Automation', status: 'disconnected', label: 'Custom Inbound Webhook', icon: 'fas fa-code', color: '#1e293b' }
     });
 
     const [isConnecting, setIsConnecting] = useState(false);
@@ -734,6 +940,50 @@ const IntegrationsSettingsPage = () => {
                     newConnections[p] = { ...newConnections[p], status: 'connected' };
                 }
             }
+
+            // LinkedIn Specific Status (Robust Health States)
+            const lnRes = await marketingAPI.getLinkedInStatus();
+            if (lnRes.success) {
+                newConnections.linkedin = { 
+                    ...newConnections.linkedin, 
+                    status: lnRes.connected ? 'connected' : 'disconnected',
+                    health: lnRes.health,
+                    hasConfig: lnRes.hasConfig,
+                    expiresAt: lnRes.expiresAt,
+                    statusError: lnRes.statusError,
+                    refreshTokenExpiresAt: lnRes.refreshTokenExpiresAt
+                };
+            }
+
+            // Unified Social Status (WhatsApp, Messenger, Instagram)
+            try {
+                const socialRes = await socialAPI.getUnifiedStatus();
+                if (socialRes.success) {
+                    newConnections.whatsapp = { 
+                        ...newConnections.whatsapp, 
+                        status: socialRes.whatsapp.connected ? 'connected' : 'disconnected',
+                        health: socialRes.whatsapp.health 
+                    };
+                    newConnections.messenger = { 
+                        ...newConnections.messenger, 
+                        status: socialRes.messenger.connected ? 'connected' : 'disconnected',
+                        health: socialRes.messenger.health 
+                    };
+                    newConnections.facebook = { 
+                        ...newConnections.facebook, 
+                        status: socialRes.facebook.connected ? 'connected' : 'disconnected',
+                        health: 'HEALTHY'
+                    };
+                    newConnections.instagram = { 
+                        ...newConnections.instagram, 
+                        status: socialRes.instagram.connected ? 'connected' : 'disconnected',
+                        health: 'HEALTHY'
+                    };
+                }
+            } catch (socErr) {
+                console.warn('Social status fetch failed', socErr);
+            }
+
             setConnections(newConnections);
         } catch (err) {
             console.error('Failed to load integration status', err);
@@ -741,10 +991,23 @@ const IntegrationsSettingsPage = () => {
     };
     // Load sync status and SMS status on mount
     useEffect(() => {
-        
         loadSmsStatus();
         loadIntegrationStatus();
         fetchGoogleStatus();
+
+        // ── Professional OAuth Feedback ─────────────────────────────────────
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('connection') === 'success') {
+            toast.success('Integrations Hub: Connection Verified Successfully!');
+            // Clean URL
+            window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+            // Refresh counts/status
+            loadIntegrationStatus();
+        } else if (urlParams.get('error')) {
+            toast.error(`Integration Alert: ${urlParams.get('error')}`);
+            window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+        }
+
         const status = contactSyncManager.getSyncStatus();
         setSyncConfig({
             autoSync: status?.autoSync ?? true,
@@ -843,270 +1106,167 @@ const IntegrationsSettingsPage = () => {
 
             <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
                 <div style={{ maxWidth: '1000px' }}>
+                    {['AI Intelligence', 'Communication Channels', 'Voice & Telephony', 'Social Marketing', 'Connectivity & Productivity', 'Automation'].map(cat => {
+                        const catIcons = {
+                            'AI Intelligence': 'fas fa-brain',
+                            'Communication Channels': 'fas fa-comments',
+                            'Voice & Telephony': 'fas fa-phone-alt',
+                            'Social Marketing': 'fas fa-share-alt',
+                            'Connectivity & Productivity': 'fas fa-sync-alt',
+                            'Automation': 'fas fa-code'
+                        };
 
+                        const catItems = Object.entries(connections).filter(([_, item]) => item.category === cat);
+                        if (catItems.length === 0 && cat !== 'Connectivity & Productivity') return null;
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px' }}>
-                        {Object.entries(connections).map(([key, item]) => (
-                            <div key={key} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '24px', transition: 'all 0.3s ease', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', position: 'relative' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
-                                    <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: `${item.color}10`, color: item.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
-                                        <i className={item.icon}></i>
+                        return (
+                            <div key={cat} style={{ marginBottom: '48px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px', paddingBottom: '12px', borderBottom: '2px solid #f1f5f9' }}>
+                                    <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'var(--primary-color)10', color: 'var(--primary-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>
+                                        <i className={catIcons[cat]}></i>
                                     </div>
-                                    <div style={{ background: item.status === 'connected' ? '#ecfdf5' : '#f8fafc', color: item.status === 'connected' ? '#059669' : '#64748b', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700, border: `1px solid ${item.status === 'connected' ? '#d1fae5' : '#e2e8f0'}` }}>
-                                        {item.status === 'connected' ? 'ACTIVE' : 'DISCONNECTED'}
-                                    </div>
+                                    <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{cat}</h3>
                                 </div>
-                                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>{item.label}</h3>
-                                <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '8px', lineHeight: '1.6' }}>
-                                    {key === 'openai' && 'Leverage GPT-4o for high-fidelity content generation and reasoning.'}
-                                    {key === 'gemini' && 'Deep context window analysis and multimodal capabilities by Google.'}
-                                    {key === 'claude' && 'Safe, steerable, and highly intelligent models for complex workflows.'}
-                                    {key === 'twilio' && 'Send and receive high-volume SMS and trigger automated voice calls via Twilio.'}
-                                    {key === 'knowlarity' && 'Indian cloud telephony leader for automated outbound calls and IVR flows.'}
-                                    {key === 'gupshup' && 'Premier omnichannel marketing for WhatsApp Business, SMS, and RCS in India.'}
-                                    {key === 'whatsapp' && 'Connect Meta Business API for verified messaging.'}
-                                    {key === 'telegram' && 'Manage customer engagement via Telegram bots.'}
-                                    {key === 'rcs' && 'The next generation of business messaging with rich media.'}
-                                    {key === 'messenger' && 'Directly sync Facebook Page messages with Bharat CRM.'}
-                                    {key === 'google_calendar' && 'Sync your activities and meetings with Google Calendar.'}
-                                    {key === 'apple_calendar' && 'Connect your iCloud Calendar for seamless scheduling on iOS.'}
-                                </p>
 
-                                <div style={{ marginTop: '24px', borderTop: '1px solid #f1f5f9', paddingTop: '20px', display: 'flex', gap: '12px' }}>
-                                    <button onClick={() => setActiveModal(key)} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', color: '#1e293b', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>
-                                        {item.status === 'connected' ? 'Update Settings' : 'Configure'}
-                                    </button>
-                                    {item.status === 'connected' && (
-                                        <button style={{ padding: '10px 14px', borderRadius: '8px', border: 'none', background: 'var(--primary-color)', color: '#fff', fontSize: '0.85rem', cursor: 'pointer' }}>
-                                            <i className="fas fa-paper-plane" title="Send Test"></i>
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
-
-                        {/* Contact Sync Section */}
-                        <div style={{ gridColumn: '1 / -1', marginTop: '40px' }}>
-                            <div style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', borderRadius: '16px', padding: '32px', color: '#fff', marginBottom: '24px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <div>
-                                        <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                            <i className="fas fa-sync-alt"></i>
-                                            Contact Sync
-                                        </h2>
-                                        <p style={{ fontSize: '0.9rem', color: '#d1fae5', marginTop: '8px', marginBottom: 0 }}>
-                                            Automatically sync your CRM contacts with Google and Apple Contacts
-                                        </p>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                        <span style={{ fontSize: '0.85rem', color: '#ecfdf5' }}>Auto-Sync:</span>
-                                        <label style={{ position: 'relative', display: 'inline-block', width: '52px', height: '28px', cursor: 'pointer' }}>
-                                            <input
-                                                type="checkbox"
-                                                checked={syncConfig.autoSync}
-                                                onChange={handleAutoSyncToggle}
-                                                style={{ opacity: 0, width: 0, height: 0 }}
-                                            />
-                                            <span style={{
-                                                position: 'absolute',
-                                                cursor: 'pointer',
-                                                top: 0,
-                                                left: 0,
-                                                right: 0,
-                                                bottom: 0,
-                                                background: syncConfig.autoSync ? '#fff' : 'rgba(255,255,255,0.3)',
-                                                transition: '0.3s',
-                                                borderRadius: '28px'
-                                            }}>
-                                                <span style={{
-                                                    position: 'absolute',
-                                                    content: '""',
-                                                    height: '20px',
-                                                    width: '20px',
-                                                    left: syncConfig.autoSync ? '28px' : '4px',
-                                                    bottom: '4px',
-                                                    background: syncConfig.autoSync ? '#10b981' : '#94a3b8',
-                                                    transition: '0.3s',
-                                                    borderRadius: '50%'
-                                                }}></span>
-                                            </span>
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '24px' }}>
-                                {/* Unified Google Suite Integration */}
-                                <div style={{ background: '#fff', border: '2px solid #e2e8f0', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
-                                        <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#4285F410', color: '#4285F4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
-                                            <i className="fab fa-google"></i>
-                                        </div>
-                                        <div style={{
-                                            background: googleStatus.connected ? '#ecfdf5' : '#f8fafc',
-                                            color: googleStatus.connected ? '#059669' : '#64748b',
-                                            padding: '4px 12px',
-                                            borderRadius: '20px',
-                                            fontSize: '0.75rem',
-                                            fontWeight: 700,
-                                            border: `1px solid ${googleStatus.connected ? '#d1fae5' : '#e2e8f0'}`
-                                        }}>
-                                            {googleStatus.connected ? '✓ CONNECTED' : 'NOT CONNECTED'}
-                                        </div>
-                                    </div>
-
-                                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Google Business Suite</h3>
-                                    <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '8px', lineHeight: '1.6' }}>
-                                        Professional connection for Google Business Profile, YouTube, Contacts, and Gmail.
-                                    </p>
-
-                                    {googleStatus.connected ? (
-                                        <div style={{ marginTop: '20px' }}>
-                                            <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '10px', marginBottom: '16px', border: '1px solid #e2e8f0' }}>
-                                                <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800, marginBottom: '4px' }}>Connected Account</div>
-                                                <div style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 700 }}>{googleStatus.email}</div>
-                                            </div>
-                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                                                <div style={{ background: googleStatus.services?.gmail ? '#f0fdf4' : '#f8fafc', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.7rem', color: googleStatus.services?.gmail ? '#166534' : '#64748b' }}>
-                                                    <i className={googleStatus.services?.gmail ? "fas fa-check-circle" : "fas fa-times-circle"}></i> Gmail & CRM
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px' }}>
+                                    {catItems.map(([key, item]) => (
+                                        <div key={key} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '24px', transition: 'all 0.3s ease', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', position: 'relative' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+                                                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: `${item.color}10`, color: item.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
+                                                    <i className={item.icon}></i>
                                                 </div>
-                                                <div style={{ background: googleStatus.services?.youtube ? '#fefce8' : '#f8fafc', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.7rem', color: googleStatus.services?.youtube ? '#854d0e' : '#64748b' }}>
-                                                    <i className={googleStatus.services?.youtube ? "fab fa-youtube" : "fas fa-times-circle"}></i> YouTube {googleStatus.services?.youtube ? 'OK' : ''}
-                                                </div>
-                                                <div style={{ background: googleStatus.services?.business ? '#ecfdf5' : '#f8fafc', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.7rem', color: googleStatus.services?.business ? '#065f46' : '#64748b' }}>
-                                                    <i className={googleStatus.services?.business ? "fas fa-store" : "fas fa-times-circle"}></i> G-Business {googleStatus.services?.business ? 'OK' : ''}
-                                                </div>
-                                                <div style={{ background: '#f8fafc', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.7rem', color: '#64748b' }}>
-                                                    <i className="fas fa-sync-alt"></i> Contacts Sync
+                                                <div style={{ 
+                                                    background: item.status === 'connected' ? '#ecfdf5' : (item.health === 'EXPIRED' ? '#fffbeb' : '#f8fafc'), 
+                                                    color: item.status === 'connected' ? '#059669' : (item.health === 'EXPIRED' ? '#b45309' : '#64748b'), 
+                                                    padding: '4px 12px', 
+                                                    borderRadius: '20px', 
+                                                    fontSize: '0.75rem', 
+                                                    fontWeight: 700, 
+                                                    border: `1px solid ${item.status === 'connected' ? '#d1fae5' : (item.health === 'EXPIRED' ? '#fde68a' : '#e2e8f0')}` 
+                                                }}>
+                                                    {item.status === 'connected' ? 'ACTIVE' : (item.health === 'EXPIRED' ? 'RE-AUTHORIZE' : 'DISCONNECTED')}
                                                 </div>
                                             </div>
-                                            <button 
-                                                onClick={handleDisconnectGoogle}
-                                                style={{ marginTop: '20px', width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #fee2e2', background: '#fff', color: '#dc2626', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}
-                                            >
-                                                Disconnect Account
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <button
-                                            onClick={handleConnectGoogle}
-                                            disabled={isConnecting}
-                                            style={{ marginTop: '20px', width: '100%', padding: '12px', borderRadius: '8px', border: 'none', background: '#4285F4', color: '#fff', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', boxShadow: '0 4px 6px rgba(66, 133, 244, 0.2)' }}
-                                        >
-                                            {isConnecting ? <i className="fas fa-spinner fa-spin"></i> : <i className="fab fa-google"></i>}
-                                            Connect Google Suite
-                                        </button>
-                                    )}
-                                </div>
+                                            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>{item.label}</h3>
+                                            <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '8px', lineHeight: '1.6' }}>
+                                                {key === 'openai' && 'Leverage GPT-4o for high-fidelity content generation and reasoning.'}
+                                                {key === 'gemini' && 'Deep context window analysis and multimodal capabilities by Google.'}
+                                                {key === 'claude' && 'Safe, steerable, and highly intelligent models for complex workflows.'}
+                                                {key === 'twilio' && 'Send and receive high-volume SMS and trigger automated voice calls via Twilio.'}
+                                                {key === 'knowlarity' && 'Indian cloud telephony leader for automated outbound calls and IVR flows.'}
+                                                {key === 'gupshup' && 'Premier omnichannel marketing for WhatsApp Business, SMS, and RCS in India.'}
+                                                {key === 'whatsapp' && 'Connect Meta Business API for verified messaging.'}
+                                                {key === 'telegram' && 'Manage customer engagement via Telegram bots.'}
+                                                {key === 'rcs' && 'The next generation of business messaging with rich media.'}
+                                                {key === 'messenger' && 'Directly sync Facebook Page messages with Bharat CRM.'}
+                                                {key === 'linkedin' && 'Direct lead synchronization and automated posting for LinkedIn company pages.'}
+                                                {key === 'google_calendar' && 'Sync your activities and meetings with Google Calendar.'}
+                                                {key === 'apple_calendar' && 'Connect your iCloud Calendar for seamless scheduling on iOS.'}
+                                            </p>
 
-                                {/* Apple Contacts */}
-                                <div style={{ background: '#fff', border: '2px solid #e2e8f0', borderRadius: '16px', padding: '24px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
-                                        <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#94a3b810', color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
-                                            <i className="fab fa-apple"></i>
-                                        </div>
-                                        <div style={{
-                                            background: syncConfig.apple.connected ? '#ecfdf5' : '#f8fafc',
-                                            color: syncConfig.apple.connected ? '#059669' : '#64748b',
-                                            padding: '4px 12px',
-                                            borderRadius: '20px',
-                                            fontSize: '0.75rem',
-                                            fontWeight: 700,
-                                            border: `1px solid ${syncConfig.apple.connected ? '#d1fae5' : '#e2e8f0'}`
-                                        }}>
-                                            {syncConfig.apple.connected ? '✓ CONNECTED' : 'NOT CONNECTED'}
-                                        </div>
-                                    </div>
-
-                                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Apple Contacts</h3>
-                                    <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '8px', lineHeight: '1.6' }}>
-                                        Sync contacts to iCloud using CardDAV protocol
-                                    </p>
-
-                                    {!syncConfig.apple.connected ? (
-                                        <>
-                                            {!showAppleConfig ? (
-                                                <button
-                                                    onClick={() => setShowAppleConfig(true)}
-                                                    style={{ marginTop: '20px', width: '100%', padding: '10px', borderRadius: '8px', border: 'none', background: '#64748b', color: '#fff', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}
-                                                >
-                                                    <i className="fas fa-link" style={{ marginRight: '8px' }}></i>
-                                                    Connect Apple
+                                            <div style={{ marginTop: '24px', borderTop: '1px solid #f1f5f9', paddingTop: '20px', display: 'flex', gap: '12px' }}>
+                                                <button onClick={() => setActiveModal(key)} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', color: '#1e293b', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>
+                                                    {item.status === 'connected' ? 'Update Settings' : 'Configure'}
                                                 </button>
-                                            ) : (
-                                                <div style={{ marginTop: '20px', padding: '16px', background: '#f8fafc', borderRadius: '8px' }}>
-                                                    <div style={{ marginBottom: '12px', padding: '8px', background: '#fef3c7', borderRadius: '6px', fontSize: '0.7rem', color: '#92400e', lineHeight: '1.4' }}>
-                                                        <strong>Note:</strong> Use an app-specific password, not your regular Apple ID password. Generate one at appleid.apple.com
+                                                {item.status === 'connected' && (
+                                                    <button style={{ padding: '10px 14px', borderRadius: '8px', border: 'none', background: 'var(--primary-color)', color: '#fff', fontSize: '0.85rem', cursor: 'pointer' }}>
+                                                        <i className="fas fa-paper-plane" title="Send Test"></i>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {cat === 'Connectivity & Productivity' && (
+                                        <>
+                                            {/* Unified Google Suite Integration */}
+                                            <div style={{ background: '#fff', border: '2px solid #e2e8f0', borderRadius: '16px', padding: '24px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', gridColumn: 'span 2' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+                                                    <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#4285F410', color: '#4285F4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
+                                                        <i className="fab fa-google"></i>
                                                     </div>
-                                                    <div style={{ marginBottom: '12px' }}>
-                                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>Apple ID Email</label>
-                                                        <input
-                                                            type="email"
-                                                            placeholder="your.email@icloud.com"
-                                                            value={appleCredentials.username}
-                                                            onChange={(e) => setAppleCredentials({ ...appleCredentials, username: e.target.value })}
-                                                            style={{ width: '100%', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem' }}
-                                                        />
-                                                    </div>
-                                                    <div style={{ marginBottom: '12px' }}>
-                                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '4px' }}>App-Specific Password</label>
-                                                        <input
-                                                            type="password"
-                                                            placeholder="xxxx-xxxx-xxxx-xxxx"
-                                                            value={appleCredentials.appPassword}
-                                                            onChange={(e) => setAppleCredentials({ ...appleCredentials, appPassword: e.target.value })}
-                                                            style={{ width: '100%', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem' }}
-                                                        />
-                                                    </div>
-                                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                                        <button
-                                                            onClick={handleAppleConnect}
-                                                            style={{ flex: 1, padding: '8px', borderRadius: '6px', border: 'none', background: '#64748b', color: '#fff', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}
-                                                        >
-                                                            Connect
-                                                        </button>
-                                                        <button
-                                                            onClick={() => setShowAppleConfig(false)}
-                                                            style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: '0.85rem', cursor: 'pointer' }}
-                                                        >
-                                                            Cancel
-                                                        </button>
+                                                    <div style={{ padding: '10px 20px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                        <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Auto-Sync</span>
+                                                        <label className="switch">
+                                                            <input type="checkbox" checked={syncConfig.autoSync} onChange={handleAutoSyncToggle} />
+                                                            <span className="slider round"></span>
+                                                        </label>
                                                     </div>
                                                 </div>
-                                            )}
+
+                                                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Google Business Suite (Unified)</h3>
+                                                <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '8px', lineHeight: '1.6' }}>
+                                                    Professional connection for Google Business Profile, YouTube, Contacts, and Gmail.
+                                                </p>
+
+                                                {googleStatus.connected ? (
+                                                    <div style={{ marginTop: '20px' }}>
+                                                        <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '10px', marginBottom: '16px', border: '1px solid #e2e8f0' }}>
+                                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800, marginBottom: '4px' }}>Connected Account</div>
+                                                            <div style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 700 }}>{googleStatus.email}</div>
+                                                        </div>
+                                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px', marginBottom: '20px' }}>
+                                                            <div style={{ background: googleStatus.services?.gmail ? '#f0fdf4' : '#f8fafc', padding: '10px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: googleStatus.services?.gmail ? '#166534' : '#64748b', border: '1px solid currentColor' }}>
+                                                                <i className={googleStatus.services?.gmail ? "fas fa-check-circle" : "fas fa-circle-notch"}></i> Gmail
+                                                            </div>
+                                                            <div style={{ background: googleStatus.services?.youtube ? '#fefce8' : '#f8fafc', padding: '10px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: googleStatus.services?.youtube ? '#854d0e' : '#64748b', border: '1px solid currentColor' }}>
+                                                                <i className={googleStatus.services?.youtube ? "fab fa-youtube" : "fas fa-circle-notch"}></i> YouTube
+                                                            </div>
+                                                            <div style={{ background: googleStatus.services?.business ? '#ecfdf5' : '#f8fafc', padding: '10px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: googleStatus.services?.business ? '#065f46' : '#64748b', border: '1px solid currentColor' }}>
+                                                                <i className={googleStatus.services?.business ? "fas fa-store" : "fas fa-circle-notch"}></i> Business
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ display: 'flex', gap: '12px' }}>
+                                                            <button onClick={handleConnectGoogle} style={{ flex: 1, padding: '12px', borderRadius: '10px', background: '#fff', border: '1px solid #e2e8f0', color: '#1e293b', fontWeight: 700, cursor: 'pointer' }}>Manage Services</button>
+                                                            <button onClick={handleDisconnectGoogle} style={{ padding: '12px', borderRadius: '10px', background: '#fef2f2', border: '1px solid #fee2e2', color: '#dc2626', fontWeight: 700, cursor: 'pointer' }}>Disconnect</button>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <button onClick={handleConnectGoogle} style={{ marginTop: '20px', width: '100%', padding: '14px', borderRadius: '12px', background: '#4285F4', color: '#fff', fontWeight: 800, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+                                                        <i className="fab fa-google"></i> Connect Google Account
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            {/* Apple Contacts Integration */}
+                                            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '24px', position: 'relative' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+                                                    <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#00000010', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
+                                                        <i className="fab fa-apple"></i>
+                                                    </div>
+                                                    <div style={{ background: syncConfig.apple.connected ? '#ecfdf5' : '#f8fafc', color: syncConfig.apple.connected ? '#059669' : '#64748b', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700, border: `1px solid ${syncConfig.apple.connected ? '#d1fae5' : '#e2e8f0'}` }}>
+                                                        {syncConfig.apple.connected ? '✓ SYNCING' : 'NOT CONNECTED'}
+                                                    </div>
+                                                </div>
+                                                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>iCloud Contact Sync</h3>
+                                                <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '8px', lineHeight: '1.6' }}>
+                                                    Direct synchronization for Apple Contacts and iOS reminders.
+                                                </p>
+                                                <div style={{ marginTop: '24px' }}>
+                                                    {syncConfig.apple.connected ? (
+                                                        <button onClick={() => handleDisconnect('apple')} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #fee2e2', background: '#fef2f2', color: '#dc2626', fontWeight: 700, cursor: 'pointer' }}>Disconnect iCloud</button>
+                                                    ) : (
+                                                        <button onClick={() => setShowAppleConfig(true)} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0', background: '#fff', color: '#1e293b', fontWeight: 700, cursor: 'pointer' }}>Setup iCloud Sync</button>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </>
-                                    ) : (
-                                        <div style={{ marginTop: '20px', display: 'flex', gap: '8px' }}>
-                                            <button style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', color: '#1e293b', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}>
-                                                <i className="fas fa-cog" style={{ marginRight: '8px' }}></i>
-                                                Settings
-                                            </button>
-                                            <button
-                                                onClick={() => handleDisconnect('apple')}
-                                                style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #fee2e2', background: '#fff', color: '#dc2626', fontSize: '0.85rem', cursor: 'pointer' }}
-                                            >
-                                                <i className="fas fa-unlink"></i>
-                                            </button>
-                                        </div>
                                     )}
                                 </div>
                             </div>
-                        </div>
-
-                        {/* Custom Webhook Card */}
-                        <div style={{ background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', borderRadius: '16px', padding: '24px', color: '#fff', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }}>
-                            <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(255,255,255,0.1)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem', marginBottom: '16px' }}>
-                                <i className="fas fa-code"></i>
-                            </div>
-                            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800 }}>Custom Webhook</h3>
-                            <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '8px', lineHeight: '1.5' }}>Integrate your proprietary messaging systems via REST API.</p>
-                            <button onClick={() => setActiveModal('webhook')} style={{ marginTop: '20px', padding: '10px 24px', borderRadius: '8px', border: 'none', background: '#fff', color: '#1e293b', fontSize: '0.85rem', fontWeight: 800, cursor: 'pointer' }}>Add Endpoint</button>
-                        </div>
-                    </div>
+                        );
+                    })}
                 </div>
             </div>
 
-            {activeModal && <ConnectionModal type={activeModal} onClose={() => setActiveModal(null)} onConnect={handleConnect} />}
+            {activeModal && (
+                <ConnectionModal 
+                    type={activeModal} 
+                    connectionData={connections[activeModal]}
+                    onClose={() => setActiveModal(null)} 
+                    onConnect={handleConnect} 
+                />
+            )}
         </div>
     );
 };

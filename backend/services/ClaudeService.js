@@ -1,5 +1,5 @@
 import axios from 'axios';
-import SystemSetting from '../models/SystemSetting.js';
+import SystemSetting from '../src/modules/systemSettings/system.model.js';
 
 /**
  * ClaudeService.js

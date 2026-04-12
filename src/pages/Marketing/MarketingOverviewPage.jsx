@@ -118,7 +118,7 @@ const ORCH_SUMMARY = "Omnichannel Orchestration Successful. System analyzed 1,24
 
 const DAILY_BRIEFING = {
   title: "Good Morning, Bharat Properties",
-  content: "Today's marketing loop is 100% synchronized. **3 Hot Leads** from Instagram Reels are waiting for follow-up. The **Social Agent** has scheduled 2 Pipli Project reels for the 7:15 PM peak window. All agent systems are currently **Green**."
+  content: "Synchronizing with CRM Neural Engine... Run 'Generate Briefing' to refresh."
 };
 
 const STRAT_PROMPTS = {
@@ -273,18 +273,14 @@ export default function MarketingOverviewPage() {
   // ── CORE STATE ──
   const [activePage, setActivePage] = useState('overview');
   const [leads, setLeads] = useState(() => DB.get('leads', DEFAULT_LEADS));
-  // Force reset posts if they were old (less than 10 posts)
-  const [posts, setPosts] = useState(() => {
-    const stored = DB.get('posts', DEFAULT_POSTS);
-    if (stored.length < 10) return DEFAULT_POSTS;
-    return stored;
-  });
+  // Replace localStorage posts with real API state
+  const [posts, setPosts] = useState([]);
   const [notifs, setNotifs] = useState(() => DB.get('notifs', DEFAULT_NOTIFS));
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState('light');
 
   // ══ LIVE API STATE (P1–P9) ══
   const [realStats, setRealStats] = useState({ totalCaptured: 0, hotLeads: 0, nurturedToday: 0, recentLeads: [], recentActivities: [] });
@@ -307,6 +303,7 @@ export default function MarketingOverviewPage() {
   const [agentReplies, setAgentReplies] = useState([]);
   const [editAgentPost, setEditAgentPost] = useState(null);
   const [editAgentPostText, setEditAgentPostText] = useState('');
+  const [dynamicBriefing, setDynamicBriefing] = useState(DAILY_BRIEFING.content);
   const termBodyRef = useRef(null);
 
   // ══ v2.5 UPGRADE STATES ══
@@ -333,6 +330,7 @@ export default function MarketingOverviewPage() {
   const [rcsData, setRcsData] = useState({ title: '🏠 3BHK Luxury — ₹35L', desc: 'Kurukshetra · Park View · Ready Possession' });
   const [campHistory, setCampHistory] = useState([]);
   const [campLaunching, setCampLaunching] = useState(false);
+  const [isSyncingLinkedIn, setIsSyncingLinkedIn] = useState(false);
   const [failoverLogs, setFailoverLogs] = useState([{ text: '  Monitoring all model token usage...', type: 'dim' }]);
   const [taskDist, setTaskDist] = useState([]);
   const failoverLogRef = useRef(null);
@@ -417,6 +415,12 @@ export default function MarketingOverviewPage() {
           }));
           setLeads(prev => mapped.length > 0 ? mapped : prev);
         }
+
+        // Generate Dynamic Briefing
+        const hotLeads = sRes.value.data.hotLeads || 0;
+        const total = sRes.value.data.totalCaptured || 0;
+        const liBrief = linkedInStatus ? "LinkedIn Bridge is **Active**." : "LinkedIn requires **Re-authorization**.";
+        setDynamicBriefing(`Today's loop is synced. **${hotLeads} Hot Leads** need attention. ${liBrief} You have **${realDeals.length} properties** ready for social sharing.`);
       }
 
       if (lRes.status === 'fulfilled' && lRes.value?.leads?.length > 0) {
@@ -460,6 +464,14 @@ export default function MarketingOverviewPage() {
       try {
         const smsRes = await smsService.getStatus();
         if (smsRes?.success) setActiveSmsStatus(smsRes.data);
+      } catch (_) {}
+
+      // Fetch real Marketing Content (Calendar Posts)
+      try {
+        const cRes = await marketingAPI.getContent();
+        if (cRes?.success && cRes.data) {
+          setPosts(cRes.data.length > 0 ? cRes.data : DEFAULT_POSTS);
+        }
       } catch (_) {}
 
       setApiDataLoaded(true);
@@ -625,6 +637,24 @@ export default function MarketingOverviewPage() {
     }
     setAgentPosts(newPosts);
     addLog(`  ✓ ${postCount} posts generated across ${platforms.length} platforms`, 'success');
+    
+    // Auto-commit drafts to DB so they persist on the calendar
+    addLog('  📦  Persisting drafts to Neural Storage...', 'dim');
+    for (const p of newPosts) {
+      try {
+        await marketingAPI.saveContent({
+          title: `${p.dealTitle} ${p.platform} AI Draft`,
+          content: p.content,
+          platform: p.platform.charAt(0).toUpperCase() + p.platform.slice(1),
+          type: 'ct-project',
+          date: new Date().toISOString().split('T')[0],
+          status: 'draft'
+        });
+      } catch (e) {
+        console.warn('Failed to auto-save draft:', e.message);
+      }
+    }
+    
     toast.success(`🧠 ${postCount} Posts Generated!`);
 
     // STEP 3 — Schedule
@@ -809,6 +839,23 @@ export default function MarketingOverviewPage() {
     ]);
 
     setCampLaunching(false);
+  };
+
+  const handleSyncLinkedIn = async () => {
+    if (isSyncingLinkedIn) return;
+    setIsSyncingLinkedIn(true);
+    toast.loading('Syncing leads from LinkedIn Ads...', { id: 'li-sync' });
+    try {
+      const res = await marketingAPI.triggerLinkedInSync();
+      if (res.success) {
+        toast.success(`Sync Complete: ${res.syncedCount} leads imported.`, { id: 'li-sync' });
+        fetchLiveData(); // Refresh list
+      }
+    } catch (err) {
+      toast.error('LinkedIn Sync Failed: ' + err.message, { id: 'li-sync' });
+    } finally {
+      setIsSyncingLinkedIn(false);
+    }
   };
 
   // ── Open WhatsApp/Message modal for a lead ──
@@ -1178,7 +1225,7 @@ export default function MarketingOverviewPage() {
     addNotif('New lead: ' + newLead.name, newLead.interest || 'New inquiry', 'green', '👤', 'leads');
   };
 
-  const handleSavePost = (e) => {
+  const handleSavePost = async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
     const status = e.target.querySelector('.pstatus-btn.active')?.dataset.status || 'scheduled';
@@ -1188,24 +1235,68 @@ export default function MarketingOverviewPage() {
       type: formData.get('type'),
       time: formData.get('time'),
       caption: formData.get('caption'),
+      dealId: formData.get('dealId'),
       status,
       date: activeCalDate,
     };
-    if (editingPost) {
-      setPosts(prev => prev.map(p => p.id === editingPost.id ? { ...postData, id: p.id } : p));
-      toast.success('Post Updated');
-    } else {
-      setPosts(prev => [...prev, { ...postData, id: 'p' + Date.now() }]);
-      toast.success('Post Added to Calendar');
+    setLoading(true);
+    try {
+      const payload = {
+        id: editingPost?._id || editingPost?.id, // Support both real and mock IDs
+        ...postData
+      };
+      
+      const res = await marketingAPI.saveContent(payload);
+      if (res?.success) {
+        // Refresh full state from server to ensure sync
+        const cRes = await marketingAPI.getContent();
+        if (cRes?.success) setPosts(cRes.data);
+        toast.success(editingPost ? 'Post Updated' : 'Post Added to Calendar');
+      }
+    } catch (e) {
+      toast.error('Sync failed: ' + e.message);
+    } finally {
+      setLoading(false);
+      setShowPostModal(false);
     }
-    setShowPostModal(false);
   };
 
-  const deletePost = () => {
-    if (editingPost && window.confirm('Delete this post?')) {
-      setPosts(prev => prev.filter(p => p.id !== editingPost.id));
-      setShowPostModal(false);
-      toast.success('Post deleted');
+  const handleLaunchContent = async () => {
+    const id = editingPost?._id || editingPost?.id;
+    if (!id) return;
+
+    setLoading(true);
+    try {
+      const res = await marketingAPI.publishContent(id);
+      if (res?.success) {
+        toast.success(`Content Published! ${res.mode === 'dry_run' ? '(Dry Run Mode)' : ''}`);
+        // Refresh content
+        const cRes = await marketingAPI.getContent();
+        if (cRes?.success) setPosts(cRes.data);
+        setShowPostModal(false);
+      }
+    } catch (e) {
+      toast.error('Publishing failed: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deletePost = async () => {
+    const id = editingPost?._id || editingPost?.id;
+    if (id && window.confirm('Delete this post?')) {
+      setLoading(true);
+      try {
+        await marketingAPI.deleteContent(id);
+        const cRes = await marketingAPI.getContent();
+        if (cRes?.success) setPosts(cRes.data);
+        setShowPostModal(false);
+        toast.success('Post deleted');
+      } catch (e) {
+        toast.error('Delete failed');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -1422,7 +1513,7 @@ export default function MarketingOverviewPage() {
                     </button>
                   </div>
                 </div>
-                <div className="briefing-text" dangerouslySetInnerHTML={{ __html: DAILY_BRIEFING.content.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>') }}></div>
+                <div className="briefing-text" dangerouslySetInnerHTML={{ __html: dynamicBriefing.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>') }}></div>
                 <div className="briefing-ai-label" style={{ marginTop: '1rem', fontSize: '10px', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{ color: 'var(--gold)' }}>✦</span> AI-generated via Gemini 1.5 Pro · Updated hourly based on live CRM data
                 </div>
@@ -2305,7 +2396,18 @@ export default function MarketingOverviewPage() {
                 <div className="card-title">
                   <span style={{ marginRight: '8px' }}>👥</span> Lead Segmentation Engine
                 </div>
-                <button className="tact-btn primary sm" onClick={() => setShowAddLeadModal(true)} style={{ padding: '4px 10px', fontSize: '11px' }}>+ Add Lead</button>
+                <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
+                  <button 
+                    className="tact-btn" 
+                    onClick={handleSyncLinkedIn} 
+                    disabled={isSyncingLinkedIn}
+                    style={{ padding: '4px 10px', fontSize: '11px', background: 'rgba(10, 102, 194, 0.1)', color: '#0a66c2', borderColor: 'rgba(10, 102, 194, 0.2)' }}
+                  >
+                    {isSyncingLinkedIn ? <span className="spinner-sm"></span> : <span style={{ marginRight: '4px' }}>🔗</span>}
+                    Sync LinkedIn
+                  </button>
+                  <button className="tact-btn primary sm" onClick={() => setShowAddLeadModal(true)} style={{ padding: '4px 10px', fontSize: '11px' }}>+ Add Lead</button>
+                </div>
               </div>
               
               <div className="camp-seg-grid">
@@ -3133,6 +3235,18 @@ export default function MarketingOverviewPage() {
                     <label>SCHEDULED TIME</label>
                     <input name="time" defaultValue={editingPost?.time || '08:00'} type="time" className="fi-v2" />
                   </div>
+                  <div className="form-group-v2" style={{ gridColumn: '1 / -1' }}>
+                    <label>🔗 TARGET PROPERTY / DEAL</label>
+                    <select name="dealId" defaultValue={editingPost?.dealId || ''} className="fi-v2">
+                      <option value="">No property (Text only post)</option>
+                      {realDeals.map(d => (
+                        <option key={d._id} value={d._id}>{d.unitNo || d.title} — {d.projectName || 'Bharat Properties'}</option>
+                      ))}
+                    </select>
+                    <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '4px' }}>
+                      Selecting a property allows the AI to automatically attach images from Google Drive for LinkedIn/Instagram.
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -3141,6 +3255,16 @@ export default function MarketingOverviewPage() {
                   <button type="button" className="tact-btn red-ghost sm" onClick={deletePost} style={{ marginRight: 'auto' }}>Delete Post</button>
                 )}
                 <button type="button" className="tact-btn ghost sm" onClick={() => setShowPostModal(false)}>Cancel</button>
+                {editingPost && editingPost.status !== 'published' && (
+                  <button 
+                    type="button" 
+                    className="tact-btn primary sm" 
+                    onClick={handleLaunchContent}
+                    style={{ background: 'var(--gold)', color: '#000', borderColor: 'var(--gold)' }}
+                  >
+                    🚀 Launch to {editingPost.platform}
+                  </button>
+                )}
                 <button type="submit" className="tact-btn primary sm">{editingPost ? 'Update Post' : 'Save to Calendar'}</button>
               </div>
             </form>

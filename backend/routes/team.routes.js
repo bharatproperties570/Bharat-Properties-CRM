@@ -6,8 +6,12 @@ import {
     updateTeam,
     deleteTeam
 } from "../controllers/team.controller.js";
+import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
+
+// Apply authentication to all routes
+router.use(authenticate);
 
 router.route("/")
     .get(getTeams)

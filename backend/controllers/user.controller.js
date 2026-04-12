@@ -274,6 +274,24 @@ export const updateUser = async (req, res) => {
             });
         }
 
+        // Defensive: Force correct types for known ObjectId fields if they are strings
+        const idFields = ['role', 'reportingTo', 'team'];
+        idFields.forEach(field => {
+            if (updates[field]) {
+                if (mongoose.Types.ObjectId.isValid(updates[field])) {
+                    updates[field] = new mongoose.Types.ObjectId(updates[field].toString());
+                } else {
+                    delete updates[field]; // Ignore invalid IDs instead of crashing
+                }
+            }
+        });
+
+        if (Array.isArray(updates.teams)) {
+            updates.teams = updates.teams
+                .filter(t => t && mongoose.Types.ObjectId.isValid(t.toString()))
+                .map(t => new mongoose.Types.ObjectId(t.toString()));
+        }
+
         // Handle password update
         if (updates.password) {
             const passwordValidation = validatePassword(updates.password);

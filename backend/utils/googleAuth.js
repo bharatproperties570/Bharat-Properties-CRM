@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import SystemSetting from '../models/SystemSetting.js';
+import SystemSetting from '../src/modules/systemSettings/system.model.js';
 
 /**
  * Shared Google OAuth2 Client Utility

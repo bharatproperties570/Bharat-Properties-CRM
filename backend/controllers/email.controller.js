@@ -75,27 +75,36 @@ export const getOAuthUrl = async (req, res) => {
 
 export const oauthCallback = async (req, res) => {
     try {
-        const { code } = req.query;
-        if (!code) {
-            return res.status(400).json({ success: false, message: 'Code is required' });
+        const { code, state, success } = req.query; // Capture code OR success flag from frontend redirect
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5174';
+
+        // Case 1: Backend received the code directly from Google
+        if (code) {
+             const email = await emailService.handleOAuthCallback(code);
+             return res.send(`
+                <html>
+                    <body style="font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f4f7fa;">
+                        <div style="background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center;">
+                            <h2 style="color: #10b981;">Google Connection Successful!</h2>
+                            <p>Connected account: <strong>${email}</strong></p>
+                            <p>Finalizing session...</p>
+                            <script>
+                                setTimeout(() => {
+                                    window.location.href = '${frontendUrl}/settings?tab=integrations&connection=success';
+                                }, 1500);
+                            </script>
+                        </div>
+                    </body>
+                </html>
+            `);
         }
-        const email = await emailService.handleOAuthCallback(code);
-        res.send(`
-            <html>
-                <body style="font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f4f7fa;">
-                    <div style="background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center;">
-                        <h2 style="color: #10b981;">Connection Successful!</h2>
-                        <p>Connected account: <strong>${email}</strong></p>
-                        <p>Redirecting back to CRM...</p>
-                        <script>
-                            setTimeout(() => {
-                                window.location.href = 'http://localhost:5174/google-callback?success=true';
-                            }, 2000);
-                        </script>
-                    </div>
-                </body>
-            </html>
-        `);
+
+        // Case 2: Redirection handle for manual success flags
+        if (success === 'true') {
+            return res.redirect(`${frontendUrl}/settings?tab=integrations&connection=success`);
+        }
+
+        return res.status(400).send(`<h2>Authorization Failed</h2><p>No valid code found in redirect.</p>`);
     } catch (error) {
         console.error('Controller Error in OAuth callback:', error);
         res.status(500).send(`<h2>Connection Failed</h2><p>${error.message}</p>`);

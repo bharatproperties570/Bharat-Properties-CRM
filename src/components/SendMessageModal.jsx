@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useTriggers } from '../context/TriggersContext';
 import smsService from '../services/smsService';
 
-const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [] }) => {
+const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], initialProperty = null }) => {
     const { fireEvent } = useTriggers();
     const [channel, setChannel] = useState('SMS'); // SMS, WHATSAPP, RCS
     const [recipients, setRecipients] = useState([]);
@@ -25,20 +25,43 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [] }) =
     const [smsTemplates, setSmsTemplates] = useState([]);
     const [isLoadingSms, setIsLoadingSms] = useState(false);
 
-    // Mock Data for References
+    // Real Data for References (Passed from parent or fetched)
+    const [propertyRefs, setPropertyRefs] = useState([]);
+    
+    useEffect(() => {
+        if (initialProperty) {
+            setPropertyRefs([{
+                id: initialProperty._id || initialProperty.id,
+                name: initialProperty.unitNo || initialProperty.projectName || 'Current Property',
+                attachmentType: initialProperty.brochureUrl ? 'pdf' : 'image',
+                fileName: initialProperty.brochureUrl ? 'Brochure.pdf' : 'Image.jpg',
+                link: initialProperty.brochureUrl || initialProperty.images?.[0]?.url || '#'
+            }]);
+            setReferenceType('property');
+            setSelectedReference({
+                id: initialProperty._id || initialProperty.id,
+                name: initialProperty.unitNo || initialProperty.projectName || 'Current Property'
+            });
+            if (initialProperty.brochureUrl || initialProperty.images?.[0]?.url) {
+                setAttachment({
+                    type: initialProperty.brochureUrl ? 'pdf' : 'image',
+                    name: initialProperty.brochureUrl ? 'Brochure.pdf' : 'Image.jpg',
+                    url: initialProperty.brochureUrl || initialProperty.images?.[0]?.url
+                });
+            }
+        }
+    }, [initialProperty]);
+
     const mockReferences = {
-        property: [
+        property: propertyRefs.length > 0 ? propertyRefs : [
             { id: 'p1', name: 'Luxury Villa in Sector 17', attachmentType: 'pdf', fileName: 'Villa_Brochure.pdf', link: 'https://bharatprops.com/b/123' },
             { id: 'p2', name: '3BHK Apartment (Zirakpur)', attachmentType: 'image', fileName: 'Apartment_View.jpg', link: 'https://bharatprops.com/i/456' },
-            { id: 'p3', name: 'Commercial Plot (Mohali)', attachmentType: 'video', fileName: 'Plot_Walkthrough.mp4', link: 'https://bharatprops.com/v/789' }
         ],
         booking: [
             { id: 'b1', name: 'Unit A-402 (Highland Park)', attachmentType: 'pdf', fileName: 'Booking_Receipt_A402.pdf' },
-            { id: 'b2', name: 'Plot 45 (Eco City)', attachmentType: 'pdf', fileName: 'Booking_Confirmation_45.pdf' }
         ],
         invoice: [
             { id: 'inv1', name: 'INV-2023-001 (₹50k)', attachmentType: 'pdf', fileName: 'Invoice_001_Signed.pdf' },
-            { id: 'inv2', name: 'INV-2023-005 (₹1.25L)', attachmentType: 'pdf', fileName: 'Invoice_005_Signed.pdf' }
         ]
     };
 
@@ -159,7 +182,10 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [] }) =
             content: {
                 body: messageBody,
                 templateId,
-                rcs: { title: rcsTitle, actions: rcsActions }
+                rcs: { title: rcsTitle, actions: rcsActions },
+                mediaUrl: attachment?.url,
+                filename: attachment?.name,
+                type: attachment?.type || 'text'
             },
             schedule: isScheduled && showSchedule ? { date: scheduleDate, time: scheduleTime } : null
         };

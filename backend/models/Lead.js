@@ -61,6 +61,7 @@ const LeadSchema = new mongoose.Schema({
 
     notes: { type: String },
     isContacted: { type: Boolean, default: false },
+    teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
     assignment: {
         method: String,
         assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -95,6 +96,8 @@ const LeadSchema = new mongoose.Schema({
     activityScore: { type: Number, default: 0, min: 0, max: 100 }, // Activity-driven component (no double-count with enrichment)
     decay_score: { type: Number, default: 0, min: 0, max: 50 }, // Accumulated inactivity penalty (cron-managed, NOT intent_index)
     scoreBreakdown: { type: mongoose.Schema.Types.Mixed, default: null }, // Explainability: { staticBase, activityScore, sourceScore, fitScore, decayPenalty, stageMultiplier, temperature, intent }
+    ai_intent_summary: { type: String },
+    ai_closing_probability: { type: Number, min: 0, max: 100 },
 
     // Stage History: Full Audit Trail of Stage Changes
     stageHistory: [{
@@ -119,7 +122,9 @@ const LeadSchema = new mongoose.Schema({
 // ━━ PERFORMANCE INDEXES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // owner + stage + updatedAt: covers team/owner filter on leads list page
 LeadSchema.index({ owner: 1, stage: 1, updatedAt: -1 });
-// assignment.team + stage: covers team-filtered lead queries
+// teams + stage: Optimized multi-team visibility
+LeadSchema.index({ teams: 1, stage: 1 });
+// assignment.team + stage: covers team-filtered lead queries (Legacy)
 LeadSchema.index({ 'assignment.team': 1, stage: 1 });
 // assignment.assignedTo + updatedAt: covers assigned-to filter
 LeadSchema.index({ 'assignment.assignedTo': 1, updatedAt: -1 });
@@ -188,6 +193,27 @@ LeadSchema.pre('save', async function (next) {
         }
     }
 
+    // --- Assignment & Visibility Synchronization ---
+    const primaryRM = this.owner || this.assignment?.assignedTo;
+    if (primaryRM) {
+        const primaryRMId = (typeof primaryRM === 'string' && mongoose.Types.ObjectId.isValid(primaryRM))
+            ? new mongoose.Types.ObjectId(primaryRM)
+            : primaryRM;
+
+        this.owner = primaryRMId;
+        if (!this.assignment) this.assignment = {};
+        this.assignment.assignedTo = primaryRMId;
+    }
+
+    // Standardize Multi-Team visibility
+    const primaryTeams = this.teams || this.assignment?.team;
+    if (primaryTeams && Array.isArray(primaryTeams) && primaryTeams.length > 0) {
+        const castedTeams = primaryTeams.map(t => (typeof t === 'string' && mongoose.Types.ObjectId.isValid(t)) ? new mongoose.Types.ObjectId(t) : t);
+        this.teams = castedTeams;
+        if (!this.assignment) this.assignment = {};
+        this.assignment.team = castedTeams;
+    }
+
     if (this.owner === "") this.owner = null;
 
     if (this.requirement && typeof this.requirement === 'string') this.requirement = await resolveLeadLookup('Requirement', this.requirement);
@@ -224,6 +250,27 @@ LeadSchema.pre('save', async function (next) {
 LeadSchema.pre('findOneAndUpdate', async function (next) {
     const update = this.getUpdate();
     if (!update) return next();
+
+    // Sync assignment fields in updates
+    const primaryRM = update.owner || (update.assignment && update.assignment.assignedTo) || (update['assignment.assignedTo']);
+    if (primaryRM) {
+        const primaryRMId = (typeof primaryRM === 'string' && mongoose.Types.ObjectId.isValid(primaryRM))
+            ? new mongoose.Types.ObjectId(primaryRM)
+            : primaryRM;
+
+        update.owner = primaryRMId;
+        if (update.assignment) update.assignment.assignedTo = primaryRMId;
+        update['assignment.assignedTo'] = primaryRMId;
+    }
+
+    // Sync team fields in updates
+    const primaryTeams = update.teams || (update.assignment && update.assignment.team) || update['assignment.team'];
+    if (primaryTeams && Array.isArray(primaryTeams)) {
+        const castedTeams = primaryTeams.map(t => (typeof t === 'string' && mongoose.Types.ObjectId.isValid(t)) ? new mongoose.Types.ObjectId(t) : t);
+        update.teams = castedTeams;
+        if (update.assignment) update.assignment.team = castedTeams;
+        update['assignment.team'] = castedTeams;
+    }
 
     if (update.owner === "") update.owner = null;
 

@@ -52,7 +52,12 @@ const UserSchema = new mongoose.Schema({
         ref: 'User',
         default: null
     },
-    team: {
+    teams: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Team',
+        index: true
+    }],
+    team: { // Keep for backward compatibility/migration
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Team',
         default: null
@@ -169,6 +174,7 @@ const UserSchema = new mongoose.Schema({
 // ========== Indexes ==========
 UserSchema.index({ department: 1, status: 1 });
 UserSchema.index({ reportingTo: 1 });
+UserSchema.index({ teams: 1 });
 UserSchema.index({ team: 1 });
 UserSchema.index({ email: 1 }, { unique: true });
 
@@ -241,6 +247,11 @@ UserSchema.methods.resetFailedAttempts = function () {
 
 // ========== Pre-save Hooks ==========
 UserSchema.pre('save', function (next) {
+    // Migration: Move single 'team' to 'teams' array if teams is empty
+    if (this.team && (!this.teams || this.teams.length === 0)) {
+        this.teams = [this.team];
+    }
+    
     // Auto-generate username from email if not provided
     if (!this.username && this.email) {
         this.username = this.email.split('@')[0];

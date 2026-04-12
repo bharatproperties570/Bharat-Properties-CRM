@@ -1,11 +1,16 @@
 import express from 'express';
-const router = express.Router();
 import {
     createCollectorRate,
     getAllCollectorRates,
     updateCollectorRate,
     deleteCollectorRate
 } from '../controllers/collectorRate.controller.js';
+import { authenticate } from "../src/middlewares/auth.middleware.js";
+
+const router = express.Router();
+
+// Apply authentication to all routes
+router.use(authenticate);
 
 // Base path: /api/collector-rates
 

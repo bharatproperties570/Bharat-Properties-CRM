@@ -1,9 +1,5 @@
-/**
- * marketing.routes.js
- * Routes for the Marketing Suite AI Agent, Analytics, and Campaign Engine.
- * Phase D: Added /job-status/:jobId for BullMQ job polling.
- */
 import express from 'express';
+console.log('--- MARKETING ROUTES INITIALIZING ---');
 import { 
     getMarketingStats,
     getCampaignRuns, 
@@ -15,15 +11,29 @@ import {
     sendCampaign,
     activateDrip,
     getJobStatus,
+    getMarketingContent,
+    saveMarketingContent,
+    deleteMarketingContent,
+    publishMarketingContent,
+    broadcastToHub
 } from '../controllers/marketing.controller.js';
 import { 
-    getLinkedInAuthUrl, 
+    getLinkedInAuthUrl,
     handleLinkedInCallback, 
     getLinkedInStatus, 
-    saveLinkedInConfig 
+    saveLinkedInConfig,
+    triggerLeadSync
 } from '../controllers/linkedIn.controller.js';
+import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
+
+// ── Public OAuth Callbacks (No Auth Required) ────────────────────────────────
+// These must be public because the browser redirect does not include the Auth header.
+router.get('/linkedin/callback', handleLinkedInCallback);
+
+// Apply authentication to all following protected routes
+router.use(authenticate);
 
 // ── Analytics ─────────────────────────────────────────────────────────────────
 router.get('/stats',         getMarketingStats);
@@ -41,11 +51,19 @@ router.post('/send-campaign',       sendCampaign);        // BullMQ blast job
 router.post('/activate-drip',       activateDrip);        // BullMQ drip job
 router.get('/job-status/:jobId',    getJobStatus);        // Poll job progress
 
+// ── Neural Persistence (Content CRUD) ────────────────────────────────────────
+router.get('/content',      getMarketingContent);
+router.post('/content',     saveMarketingContent);
+router.delete('/content/:id', deleteMarketingContent);
+router.post('/publish',        publishMarketingContent);
+console.log('[MarketingRoutes] Mapping /broadcast to:', typeof broadcastToHub);
+router.post('/broadcast',      broadcastToHub);
+
 // ── LinkedIn Integration ──────────────────────────────────────────────────────
 router.get('/linkedin/auth-url',    getLinkedInAuthUrl);
-router.post('/linkedin/callback',   handleLinkedInCallback);
 router.get('/linkedin/status',      getLinkedInStatus);
 router.post('/linkedin/config',     saveLinkedInConfig);
+router.post('/linkedin/sync-leads',  triggerLeadSync);
 
 export default router;
 

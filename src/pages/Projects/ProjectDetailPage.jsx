@@ -6,6 +6,7 @@ import { renderValue } from '../../utils/renderUtils';
 import Chart from 'react-apexcharts';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { fixDriveUrl, getYoutubeId } from '../../utils/helpers';
+import PublishModal from '../../components/Marketing/PublishModal';
 
 const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => {
     const { getLookupValue } = usePropertyConfig();
@@ -15,6 +16,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
     const [inventoryData, setInventoryData] = useState([]);
     const [dealsData, setDealsData] = useState([]);
     const [blocksData, setBlocksData] = useState([]);
+    const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
     const [mediaViewer, setMediaViewer] = useState({ isOpen: false, data: null });
 
     const fetchProjectDetails = useCallback(async () => {
@@ -40,24 +42,6 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
         }
     }, [projectId]);
 
-    const handleTogglePublish = async () => {
-        const newStatus = !project.isPublished;
-        try {
-            const res = await api.put(`projects/${projectId}`, {
-                isPublished: newStatus,
-                publishedAt: newStatus ? new Date() : null
-            });
-            if (res.data && (res.data.success || res.data.status === 'success')) {
-                setProject(prev => ({ ...prev, isPublished: newStatus }));
-                toast.success(newStatus ? 'Project published to Website!' : 'Project removed from Website');
-            } else {
-                toast.error('Failed to update publication status');
-            }
-        } catch (error) {
-            console.error("Error toggling publication:", error);
-            toast.error('Error updating publication status');
-        }
-    };
 
     const fetchInventory = async (pid) => {
         try {
@@ -185,7 +169,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
 
                             {/* Website Publication Toggle */}
                             <button
-                                onClick={handleTogglePublish}
+                                onClick={() => setIsPublishModalOpen(true)}
                                 style={{
                                     backgroundColor: project.isPublished ? '#eff6ff' : '#f8fafc',
                                     color: project.isPublished ? '#2563eb' : '#64748b',
@@ -199,8 +183,8 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
                                 }}
                                 className="hover:shadow-sm"
                             >
-                                <i className={`fas fa-globe ${project.isPublished ? 'text-blue-500' : 'text-slate-400'}`}></i>
-                                {project.isPublished ? 'Published' : 'Draft'}
+                                <i className={`fas fa-paper-plane ${project.isPublished ? 'text-blue-500' : 'text-slate-400'}`}></i>
+                                {project.isPublished ? 'Published' : 'Publish to Hub'}
                             </button>
 
 
@@ -626,6 +610,13 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
                     onClose={() => setMediaViewer({ isOpen: false, data: null })}
                 />
             )}
+            <PublishModal 
+                isOpen={isPublishModalOpen}
+                onClose={() => setIsPublishModalOpen(false)}
+                data={project}
+                type="project"
+                onPublishSuccess={fetchProjectDetails}
+            />
         </div>
     );
 };

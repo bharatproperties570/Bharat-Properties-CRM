@@ -350,11 +350,23 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
     breakdown.stageMultiplier = multiplier;
     breakdown.stageKey = stageKey;
 
+    // ── G. AI INTENT MULTIPLIER (NEW) ─────────────────────────────────────────
+    // If AI has calculated a closing probability, use it for a fine-grained boost.
+    // Base of 80% probability = 1.0x (neutral)
+    // 100% probability = 1.25x boost
+    // 40% probability  = 0.5x reduction
+    let aiMultiplier = 1.0;
+    if (lead.ai_closing_probability != null) {
+        aiMultiplier = Math.max(0.5, Math.min(1.25, lead.ai_closing_probability / 80));
+        breakdown.aiMultiplier = aiMultiplier;
+        breakdown.aiProbability = lead.ai_closing_probability;
+    }
+
     // ── FINAL CALCULATION ───────────────────────────────────────────────────
     const raw = staticBase + activityScore + sourceScore + fitScore + decayPenalty;
     breakdown.rawBeforeMultiplier = raw;
 
-    let finalScore = Math.round(raw * multiplier);
+    let finalScore = Math.round(raw * multiplier * aiMultiplier);
     finalScore = Math.max(0, Math.min(100, finalScore));
 
     // Determine temperature band

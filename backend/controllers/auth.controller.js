@@ -8,8 +8,22 @@ import emailService from "../services/email.service.js";
 export const login = async (req, res) => {
     try {
         const { email, password } = req.body;
-        const user = await User.findOne({ email });
+        if (!email || !password) {
+            return res.status(400).json({ success: false, message: "Email/Username and password are required" });
+        }
+
+        // Search by email or username (case-insensitive)
+        const user = await User.findOne({
+            $or: [
+                { email: email.toLowerCase() },
+                { username: email.toLowerCase() }
+            ]
+        });
+
         if (!user) return res.status(401).json({ success: false, message: "Invalid credentials" });
+        if (!user.isActive || user.status !== 'active') {
+            return res.status(403).json({ success: false, message: "Account is inactive. Please contact administrator." });
+        }
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(401).json({ success: false, message: "Invalid credentials" });
@@ -28,7 +42,7 @@ export const login = async (req, res) => {
             maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
         });
 
-        res.json({ success: true, token, user: { id: user._id, name: user.name, role: user.role } });
+        res.json({ success: true, token, user: { id: user._id, name: user.fullName || user.username, role: user.role } });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -36,10 +50,15 @@ export const login = async (req, res) => {
 
 export const register = async (req, res) => {
     try {
-        const { name, email, password, role } = req.body;
+        const { fullName, name, email, password, role, department } = req.body;
         const hashedPassword = await bcrypt.hash(password, 10);
-        const user = await User.create({ name, email, password: hashedPassword, role });
-        res.json({ success: true, data: { id: user._id, name: user.name } });
+        // Map name to fullName if fullName is missing (for backward compatibility)
+        const finalFullName = fullName || name;
+        if (!finalFullName) {
+            return res.status(400).json({ success: false, message: "Full name is required" });
+        }
+        const user = await User.create({ fullName: finalFullName, email, password: hashedPassword, role, department });
+        res.json({ success: true, data: { id: user._id, name: user.fullName } });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

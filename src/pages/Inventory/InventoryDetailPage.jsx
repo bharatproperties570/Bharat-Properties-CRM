@@ -416,6 +416,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                 isOpen={isMessageModalOpen}
                 onClose={() => setIsMessageModalOpen(false)}
                 initialRecipients={modalData || []}
+                initialProperty={inventory}
             />
 
             <InventoryFeedbackModal 

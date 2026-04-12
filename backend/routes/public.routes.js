@@ -21,7 +21,10 @@ const router = express.Router();
  * All routes are protected by X-API-KEY middleware.
  */
 
-// Apply API Key verification to all public routes
+// Truly Public (No API Key Required)
+router.get("/parsing-rules", parsingRuleController.getRules);
+
+// Apply API Key verification to all other public routes
 router.use(verifyApiKey);
 
 router.get("/listings", getListings);

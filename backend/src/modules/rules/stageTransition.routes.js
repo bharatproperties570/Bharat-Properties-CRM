@@ -7,8 +7,12 @@ import {
     deleteStageTransitionRule,
     seedDefaultRules
 } from './stageTransition.controller.js';
+import { authenticate } from "../../../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
+
+// Apply authentication to all routes
+router.use(authenticate);
 
 router.get('/',            getStageTransitionRules);
 router.post('/',           saveStageTransitionRules);

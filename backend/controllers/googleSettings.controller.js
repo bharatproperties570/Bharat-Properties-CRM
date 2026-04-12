@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import SystemSetting from '../models/SystemSetting.js';
+import SystemSetting from '../src/modules/systemSettings/system.model.js';
 
 
 /**
@@ -14,7 +14,7 @@ export const getGoogleAuthUrl = async (req, res) => {
         const oauth2Client = new google.auth.OAuth2(
             process.env.GOOGLE_CLIENT_ID,
             process.env.GOOGLE_CLIENT_SECRET,
-            process.env.GOOGLE_REDIRECT_URI || 'http://localhost:4000/api/email/oauth/callback'
+            process.env.GOOGLE_REDIRECT_URI || 'http://localhost:4000/api/settings/google/callback'
         );
 
         const scopes = [
@@ -55,7 +55,7 @@ export const handleGoogleCallback = async (req, res) => {
         const oauth2Client = new google.auth.OAuth2(
             process.env.GOOGLE_CLIENT_ID,
             process.env.GOOGLE_CLIENT_SECRET,
-            process.env.GOOGLE_REDIRECT_URI || 'http://localhost:4000/api/email/oauth/callback'
+            process.env.GOOGLE_REDIRECT_URI || 'http://localhost:4000/api/settings/google/callback'
         );
 
         const { tokens } = await oauth2Client.getToken(code);

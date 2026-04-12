@@ -16,7 +16,7 @@ NC='\033[0m'
 
 echo -e "${BLUE}🚢 Starting Professional Deployment to AWS...${NC}"
 
-KEY_PATH="/Users/bharatproperties/Downloads/bharat properties.pem"
+KEY_PATH="$(cd "$(dirname "$0")/.." && pwd)/bharat_properties.pem"
 
 # 1. Connection Check
 echo -e "${GREEN}🔍 Checking connectivity to ${SERVER_IP}...${NC}"

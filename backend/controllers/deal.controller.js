@@ -10,6 +10,8 @@ import Lookup from "../models/Lookup.js";
 import AuditLog from "../models/AuditLog.js";
 import { syncDocumentsToContact } from "../utils/sync.js";
 import CampaignEngine from "../services/CampaignEngine.js";
+import { getVisibilityFilter } from "../utils/visibility.js";
+import Project from "../models/Project.js"; // Added to resolve [matchDeals] population error
 
 // --- OPTIMIZATION: In-Memory Lookup Cache (Process Scoped) ---
 const _lookupResolveCache = new Map();
@@ -56,10 +58,22 @@ export const matchDeals = async (req, res) => {
 
         const leadReq = String(lead.requirement?.lookup_value || lead.requirement || "").toLowerCase();
         const leadCats = (Array.isArray(lead.propertyType) ? lead.propertyType : [])
-            .map(c => String(c?.lookup_value || c || "").toLowerCase());
+            .map(c => String(c?.lookup_value || c || "").toLowerCase())
+            .filter(Boolean);
 
         // 1. Fetch potential deals
+        const visibilityFilter = await getVisibilityFilter(req.user);
+
+        // 🛠️ SENIOR DIAGNOSTIC LOG (Harden for potential undefined user)
+        if (req.user) {
+            console.log(`[VISIBLE_AUDIT] User: ${req.user.email}, Scope: ${req.user.dataScope}, Teams: ${JSON.stringify(req.user.teams?.map(t => t._id || t))}`);
+        } else {
+            console.log(`[VISIBLE_AUDIT] Anonymous request - Visibility restricted to public data.`);
+        }
+        console.log(`[VISIBLE_AUDIT] Generated Filter: ${JSON.stringify(visibilityFilter, null, 2)}`);
+
         const query = {
+            ...visibilityFilter,
             isVisible: { $ne: false },
             stage: { $nin: ["Cancelled", "Closed Lost", "Sold Out"] }
         };
@@ -67,9 +81,9 @@ export const matchDeals = async (req, res) => {
         const deals = await Deal.find(query)
             .populate('inventoryId')
             .populate('projectId')
-            .populate('category', 'lookup_value')
-            .populate('intent', 'lookup_value')
-            .populate('subCategory', 'lookup_value')
+            .populate('category', 'lookup_value', 'Lookup')
+            .populate('intent', 'lookup_value', 'Lookup')
+            .populate('subCategory', 'lookup_value', 'Lookup')
             .lean();
 
         // 2. Filter and Score
@@ -89,9 +103,9 @@ export const matchDeals = async (req, res) => {
 
             // B. Category Alignment
             let catMatched = false;
-            if (dealCategory.includes("res") && leadCats.some(c => c.includes("res"))) catMatched = true;
-            else if (dealCategory.includes("comm") && leadCats.some(c => c.includes("comm"))) catMatched = true;
-            else if (dealCategory.includes("ind") && leadCats.some(c => c.includes("ind"))) catMatched = true;
+            if (dealCategory.includes("res") && leadCats.some(c => c && c.includes("res"))) catMatched = true;
+            else if (dealCategory.includes("comm") && leadCats.some(c => c && c.includes("comm"))) catMatched = true;
+            else if (dealCategory.includes("ind") && leadCats.some(c => c && c.includes("ind"))) catMatched = true;
             else if (!dealCategory || (leadCats.length === 0)) catMatched = true;
 
             if (!catMatched) return false;
@@ -105,7 +119,7 @@ export const matchDeals = async (req, res) => {
             // 1. Sub-Category / Type (Weight: type)
             const dealSub = (deal.subCategory?.lookup_value || "").toLowerCase();
             const leadSubs = (lead.subType || []).filter(Boolean).map(s => String(s.lookup_value || s || "").toLowerCase());
-            if (dealSub && leadSubs.some(s => s.includes(dealSub))) {
+            if (dealSub && leadSubs.some(s => s && s.includes(dealSub))) {
                 score += (weights.type || 20);
                 matchDetails.push("Unit Type Match");
             }
@@ -136,7 +150,7 @@ export const matchDeals = async (req, res) => {
             const locWeight = (weights.location || 30);
 
             // Tier 1: Project/ProjectName Match (Highest)
-            if (deal.projectName && leadProjects.some(p => deal.projectName.toLowerCase().includes(p.toLowerCase()))) {
+            if (deal.projectName && typeof deal.projectName === 'string' && leadProjects.some(p => p && typeof p === 'string' && deal.projectName.toLowerCase().includes(p.toLowerCase()))) {
                 locScore = locWeight;
                 matchDetails.push("Exact Project Match");
             } 
@@ -220,14 +234,35 @@ const syncInventoryStatus = async (deal) => {
 
 export const getDeals = async (req, res) => {
     try {
-        const { page = 1, limit = 25, search = "", projectId, inventoryId, category, subCategory, status } = req.query;
-        let query = { isVisible: { $ne: false } };
+        const { 
+            page = 1, limit = 25, search = "", 
+            projectId, inventoryId, category, subCategory, 
+            status, contactPhone 
+        } = req.query;
+        const visibilityFilter = await getVisibilityFilter(req.user);
+
+        // 🛠️ SENIOR DIAGNOSTIC LOG (Harden for potential undefined user)
+        if (req.user) {
+            console.log(`[VISIBLE_AUDIT] User: ${req.user.email}, Scope: ${req.user.dataScope}, Teams: ${JSON.stringify(req.user.teams?.map(t => t._id || t))}`);
+        } else {
+            console.log(`[VISIBLE_AUDIT] Anonymous request - Visibility restricted to public data.`);
+        }
+        console.log(`[VISIBLE_AUDIT] Generated Filter: ${JSON.stringify(visibilityFilter, null, 2)}`);
+
+        let query = { ...visibilityFilter, isVisible: { $ne: false } };
+
+        if (contactPhone) {
+            query.$or = [
+                { "partyStructure.buyer.mobile": { $regex: new RegExp(`${contactPhone}$`) } },
+                { "partyStructure.owner.mobile": { $regex: new RegExp(`${contactPhone}$`) } }
+            ];
+        }
 
         // ROBUST FILTER RESOLUTION (Handle both Names and IDs)
         const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const resolveFilter = async (type, value) => {
             if (!value) return null;
-            if (mongoose.Types.ObjectId.isValid(value)) return value;
+            if (mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value.toString());
 
             const cacheKey = `${type}:${value}`;
             if (_lookupResolveCache.has(cacheKey)) return _lookupResolveCache.get(cacheKey);
@@ -328,11 +363,12 @@ export const getDeals = async (req, res) => {
             { path: 'partyStructure.buyer', select: 'name phones emails', model: 'Contact' },
             { path: 'partyStructure.channelPartner', select: 'name phones emails', model: 'Contact' },
             { path: 'partyStructure.internalRM', select: 'fullName name email' },
-            { path: 'category', select: 'lookup_value' },
-            { path: 'subCategory', select: 'lookup_value' },
-            { path: 'intent', select: 'lookup_value' },
-            { path: 'status', select: 'lookup_value' },
-            { path: 'team', select: 'name' }
+            { path: 'category', select: 'lookup_value', model: 'Lookup' },
+            { path: 'subCategory', select: 'lookup_value', model: 'Lookup' },
+            { path: 'intent', select: 'lookup_value', model: 'Lookup' },
+            { path: 'status', select: 'lookup_value', model: 'Lookup' },
+            { path: 'team', select: 'name' },
+            { path: 'teams', select: 'name' }
         ];
         const results = await paginate(Deal, query, Number(page), Number(limit), { updatedAt: -1 }, populateFields);
 
@@ -392,8 +428,8 @@ export const getDeals = async (req, res) => {
         const inventoryMap = new Map();
         if (inventoryIdsToFetch.length > 0) {
             const inventories = await Inventory.find({ _id: { $in: inventoryIdsToFetch } })
-                .populate('owners')
-                .populate('associates.contact')
+                .populate({ path: 'owners', model: 'Contact' })
+                .populate({ path: 'associates.contact', model: 'Contact' })
                 .select('+sizeLabel +sizeConfig') // Ensure these are included if they were excluded by default
                 .lean();
             inventories.forEach(inv => inventoryMap.set(String(inv._id), inv));
@@ -409,12 +445,19 @@ export const getDeals = async (req, res) => {
                 const inventory = inventoryMap.get(String(invId));
                 if (inventory) {
                     if (inventory.owners && inventory.owners.length > 0) {
-                        dealObj.owner = inventory.owners[0];
+                        const invOwner = inventory.owners[0];
+                        // Only overwrite if it's a valid populated object (Contact)
+                        if (invOwner && typeof invOwner === 'object' && (invOwner.name || invOwner.fullName || invOwner.lookup_value)) {
+                            dealObj.owner = invOwner;
+                        }
                     }
                     if (inventory.associates && inventory.associates.length > 0) {
+                        const invAssoc = inventory.associates[0].contact;
                         // Sync if empty OR if it's just an ID string (failed population)
                         if (!dealObj.associatedContact || typeof dealObj.associatedContact === 'string') {
-                            dealObj.associatedContact = inventory.associates[0].contact;
+                            if (invAssoc && typeof invAssoc === 'object' && (invAssoc.name || invAssoc.fullName)) {
+                                dealObj.associatedContact = invAssoc;
+                            }
                         }
                     }
                 }
@@ -457,11 +500,12 @@ export const getDealById = async (req, res) => {
             { path: 'partyStructure.buyer', model: 'Contact' },
             { path: 'partyStructure.channelPartner', model: 'Contact' },
             { path: 'partyStructure.internalRM' },
-            { path: 'category' },
-            { path: 'subCategory' },
-            { path: 'intent' },
-            { path: 'status' },
-            { path: 'team' }
+            { path: 'category', select: 'lookup_value', model: 'Lookup' },
+            { path: 'subCategory', select: 'lookup_value', model: 'Lookup' },
+            { path: 'intent', select: 'lookup_value', model: 'Lookup' },
+            { path: 'status', select: 'lookup_value', model: 'Lookup' },
+            { path: 'team' },
+            { path: 'teams' }
         ];
         const deal = await Deal.findById(req.params.id).populate(populateFields);
         if (!deal) {

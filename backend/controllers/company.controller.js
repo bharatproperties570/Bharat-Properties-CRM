@@ -4,6 +4,7 @@ import User from "../models/User.js";
 import Lookup from "../models/Lookup.js";
 import { paginate } from "../utils/pagination.js";
 import { createCompanySchema, updateCompanySchema } from "../validations/company.validation.js";
+import { getVisibilityFilter } from "../utils/visibility.js";
 
 const populateFields = [
     { path: 'companyType', select: 'lookup_value' },
@@ -149,8 +150,9 @@ const sanitizeData = (data) => {
 export const getCompanies = async (req, res, next) => {
     try {
         const { page = 1, limit = 10, search = "" } = req.query;
+        const visibilityFilter = await getVisibilityFilter(req.user);
 
-        let query = {};
+        let query = { ...visibilityFilter };
         if (search) {
             query = {
                 $or: [

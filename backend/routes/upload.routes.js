@@ -1,9 +1,12 @@
 import express from 'express';
 import { uploadGeneric } from '../src/middlewares/upload.middleware.js';
 import { uploadFileToDrive } from '../services/drive.service.js';
-
-
-const router = express.Router();
+import { authenticate } from "../src/middlewares/auth.middleware.js";
+ 
+ const router = express.Router();
+ 
+ // Apply authentication to all routes
+ router.use(authenticate);
 
 /**
  * @route   POST /api/upload

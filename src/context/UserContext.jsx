@@ -93,6 +93,16 @@ export const UserProvider = ({ children }) => {
         // Optionally redirect or clear other state
     };
 
+    useEffect(() => {
+        const handleUnauthorized = () => {
+            console.warn('Handling global unauthorized event...');
+            logout();
+        };
+
+        window.addEventListener('unauthorized-token', handleUnauthorized);
+        return () => window.removeEventListener('unauthorized-token', handleUnauthorized);
+    }, [logout]);
+
     // User Operations
     const addUser = async (userData) => {
         try {

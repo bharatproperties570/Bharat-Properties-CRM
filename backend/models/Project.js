@@ -30,8 +30,9 @@ const ProjectSchema = new mongoose.Schema({
     approvedBank: String,
 
     // System Details
-    owner: { type: mongoose.Schema.Types.Mixed, ref: 'User' },
-    assign: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    owner: { type: mongoose.Schema.Types.Mixed, ref: 'User', index: true },
+    assign: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true }],
+    teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
     team: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
     visibleTo: String,
     
@@ -190,6 +191,14 @@ ProjectSchema.pre('save', async function (next) {
     if (Array.isArray(this.subCategory)) {
         this.subCategory = await Promise.all(this.subCategory.map(val => typeof val === 'string' ? resolveLookupLocal('SubCategory', val) : val));
     }
+
+    // Standardize Multi-Team visibility
+    if (Array.isArray(this.team) && this.team.length > 0 && (!this.teams || this.teams.length === 0)) {
+        this.teams = this.team;
+    } else if (Array.isArray(this.teams) && this.teams.length > 0 && (!this.team || this.team.length === 0)) {
+        this.team = this.teams;
+    }
+
     next();
 });
 

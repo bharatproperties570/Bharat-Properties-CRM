@@ -178,3 +178,10 @@ export const createNotification = async (userId, type, title, message, link = ''
         console.error("Error creating notification:", error);
     }
 };
+
+export default {
+    getNotifications,
+    markAsRead,
+    markAllAsRead,
+    createNotification
+};

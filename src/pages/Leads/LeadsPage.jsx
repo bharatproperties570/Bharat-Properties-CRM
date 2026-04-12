@@ -140,6 +140,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     // Modals State
     const [isSendMessageOpen, setIsSendMessageOpen] = useState(false);
     const [selectedLeadsForMessage, setSelectedLeadsForMessage] = useState([]);
+    const [showDormant, setShowDormant] = useState(false);
 
     const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
     const [selectedLeadsForTags, setSelectedLeadsForTags] = useState([]);
@@ -214,13 +215,17 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
         const fetchLeads = async () => {
             setLoading(true);
             try {
+                console.log("[Leads Audit] Attempting API call to /api/leads with params:", { page: currentPage, search: debouncedSearchTerm, ...filters });
                 const response = await api.get(`leads`, {
                     params: {
                         page: currentPage,
                         limit: recordsPerPage,
-                        search: debouncedSearchTerm
+                        search: debouncedSearchTerm,
+                        showDormant,
+                        ...filters
                     }
                 });
+                console.log("[Leads Audit] API Response Success:", response.data?.success, "Records:", response.data?.records?.length);
 
                 if (!response.data || !response.data.success) {
                     throw new Error("Failed to fetch leads");
@@ -333,6 +338,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         classification: lead.lead_classification || '',
                         roleType: lead.role_type || '',
                         intentTags: lead.intent_tags || [],
+                        aiIntentSummary: lead.ai_intent_summary || '',
+                        aiClosingProbability: lead.ai_closing_probability || 0,
                         contactDetails: lead.contactDetails // Added to track existing contact and prevent duplicates on edit
                     };
                 });
@@ -452,6 +459,30 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        {/* Dormant Toggle Button */}
+                        <button
+                            className={`btn-outline ${showDormant ? 'active-dormant' : ''}`}
+                            onClick={() => {
+                                setShowDormant(!showDormant);
+                                setCurrentPage(1); // Reset to first page when toggling
+                            }}
+                            title={showDormant ? "Hide Dormant Leads" : "Show Dormant Leads"}
+                            style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'center',
+                                width: '38px',
+                                height: '38px',
+                                padding: 0,
+                                backgroundColor: showDormant ? '#1e293b' : 'transparent',
+                                color: showDormant ? '#fff' : 'inherit',
+                                borderColor: showDormant ? '#1e293b' : '#cbd5e1',
+                                borderRadius: '10px'
+                            }}
+                        >
+                            <i className={`fas ${showDormant ? 'fa-sun' : 'fa-moon'}`}></i>
+                        </button>
+
                         {/* View Toggle Button */}
                         <button
                             className="btn-outline"
@@ -662,10 +693,26 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         <button
                                             className="action-btn"
                                             title="Mark Dormant"
-                                            onClick={() => {
-                                                if (window.confirm(`Mark ${selectedCount} leads as dormant?`)) {
-                                                    showToast(`Marked ${selectedCount} leads as dormant.`);
-                                                    setSelectedIds([]);
+                                            onClick={async () => {
+                                                if (window.confirm(`Mark ${selectedIds.length} leads as dormant?`)) {
+                                                    try {
+                                                        const dormantLookup = masterFields.statuses?.find(s => s.lookup_value?.toLowerCase() === 'dormant') || 
+                                                                            masterFields.stages?.find(s => s.lookup_value?.toLowerCase() === 'dormant');
+                                                        
+                                                        if (!dormantLookup) {
+                                                            alert("Dormant lookup not found in configuration.");
+                                                            return;
+                                                        }
+
+                                                        await Promise.all(selectedIds.map(id => api.put(`leads/${id}`, { status: dormantLookup._id || dormantLookup })));
+                                                        showToast(`Marked ${selectedIds.length} leads as dormant.`);
+                                                        setSelectedIds([]);
+                                                        // Refresh leads
+                                                        setCurrentPage(1);
+                                                    } catch (error) {
+                                                        console.error("Failed to mark leads as dormant:", error);
+                                                        showToast("Failed to update leads.");
+                                                    }
                                                 }
                                             }}
                                         >
@@ -1053,7 +1100,15 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     {activeScorePopover.ai && (
                         <div style={{ marginTop: '15px', background: 'rgba(255,255,255,0.05)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>
                             <div style={{ fontSize: '0.65rem', fontWeight: 900, color: '#10b981', textTransform: 'uppercase', marginBottom: '5px' }}>AI Insight</div>
-                            <p style={{ fontSize: '0.7rem', color: '#e2e8f0', margin: 0, lineHeight: 1.4 }}>{activeScorePopover.ai.summary}</p>
+                            <p style={{ fontSize: '0.7rem', color: '#e2e8f0', margin: 0, lineHeight: 1.4 }}>{activeScorePopover.ai.summary || activeScorePopover.ai.intentSummary || activeScorePopover.leadData?.aiIntentSummary}</p>
+                            {activeScorePopover.leadData?.aiClosingProbability > 0 && (
+                                <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+                                        <div style={{ width: `${activeScorePopover.leadData.aiClosingProbability}%`, height: '100%', background: '#10b981' }}></div>
+                                    </div>
+                                    <span style={{ fontSize: '0.65rem', fontWeight: 900, color: '#10b981' }}>{activeScorePopover.leadData.aiClosingProbability}% Prob</span>
+                                </div>
+                            )}
                             <div style={{ marginTop: '8px' }}>
                                 {activeScorePopover.ai.fullExplanation.map((exp, idx) => (
                                     <div key={idx} style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'flex', gap: '5px', marginBottom: '3px' }}>
@@ -1269,7 +1324,8 @@ const LeadItem = React.memo(function LeadItem({
                                     x: rect.left,
                                     y: rect.bottom + 10,
                                     scoring: { ...scoring, total: displayScore },
-                                    ai: aiExplanation
+                                    ai: aiExplanation,
+                                    leadData: lead
                                 });
                             }}
                         >
@@ -1289,6 +1345,11 @@ const LeadItem = React.memo(function LeadItem({
                             >
                                 {lead.name}
                             </a>
+                            {lead.aiClosingProbability > 75 && (
+                                <span style={{ marginLeft: '8px', background: '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 900, border: '1px solid #bbf7d0' }}>
+                                    ✨ HIGH INTENT
+                                </span>
+                            )}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
                             {lead.isTemporary && lead.expiryBadge ? (

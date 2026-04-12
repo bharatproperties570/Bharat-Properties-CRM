@@ -11,8 +11,12 @@ import {
     sendSms,
     getActiveProviderStatus
 } from './sms.controller.js';
+import { authenticate } from "../../../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
+
+// Apply authentication to all routes
+router.use(authenticate);
 
 router.get('/status', getActiveProviderStatus);
 

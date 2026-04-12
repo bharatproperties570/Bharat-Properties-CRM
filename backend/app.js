@@ -4,6 +4,7 @@ import compression from "compression";
 import cookieParser from "cookie-parser";
 import mongoSanitize from "express-mongo-sanitize";
 import rateLimit from "express-rate-limit";
+import { AppError } from "./src/middlewares/error.middleware.js";
 
 // Route Imports
 import authRoutes from "./routes/auth.routes.js";
@@ -19,6 +20,9 @@ import distributionRuleRoutes from "./routes/distributionRule.routes.js";
 import systemSettingRoutes from "./routes/systemSetting.routes.js";
 import roleRoutes from "./routes/role.routes.js";
 import dealRoutes from "./routes/deal.routes.js";
+import socialRoutes from "./routes/social.routes.js";
+import whatsappActionRoutes from "./routes/whatsapp.actions.routes.js";
+import webhookRoutes from "./routes/webhook.routes.js";
 import companyRoutes from "./routes/company.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
 import teamRoutes from "./routes/team.routes.js";
@@ -44,13 +48,10 @@ import salesGoalRoutes from "./routes/salesGoal.routes.js";
 import notificationSettingRoutes from "./routes/notificationSetting.routes.js";
 import publicRoutes from "./routes/public.routes.js";
 import googleSettingsRoutes from "./routes/googleSettings.routes.js";
-import webhookRoutes from "./routes/webhook.routes.js";
 import marketingRoutes from "./routes/marketing.routes.js";
 import integrationSettingsRoutes from "./routes/integrationSettings.routes.js";
 import conversationRoutes from "./routes/conversation.routes.js";
 import aiAgentRoutes from "./routes/aiAgent.routes.js";
-import socialRoutes from "./routes/social.routes.js"; // Phase D: Instagram/Facebook Graph API
-
 
 const app = express();
 
@@ -114,15 +115,11 @@ app.get("/api/health", (req, res) => {
 
 // Request Logger
 app.use((req, res, next) => {
-    if (process.env.NODE_ENV !== 'production') {
-        try {
-            if (process.stdout.writable) {
-                console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url.split('?')[0]}`);
-            }
-        } catch (err) {
-            // Silently ignore logging errors to avoid crashing the request
-        }
-    }
+    const start = Date.now();
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url.split('?')[0]} ${res.statusCode} (${duration}ms)`);
+    });
     next();
 });
 
@@ -168,11 +165,17 @@ app.use("/api/notification-settings", notificationSettingRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/settings/google", googleSettingsRoutes);
 app.use("/api/webhooks", webhookRoutes);   // Marketing automation webhooks
-app.use("/api/marketings", marketingRoutes); // Marketing Suite AI Agent Stats
+app.use("/api/marketing", marketingRoutes); // Marketing Suite AI Agent Stats
 app.use("/api/settings/ai", integrationSettingsRoutes);
 app.use("/api/settings/ai-agents", aiAgentRoutes);
 app.use("/api/conversations", conversationRoutes);
-app.use("/api/social",        socialRoutes);          // Phase D: Instagram/Facebook/Webhook
+app.use("/api/social",        socialRoutes);
+app.use("/api/whatsapp-config", whatsappActionRoutes);
+
+app.all("*", (req, res, next) => {
+    console.error(`[404_FALLBACK] Missing Route: ${req.method} ${req.originalUrl}`);
+    next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));
+});
 
 
 import fs from 'fs';
@@ -187,14 +190,25 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
             data: err.mergedLead
         });
     }
-    console.error(err.stack);
+    
+    // 🛠️ SENIOR DIAGNOSTIC: Log actual error for debugging
+    console.error(`[API_ERROR] ${req.method} ${req.url} - ${err.message}`);
+    if (err.stack) console.error(err.stack);
+
     const logPath = path.join(process.cwd(), 'error.log');
     try {
-        fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${req.method} ${req.url}\n${err.stack}\n\n`);
+        fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${req.method} ${req.url}\n${err.stack || err.message}\n\n`);
     } catch (fsErr) {
         console.error('Failed to log error to file:', fsErr);
     }
-    res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
+
+    const statusCode = err.statusCode || err.status || 500;
+    res.status(statusCode).json({ 
+        success: false, 
+        message: err.message || "Internal Server Error",
+        // Only include error details if not in production or if it's an operational error
+        ...(process.env.NODE_ENV !== 'production' && { error: err.message })
+    });
 });
 
 export default app;

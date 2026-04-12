@@ -165,3 +165,34 @@ export const uploadFileToDrive = async (file, options = {}) => {
         throw error;
     }
 };
+
+/**
+ * Download a file's content as a buffer from Google Drive
+ * @param {string} fileId 
+ * @returns {Promise<{buffer: Buffer, mimeType: string}>}
+ */
+export const downloadFileBuffer = async (fileId) => {
+    const driveService = await getDriveService();
+    if (!driveService) throw new Error('Drive service disconnected');
+
+    try {
+        const response = await driveService.files.get(
+            { fileId, alt: 'media' },
+            { responseType: 'arraybuffer' }
+        );
+
+        const metadata = await driveService.files.get({
+            fileId,
+            fields: 'mimeType, name'
+        });
+
+        return {
+            buffer: Buffer.from(response.data),
+            mimeType: metadata.data.mimeType,
+            fileName: metadata.data.name
+        };
+    } catch (error) {
+        console.error(`[DriveService] Download Error for ${fileId}:`, error.message);
+        throw error;
+    }
+};

@@ -3970,6 +3970,30 @@
   background: #EDF2F7;
   color: #4A5568;
 }
+
+.marketing-os-container.light-mode .funnel-container {
+  background: #F1F5F9;
+  border-color: #E2E8F0;
+}
+
+.marketing-os-container.light-mode .funnel-tier {
+  border-color: rgba(0, 0, 0, 0.05);
+}
+
+.marketing-os-container.light-mode .yield-stat-card {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+}
+
+.marketing-os-container.light-mode .conv-v-badge {
+  background: #FFFFFF;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+.marketing-os-container.light-mode .sidebar {
+  box-shadow: 10px 0 30px rgba(0, 0, 0, 0.05);
+}
 /* ── NEURAL FUNNEL VISUALIZATION ── */
 .funnel-container {
   display: flex;

@@ -24,7 +24,7 @@ const connectDB = async (retryCount = 5) => {
                 family: 4, 
                 maxPoolSize: 10
             });
-            console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+            console.log(`✅ MongoDB Connected: ${conn.connection.host} | Database: ${conn.connection.name}`);
             return; // Success
         } catch (error) {
             console.error(`❌ MongoDB Connection Attempt ${i + 1} Failed: ${error.message}`);

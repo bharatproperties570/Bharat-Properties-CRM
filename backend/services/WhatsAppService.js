@@ -12,7 +12,7 @@
  *   Gupshup:        https://www.gupshup.io/developer/docs/bot-platform/guide/whatsapp-api-documentation
  */
 import axios from 'axios';
-import SystemSetting from '../models/SystemSetting.js';
+import SystemSetting from '../src/modules/systemSettings/system.model.js';
 
 const META_GRAPH_BASE = 'https://graph.facebook.com/v19.0';
 
@@ -27,17 +27,23 @@ class WhatsAppService {
 
     /** Meta Cloud API config: env vars take priority, then DB */
     async _getMetaConfig() {
+        // 1. Check Env Vars
         const envToken   = process.env.META_WA_TOKEN;
         const envPhoneId = process.env.META_WA_PHONE_ID;
+        const envWabaId  = process.env.META_WABA_ID;
 
         if (envToken && envPhoneId && !envToken.includes('YOUR_')) {
-            return { token: envToken, phoneId: envPhoneId };
+            return { token: envToken, phoneId: envPhoneId, businessId: envWabaId };
         }
 
-        // Fall back to DB key
+        // 2. Check DB (standardize on meta_wa_config key)
         const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
-        if (setting?.value?.token && setting?.value?.phoneId) {
-            return { token: setting.value.token, phoneId: setting.value.phoneId };
+        if (setting?.value?.token || setting?.value?.apiKey) {
+            return {
+                token:      setting.value.token || setting.value.apiKey,
+                phoneId:    setting.value.phoneId,
+                businessId: setting.value.businessId || setting.value.wabaId
+            };
         }
 
         return null;
@@ -101,38 +107,45 @@ class WhatsAppService {
 
     /**
      * Send via Meta WhatsApp Cloud API.
-     * Supports text messages (freeform within 24-hour session window).
-     * For first-contact marketing, use approved template messages.
+     * Supports text, image, and document messages.
      */
-    async _sendViaMeta(mobile, message, config) {
-        // Meta requires E.164 format without + prefix for the `to` field
+    async _sendViaMeta(mobile, message, config, options = {}) {
         const toNumber = mobile.length === 10 ? `91${mobile}` : mobile.replace(/^\+/, '');
+        const { type = 'text', mediaUrl, filename, caption } = options;
 
         try {
             const url = `${META_GRAPH_BASE}/${config.phoneId}/messages`;
-            const response = await axios.post(url, {
+            const payload = {
                 messaging_product: 'whatsapp',
                 recipient_type:    'individual',
                 to:                toNumber,
-                type:              'text',
-                text: {
-                    preview_url: false,
-                    body:        message,
-                },
-            }, {
+            };
+
+            if (type === 'text') {
+                payload.type = 'text';
+                payload.text = { body: message, preview_url: false };
+            } else if (type === 'image') {
+                payload.type = 'image';
+                payload.image = { link: mediaUrl, caption: caption || message };
+            } else if (type === 'document') {
+                payload.type = 'document';
+                payload.document = { link: mediaUrl, filename: filename || 'document.pdf', caption: caption || message };
+            }
+
+            const response = await axios.post(url, payload, {
                 headers: {
                     'Authorization': `Bearer ${config.token}`,
                     'Content-Type':  'application/json',
                 },
-                timeout: 12000,
+                timeout: 15000,
             });
 
             const msgId = response.data?.messages?.[0]?.id;
-            console.log(`[WhatsApp/Meta] Sent to ${toNumber}: ${msgId}`);
-            return { success: true, messageId: msgId, provider: 'meta' };
+            console.log(`[WhatsApp/Meta] Sent ${type} to ${toNumber}: ${msgId}`);
+            return { success: true, messageId: msgId, provider: 'meta', type };
         } catch (err) {
             const detail = err.response?.data?.error?.message || err.message;
-            console.error(`[WhatsApp/Meta] Error sending to ${toNumber}:`, detail);
+            console.error(`[WhatsApp/Meta] Error sending ${type} to ${toNumber}:`, detail);
             return { success: false, error: detail, provider: 'meta' };
         }
     }
@@ -170,13 +183,7 @@ class WhatsAppService {
     }
 
     /**
-     * Send a Meta template message (for first-contact marketing outside 24hr window).
-     * Template must be pre-approved in Meta Business Manager.
-     *
-     * @param {string} mobile        - 10-digit mobile number
-     * @param {string} templateName  - Approved template name (e.g. 'property_launch_v1')
-     * @param {string} languageCode  - Template language (default: 'en')
-     * @param {Array}  components    - Template body components with parameters
+     * Send a Meta template message.
      */
     async sendTemplate(mobile, templateName, languageCode = 'en', components = []) {
         const metaConfig = await this._getMetaConfig();
@@ -203,7 +210,7 @@ class WhatsAppService {
                     'Authorization': `Bearer ${metaConfig.token}`,
                     'Content-Type':  'application/json',
                 },
-                timeout: 12000,
+                timeout: 15000,
             });
 
             const msgId = response.data?.messages?.[0]?.id;
@@ -214,6 +221,65 @@ class WhatsAppService {
             console.error(`[WhatsApp/Meta] Template error for ${toNumber}:`, detail);
             return { success: false, error: detail, provider: 'meta' };
         }
+    }
+
+    /**
+     * Send an image or document via WhatsApp.
+     * @param {string} mobile   - Recipient mobile
+     * @param {string} type     - 'image' or 'document'
+     * @param {string} mediaUrl - URL of the file
+     * @param {string} caption  - Optional text
+     * @param {string} filename - Optional for documents
+     */
+    async sendMedia(mobile, type, mediaUrl, caption = '', filename = '') {
+        const metaConfig = await this._getMetaConfig();
+        if (metaConfig) {
+            return this._sendViaMeta(mobile, caption, metaConfig, { type, mediaUrl, caption, filename });
+        }
+        
+        console.log(`[WhatsApp] MOCK ${type} to ${mobile}: ${mediaUrl}`);
+        return { success: true, mock: true, provider: 'mock' };
+    }
+
+    /**
+     * Fetch WhatsApp Templates from Meta Business Account
+     */
+    async getTemplates() {
+        const config = await this._getMetaConfig();
+        if (!config || !config.businessId || !config.token) {
+            return []; // Fallback if not configured
+        }
+
+        try {
+            const url = `${META_GRAPH_BASE}/${config.businessId}/message_templates`;
+            const response = await axios.get(url, {
+                headers: { 'Authorization': `Bearer ${config.token}` },
+                params: { limit: 100 }
+            });
+            return response.data?.data || [];
+        } catch (err) {
+            console.error('[WhatsApp/Meta] Error fetching templates:', err.response?.data || err.message);
+            return [];
+        }
+    }
+
+    /**
+     * Webhook verification (for Meta handshake).
+     * Professional Enterprise validation
+     */
+    verifyWebhook(query, verifyToken) {
+        const mode = query['hub.mode'];
+        const token = query['hub.verify_token'];
+        const challenge = query['hub.challenge'];
+
+        if (mode && token) {
+            if (mode === 'subscribe' && token === verifyToken) {
+                console.log('[WhatsApp] Webhook Verified Successfully');
+                return challenge;
+            }
+        }
+        console.warn('[WhatsApp] Webhook Verification Failed: Invalid Token');
+        return null;
     }
 }
 
