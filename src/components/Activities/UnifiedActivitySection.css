@@ -76,3 +76,65 @@
 .timeline-item:last-child .timeline-connector {
     display: none;
 }
+/* WhatsApp Chat Bubble Styles */
+.whatsapp-chat-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+}
+
+.wa-bubble {
+    max-width: 85%;
+    padding: 10px 14px 18px 14px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    position: relative;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    word-break: break-word;
+    font-weight: 500;
+}
+
+.wa-incoming {
+    align-self: flex-start;
+    background: #ffffff;
+    color: #1e293b;
+    border: 1px solid #e2e8f0;
+    border-top-left-radius: 2px;
+}
+
+.wa-outgoing {
+    align-self: flex-end;
+    background: #dcf8c6;
+    color: #075e54;
+    border: 1px solid #c7e5a8;
+    border-top-right-radius: 2px;
+}
+
+.wa-bubble-time {
+    position: absolute;
+    bottom: 4px;
+    right: 8px;
+    font-size: 0.65rem;
+    color: rgba(0,0,0,0.45);
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+}
+
+.wa-check {
+    color: #34b7f1;
+    font-size: 0.7rem;
+}
+
+/* Timeline Customization for WhatsApp */
+.timeline-item .fa-whatsapp {
+    animation: wa-pulse 2s infinite;
+}
+
+@keyframes wa-pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}

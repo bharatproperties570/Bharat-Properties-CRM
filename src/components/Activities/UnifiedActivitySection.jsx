@@ -480,7 +480,19 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                         {new Date(item.timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} • {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                     </div>
                                                 </div>
-                                                {item.description && (
+                                                {item.type?.toLowerCase() === 'whatsapp' ? (
+                                                    <div className="whatsapp-chat-container" style={{ marginTop: '12px' }}>
+                                                        <div className={`wa-bubble ${item.details?.direction === 'incoming' ? 'wa-incoming' : 'wa-outgoing'}`}>
+                                                            {item.description}
+                                                            <div className="wa-bubble-time">
+                                                                {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                {item.details?.direction === 'outgoing' && (
+                                                                    <i className="fas fa-check-double wa-check" style={{ marginLeft: '4px' }}></i>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ) : item.description && (
                                                     <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '6px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
                                                         {item.description}
                                                     </div>

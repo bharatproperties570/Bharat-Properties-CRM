@@ -173,8 +173,47 @@ export const receiveWebhook = async (req, res) => {
         if (events.length > 0) {
             console.log(`[SocialController] Received ${events.length} social event(s):`, 
                 events.map(e => `${e.platform}:${e.type}`).join(', '));
-            // TODO: Pipe events to real-time notification system or save to DB
-            // e.g. notificationQueue.add('socialComment', event)
+            
+            // --- WhatsApp Activity Synchronization ---
+            const Activity = (await import('../models/Activity.js')).default;
+            const Lead = (await import('../models/Lead.js')).default;
+
+            for (const event of events) {
+                if (event.platform === 'whatsapp' && event.type === 'message') {
+                    // 1. Normalize phone (e.g., 919876543210 -> 9876543210)
+                    const rawPhone = event.senderId;
+                    const cleanPhone = rawPhone.replace(/\D/g, '').slice(-10);
+
+                    // 2. Find matching Lead/Contact
+                    const lead = await Lead.findOne({ mobile: { $regex: new RegExp(cleanPhone + '$') } });
+
+                    // 3. Save as Activity
+                    await Activity.create({
+                        type: 'WhatsApp',
+                        subject: `WhatsApp from ${rawPhone}`,
+                        entityType: lead ? 'Lead' : 'System',
+                        entityId: lead ? lead._id : null,
+                        description: event.text,
+                        status: 'Completed',
+                        priority: 'Normal',
+                        dueDate: new Date(),
+                        performedBy: 'WhatsApp Service',
+                        details: {
+                            platform: 'whatsapp',
+                            direction: 'incoming',
+                            sender: rawPhone,
+                            message: event.text,
+                            messageId: event.messageId
+                        },
+                        timestamp: event.timestamp || new Date()
+                    });
+                    
+                    if (lead) {
+                        lead.lastActivityAt = new Date();
+                        await lead.save();
+                    }
+                }
+            }
         }
     } catch (err) {
         console.error('[SocialController] receiveWebhook error:', err.message);

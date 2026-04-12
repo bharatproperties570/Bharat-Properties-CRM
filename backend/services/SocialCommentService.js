@@ -269,6 +269,21 @@ class SocialCommentService {
                         });
                     }
                 }
+                // WhatsApp message event (Meta Cloud API)
+                const waValue = entry.changes?.[0]?.value || {};
+                if (waValue.messaging_product === 'whatsapp' && waValue.messages) {
+                    for (const msg of waValue.messages) {
+                        events.push({
+                            platform: 'whatsapp',
+                            type: 'message',
+                            senderId: msg.from, // Customer's phone number
+                            text:     msg.text?.body || (msg.type === 'location' ? '[Location Sent]' : '[Media Attachment]'),
+                            messageId: msg.id,
+                            timestamp: new Date(parseInt(msg.timestamp) * 1000).toISOString(),
+                            raw: msg
+                        });
+                    }
+                }
             }
         } catch (err) {
             console.error('[SocialComment] processWebhookPayload error:', err.message);
