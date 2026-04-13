@@ -90,7 +90,7 @@ const LeadSchema = new mongoose.Schema({
 
     // ━━ Stage Engine Fields (added for MongoDB integration) ━━━━━━━━━━━━━━━━━━━━
     stageChangedAt: { type: Date, index: true },             // When stage last changed
-    lastActivityAt: { type: Date, index: true },             // When last activity logged
+    lastActivityAt: { type: Date },             // When last activity logged (Indexed below)
 
     // ━━ Unified Scoring Fields — written ONLY by LeadScoringService.js ━━━━━━━
     leadScore: { type: Number, default: 0, min: 0, max: 100 }, // Final authoritative score (backend-only)
