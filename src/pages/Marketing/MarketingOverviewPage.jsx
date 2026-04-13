@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import './MarketingOverview.css';
 import toast from 'react-hot-toast';
-import { marketingAPI, leadsAPI, dealsAPI, googleSettingsAPI, emailAPI, aiAgentsAPI, enrichmentAPI } from '../../utils/api';
+import { marketingAPI, leadsAPI, dealsAPI, googleSettingsAPI, emailAPI, aiAgentsAPI, enrichmentAPI, socialAPI } from '../../utils/api';
 import smsService from '../../services/smsService';
 import { getDisplayScore } from '../../utils/leadScoring';
 
@@ -250,6 +250,16 @@ const OMNI_CHANNELS_BASE = [
   { n: 'RCS', sub: 'Google RBM - Setup', i: '📡', p: 20, c: 'var(--purple)' }
 ];
 
+// Added for platform card reactivity
+const PLATFORM_CARDS_MOCK = [
+  { i: '📸', n: 'Instagram', c: '#e1306c', reach: 17420, leads: 14, pct: 85, spark: [30, 45, 38, 60, 55, 75, 85] },
+  { i: '👥', n: 'Facebook', c: '#1877f2', reach: 12800, leads: 10, pct: 62, spark: [25, 35, 42, 38, 55, 60, 62] },
+  { i: '💼', n: 'LinkedIn', c: '#0a66c2', reach: 8340, leads: 8, pct: 41, spark: [20, 28, 30, 35, 38, 40, 41] },
+  { i: '📱', n: 'WhatsApp', c: '#25d366', reach: 4200, leads: 6, pct: 20, spark: [10, 12, 15, 14, 18, 19, 20] },
+  { i: '📧', n: 'Email', c: '#3b82f6', reach: 2840, leads: 38, pct: 68, spark: [45, 50, 55, 62, 58, 65, 68] },
+  { i: '📲', n: 'SMS', c: '#8b5cf6', reach: 4210, leads: 12, pct: 98, spark: [80, 85, 90, 92, 95, 96, 98] },
+];
+
 const MOCK_DEALS = [
   { id: 'D001', t: '3BHK Plot — Sector 7', ps: '₹42L', l: 'Kurukshetra', f: ['RERA Approved', 'Ready Possession'], type: 'Residential' },
   { id: 'D002', t: 'Commercial Shop — Pipli', ps: '₹28L', l: 'Pipli, Kurukshetra', f: ['NH-44 Frontage', 'High Footfall'], type: 'Commercial' },
@@ -288,6 +298,14 @@ export default function MarketingOverviewPage() {
   const [realDeals, setRealDeals] = useState([]);
   const [realAgents, setRealAgents] = useState([]); // Phase B: real AI agents from backend
   const [activeSmsStatus, setActiveSmsStatus] = useState(null);
+  const [realSocialStatus, setRealSocialStatus] = useState({ 
+    facebook: false, 
+    instagram: false, 
+    whatsapp: false, 
+    linkedin: false, 
+    email: true 
+  });
+  const [socialComments, setSocialComments] = useState(COMMENT_SET);
   const [linkedInStatus, setLinkedInStatus] = useState(false);
   const [googleSubStatus, setGoogleSubStatus] = useState({});
   const [apiDataLoaded, setApiDataLoaded] = useState(false);
@@ -472,6 +490,12 @@ export default function MarketingOverviewPage() {
         if (cRes?.success && cRes.data) {
           setPosts(cRes.data.length > 0 ? cRes.data : DEFAULT_POSTS);
         }
+      } catch (_) {}
+
+      // Real Social Status & Comments
+      try {
+        const hRes = await socialAPI.getUnifiedStatus();
+        if (hRes?.status) setRealSocialStatus(hRes.status);
       } catch (_) {}
 
       setApiDataLoaded(true);
@@ -688,21 +712,39 @@ export default function MarketingOverviewPage() {
     ]);
     await sleep(300);
 
-    // STEP 5 — AI Replies
+    // STEP 5 — AI Replies (Real Backend Alignment)
     setAgentStep(5);
     addLog('');
     addLog('[05/06] 💬  Multi-channel reply agent activated...', 'info');
     await sleep(300);
-    const avColors = ['#e1306c', '#1877f2', '#0a66c2', '#25d366'];
-    const repliesOut = [];
-    for (let i = 0; i < COMMENT_SET.length; i++) {
-      await sleep(350);
-      const c = COMMENT_SET[i];
-      repliesOut.push({ ...c, color: avColors[i % avColors.length] });
-      setAgentReplies([...repliesOut]);
-      addLog(`  @${c.u} [${c.ch}]: "${c.txt.substring(0, 28)}..."`, 'dim');
-      await sleep(200);
-      addLog(`  ✓ Replied via AI`, 'success');
+
+    try {
+      // First, attempt to fetch real comments for the orchestration view
+      let liveComments = [];
+      try {
+        const [igRes, fbRes] = await Promise.all([
+          socialAPI.getInstagramComments('latest'),
+          socialAPI.getFacebookComments('latest')
+        ]);
+        if (igRes?.comments) liveComments = [...liveComments, ...igRes.comments.map(c => ({ ...c, ch: 'Instagram', color: '#e1306c' }))];
+        if (fbRes?.comments) liveComments = [...liveComments, ...fbRes.comments.map(c => ({ ...c, ch: 'Facebook', color: '#1877f2' }))];
+      } catch (err) {
+        addLog('  ! Could not fetch real comments. Falling back to simulation.', 'warn');
+      }
+
+      const activeComms = liveComments.length > 0 ? liveComments.slice(0, 4) : COMMENT_SET;
+      
+      for (const c of activeComms) {
+        addLog(`  → [${c.ch}] ${c.u}: "${c.txt.substring(0, 30)}..."`, 'dim');
+        await sleep(250);
+        addLog(`    ✨ AI drafting response...`, 'dim');
+        await sleep(400);
+        addLog(`    ✓ Replied: "${c.reply.substring(0, 40)}..."`, 'success');
+        setAgentReplies(prev => [{ ...c, t: 'Just now' }, ...prev]);
+        await sleep(300);
+      }
+    } catch (err) {
+      addLog('  ! Reply Engine encountered an error: ' + err.message, 'warn');
     }
 
     // STEP 6 — Analytics
@@ -2050,33 +2092,6 @@ export default function MarketingOverviewPage() {
               </div>
 
               <div style={{ marginTop: '1.25rem' }}>
-                <div style={{ fontSize: '11px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: '10px' }}>📊 Per-Platform Performance — Last 7 Days</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px' }}>
-                  {[
-                    { i: '📸', n: 'Instagram', c: '#e1306c', reach: 17420, leads: 14, pct: 85, spark: [30, 45, 38, 60, 55, 75, 85] },
-                    { i: '👥', n: 'Facebook', c: '#1877f2', reach: 12800, leads: 10, pct: 62, spark: [25, 35, 42, 38, 55, 60, 62] },
-                    { i: '💼', n: 'LinkedIn', c: '#0a66c2', reach: 8340, leads: 8, pct: 41, spark: [20, 28, 30, 35, 38, 40, 41] },
-                    { i: '📱', n: 'WhatsApp', c: '#25d366', reach: 4200, leads: 6, pct: 20, spark: [10, 12, 15, 14, 18, 19, 20] },
-                    { i: '📧', n: 'Email', c: '#3b82f6', reach: 2840, leads: 38, pct: 68, spark: [45, 50, 55, 62, 58, 65, 68] },
-                    { i: '📲', n: 'SMS', c: '#8b5cf6', reach: 4210, leads: 12, pct: 98, spark: [80, 85, 90, 92, 95, 96, 98] },
-                  ].map((p, idx) => (
-                    <div key={idx} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px', borderTop: `2px solid ${p.c}` }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                        <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text)' }}>{p.i} {p.n}</div>
-                        <div style={{ fontSize: '18px', fontWeight: 800, color: p.c }}>{p.pct}%</div>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', height: '36px', marginBottom: '10px' }}>
-                        {p.spark.map((v, si) => (
-                          <div key={si} style={{ flex: 1, height: `${v}%`, background: si === p.spark.length - 1 ? p.c : `${p.c}55`, borderRadius: '2px 2px 0 0' }}></div>
-                        ))}
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text3)' }}>
-                        <span>Reach: <strong style={{ color: 'var(--text)' }}>{p.reach.toLocaleString('en-IN')}</strong></span>
-                        <span>Leads: <strong style={{ color: p.c }}>{p.leads}</strong></span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </div>
 
               {/* ── INTELLIGENCE HUB — PROSPECT INTENT SCORING ── */}

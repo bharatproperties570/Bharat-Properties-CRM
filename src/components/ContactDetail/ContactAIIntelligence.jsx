@@ -91,17 +91,18 @@ const ContactAIIntelligence = React.memo(function ContactAIIntelligence({
                         {/* AI Loss Summary */}
                         <div style={{ marginBottom: '20px' }}>
                             <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>AI Loss Summary</div>
-                            <div style={{
-                                padding: '12px',
-                                background: '#f8fafc',
-                                borderRadius: '12px',
-                                fontSize: '0.85rem',
-                                lineHeight: '1.5',
-                                color: '#334155',
-                                border: '1px solid #f1f5f9'
-                            }}>
-                                {aiStats.lossAnalysis.summary}
-                            </div>
+                                <div style={{
+                                    padding: '12px',
+                                    background: '#f8fafc',
+                                    borderRadius: '12px',
+                                    fontSize: '0.85rem',
+                                    lineHeight: '1.5',
+                                    color: '#334155',
+                                    border: '1px solid #f1f5f9',
+                                    wordBreak: 'break-word'
+                                }}>
+                                    {aiStats.lossAnalysis.summary}
+                                </div>
                         </div>
 
                         {/* Primary Reasons with Manual Override */}
@@ -280,6 +281,8 @@ const ContactAIIntelligence = React.memo(function ContactAIIntelligence({
                 </div>
                 {expandedSections.includes('ai') && (
                     <div style={{ padding: '20px' }}>
+
+
                         <div style={{ marginBottom: '20px' }}>
                             <div style={{ fontSize: '0.65rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px' }}>AI Nurture Lifecycle</div>
                             <div style={{ background: 'rgba(79, 70, 229, 0.05)', borderRadius: '12px', padding: '16px', border: '1px solid rgba(79, 70, 229, 0.1)' }}>
@@ -312,7 +315,7 @@ const ContactAIIntelligence = React.memo(function ContactAIIntelligence({
                                     })}
                                 </div>
 
-                                <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: '1.5', fontWeight: 600 }}>
+                                <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: '1.5', fontWeight: 600, wordBreak: 'break-word' }}>
                                     {contact.customFields?.nurtureState === 'CALL_QUEUED' ? (
                                         <span style={{ color: '#16a34a' }}>
                                             <i className="fas fa-phone-alt"></i> NurtureBot has queued an automated call to connect you with this lead.

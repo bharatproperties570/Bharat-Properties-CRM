@@ -620,7 +620,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                         </div>
                         <div>
                             <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
-                                {title || (deal ? 'Update Lead' : 'Add New Deal')}
+                                {title || (deal ? 'Update Deal' : 'Add New Deal')}
                             </h2>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
                                 <span style={{ fontSize: '0.8rem', color: '#64748b' }}>

@@ -139,11 +139,11 @@ export const matchDeals = async (req, res) => {
             }
 
             // 3. Location (Weight: location)
-            const dealLoc = (deal.location || deal.projectName || "").toLowerCase();
-            const leadLocArea = (lead.locArea || "").toLowerCase();
-            const leadSelectedLoc = (lead.location?.lookup_value || "").toLowerCase();
-            const leadCity = (lead.locCity || "").toLowerCase();
-            const leadSector = (lead.sector || "").toLowerCase();
+            const dealLoc = String(deal.location?.lookup_value || deal.location?._id || deal.location || deal.projectName || "").toLowerCase();
+            const leadLocArea = String(lead.locArea || "").toLowerCase();
+            const leadSelectedLoc = String(lead.location?.lookup_value || lead.location?._id || lead.location || "").toLowerCase();
+            const leadCity = String(lead.locCity || "").toLowerCase();
+            const leadSector = String(lead.sector || "").toLowerCase();
             const leadProjects = Array.isArray(lead.projectName) ? lead.projectName : [];
 
             let locScore = 0;

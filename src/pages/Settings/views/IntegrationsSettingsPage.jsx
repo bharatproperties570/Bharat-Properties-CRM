@@ -46,7 +46,17 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
 
     const loadAiConfig = async () => {
         try {
-            const configKey = type === 'linkedin' ? 'linkedin_integration' : (type === 'whatsapp' ? 'meta_wa_config' : `ai_${type}_config`);
+            let configKey;
+            if (type === 'linkedin') {
+                configKey = 'linkedin_integration';
+            } else if (type === 'whatsapp') {
+                configKey = 'meta_wa_config';
+            } else if (type === 'facebook' || type === 'instagram') {
+                configKey = 'social_graph_config';
+            } else {
+                configKey = `ai_${type}_config`;
+            }
+
             const res = await systemSettingsAPI.getByKey(configKey);
             if (res && res.data && res.data.value) {
                 const loadedConfig = res.data.value;
@@ -97,11 +107,19 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         const whatsappPayload = {
                             token: config.token || config.apiKey,
                             phoneId: config.phoneId,
-                            businessId: config.businessId || config.wabaId
+                            businessId: config.businessId || config.wabaId,
+                            verifyToken: config.verifyToken
                         };
                         await socialAPI.saveWhatsAppConfig(whatsappPayload);
                     } else {
-                        await socialAPI.saveConfig(type, config);
+                        // For Meta Graph, ensure we send a clean payload
+                        const socialPayload = {
+                            pageId: config.pageId,
+                            pageAccessToken: config.pageAccessToken,
+                            igUserId: config.igUserId,
+                            verifyToken: config.verifyToken
+                        };
+                        await socialAPI.saveConfig(type, socialPayload);
                     }
                     setLastKnownStatus('Connected');
                     toast.success(`${type.charAt(0).toUpperCase() + type.slice(1)} configuration updated successfully!`);
@@ -137,17 +155,14 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
     };
 
     const handleTest = async () => {
-        if (!config.apiKey && !config.sid && !config.token) {
-            setTestResult({ success: false, message: 'Please enter credentials first' });
-            return;
-        }
-
         setTesting(true);
         setTestResult(null);
         try {
             let res;
             if (['openai', 'gemini', 'claude'].includes(type)) {
                 res = await systemSettingsAPI.testAi(type, config);
+            } else if (['facebook', 'instagram', 'whatsapp'].includes(type)) {
+                res = await socialAPI.testConnection();
             } else {
                 const phone = prompt('Enter phone number to send test SMS (with country code):', '+91');
                 if (!phone) {
@@ -254,12 +269,18 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                     icon: 'fab fa-facebook',
                     color: '#1877F2',
                     steps: [
-                        'Go to Meta for Developers Console.',
-                        'Create or select your Facebook App.',
-                        'Add the Messenger product to your app.',
-                        'Link your Facebook Page and generate an Access Token.'
+                        'Go to Meta Developer Console.',
+                        'Create/Select App and enable "Messenger" & "Webhooks".',
+                        'Generate a **Page Access Token** (Long-lived recommended).',
+                        'Step 1: Input Page ID and Access Token below.',
+                        'Step 2: Set "Verify Token" and configure Webhook URL in Meta Console.',
+                        'Step 3: Subscribe to "leadgen" and "messages" fields.'
                     ],
-                    showWebhook: true
+                    showWebhook: true,
+                    webhookConfig: {
+                        field: 'leadgen, messages',
+                        path: '/api/social/webhook'
+                    }
                 };
             case 'instagram':
                 return {
@@ -269,10 +290,15 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                     steps: [
                         'Convert your Instagram to a Business Account.',
                         'Link it to your verified Facebook Page.',
-                        'Get your Instagram User ID from Meta Suite.',
-                        'Ensure you have permissions: instagram_basic, instagram_manage_comments.'
+                        'Get your **Instagram Business User ID** from Meta Suite.',
+                        'Enable "instagram_basic" and "instagram_manage_comments" permissions.',
+                        'Configure Webhook URL and Verify Token in Meta Console.'
                     ],
-                    showWebhook: true
+                    showWebhook: true,
+                    webhookConfig: {
+                        field: 'comments, messages',
+                        path: '/api/social/webhook'
+                    }
                 };
             case 'messenger': return { title: 'Facebook Messenger', icon: 'fab fa-facebook-messenger', color: '#006AFF', steps: ['Go to Meta for Developers Console.', 'Create or select your Facebook App.', 'Add the Messenger product to your app.', 'Link your Facebook Page and generate an Access Token.'], showWebhook: true };
             case 'google_calendar': return { title: 'Google Calendar API', icon: 'fab fa-google', color: '#4285F4', steps: ['Go to Google Cloud Console and create a project.', 'Enable the "Google Calendar API" for your project.', 'Configure OAuth Credentials.', 'Copy Client ID and Secret.'] };
@@ -386,13 +412,23 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
 
                     {guide.showWebhook && (
                         <div style={{ marginTop: '32px', padding: '16px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                            <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Webhook URL</label>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Webhook Callback URL</label>
+                                {guide.webhookConfig?.field && (
+                                    <span style={{ fontSize: '0.65rem', color: 'var(--primary-color)', fontWeight: 700, background: 'var(--primary-light)', padding: '2px 6px', borderRadius: '4px' }}>
+                                        {guide.webhookConfig.field}
+                                    </span>
+                                )}
+                            </div>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                <div style={{ flex: 1, fontSize: '0.75rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: '#f1f5f9', padding: '10px', borderRadius: '8px', fontFamily: 'monospace' }}>{webhookUrl}</div>
-                                <button onClick={() => { navigator.clipboard.writeText(webhookUrl); alert('Copied!'); }} style={{ background: 'none', border: 'none', color: 'var(--primary-color)', cursor: 'pointer', fontSize: '1rem' }} title="Copy URL">
+                                <div style={{ flex: 1, fontSize: '0.75rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: '#f1f5f9', padding: '10px', borderRadius: '8px', fontFamily: 'monospace' }}>{window.location.origin}{guide.webhookConfig?.path || '/api/social/webhook'}</div>
+                                <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}${guide.webhookConfig?.path || '/api/social/webhook'}`); toast.success('URL Copied!'); }} style={{ background: 'none', border: 'none', color: 'var(--primary-color)', cursor: 'pointer', fontSize: '1rem' }} title="Copy URL">
                                     <i className="far fa-copy"></i>
                                 </button>
                             </div>
+                            <p style={{ marginTop: '8px', fontSize: '0.65rem', color: '#64748b', fontStyle: 'italic' }}>
+                                <i className="fas fa-shield-alt"></i> Use the <strong>Verify Token</strong> saved on the right in your Meta Console.
+                            </p>
                         </div>
                     )}
 
@@ -627,6 +663,10 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                     <label>Facebook Page ID</label>
                                     <input type="text" placeholder="102345..." value={config.pageId || ''} onChange={e => setConfig({ ...config, pageId: e.target.value })} />
                                 </div>
+                                <div className="card-input-group">
+                                    <label>Webhook Verify Token</label>
+                                    <input type="text" placeholder="Your secret token" value={config.verifyToken || ''} onChange={e => setConfig({ ...config, verifyToken: e.target.value })} />
+                                </div>
                             </>
                         )}
 
@@ -639,6 +679,10 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                 <div className="card-input-group">
                                     <label>Linked Page Access Token</label>
                                     <input type="password" placeholder="EAA..." value={config.pageAccessToken || ''} onChange={e => setConfig({ ...config, pageAccessToken: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label>Webhook Verify Token</label>
+                                    <input type="text" placeholder="Your secret token" value={config.verifyToken || ''} onChange={e => setConfig({ ...config, verifyToken: e.target.value })} />
                                 </div>
                             </>
                         )}
@@ -817,14 +861,14 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         )}
 
                         <div style={{ marginTop: 'auto', paddingTop: '30px', display: 'flex', gap: '16px' }}>
-                            {['twilio', 'openai', 'gemini', 'claude'].includes(type) && (
+                            {['twilio', 'openai', 'gemini', 'claude', 'facebook', 'instagram', 'whatsapp'].includes(type) && (
                                 <button
                                     onClick={handleTest}
                                     disabled={testing}
                                     style={{ flex: 1, padding: '14px', borderRadius: '12px', border: '2px solid #e2e8f0', background: '#fff', color: '#1e293b', fontWeight: 800, cursor: 'pointer', transition: '0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                                 >
                                     {testing ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-flask"></i>}
-                                    {type === 'twilio' ? 'Test SMS' : 'Test AI'}
+                                    {type === 'twilio' ? 'Test SMS' : (['facebook', 'instagram', 'whatsapp'].includes(type) ? 'Test Connection' : 'Test AI')}
                                 </button>
                             )}
                             <button

@@ -49,6 +49,13 @@ export const socialAPI = {
     // WhatsApp Meta Cloud API (Isolated Route for Reliability)
     saveWhatsAppConfig: (config) => api.post('/whatsapp-config/save', config).then(res => res.data),
     getWhatsAppTemplates: () => api.get('/whatsapp-config/templates').then(res => res.data),
+    postContent: (data) => api.post('/social/post', data).then(res => res.data),
+    getAnalytics: (objectId, platform) => api.get('/social/analytics', { params: { objectId, platform } }).then(res => res.data),
+    getInstagramComments: (mediaId) => api.get('/social/ig/comments', { params: { mediaId } }).then(res => res.data),
+    getFacebookComments: (postId) => api.get('/social/fb/comments', { params: { postId } }).then(res => res.data),
+    replyToComment: (commentId, message) => api.post('/social/comment/reply', { commentId, message }).then(res => res.data),
+    likeComment: (commentId) => api.post('/social/comment/like', { commentId }).then(res => res.data),
+    testConnection: () => api.post('/social/test-connection').then(res => res.data),
 };
 
 export const getNotifications = () => api.get('/notifications');

@@ -1,5 +1,7 @@
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import socialCommentService from '../services/SocialCommentService.js';
+import facebookService from '../services/FacebookService.js';
+import metaLeadService from '../services/MetaLeadService.js';
 
 /**
  * POST /api/social/config/enterprise
@@ -190,37 +192,43 @@ export const likeComment = async (req, res) => {
 /**
  * GET /api/social/webhook
  * Meta Webhook Verification (hub.challenge handshake).
- * MUST respond within 5 seconds. 100% synchronous — no DB, no async.
- * VERIFY TOKEN: bharat-properties-webhook-2026
  */
-export const verifyWebhook = (req, res) => {
-    // Express qs parser converts hub.mode → nested object req.query.hub.mode
-    const hub      = req.query.hub || {};
-    const mode      = hub.mode      || req.query['hub.mode'];
-    const token     = hub.verify_token || req.query['hub.verify_token'];
-    const challenge = hub.challenge  || req.query['hub.challenge'];
+export const verifyWebhook = async (req, res) => {
+    try {
+        const hub      = req.query.hub || {};
+        const mode      = hub.mode      || req.query['hub.mode'];
+        const token     = hub.verify_token || req.query['hub.verify_token'];
+        const challenge = hub.challenge  || req.query['hub.challenge'];
 
-    console.log(`[Webhook] VERIFY | mode="${mode}" token="${token}" challenge="${challenge}" | raw: ${JSON.stringify(req.query)}`);
+        console.log(`[Webhook] VERIFY | mode="${mode}" token="${token}" challenge="${challenge}"`);
 
-    if (mode === 'subscribe') {
-        const ACCEPTED = [
-            'bharat-properties-webhook-2026',
-            'BharatCRM2024',
-            'Bharat123',
-            process.env.FB_WEBHOOK_VERIFY_TOKEN,
-        ].filter(Boolean);
+        if (mode === 'subscribe') {
+            // Senior Professional: Always fetch current valid tokens from DB
+            const config = await SystemSetting.findOne({ key: 'social_graph_config' }).lean();
+            const waConfig = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
+            
+            const ACCEPTED = [
+                config?.value?.verifyToken,
+                waConfig?.value?.verifyToken,
+                'bharat-properties-webhook-2026', // Fallback for initial setup
+                process.env.FB_WEBHOOK_VERIFY_TOKEN,
+            ].filter(Boolean);
 
-        if (ACCEPTED.includes(token)) {
-            console.log(`[Webhook] ✅ Sending challenge: "${challenge}"`);
-            res.setHeader('Content-Type', 'text/plain');
-            return res.status(200).send(challenge);
+            if (ACCEPTED.includes(token)) {
+                console.log(`[Webhook] ✅ Successfully verified token. Handshake complete.`);
+                res.setHeader('Content-Type', 'text/plain');
+                return res.status(200).send(challenge);
+            }
+
+            console.warn(`[Webhook] ❌ Verification failed: Token "${token}" not found in system settings.`);
+            return res.status(403).send('Verification failed');
         }
 
-        console.warn(`[Webhook] ❌ Token mismatch: got="${token}", expected one of ${JSON.stringify(ACCEPTED)}`);
-        return res.status(403).send('Token mismatch');
+        return res.status(400).send('Invalid mode');
+    } catch (err) {
+        console.error('[SocialController] verifyWebhook fatal error:', err.message);
+        res.status(500).send('Internal Server Error');
     }
-
-    return res.status(400).send('Invalid mode');
 };
 
 /**
@@ -242,6 +250,14 @@ export const receiveWebhook = async (req, res) => {
             const Lead = (await import('../models/Lead.js')).default;
 
             for (const event of events) {
+                // Handle Lead Ingestion
+                if (event.type === 'leadgen' && event.leadgenId) {
+                    console.log(`[SocialController] Triggering Meta lead processing for ID: ${event.leadgenId}`);
+                    metaLeadService.processMetaLead(event.leadgenId).catch(err => {
+                        console.error(`[SocialController] Failed to ingest Meta lead ${event.leadgenId}:`, err.message);
+                    });
+                }
+
                 if (event.platform === 'whatsapp' && event.type === 'message') {
                     // 1. Normalize phone (e.g., 919876543210 -> 9876543210)
                     const rawPhone = event.senderId;
@@ -363,6 +379,64 @@ export const getUnifiedStatus = async (req, res) => {
         res.json(status);
     } catch (err) {
         console.error('[SocialController] getUnifiedStatus error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+/**
+ * POST /api/social/post
+ * Publish content to Facebook or Instagram
+ */
+export const postSocialMedia = async (req, res) => {
+    try {
+        const { platform, text, imageUrl } = req.body;
+        if (!platform || !text || !imageUrl) {
+            return res.status(400).json({ success: false, error: 'Platform, text, and imageUrl are required' });
+        }
+
+        let result;
+        if (platform.toLowerCase() === 'facebook') {
+            result = await facebookService.postToPage(text, imageUrl);
+        } else if (platform.toLowerCase() === 'instagram') {
+            result = await facebookService.postToInstagram(text, imageUrl);
+        } else {
+            return res.status(400).json({ success: false, error: 'Unsupported platform for posting' });
+        }
+
+        res.json(result);
+    } catch (err) {
+        console.error('[SocialController] postSocialMedia error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+/**
+ * GET /api/social/analytics
+ * Fetch post insights/analytics
+ */
+export const getSocialAnalytics = async (req, res) => {
+    try {
+        const { objectId, platform } = req.query;
+        if (!objectId || !platform) {
+            return res.status(400).json({ success: false, error: 'objectId and platform are required' });
+        }
+
+        const result = await facebookService.getPostInsights(objectId, platform.toLowerCase());
+        res.json(result);
+    } catch (err) {
+        console.error('[SocialController] getSocialAnalytics error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+/**
+ * POST /api/social/test-connection
+ * Verify Meta credentials by fetching basic Page/Account info.
+ */
+export const testSocialConnection = async (req, res) => {
+    try {
+        const result = await facebookService.testConnection();
+        res.json(result);
+    } catch (err) {
+        console.error('[SocialController] testSocialConnection error:', err.message);
         res.status(500).json({ success: false, error: err.message });
     }
 };

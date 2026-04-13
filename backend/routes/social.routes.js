@@ -3,9 +3,6 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * Routes for the Marketing OS social media monitoring module.
  * Mounts at: /api/social
- *
- * Instagram endpoints use Graph API with graceful mock fallback.
- * Facebook webhook endpoints handle real-time comment events.
  */
 
 import express from 'express';
@@ -22,6 +19,9 @@ import {
     saveSocialConfig,
     saveWhatsAppConfig,
     getWhatsAppTemplates,
+    postSocialMedia,
+    getSocialAnalytics,
+    testSocialConnection
 } from '../controllers/social.controller.js';
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 
@@ -39,19 +39,24 @@ router.get('/whatsapp/templates',  getWhatsAppTemplates);
 router.use(authenticate);
 
 // ── Status ────────────────────────────────────────────────────────────────────
-router.get('/status',         getSocialStatus);         // GET  /api/social/status
-router.get('/status/unified', getUnifiedStatus);        // GET  /api/social/status/unified
-router.post('/config/enterprise', saveSocialConfig);     // POST /api/social/config/enterprise
+router.get('/status',         getSocialStatus);
+router.get('/status/unified', getUnifiedStatus);
+router.post('/config/enterprise', saveSocialConfig);
 
 // ── Instagram ─────────────────────────────────────────────────────────────────
-router.get('/ig/media',    listInstagramMedia);  // GET  /api/social/ig/media
-router.get('/ig/comments', getInstagramComments); // GET  /api/social/ig/comments?mediaId=
+router.get('/ig/media',    listInstagramMedia);
+router.get('/ig/comments', getInstagramComments);
 
 // ── Facebook ──────────────────────────────────────────────────────────────────
-router.get('/fb/comments', getFacebookComments); // GET  /api/social/fb/comments?postId=
+router.get('/fb/comments', getFacebookComments);
 
 // ── Comment Actions ───────────────────────────────────────────────────────────
-router.post('/comment/reply', replyToComment);   // POST /api/social/comment/reply
+router.post('/comment/reply', replyToComment);
 router.post('/comment/like',  likeComment);
+
+// ── Social Publishing & Analytics ───────────────────────────────────────────
+router.post('/post',          postSocialMedia);
+router.get('/analytics',     getSocialAnalytics);
+router.post('/test-connection', testSocialConnection);
 
 export default router;

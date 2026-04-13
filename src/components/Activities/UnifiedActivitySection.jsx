@@ -1,9 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { activitiesAPI, usersAPI } from '../../utils/api';
 import whatsappService from '../../services/whatsappService';
+import smsService from '../../services/smsService';
 import RecordingPlayer from './RecordingPlayer';
 import { useActivities } from '../../context/ActivityContext';
+import { usePropertyConfig } from '../../context/PropertyConfigContext';
+import apiWrapper, { api, usersAPI, activitiesAPI } from '../../utils/api';
+import MeetingActivitySection from './sections/MeetingActivitySection';
+import SiteVisitActivitySection from './sections/SiteVisitActivitySection';
 import './UnifiedActivitySection.css';
 
 /**
@@ -18,9 +22,29 @@ import './UnifiedActivitySection.css';
  */
 const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySaved, hideComposer = false, relatedEntities = [] }) => {
     const { addActivity } = useActivities();
+    const { activityMasterFields } = usePropertyConfig();
     const [composerTab, setComposerTab] = useState('note');
     const [composerContent, setComposerContent] = useState('');
     const [composerLoading, setComposerLoading] = useState(false);
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+
+    // Common Activity States
+    const [composerData, setComposerData] = useState({
+        subject: '',
+        status: 'Completed',
+        priority: 'Normal',
+        purpose: '',
+        meetingType: 'Office',
+        meetingLocation: '',
+        meetingOutcomeStatus: '',
+        visitConfirmation: 'Tentative',
+        visitedProperties: [{ project: '', block: '', property: '', result: '', feedback: '' }],
+        completionResult: ''
+    });
+
+    const [projects, setProjects] = useState([]);
+    const [rowUnits, setRowUnits] = useState({});
+    const [errors, setErrors] = useState({});
 
     // WhatsApp Specific States
     const [whatsappTemplates, setWhatsappTemplates] = useState([]);
@@ -38,6 +62,75 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
     const [pendingTasks, setPendingTasks] = useState([
         { id: Date.now(), subject: '', dueDate: new Date().toISOString().slice(0, 16), reminder: false }
     ]);
+
+    const fetchProjects = useCallback(async () => {
+        try {
+            const response = await apiWrapper.projects.getAll();
+            if (response.success) {
+                setProjects(response.data || []);
+            }
+        } catch (error) {
+            console.error("Error fetching projects:", error);
+        }
+    }, []);
+
+    const fetchUnits = useCallback(async (rowIndex, projectName, blockName) => {
+        if (!projectName) return;
+        try {
+            const params = new URLSearchParams();
+            params.append('area', projectName);
+            if (blockName) params.append('location', blockName);
+            params.append('limit', '100');
+
+            const response = await api.get(`inventory?${params.toString()}`);
+            if (response.data && (response.data.success || Array.isArray(response.data))) {
+                setRowUnits(prev => ({
+                    ...prev,
+                    [rowIndex]: response.data.records || response.data.data || (Array.isArray(response.data) ? response.data : [])
+                }));
+            }
+        } catch (error) {
+            console.error("Error fetching units:", error);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (entityId) {
+            fetchProjects();
+        }
+    }, [entityId, fetchProjects]);
+
+    const handleComposerChange = useCallback((e) => {
+        const { name, value, type, checked } = e.target;
+        setComposerData(prev => ({
+            ...prev,
+            [name]: type === 'checkbox' ? checked : value
+        }));
+        if (errors[name]) setErrors(prev => ({ ...prev, [name]: null }));
+    }, [errors]);
+
+    const updatePropertyRow = useCallback((index, updates) => {
+        setComposerData(prev => {
+            const newProps = [...prev.visitedProperties];
+            newProps[index] = { ...newProps[index], ...updates };
+            return { ...prev, visitedProperties: newProps };
+        });
+    }, []);
+
+    const addPropertyRow = useCallback(() => {
+        setComposerData(prev => ({
+            ...prev,
+            visitedProperties: [...prev.visitedProperties, { project: '', block: '', property: '', result: '', feedback: '' }]
+        }));
+    }, []);
+
+    const removePropertyRow = useCallback((index) => {
+        if (composerData.visitedProperties.length <= 1) return;
+        setComposerData(prev => ({
+            ...prev,
+            visitedProperties: prev.visitedProperties.filter((_, i) => i !== index)
+        }));
+    }, [composerData.visitedProperties.length]);
 
     const fetchUsers = useCallback(async () => {
         try {
@@ -67,6 +160,17 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
             fetchWhatsAppTemplates();
         }
     }, [composerTab, whatsappTemplates.length, fetchWhatsAppTemplates]);
+
+    // Handle Dropdown Auto-close
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (isDropdownOpen && !event.target.closest('.activity-dropdown-container')) {
+                setIsDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [isDropdownOpen]);
 
     // Stabilize the dependency to prevent infinite render loops when parent passes inline arrays
     const relatedEntitiesKey = JSON.stringify(relatedEntities);
@@ -182,11 +286,24 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
 
         setComposerLoading(true);
         try {
+            const typeMap = {
+                'sms': 'SMS',
+                'site_visit': 'Site Visit',
+                'meeting': 'Meeting',
+                'note': 'Note',
+                'call': 'Call',
+                'task': 'Task',
+                'whatsapp': 'WhatsApp',
+                'email': 'Email'
+            };
+
+            const activityType = typeMap[composerTab] || 'Note';
+
             let backendData = {
-                type: composerTab.charAt(0).toUpperCase() + composerTab.slice(1),
-                subject: composerTab === 'task' ? 'Multiple Tasks Created' : `${composerTab.charAt(0).toUpperCase() + composerTab.slice(1)} Logged`,
-                status: 'Completed',
-                priority: 'Normal',
+                type: activityType,
+                subject: composerTab === 'task' ? 'Multiple Tasks Created' : `${activityType} Logged`,
+                status: (composerTab === 'task' || composerTab === 'site_visit' || composerTab === 'meeting') && composerData.status === 'Not Started' ? 'Pending' : 'Completed',
+                priority: composerData.priority || 'Normal',
                 entityId: entityId,
                 entityType: entityType,
                 relatedTo: [{ id: entityId, name: entityData?.name || entityData?.fullName || entityData?.unitNo || 'Unknown', model: entityType }],
@@ -194,10 +311,23 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                 description: composerContent,
                 dueDate: new Date(),
                 details: {
-                    purpose: composerTab,
-                    content: composerContent
+                    purpose: composerData.purpose || composerTab,
+                    content: composerContent,
+                    meetingType: composerData.meetingType,
+                    meetingLocation: composerData.meetingLocation,
+                    visitConfirmation: composerData.visitConfirmation,
+                    visitedProperties: composerData.visitedProperties,
+                    completionResult: composerData.completionResult
                 }
             };
+
+            // Custom Subject for Site Visit/Meeting
+            if (composerTab === 'meeting') {
+                backendData.subject = `Meeting: ${composerData.purpose || 'General'} at ${composerData.meetingLocation || composerData.meetingType}`;
+            } else if (composerTab === 'site_visit') {
+                const props = (composerData.visitedProperties || []).map(p => p.project || 'Property').filter(Boolean).join(', ');
+                backendData.subject = `Site Visit: ${props || 'Inventory'}`;
+            }
 
             if (composerTab === 'task') {
                 const tasksToSave = pendingTasks.filter(t => t.subject.trim());
@@ -212,37 +342,47 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                     reminder: t.reminder
                 }));
                 backendData.subject = tasksToSave.length === 1 ? tasksToSave[0].subject : `New Tasks (${tasksToSave.length})`;
-                backendData.status = 'Pending'; // Tasks are usually pending
+                backendData.status = 'Pending';
             }
 
-            // If WhatsApp Tab, send real message first
+            // WhatsApp Dispatch
             if (composerTab === 'whatsapp') {
                 try {
-                    const mobile = entityData?.mobile || 
-                                   entityData?.phone || 
-                                   (entityData?.phones && entityData.phones[0]?.number) ||
-                                   (entityData?.contactInfo && entityData.contactInfo[0]?.value);
-                    if (!mobile) throw new Error("No phone number found for this entity.");
-
-                    const waRes = await whatsappService.sendMessage({
-                        mobile: mobile,
-                        message: composerContent,
-                        templateId: selectedTemplateId
-                    });
-
-                    if (!waRes.success) throw new Error(waRes.error || "Failed to dispatch WhatsApp message via Meta.");
+                    const mobile = entityData?.mobile || entityData?.phone || (entityData?.phones && entityData.phones[0]?.number);
+                    if (!mobile) throw new Error("No phone number found.");
+                    const waRes = await whatsappService.sendMessage({ mobile, message: composerContent, templateId: selectedTemplateId });
+                    if (!waRes.success) throw new Error(waRes.error || "Meta Dispatch Failed");
                 } catch (waError) {
-                    console.error("WhatsApp Dispatch Error:", waError);
-                    toast.error(`WhatsApp Dispatch Failed: ${waError.message}`);
+                    toast.error(`WhatsApp Failed: ${waError.message}`);
                     setComposerLoading(false);
-                    return; // Stop if real dispatch fails
+                    return;
+                }
+            }
+
+            // SMS Dispatch
+            if (composerTab === 'sms') {
+                try {
+                    const mobile = entityData?.mobile || entityData?.phone || (entityData?.phones && entityData.phones[0]?.number);
+                    if (!mobile) throw new Error("No phone number found.");
+                    const smsRes = await smsService.sendMessage({ to: mobile, body: composerContent });
+                    if (!smsRes.success) throw new Error(smsRes.error || "SMS Gateway Error");
+                } catch (smsError) {
+                    toast.error(`SMS Failed: ${smsError.message}`);
+                    setComposerLoading(false);
+                    return;
                 }
             }
 
             const res = await addActivity(backendData);
             if (res) {
-                toast.success(`${composerTab.charAt(0).toUpperCase() + composerTab.slice(1)} saved successfully!`);
+                toast.success(`${activityType} saved successfully!`);
                 setComposerContent('');
+                setComposerData({
+                    subject: '', status: 'Completed', priority: 'Normal', purpose: '',
+                    meetingType: 'Office', meetingLocation: '', meetingOutcomeStatus: '',
+                    visitConfirmation: 'Tentative', visitedProperties: [{ project: '', block: '', property: '', result: '', feedback: '' }],
+                    completionResult: ''
+                });
                 setPendingTasks([{ id: Date.now(), subject: '', dueDate: new Date().toISOString().slice(0, 16), reminder: false }]);
                 fetchUnifiedTimeline();
                 if (onActivitySaved) onActivitySaved(res.data);
@@ -262,9 +402,11 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
 
         const type = (item.type || '').toLowerCase();
         if (type.includes('call')) return { icon: 'phone-alt', color: '#3b82f6', bg: '#eff6ff' };
-        if (type.includes('meeting')) return { icon: 'users', color: '#10b981', bg: '#f0fdf4' };
+        if (type.includes('meeting')) return { icon: 'users', color: '#a21caf', bg: '#fdf4ff' };
+        if (type.includes('site visit') || type.includes('visit')) return { icon: 'map-marked-alt', color: '#047857', bg: '#ecfdf5' };
         if (type.includes('task')) return { icon: 'tasks', color: '#f59e0b', bg: '#fffbeb' };
         if (type.includes('email')) return { icon: 'envelope', color: '#ef4444', bg: '#fef2f2' };
+        if (type.includes('sms')) return { icon: 'comment-alt', color: '#4f46e5', bg: '#f5f3ff' };
         if (type.includes('whatsapp')) return { icon: 'whatsapp', color: '#25d366', bg: '#f0fdf4', brand: true };
 
         return { icon: 'clock', color: '#64748b', bg: '#f8fafc' };
@@ -282,40 +424,121 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                     background: '#fff',
                     boxShadow: '0 2px 10px rgba(0,0,0,0.02)'
                 }}>
-                    <div style={{ borderBottom: '1px solid #f1f5f9', display: 'flex', background: '#f8fafc' }}>
-                        {[
-                            { id: 'email', icon: 'envelope', label: 'Email' },
-                            { id: 'whatsapp', icon: 'whatsapp', label: 'WhatsApp', isBrand: true },
-                            { id: 'note', icon: 'sticky-note', label: 'Note' },
-                            { id: 'call', icon: 'phone-alt', label: 'Call Log' },
-                            { id: 'task', icon: 'calendar-check', label: 'Task' },
-                        ].map(tab => (
-                            <button
-                                key={tab.id}
-                                onClick={() => setComposerTab(tab.id)}
-                                style={{
-                                    padding: '14px 20px',
-                                    border: 'none',
-                                    background: 'transparent',
-                                    borderRight: '1px solid rgba(226, 232, 240, 0.5)',
-                                    borderBottom: composerTab === tab.id ? '3px solid var(--premium-blue)' : 'none',
-                                    color: composerTab === tab.id ? 'var(--premium-blue)' : '#64748b',
-                                    fontSize: '0.75rem',
-                                    fontWeight: 800,
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    transition: 'all 0.2s'
-                                }}
-                            >
-                                <i className={`${tab.isBrand ? 'fab' : 'fas'} fa-${tab.icon}`}></i>
-                                {tab.label}
-                            </button>
-                        ))}
+                    <div style={{ borderBottom: '1px solid #f1f5f9', display: 'flex', background: '#f8fafc', padding: '12px 20px', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }} className="activity-dropdown-container">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Current Action:</span>
+                            <div style={{ position: 'relative' }}>
+                                <button
+                                    onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                                    style={{
+                                        padding: '8px 16px',
+                                        background: '#fff',
+                                        border: '1px solid #e2e8f0',
+                                        borderRadius: '10px',
+                                        color: 'var(--premium-blue)',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 800,
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    {(() => {
+                                        const tabs = [
+                                            { id: 'email', icon: 'envelope', label: 'Email' },
+                                            { id: 'whatsapp', icon: 'whatsapp', label: 'WhatsApp', isBrand: true },
+                                            { id: 'sms', icon: 'comment-alt', label: 'SMS' },
+                                            { id: 'note', icon: 'sticky-note', label: 'Note' },
+                                            { id: 'call', icon: 'phone-alt', label: 'Call Log' },
+                                            { id: 'task', icon: 'calendar-check', label: 'Task' },
+                                            { id: 'meeting', icon: 'users', label: 'Meeting' },
+                                            { id: 'site_visit', icon: 'map-marked-alt', label: 'Site Visit' },
+                                        ];
+                                        const active = tabs.find(t => t.id === composerTab);
+                                        return (
+                                            <>
+                                                <i className={`${active?.isBrand ? 'fab' : 'fas'} fa-${active?.icon}`}></i>
+                                                {active?.label}
+                                                <i className={`fas fa-chevron-${isDropdownOpen ? 'up' : 'down'}`} style={{ fontSize: '0.7rem', opacity: 0.5 }}></i>
+                                            </>
+                                        );
+                                    })()}
+                                </button>
+
+                                {isDropdownOpen && (
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: 'calc(100% + 8px)',
+                                        left: 0,
+                                        width: '200px',
+                                        background: '#fff',
+                                        borderRadius: '12px',
+                                        boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
+                                        border: '1px solid #e2e8f0',
+                                        zIndex: 100,
+                                        padding: '8px',
+                                        animation: 'fadeIn 0.2s ease-out'
+                                    }}>
+                                        {[
+                                            { id: 'email', icon: 'envelope', label: 'Email' },
+                                            { id: 'whatsapp', icon: 'whatsapp', label: 'WhatsApp', isBrand: true },
+                                            { id: 'sms', icon: 'comment-alt', label: 'SMS' },
+                                            { id: 'note', icon: 'sticky-note', label: 'Note' },
+                                            { id: 'call', icon: 'phone-alt', label: 'Call Log' },
+                                            { id: 'task', icon: 'calendar-check', label: 'Task' },
+                                            { id: 'meeting', icon: 'users', label: 'Meeting' },
+                                            { id: 'site_visit', icon: 'map-marked-alt', label: 'Site Visit' },
+                                        ].map(tab => (
+                                            <div
+                                                key={tab.id}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setComposerTab(tab.id);
+                                                    setIsDropdownOpen(false);
+                                                }}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '10px 14px',
+                                                    border: 'none',
+                                                    background: composerTab === tab.id ? '#f5f3ff' : 'transparent',
+                                                    borderRadius: '8px',
+                                                    color: composerTab === tab.id ? 'var(--premium-blue)' : '#475569',
+                                                    fontSize: '0.85rem',
+                                                    fontWeight: composerTab === tab.id ? 800 : 600,
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '12px',
+                                                    textAlign: 'left',
+                                                    transition: 'all 0.2s',
+                                                    marginBottom: '2px'
+                                                }}
+                                                onMouseOver={(e) => {
+                                                    if (composerTab !== tab.id) e.currentTarget.style.background = '#f8fafc';
+                                                }}
+                                                onMouseOut={(e) => {
+                                                    if (composerTab !== tab.id) e.currentTarget.style.background = 'transparent';
+                                                }}
+                                            >
+                                                <i className={`${tab.isBrand ? 'fab' : 'fas'} fa-${tab.icon}`} style={{ width: '18px', textAlign: 'center', color: composerTab === tab.id ? 'var(--premium-blue)' : '#94a3b8' }}></i>
+                                                <span>{tab.label}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', background: '#f1f5f9', padding: '4px 8px', borderRadius: '4px' }}>
+                                STATUS: {composerData.status?.toUpperCase()}
+                            </span>
+                        </div>
                     </div>
 
-                    <div style={{ padding: '20px' }}>
+                    <div style={{ padding: '20px', overflow: 'visible' }}>
                         {composerTab === 'whatsapp' && (
                             <div style={{ marginBottom: '16px' }}>
                                 <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '8px', display: 'block' }}>
@@ -343,6 +566,34 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                             </div>
                         )}
 
+                        {composerTab === 'meeting' && (
+                            <div style={{ marginBottom: '16px', animation: 'fadeIn 0.3s ease-out' }}>
+                                <MeetingActivitySection 
+                                    formData={composerData} 
+                                    handleChange={handleComposerChange} 
+                                    errors={errors} 
+                                    activityMasterFields={activityMasterFields} 
+                                />
+                            </div>
+                        )}
+
+                        {composerTab === 'site_visit' && (
+                            <div style={{ marginBottom: '16px', animation: 'fadeIn 0.3s ease-out' }}>
+                                <SiteVisitActivitySection 
+                                    formData={composerData} 
+                                    handleChange={handleComposerChange} 
+                                    errors={errors} 
+                                    activityMasterFields={activityMasterFields} 
+                                    projects={projects}
+                                    rowUnits={rowUnits}
+                                    fetchUnits={fetchUnits}
+                                    updatePropertyRow={updatePropertyRow}
+                                    addPropertyRow={addPropertyRow}
+                                    removePropertyRow={removePropertyRow}
+                                />
+                            </div>
+                        )}
+
                         {composerTab === 'task' ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 {pendingTasks.map((task) => (
@@ -366,7 +617,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                 />
                                                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, color: task.reminder ? 'var(--premium-blue)' : '#64748b' }}>
                                                     <input type="checkbox" checked={task.reminder} onChange={(e) => updateTask(task.id, 'reminder', e.target.checked)} />
-                                                    <i className={`fas fa-bell${task.reminder ? '' : '-slash'}`}></i> Remind Me
+                                                    <i className={`fas fa-bell${task.reminder? '' : '-slash'}`}></i> Remind Me
                                                 </label>
                                             </div>
                                         </div>
@@ -388,7 +639,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                 onChange={(e) => setComposerContent(e.target.value)}
                                 style={{
                                     width: '100%',
-                                    minHeight: '100px',
+                                    minHeight: (composerTab === 'meeting' || composerTab === 'site_visit') ? '60px' : '100px',
                                     border: '1px solid rgba(226, 232, 240, 0.8)',
                                     background: 'rgba(255, 255, 255, 0.5)',
                                     borderRadius: '12px',

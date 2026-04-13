@@ -207,7 +207,7 @@ const DuplicateResults = ({ contacts, onUpdate, isBlocked }) => {
                 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                         <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.95rem' }}>
-                            {contact.title?.lookup_value || contact.title || ""} {contact.firstName || contact.name || ""} {contact.lastName || contact.surname || ""}
+                            {contact ? `${contact.title?.lookup_value || contact.title || ""} ${contact.firstName || contact.name || ""} ${contact.lastName || contact.surname || ""}`.trim() : "Lead Details"}
                         </div>
                         {contact.matchedEntityType && (
                             <span style={{
@@ -618,7 +618,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 source: contactData.source || prev.source,
                 campaign: contactData.campaign || prev.campaign,
                 team: contactData.team || prev.team,
-                owner: contactData.owner || prev.owner,
+                owner: (contactData.owner?._id || contactData.owner) || prev.owner,
                 visibleTo: contactData.visibleTo || prev.visibleTo,
             }));
         }
@@ -1212,9 +1212,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                     <div style={{ padding: '20px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                             <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>
-                                {contactData
-                                    ? `Add ${contactData.name} to Lead`
-                                    : (mode === 'edit' ? 'Update Lead' : 'Add Lead')}
+                                {mode === 'edit' ? 'Update Requirement' : (contactData ? `Add Lead Data for ${contactData.fullName || contactData.name || contactData.mobile || 'Contact'}` : 'Add Lead')}
                             </h2>
                             <span style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px', fontWeight: 500 }}>
                                 {currentTime.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} | {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}

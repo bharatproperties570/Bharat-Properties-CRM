@@ -29,6 +29,7 @@ import { useContactIntelligence } from '../../hooks/useContactIntelligence';
 import ContactDetailHeader from '../../components/ContactDetail/ContactDetailHeader';
 import ContactCoreInfo from '../../components/ContactDetail/ContactCoreInfo';
 import ContactPreferences from '../../components/ContactDetail/ContactPreferences';
+import ContactPropertyRequirement from '../../components/ContactDetail/ContactPropertyRequirement';
 import ContactAIIntelligence from '../../components/ContactDetail/ContactAIIntelligence';
 import ContactRelatedDeals from '../../components/ContactDetail/ContactRelatedDeals';
 import ContactOwnedProperties from '../../components/ContactDetail/ContactOwnedProperties';
@@ -40,7 +41,7 @@ const ContactDetail = ({ contactId, onBack }) => {
     const { scoringAttributes, activityMasterFields, scoreBands, getLookupValue } = usePropertyConfig(); // Inject Context
     const { sequences, enrollments, updateEnrollmentStatus } = useSequences();
     const [contact, setContact] = useState(null);
-    const [expandedSections, setExpandedSections] = useState(['core', 'professional', 'location', 'financial', 'education', 'personal', 'pref', 'journey', 'negotiation', 'ai', 'ownership', 'documents', 'matching', 'probability']);
+    const [expandedSections, setExpandedSections] = useState(['core', 'professional', 'location', 'financial', 'education', 'personal', 'pref', 'property_req', 'journey', 'negotiation', 'ai', 'ownership', 'documents', 'matching', 'probability']);
     const [showMoreMenu, setShowMoreMenu] = useState(false);
     const [toast, setToast] = useState(null);
     const [dealStatus, setDealStatus] = useState('active'); // 'active' or 'lost'
@@ -262,21 +263,37 @@ const ContactDetail = ({ contactId, onBack }) => {
                         const budgetVal = (recordData.budgetMin || recordData.budgetMax)
                             ? `₹${recordData.budgetMin} - ₹${recordData.budgetMax}`
                             : renderLookup(recordData.budget, "");
-                        const sizeVal = `${recordData.areaMin || ""}-${recordData.areaMax || ""} ${renderLookup(recordData.areaMetric, "")}`.trim();
+                        
+                        // Robust Area/Size extraction
+                        let sizeVal = "";
+                        if (recordData.areaMin || recordData.areaMax) {
+                            sizeVal = `${recordData.areaMin || ""}-${recordData.areaMax || ""} ${renderLookup(recordData.areaMetric, "")}`.trim();
+                        } else {
+                            sizeVal = renderLookup(recordData.size || recordData.area, "");
+                        }
 
                         const baseBudget = parseBudget(budgetVal);
                         const leadSize = parseSizeSqYard(sizeVal);
+                        
+                        // Normalized lead type and location for matching engine
+                        const leadTypeNormalize = (requirementVal || "").toLowerCase();
+                        const leadLocNormalize = (locationVal || "").toLowerCase();
+
                         const leadContext = {
                             baseBudget,
                             leadSize,
-                            leadType: requirementVal.toLowerCase(),
-                            leadLocation: locationVal.toLowerCase(),
-                            leadLocationSectors: locationVal.toLowerCase().split(',').map(s => s.trim()).filter(Boolean)
+                            leadType: leadTypeNormalize,
+                            leadLocation: leadLocNormalize,
+                            leadLocationSectors: leadLocNormalize.split(',').map(s => s.trim()).filter(Boolean)
                         };
 
-                        const weights = { location: 30, type: 20, budget: 25, size: 25 };
-                        const options = { budgetFlexibility: 20, sizeFlexibility: 20, includeNearby: true, minMatchScore: 40 };
+                        console.log(`[Matching] Context:`, leadContext);
+
+                        const weights = { location: 40, type: 20, budget: 20, size: 20 };
+                        const options = { budgetFlexibility: 30, sizeFlexibility: 30, includeNearby: true, minMatchScore: 20 };
                         const matches = calculateMatch(recordData, leadContext, weights, options, inventoryItems);
+                        
+                        console.log(`[Matching] Found ${matches.length} matches for lead ${id}`);
                         setMatchedDeals(matches.slice(0, 5));
                     }
                 } catch (matchErr) {
@@ -578,11 +595,27 @@ const ContactDetail = ({ contactId, onBack }) => {
                     </div>
                 )}
 
-                {/* TWO COLUMN GRID BELOW PIPELINE */}
-                <div className="detail-main-content" style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-
-
-                        {/* 1. Unified Profile 360° Dashboard */}
+                {/* THREE COLUMN GRID - PROFESSIONAL DASHBOARD */}
+                <div className="detail-main-content" style={{ flex: 1, display: 'flex', overflow: 'hidden', background: '#f8fafc' }}>
+                    
+                    {/* COLUMN 1: LEFT - Profile & Preferences (360° Dashboard) */}
+                    <div className="detail-col-left no-scrollbar" style={{ 
+                        flex: '0 0 450px', 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        gap: '1rem', 
+                        padding: '1.25rem',
+                        borderRight: '1px solid #e2e8f0',
+                        overflowY: 'auto',
+                        background: '#fff',
+                        boxSizing: 'border-box',
+                        minWidth: '0'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                            <i className="fas fa-id-card" style={{ color: '#4f46e5' }}></i>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Lead 360° Unified Dashboard</span>
+                        </div>
+                        
                         <ContactCoreInfo 
                             contact={contact}
                             recordType={recordType}
@@ -592,58 +625,83 @@ const ContactDetail = ({ contactId, onBack }) => {
                             renderLookup={renderLookup}
                         />
 
-                        {/* 2. Property Preferences */}
-                        {recordType === 'lead' && (
-                            <ContactPreferences 
-                                contact={contact}
-                                aiStats={aiStats}
-                                expandedSections={expandedSections}
-                                toggleSection={toggleSection}
-                                renderLookup={renderLookup}
-                            />
-                        )}
 
-                        {/* 3. Unified Activities Section (Interaction Intelligence) - Moved below requirements */}
-                        <div className="glass-card activity-timeline-container" style={{ borderRadius: '16px', flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-                            <div style={{ padding: '12px 16px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+
+                        <ContactPreferences 
+                            contact={contact}
+                            aiStats={aiStats}
+                            expandedSections={expandedSections}
+                            toggleSection={toggleSection}
+                            renderLookup={renderLookup}
+                        />
+                    </div>
+
+                    {/* COLUMN 2: CENTER - Interaction Intelligence (Activities) */}
+                    <div className="detail-col-center no-scrollbar" style={{ 
+                        flex: '1', 
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        background: '#f8fafc',
+                        padding: '1.25rem 4px',
+                        overflowY: 'auto',
+                        minWidth: '0',
+                        boxSizing: 'border-box',
+                        position: 'relative',
+                        zIndex: 1
+                    }}>
+                        <div className="glass-card activity-timeline-container" style={{ 
+                            background: '#fff',
+                            borderRadius: '16px',
+                            border: '1px solid #e2e8f0',
+                            boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            minHeight: '100%'
+                        }}>
+                            <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#fff', display: 'flex', alignItems: 'center', gap: '8px', borderTopLeftRadius: '16px', borderTopRightRadius: '16px' }}>
                                 <i className="fas fa-bolt" style={{ color: '#4f46e5' }}></i>
                                 <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Interaction Intelligence</span>
                             </div>
-                            <UnifiedActivitySection
-                                entityId={contactId}
-                                entityType={recordType.charAt(0).toUpperCase() + recordType.slice(1)}
-                                entityData={contact}
-                                onActivitySaved={() => {
-                                    fetchUnifiedTimeline(contactId, recordType);
-                                    fetchLiveScore(contactId);
-                                }}
-                            />
+                            <div style={{ padding: '20px', flex: 1, overflow: 'visible' }}>
+                                <UnifiedActivitySection 
+                                    entityId={contactId} 
+                                    entityType={recordType.charAt(0).toUpperCase() + recordType.slice(1)}
+                                    entityData={contact}
+                                    onActivitySaved={() => {
+                                        fetchUnifiedTimeline(contactId, recordType);
+                                        fetchLiveScore(contactId);
+                                    }}
+                                />
+                            </div>
                         </div>
-{/* End detail-left-col */}
+                    </div>
 
-                    {/* RIGHT COLUMN - Secondary Dashboard */}
-                    <div className="detail-right-col no-scrollbar" style={{
-                        flex: '1',
+                    {/* COLUMN 3: RIGHT - Secondary Dashboard */}
+                    <div className="detail-col-right no-scrollbar" style={{
+                        flex: '0 0 450px',
                         background: '#fff',
-                        padding: '1.5rem',
+                        padding: '1.25rem',
                         display: 'flex',
                         flexDirection: 'column',
                         gap: '1.5rem',
                         borderLeft: '1px solid #e2e8f0',
                         height: '100%',
-                        overflowY: 'auto'
+                        overflowY: 'auto',
+                        minWidth: '0',
+                        boxSizing: 'border-box',
+                        position: 'relative',
+                        zIndex: 1
                     }}>
-                        {/* AI Intelligence & Probability Sections */}
-                        <ContactAIIntelligence 
-                            contact={contact}
-                            aiStats={aiStats}
-                            recordType={recordType}
-                            dealStatus={dealStatus}
-                            expandedSections={expandedSections}
-                            toggleSection={toggleSection}
-                            renderLookup={renderLookup}
-                            showNotification={showNotification}
-                        />
+                        {recordType === 'lead' && (
+                            <ContactPropertyRequirement
+                                contact={contact}
+                                aiStats={aiStats}
+                                expandedSections={expandedSections}
+                                toggleSection={toggleSection}
+                                renderLookup={renderLookup}
+                                onEdit={() => setIsAddLeadModalOpen(true)}
+                            />
+                        )}
 
                         <ContactRelatedDeals
                             contact={contact}
@@ -666,6 +724,22 @@ const ContactDetail = ({ contactId, onBack }) => {
                             setIsInventoryModalOpen={setIsInventoryModalOpen}
                             renderValue={renderValue}
                             renderLookup={getLookupValue}
+                        />
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '0.5rem' }}>
+                            <i className="fas fa-chart-line" style={{ color: '#4f46e5' }}></i>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Strategic Insights</span>
+                        </div>
+                        {/* AI Intelligence & Probability Sections */}
+                        <ContactAIIntelligence 
+                            contact={contact}
+                            aiStats={aiStats}
+                            recordType={recordType}
+                            dealStatus={dealStatus}
+                            expandedSections={expandedSections}
+                            toggleSection={toggleSection}
+                            renderLookup={renderLookup}
+                            showNotification={showNotification}
                         />
 
 
@@ -880,21 +954,23 @@ const ContactDetail = ({ contactId, onBack }) => {
                     <AddLeadModal
                         isOpen={isAddLeadModalOpen}
                         onClose={() => setIsAddLeadModalOpen(false)}
-                        contactData={contact}
+                        contactData={recordType === 'contact' ? contact : null}
+                        initialData={recordType === 'lead' ? contact : null}
+                        mode={recordType === 'lead' ? 'edit' : 'add'}
                         onAdd={() => {
                             setIsAddLeadModalOpen(false);
-                            showNotification('Lead created successfully');
-                            // Refetch deals if needed
+                            showNotification(recordType === 'lead' ? 'Lead updated successfully' : 'Lead created successfully');
+                            fetchData(); // Refresh requirements and matching
                         }}
                     />
                 )}
 
                 {isAddDealModalOpen && (
-                    <AddDealModal
-                        isOpen={isAddDealModalOpen}
-                        title="Create Deal"
-                        restrictToProperties={ownedProperties}
-                        onClose={() => setIsAddDealModalOpen(false)}
+                        <AddDealModal
+                            isOpen={isAddDealModalOpen}
+                            title="Create Deal"
+                            restrictToProperties={ownedProperties}
+                            onClose={() => setIsAddDealModalOpen(false)}
                         deal={{
                             associatedContact: {
                                 _id: contact?._id,

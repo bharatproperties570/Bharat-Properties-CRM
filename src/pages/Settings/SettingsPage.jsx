@@ -1105,7 +1105,7 @@ const SettingsPage = () => {
                 onClose={() => { setIsCreateTeamModalOpen(false); setEditingTeam(null); }}
                 onSave={handleSaveTeam}
                 isEdit={!!editingTeam}
-                teamData={editingTeam}
+                team={editingTeam}
             />
 
             {isInactivateUserModalOpen && (

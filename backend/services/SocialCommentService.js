@@ -17,6 +17,7 @@
 
 import axios from 'axios';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
+import metaLeadService from './MetaLeadService.js';
 
 const GRAPH_BASE = 'https://graph.facebook.com';
 
@@ -231,7 +232,7 @@ class SocialCommentService {
         try {
             const entries = payload.entry || [];
             for (const entry of entries) {
-                // Instagram comment event
+                // Instagram/Facebook Lead Ads or Comment changes
                 const igChanges = entry.changes || [];
                 for (const change of igChanges) {
                     if (change.field === 'comments') {
@@ -252,6 +253,17 @@ class SocialCommentService {
                             type: 'mention',
                             mediaId:  change.value?.media_id,
                             from:     change.value?.mentioned_user_id,
+                            timestamp: new Date().toISOString(),
+                        });
+                    }
+                    if (change.field === 'leadgen') {
+                        events.push({
+                            platform: 'facebook',
+                            type: 'leadgen',
+                            leadgenId: change.value?.leadgen_id,
+                            formId:    change.value?.form_id,
+                            pageId:    change.value?.page_id,
+                            adId:      change.value?.ad_id,
                             timestamp: new Date().toISOString(),
                         });
                     }

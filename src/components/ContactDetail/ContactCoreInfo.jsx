@@ -27,7 +27,7 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
             </div>
             <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 {/* Row 1: Primary Identity & Lead Status */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '32px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                     <div>
                         <h4 style={{ fontSize: '0.7rem', fontWeight: 900, color: '#3b82f6', textTransform: 'uppercase', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <i className="fas fa-id-card"></i> Primary Identity
@@ -37,8 +37,8 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Phone Details</label>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                     {Array.isArray(contact.phones) ? contact.phones.map((p, i) => (
-                                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Phone', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{p.number}</div>
+                                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Phone', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', wordBreak: 'break-word', minWidth: '0' }}>{p.number}</div>
                                             <span style={{ fontSize: '0.65rem', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>{p.type}</span>
                                         </div>
                                     )) : (
@@ -50,12 +50,12 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Email Details</label>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                     {Array.isArray(contact.emails) ? contact.emails.map((e, i) => (
-                                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Email', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{e.address}</div>
+                                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Email', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', wordBreak: 'break-all', minWidth: '0' }}>{e.address}</div>
                                             <span style={{ fontSize: '0.65rem', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>{e.type}</span>
                                         </div>
                                     )) : (
-                                        <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Email', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{contact.email || '-'}</div>
+                                        <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Email', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', wordBreak: 'break-all', minWidth: '0' }}>{contact.email || '-'}</div>
                                     )}
                                 </div>
                             </div>
@@ -128,7 +128,7 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
                 <div style={{ height: '1px', background: '#f1f5f9', margin: '4px 0' }}></div>
 
                 {/* Row 1.5: Education & Financial Strength */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '32px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                     {/* Education */}
                     <div>
                         <h4 style={{ fontSize: '0.7rem', fontWeight: 900, color: '#3b82f6', textTransform: 'uppercase', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -182,7 +182,7 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
                 <div style={{ height: '1px', background: '#f1f5f9', margin: '4px 0' }}></div>
 
                 {/* Row 2: Location Intelligence */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <div style={{ gridColumn: 'span 2' }}>
                         <h4 style={{ fontSize: '0.7rem', fontWeight: 900, color: '#f59e0b', textTransform: 'uppercase', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <i className="fas fa-map-marked-alt"></i> Location Portfolio

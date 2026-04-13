@@ -16,7 +16,7 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
     return (
         <>
             {/* Match Deal Center */}
-            {(recordType === 'lead' || contact?.requirement || contact?.searchLocation || (matchedDeals && matchedDeals.length > 0)) && (
+            {(recordType === 'lead' || contact?.requirement || contact?.searchLocation) && (
                 <div className="glass-card" style={{
                     borderRadius: '16px',
                     border: '2px solid #10b981',
@@ -66,12 +66,12 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
                                         }}>
                                             <div style={{ flex: 1 }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                                    <span style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a' }}>{deal.unitNo || 'Unit'}</span>
+                                                <div style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', wordBreak: 'break-word' }}>{deal.unitNo || 'Unit'}</div>
                                                     <span style={{ fontSize: '0.65rem', background: '#ecfdf5', color: '#059669', padding: '1px 6px', borderRadius: '4px', fontWeight: 800 }}>
                                                         {deal.matchPercentage}% MATCH
                                                     </span>
                                                 </div>
-                                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', wordBreak: 'break-word' }}>
                                                     <i className="fas fa-building" style={{ fontSize: '0.6rem' }}></i> {deal.projectName || 'Project'}
                                                     <span style={{ color: '#cbd5e1' }}>|</span>
                                                     <i className="fas fa-layer-group" style={{ fontSize: '0.6rem' }}></i> {deal.location || 'Block'}
