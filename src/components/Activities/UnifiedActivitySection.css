@@ -6,6 +6,13 @@
     --soft-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
 }
 
+.unified-activity-section {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    box-sizing: border-box;
+}
+
 .unified-activity-section .glass-card {
     background: var(--glass-bg);
     backdrop-filter: blur(12px);
@@ -137,4 +144,41 @@
     0% { transform: scale(1); }
     50% { transform: scale(1.1); }
     100% { transform: scale(1); }
+}
+/* Timeline Item Layout Fixes */
+.timeline-item {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.timeline-item .glass-card {
+    max-width: 100%;
+    overflow: hidden;
+    word-wrap: break-word;
+}
+
+.timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+}
+
+.timeline-date {
+    font-size: 0.65rem;
+    color: #94a3b8;
+    font-weight: 700;
+    white-space: nowrap;
+    background: rgba(255,255,255,0.5);
+    padding: 2px 8px;
+    borderRadius: 6px;
+    flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+    .timeline-date {
+        white-space: normal;
+        text-align: right;
+    }
 }

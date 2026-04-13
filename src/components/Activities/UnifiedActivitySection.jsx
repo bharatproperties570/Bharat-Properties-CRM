@@ -544,8 +544,8 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                 border: `1px solid ${style.bg === '#f8fafc' ? 'rgba(226, 232, 240, 0.8)' : style.color + '22'}`,
                                                 background: style.bg
                                             }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', alignItems: 'center', gap: '12px' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+                                                <div className="timeline-header" style={{ marginBottom: '6px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
                                                         <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#0f172a' }}>
                                                             {item.title}
                                                             {item.metadata?.details?.recordingUrl && (
@@ -561,7 +561,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                             </button>
                                                         )}
                                                     </div>
-                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, whiteSpace: 'nowrap', background: 'rgba(255,255,255,0.5)', padding: '2px 8px', borderRadius: '6px' }}>
+                                                    <div className="timeline-date">
                                                         {new Date(item.timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} • {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                     </div>
                                                 </div>
